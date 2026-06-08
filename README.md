@@ -66,6 +66,11 @@ with open("audio.wav", "rb") as f:
 print(result.text)
 ```
 
+> **Using it from your code?** See **[docs/API.md](docs/API.md)** — copy-paste
+> recipes for the OpenAI SDK (Python/JS), **LangChain**, **Langfuse** (tracing),
+> **Agno**, plus SSE streaming and async jobs. The API is the product; the web UI
+> is just a client on top of it.
+
 ---
 
 ## Architecture
