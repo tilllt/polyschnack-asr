@@ -1,0 +1,98 @@
+{
+  "health": {
+    "status": "ok",
+    "model": "parakeet-tdt-0.6b-v3",
+    "device": "cpu",
+    "models": [
+      "parakeet-tdt-0.6b-v3",
+      "istupakov/parakeet-tdt-0.6b-v3-onnx",
+      "grikdotnet/parakeet-tdt-0.6b-fp16"
+    ],
+    "loaded": [
+      "parakeet-tdt-0.6b-v3"
+    ],
+    "cpu": {
+      "physical": 2,
+      "logical": 2,
+      "ort_intra": 2,
+      "ort_inter": 1,
+      "audio_workers": 2
+    }
+  },
+  "server_metrics_snapshot": {
+    "queue_depth": 0,
+    "total_requests": 0,
+    "total_errors": 0,
+    "avg_latency_ms": 0.0,
+    "p95_latency_ms": 0.0
+  },
+  "latency": [
+    {
+      "fixture": "short_10s.wav",
+      "audio_duration_s": 14.44,
+      "runs": 5,
+      "latency_s": {
+        "p50": 2.089,
+        "p95": 2.624,
+        "p99": 2.672,
+        "mean": 2.073,
+        "min": 1.427,
+        "max": 2.684
+      },
+      "rtf": 0.1436,
+      "wer": 0.037,
+      "vram_mb": null,
+      "errors": []
+    },
+    {
+      "fixture": "medium_60s.wav",
+      "audio_duration_s": 64.34,
+      "runs": 5,
+      "latency_s": {
+        "p50": 8.308,
+        "p95": 9.244,
+        "p99": 9.386,
+        "mean": 8.13,
+        "min": 6.244,
+        "max": 9.421
+      },
+      "rtf": 0.1264,
+      "wer": 0.0702,
+      "vram_mb": null,
+      "errors": []
+    }
+  ],
+  "throughput": {
+    "fixture": "short_10s.wav",
+    "concurrency": 5,
+    "successful_requests": 5,
+    "failed_requests": 0,
+    "wall_time_s": 6.664,
+    "req_per_s": 0.75,
+    "errors": []
+  },
+  "stream": {
+    "fixture": "short_10s.wav",
+    "time_to_first_event_s": 1.117,
+    "total_elapsed_s": 1.121,
+    "num_events": 1,
+    "incremental": false,
+    "wer": 0.037,
+    "vram_mb": null,
+    "error": null
+  },
+  "async_job": {
+    "fixture": "long_30min.wav",
+    "job_id": "07ae850651d24894903968a1268d07d8",
+    "final_status": "done",
+    "total_wall_time_s": 231.52,
+    "has_text": true,
+    "error": null
+  },
+  "config": {
+    "base_url": "http://localhost:5092",
+    "audio_dir": "/Users/pablofernando/work/ntropy/pocs/marvin-ai/experiments/parakeet-asr-server/tests/audio",
+    "concurrency": 5,
+    "runs": 5
+  }
+}

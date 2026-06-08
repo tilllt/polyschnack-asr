@@ -1,0 +1,66 @@
+/* ============================================================
+   FORMAT HELPERS
+   ============================================================ */
+
+export function fmtBytes(b: number | null | undefined): string {
+  if (b == null) return "—";
+  return b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.round(b / 1e3) + " KB";
+}
+
+/** Duration in seconds → mm:ss (for segment timestamps) */
+export function fmtTimecode(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+/** Duration in seconds → "Xm Ys" or "X.Xs" (for card meta) */
+export function fmtDurSec(s: number | null | undefined): string {
+  if (s == null || isNaN(s)) return "—";
+  const m = Math.floor(s / 60);
+  const sec = Math.round(s % 60);
+  return m > 0 ? `${m}m ${sec}s` : `${s.toFixed(1)}s`;
+}
+
+/** Large duration (stats header) → "Xh Ym" / "Xm Ys" / "Xs" */
+export function fmtTotalDur(sec: number | null | undefined): string {
+  if (sec == null || isNaN(sec)) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.round(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/** Processing milliseconds → "1.2s" or "320ms" */
+export function fmtMs(ms: number | null | undefined): string {
+  if (ms == null) return "";
+  return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
+}
+
+/** ISO string → locale date/time pt-BR */
+export function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** ISO string → HH:MM for WhatsApp group time range display */
+export function fmtHHMM(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}

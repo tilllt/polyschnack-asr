@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.uv/
+*.egg-info/
+dist/*.egg
+build/
+
+# SQLite
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Model cache and downloaded weights
+approach-a/models/
+webapp/data/
+data/
+
+# Generated test audio fixtures (run gen_test_audio.py to recreate)
+tests/audio/*.wav
+tests/audio/*.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build artifacts — keep the placeholder but not actual release files
+dist/*
+!dist/.gitkeep
+!dist/README.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy
+.mypy_cache/
+
+# NOTE: docker-compose.yml, RESULTS.md, and results/*.json are intentionally
+# NOT ignored — they are part of the repository.
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Frontend build artifacts (keep the placeholder; ignore generated output)
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/app/static/assets/
+webapp/app/static/index.html
+
+# Internal dev brief (not for public repo)
+CLAUDE.md

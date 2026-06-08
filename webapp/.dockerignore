@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+*.egg-info
+.eggs
+
+# Virtual environments
+venv
+.venv
+env
+.env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# SQLite database (persisted via docker volume at runtime)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Data directory (mounted as docker volume at runtime)
+data/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Logs
+*.log
+
+# Frontend build artifacts (copied into image by multi-stage build)
+frontend/node_modules
+frontend/dist

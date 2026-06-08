@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+
+# Virtual environments
+venv
+.venv
+env
+.env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs and temp files
+*.log
+server.log
+temp_uploads/
+benchmark_results/
+
+# Models (mounted as docker volume at runtime — not baked into the image)
+models/
+
+# Data
+data/
+
+# Test fixtures and benchmark scripts (not needed in the service image)
+test_*.py
+benchmark.py
+inspect_model.py
+scripts/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# SQLite
+*.db
+*.db-journal

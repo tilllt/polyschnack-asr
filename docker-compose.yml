@@ -1,0 +1,56 @@
+# Unified PoC stack: ASR service (approach-a) + minimal web UI.
+#   docker compose up -d --build
+#   UI:  http://localhost:8088
+#   ASR: http://localhost:5092  (direct, for debugging)
+services:
+  asr:
+    build:
+      context: ./approach-a
+      dockerfile: Dockerfile.cpu
+    image: parakeet-tdt:cpu
+    container_name: poc-asr
+    environment:
+      PARAKEET_USE_GPU: "false"
+      PARAKEET_DEFAULT_MODEL: parakeet-tdt-0.6b-v3
+      PARAKEET_BATCHED: "0"
+      # Memory caps for small hosts (see approach-a/POC_NOTES.md)
+      PARAKEET_INFER_WORKERS: "1"
+      PARAKEET_CHUNK_TARGET_SEC: "20"
+      PARAKEET_CHUNK_MAX_SEC: "25"
+      PARAKEET_CHUNK_MIN_SEC: "10"
+    ports:
+      - "5092:5092"
+    volumes:
+      - parakeet-models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5092/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  webapp:
+    build:
+      context: ./webapp
+    image: parakeet-webapp:latest
+    container_name: poc-webapp
+    environment:
+      ASR_URL: "http://asr:5092"
+      ASR_MODEL: parakeet-tdt-0.6b-v3
+      DATA_DIR: /data
+    ports:
+      - "8088:8080"
+    volumes:
+      - poc-data:/data
+    depends_on:
+      - asr
+    restart: unless-stopped
+
+volumes:
+  # Reuse the already-downloaded model cache from the approach-a runs.
+  parakeet-models:
+    external: true
+    name: parakeet-models
+  poc-data:
+    name: poc-data

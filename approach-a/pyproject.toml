@@ -1,0 +1,16 @@
+[project]
+name = "parakeet-bench"
+version = "0.1.0"
+description = "Client-side tooling and benchmarks for the Parakeet ASR server (approach-a)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27.0",
+    "gtts>=2.5.1",
+    "miniaudio>=1.58",
+    "numpy>=1.24.0,<2",
+    "jiwer>=3.0.4",
+]
+
+[tool.uv]
+dev-dependencies = []
