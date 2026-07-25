@@ -14,13 +14,9 @@ services:
     volumes:
       - parakeet-models:/app/models
     restart: unless-stopped
+    runtime: nvidia
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
         limits:
           memory: 8G
     healthcheck:
