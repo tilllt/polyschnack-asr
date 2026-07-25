@@ -1,6 +1,6 @@
 # Parakeet ASR Server
 
-**OpenAI-compatible speech-to-text server powered by NVIDIA Parakeet TDT 0.6B v3 — with streaming, async jobs, and a web UI.**
+**OpenAI-compatible speech-to-text server powered by NVIDIA Parakeet TDT 0.6B v3 — with streaming, async jobs, web UI, multi-language interface, speaker diarization, and optional OIDC per-user workspaces.**
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -13,10 +13,14 @@
 - **OpenAI-compatible API** — drop-in replacement for `openai.Audio.transcriptions.create()` with no client changes
 - **SSE streaming** — `POST /v1/audio/transcriptions/stream` sends incremental results as VAD chunks are processed
 - **Async jobs** — `POST /v1/audio/transcriptions/async` + `GET /v1/audio/jobs/{id}` for long audio without HTTP timeouts
-- **Web UI** — single-page interface: upload audio, trigger transcription, play audio, click timestamped segments, search transcriptions, export subtitles (SRT / VTT / TXT)
+- **Web UI** — React SPA: upload audio, play back, click timestamped segments, search transcriptions, export subtitles (SRT / VTT / TXT)
+- **Multi-language UI** — English (default), Deutsch, Português — switchable via dropdown
+- **VAD silence trimming** — optional pre-ASR trim via `VAD_TRIM_SILENCE=true` (toggle per upload)
+- **Speaker diarization** — optional pyannote.audio-based speaker labels in segments and exports (toggle per upload, requires admin-set `HF_TOKEN`)
+- **OIDC authentication** — optional per-user workspaces via any standard OIDC provider (auth.example.com, Keycloak, Authentik, etc.)
 - **Persistent storage** — SQLite + filesystem (docker volume); survives container restarts
-- **CPU and GPU docker images** — INT8 ONNX for CPU (arm64/x86), FP32/FP16 ONNX for NVIDIA GPU
-- **Multilingual** — Parakeet TDT v3 covers English and many European languages including Portuguese
+- **GPU & CPU** — INT8 ONNX for CPU, FP32/FP16 ONNX for NVIDIA GPU
+- **Multilingual ASR** — Parakeet TDT v3 covers English and many European languages including German, Portuguese
 - **Metrics endpoint** — queue depth, request count, average and p95 latency
 
 ---
@@ -26,15 +30,15 @@
 **Requirements:** Docker with Compose v2. For GPU: NVIDIA Container Toolkit.
 
 ```bash
-git clone <repo-url> parakeet-asr-server
-cd parakeet-asr-server
-docker compose up -d --build
+git clone https://gitlab.example.com/tilllt/polyschnack-asr/parakeet-asr.git
+cd parakeet-asr
+docker compose -f compose.yml up -d
 ```
 
 - Web UI: http://localhost:8088
 - ASR API (direct): http://localhost:5092
 
-The ASR service downloads the INT8 ONNX model (~600 MB) on first boot into the
+The ASR service downloads the ONNX model (~600 MB) from HuggingFace on first boot into the
 `parakeet-models` docker volume. Subsequent starts reuse the cache.
 
 ### curl
@@ -68,8 +72,7 @@ print(result.text)
 
 > **Using it from your code?** See **[docs/API.md](docs/API.md)** — copy-paste
 > recipes for the OpenAI SDK (Python/JS), **LangChain**, **Langfuse** (tracing),
-> **Agno**, plus SSE streaming and async jobs. The API is the product; the web UI
-> is just a client on top of it.
+> **Agno**, plus SSE streaming and async jobs.
 
 ---
 
@@ -90,63 +93,178 @@ transcription records persistently and proxies transcription requests to the ASR
 
 ---
 
-## API Reference
+## compose.yml Reference
 
-### ASR service (port 5092)
+The complete `compose.yml` with all options:
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/v1/audio/transcriptions` | OpenAI-compat sync transcription. `response_format`: `json`, `text`, `srt`, `vtt`, `verbose_json` |
-| `POST` | `/v1/audio/transcriptions/stream` | SSE streaming — one `data:` event per VAD chunk; last event has `"final": true` |
-| `POST` | `/v1/audio/transcriptions/async` | Submit long audio — returns `202 {"job_id": "...", "status": "queued"}` |
-| `GET` | `/v1/audio/jobs/{job_id}` | Poll job — `{"status": "queued\|processing\|done\|failed", "text": "..."}` |
-| `POST` | `/v1/audio/transcriptions/batch` | Multi-file batch (non-OpenAI extension) |
-| `GET` | `/health` | `{"status": "ok", "model": "...", "device": "cpu\|cuda"}` |
-| `GET` | `/metrics` | `{"queue_depth", "total_requests", "total_errors", "avg_latency_ms", "p95_latency_ms"}` |
+```yaml
+services:
+  asr:
+    image: registry.example.com/public/parakeet-asr:latest
+    container_name: parakeet-asr
+    environment:
+      PARAKEET_USE_GPU: "true"
+      PARAKEET_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      PARAKEET_INFER_WORKERS: "1"
+      PARAKEET_CHUNK_TARGET_SEC: "20"
+      PARAKEET_CHUNK_MAX_SEC: "25"
+      PARAKEET_CHUNK_MIN_SEC: "10"
+    ports:
+      - "5092:5092"
+    volumes:
+      - parakeet-models:/app/models
+    restart: unless-stopped
+    runtime: nvidia                # ← requires NVIDIA Container Toolkit
+    deploy:
+      resources:
+        limits:
+          memory: 8G
 
-### Web app (port 8088)
+  webapp:
+    image: registry.example.com/public/parakeet-asr-webapp:latest
+    container_name: parakeet-webapp
+    environment:
+      ASR_URL: "http://asr:5092"
+      ASR_MODEL: parakeet-tdt-0.6b-v3
+      DATA_DIR: /data
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/` | Single-page UI |
-| `POST` | `/api/transcriptions` | Upload audio + trigger transcription; returns record with segments |
-| `GET` | `/api/transcriptions` | List all transcription records (supports search query param) |
-| `GET` | `/api/transcriptions/{id}` | Get single record with full segment data |
-| `DELETE` | `/api/transcriptions/{id}` | Delete record and associated audio file |
-| `GET` | `/api/transcriptions/{id}/audio` | Stream stored audio file |
-| `GET` | `/api/transcriptions/{id}/export` | Download subtitle file (`?format=srt\|vtt\|txt`) |
+      # Optional: VAD silence trimming (per-upload toggle in UI)
+      VAD_TRIM_SILENCE: "false"    # "true" to enable
+
+      # Optional: HuggingFace token for speaker diarization
+      # Get at https://huggingface.co/settings/tokens
+      # Accept terms at pyannote/speaker-diarization-3.1 and segmentation-3.0
+      HF_TOKEN: ""
+
+      # Optional OIDC — uncomment to enable per-user workspaces
+      # OIDC_CLIENT_ID: "parakeet-asr"
+      # OIDC_CLIENT_SECRET: "your-client-secret"
+      # OIDC_ISSUER: "https://auth.example.com"     # or your Keycloak/Authentik URL
+      # OIDC_SCOPE: "openid profile email"
+      # SESSION_SECRET: "random-32-char-secret"  # openssl rand -hex 16
+      # BASE_URL: "https://parakeet.example.com"     # must match OIDC redirect URI
+    ports:
+      - "8088:8080"
+    volumes:
+      - poc-data:/data
+    depends_on:
+      asr:
+        condition: service_healthy
+```
 
 ---
 
-## Configuration
+## Web UI Features
+
+### Language
+
+The UI supports English (default), Deutsch, and Português. Switch via the dropdown
+in the header. Setting persists for the session.
+
+### VAD (Silence Trimming)
+
+Toggle below the upload zone. When enabled, leading and trailing silence is stripped
+from the audio **before** sending it to the ASR service. Saves processing time on
+recordings with long silence at start/end (voice messages, dictation).
+
+The Silero VAD model (~5 MB ONNX) is downloaded lazily on first use.
+
+### Speaker Diarization
+
+Toggle below the upload zone. When enabled, pyannote.audio runs after transcription
+and assigns speaker labels (`SPEAKER_01`, `SPEAKER_02`, etc.) to each segment.
+Speaker labels appear in the UI and in exported SRT/VTT files.
+
+**Requires the admin to set `HF_TOKEN`** in compose.yml. The toggle is silently
+disabled when no token is present — users are not prompted or warned.
+
+The pyannote model (~300 MB) is downloaded lazily from HuggingFace on first use.
+
+### Export Formats
+
+Click the Download button on any completed recording to export as:
+- **TXT** — plain text transcript
+- **SRT** — SubRip subtitles with timestamps
+- **VTT** — WebVTT subtitles with timestamps
+
+If diarization was enabled, exports include speaker prefixes (`[SPEAKER_01] ...`).
+
+---
+
+## OIDC Authentication (Admin Setup)
+
+When OIDC is configured, authenticated users see only their own uploads —
+isolated workspaces automatically.
+
+**Step 1: Create an OIDC application in your provider**
+
+Example for **Authentik**:
+- Provider → OAuth2/OpenID Provider → Create
+- Redirect URIs: `https://parakeet.example.com/auth/callback`
+- Save Client ID + Client Secret
+
+Works with any standard OIDC provider (Authentik, Keycloak, auth.example.com, Google, etc.)
+via automatic `.well-known/openid-configuration` discovery.
+
+**Step 2: Set env vars in compose.yml**
+
+```yaml
+  webapp:
+    environment:
+      OIDC_CLIENT_ID: "parakeet-asr"
+      OIDC_CLIENT_SECRET: "your-client-secret"
+      OIDC_ISSUER: "https://auth.example.com"
+      OIDC_SCOPE: "openid profile email"
+      SESSION_SECRET: "random-32-char-secret"
+      BASE_URL: "https://parakeet.example.com"
+```
+
+> **`BASE_URL` must match the `redirect_uri` registered in your OIDC provider.**
+> When running behind a reverse proxy (Traefik, Caddy, nginx), set this to the
+> external URL.
+
+**Step 3: Restart**
+
+```bash
+docker compose -f compose.yml up -d
+```
+
+Users see a **Login** button in the header. After login, they see only their recordings.
+**Without OIDC configured** the app runs in shared (no-auth) mode as before.
+
+---
+
+## Configuration Reference
 
 ### ASR service environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PARAKEET_USE_GPU` | `true` | `true` / `false` / `auto` — force CPU even if CUDA is present |
-| `PARAKEET_DEFAULT_MODEL` | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Model key. CPU deployments use `parakeet-tdt-0.6b-v3` (INT8). See `config.py` for all model keys |
-| `PARAKEET_INFER_WORKERS` | `1` (set in compose) | Parallel chunk inference threads. Keep at `1` on hosts with ≤3 GB RAM to avoid OOM — each worker loads the full model working set |
-| `PARAKEET_CHUNK_TARGET_SEC` | `60` (compose: `20`) | Target VAD chunk length in seconds |
-| `PARAKEET_CHUNK_MAX_SEC` | `75` (compose: `25`) | Hard cap per chunk. Lowering this reduces peak inference memory at the cost of more stitching |
-| `PARAKEET_CHUNK_MIN_SEC` | `20` (compose: `10`) | Minimum chunk length before a silence boundary is forced |
+| `PARAKEET_USE_GPU` | `true` | `true` / `false` / `auto` |
+| `PARAKEET_DEFAULT_MODEL` | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Model key. CPU: `parakeet-tdt-0.6b-v3` (INT8) |
+| `PARAKEET_INFER_WORKERS` | `1` | Parallel chunk inference threads |
+| `PARAKEET_CHUNK_TARGET_SEC` | `60` (compose: `20`) | Target VAD chunk length |
+| `PARAKEET_CHUNK_MAX_SEC` | `75` (compose: `25`) | Hard cap per chunk |
+| `PARAKEET_CHUNK_MIN_SEC` | `20` (compose: `10`) | Min chunk before forced silence cut |
 | `PARAKEET_GPU_DEVICE_ID` | `0` | CUDA device index |
 | `PARAKEET_VAD_THRESHOLD` | `0.5` | Silero-VAD speech probability threshold |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
-
-> **Memory note (CPU / low-RAM hosts):** The default `docker-compose.yml` ships conservative
-> caps (`INFER_WORKERS=1`, `CHUNK_MAX_SEC=25`) validated on a 2-CPU / 2.8 GiB Docker VM
-> (Apple M1 Pro). The process is silently OOM-killed without these limits when a long audio
-> creates a large ORT activation sequence. On a bigger host relax these freely.
-> See [`approach-a/POC_NOTES.md`](approach-a/POC_NOTES.md) for the full analysis.
 
 ### Web app environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ASR_URL` | `http://asr:5092` | Base URL of the ASR service (no trailing slash) |
-| `ASR_MODEL` | `parakeet-tdt-0.6b-v3` | Model name forwarded in every transcription request |
-| `DATA_DIR` | `/data` | Root directory for SQLite DB and audio files inside the container |
+| `ASR_URL` | `http://asr:5092` | ASR service base URL |
+| `ASR_MODEL` | `parakeet-tdt-0.6b-v3` | Model name for transcription requests |
+| `DATA_DIR` | `/data` | Root for SQLite DB + audio files |
+| `VAD_TRIM_SILENCE` | `false` | Enable VAD silence trimming (toggle in UI) |
+| `HF_TOKEN` | `""` | Required for speaker diarization (set by admin) |
+| `OIDC_CLIENT_ID` | `""` | OIDC client ID (leave empty = no auth) |
+| `OIDC_CLIENT_SECRET` | `""` | OIDC client secret |
+| `OIDC_ISSUER` | `""` | OIDC issuer URL (e.g. `https://auth.example.com`) |
+| `OIDC_SCOPE` | `openid profile email` | OIDC scopes |
+| `SESSION_SECRET` | auto-generated | Session cookie signing key |
+| `BASE_URL` | `http://localhost:8088` | External URL for OIDC redirects |
 
 ---
 
@@ -155,6 +273,7 @@ transcription records persistently and proxies transcription requests to the ASR
 ### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
+- Node.js 20+ (for frontend)
 - Docker with Compose v2
 
 ### ASR service (approach-a)
@@ -168,49 +287,21 @@ uv run uvicorn parakeet_service.main:app --reload --port 5092
 ### Web app
 
 ```bash
-cd webapp
-uv sync
-uv run uvicorn app.main:app --reload --port 8080
-```
+cd webapp/frontend
+npm install
+npm run dev              # Vite dev server on :5173
 
-The webapp expects the ASR service running at `ASR_URL` (default: `http://asr:5092`).
-Set `ASR_URL=http://localhost:5092` for local dev outside docker.
+# In another terminal:
+cd webapp
+ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
+```
 
 ### Generate test audio fixtures
 
 ```bash
 cd approach-a
-uv sync
 uv run python scripts/gen_test_audio.py
-# Writes: ../tests/audio/short_10s.wav, medium_60s.wav, long_30min.wav (+ .txt refs)
 ```
-
-### Run benchmarks (Approach A)
-
-```bash
-cd approach-a
-# ASR service must be running (docker or local)
-uv run python benchmark.py --runs 5 --concurrency 5
-# Output: ../results/approach-a.json + approach-a.md
-```
-
----
-
-## GPU Deployment
-
-Use `Dockerfile.gpu` (already referenced as the `parakeet-gpu` service) and ensure
-[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-is installed on the host.
-
-```bash
-# Start only the GPU variant of the ASR service + webapp
-docker compose up -d --build parakeet-gpu webapp
-```
-
-**4 GB VRAM caveat:** GPU validation is pending (see [Benchmarks](#benchmarks)). The FP32
-default model (`istupakov/parakeet-tdt-0.6b-v3-onnx`) may not fit in 4 GB. If you hit OOM,
-switch to `grikdotnet/parakeet-tdt-0.6b-fp16` (FP16) via `PARAKEET_DEFAULT_MODEL` or fall
-back to INT8 CPU mode. Verify with `nvidia-smi` and check `docker logs poc-asr`.
 
 ---
 
@@ -218,96 +309,40 @@ back to INT8 CPU mode. Verify with `nvidia-smi` and check `docker logs poc-asr`.
 
 ```
 parakeet-asr-server/
-├── docker-compose.yml          # Unified stack: asr + webapp
-├── RESULTS.md                  # Benchmark results + acceptance criteria
-├── approach-a/                 # ASR service (Python/FastAPI + ONNX)
-│   ├── Dockerfile.cpu
-│   ├── Dockerfile.gpu
-│   ├── parakeet_service/
-│   │   ├── main.py             # FastAPI app + lifespan
-│   │   ├── routes.py           # All endpoints
-│   │   ├── core.py             # Shared decode → chunk → infer → stitch
-│   │   ├── jobs.py             # Async job queue + in-memory store
-│   │   ├── metrics.py          # Thread-safe counters
-│   │   ├── model.py            # ONNX model loader
-│   │   ├── chunker.py          # VAD-based audio chunking (Silero)
-│   │   ├── audio.py            # Audio decode/resample helpers
-│   │   ├── batchworker.py      # GPU micro-batch worker
-│   │   └── config.py           # Env-driven configuration
-│   ├── scripts/
-│   │   └── gen_test_audio.py   # Generate synthetic test fixtures (gTTS)
-│   ├── benchmark.py            # Latency / throughput / WER benchmark
-│   └── POC_NOTES.md            # Implementation notes + CPU memory analysis
-├── webapp/                     # Web UI (FastAPI + SQLModel + SQLite)
+├── compose.yml                    # Production stack (pulls pre-built images)
+├── docker-compose.yml             # Legacy source build
+├── approach-a/                    # ASR service
+│   ├── Dockerfile.cpu / .gpu
+│   └── parakeet_service/
+├── webapp/                        # Web UI (React + FastAPI)
 │   ├── Dockerfile
-│   └── app/
-│       ├── main.py             # FastAPI app
-│       ├── models.py           # SQLModel table definitions
-│       ├── crud.py             # DB operations (crud layer)
-│       ├── db.py               # SQLite engine + session factory
-│       ├── asr_client.py       # httpx client for the ASR service
-│       ├── config.py           # Env-driven settings
-│       └── static/index.html   # Single-page vanilla JS UI
-├── tests/
-│   └── audio/                  # Generated WAV fixtures + reference transcripts
-├── results/                    # Benchmark outputs (JSON + Markdown)
-│   ├── approach-a.json
-│   └── approach-a.md
-├── dist/                       # Built/released artifacts (see dist/README.md)
-└── docs/
-    └── img/                    # Screenshots (add ui.png here)
+│   ├── pyproject.toml
+│   ├── frontend/                  # React SPA (Vite + TypeScript)
+│   │   └── src/
+│   │       ├── App.tsx
+│   │       ├── useLocale.ts       # i18n (de, en, pt-BR)
+│   │       ├── api.ts             # API client
+│   │       └── components/
+│   │           ├── UploadZone.tsx  # Upload + VAD/diarization toggles
+│   │           ├── SegmentList.tsx # Speaker labels
+│   │           └── ...
+│   └── app/                       # Python backend
+│       ├── main.py
+│       ├── models.py              # Recording + User tables
+│       ├── crud.py                # DB operations
+│       ├── vad.py                 # Silero VAD trimming
+│       ├── diarize.py             # pyannote diarization wrapper
+│       └── routers/
+│           ├── recordings.py      # API endpoints
+│           ├── models.py          # Model download status
+│           └── auth.py            # OIDC login/logout/callback
+├── docs/
+│   └── API.md
+└── tests/
 ```
-
----
-
-## Benchmarks
-
-Validated on CPU only (Apple M1 Pro, Docker VM — 2 CPUs / 2.8 GiB, INT8 model). GPU
-numbers are deferred pending access to a Linux NVIDIA box.
-
-| Fixture | Audio duration | p50 | p95 | RTF |
-|---------|---------------|-----|-----|-----|
-| short_10s.wav | 14.4 s | 2.09 s | 2.62 s | 0.14 |
-| medium_60s.wav | 64.3 s | 8.31 s | 9.24 s | 0.13 |
-| long_30min.wav (async) | 1800 s | — | — | ~0.11 |
-
-- WER on synthetic gTTS fixtures: 0.037 (short), 0.070 (medium) — inflated by
-  case/punctuation mismatch; real WER is lower.
-- Throughput (5 concurrent, short clip, serialized 1 worker): 0.75 req/s.
-- 30-min async job: completed in ~231 s wall time, peak RAM ~1.3 GiB, no crash.
-
-Full raw data: [`results/approach-a.json`](results/approach-a.json) — [`RESULTS.md`](RESULTS.md).
-
----
-
-## Roadmap
-
-- [ ] **Approach B** — Rust + Axum + [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): lower latency, smaller image, WebSocket streaming
-- [ ] **Approach C** — Python + NeMo direct: WER ground truth + latency baseline
-- [ ] GPU validation on NVIDIA 4 GB VRAM (RTX 3050/4050 mobile)
-- [ ] Comparative benchmark table (A vs B vs C)
-- [ ] Real-audio WER evaluation (beyond synthetic gTTS)
-- [ ] Streaming with true sub-second first-token latency (GPU path)
-
----
-
-## Screenshot
-
-![Parakeet ASR web UI](docs/img/ui.png)
-
-*Upload audio, play it back, click any `[mm:ss]` segment to seek, search transcriptions, export SRT/VTT/TXT.*
-
----
-
-## Credits
-
-- [NVIDIA NeMo / Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — the ASR model
-- [groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai](https://github.com/groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai) — base FastAPI server that `approach-a` was adapted from
-- [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — ONNX runtime with Parakeet support (planned for Approach B)
-- [thewh1teagle/sherpa-rs](https://github.com/thewh1teagle/sherpa-rs) — Rust safe bindings for sherpa-onnx
 
 ---
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 Pablo Fernando
+[MIT](LICENSE)
