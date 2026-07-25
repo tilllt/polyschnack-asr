@@ -31,7 +31,7 @@ services:
     container_name: parakeet-webapp
     environment:
       ASR_URL: "http://asr:5092"
-      ASR_MODEL: parakeet-tdt-0.6b-v3
+      ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
       DATA_DIR: /data
       HF_TOKEN: ""                       # Set your HuggingFace token for diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
