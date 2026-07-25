@@ -89,7 +89,8 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
             await progress_callback(done, total)
 
     done = 0
-    futures = [worker.submit(p, model_name) for p in pieces]
+    # Use ensure_future so we get Task objects with add_done_callback
+    futures = [asyncio.ensure_future(worker.submit(p, model_name)) for p in pieces]
     for f in futures:
         f.add_done_callback(lambda _: asyncio.ensure_future(_track()))
     results = await asyncio.gather(*futures)
