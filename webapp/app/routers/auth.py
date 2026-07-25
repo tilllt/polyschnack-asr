@@ -12,7 +12,6 @@ No dependency on authlib — pure httpx + stdlib.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import secrets
 from typing import Any, Dict
@@ -28,10 +27,8 @@ from ..db import get_session
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth")
-
-# In-memory stores (single-worker only)
+# In-memory nonce store (single-worker only; fine for this deployment)
 _nonce_store: Dict[str, str] = {}
-_verifier_store: Dict[str, str] = {}
 
 
 def _discover(issuer: str) -> dict:
@@ -48,19 +45,7 @@ def _gen_nonce() -> str:
     return secrets.token_urlsafe(16)
 
 
-def _gen_verifier() -> str:
-    return secrets.token_urlsafe(64)[:128]
-
-
-def _s256_challenge(verifier: str) -> str:
-    return (
-        hashlib.sha256(verifier.encode("ascii"))
-        .digest()
-        .hex()
-    )
-
-
-def _build_auth_url(disco: dict, state: str, nonce: str, verifier: str) -> str:
+def _build_auth_url(disco: dict, state: str, nonce: str) -> str:
     params = {
         "response_type": "code",
         "client_id": settings.OIDC_CLIENT_ID,
@@ -68,13 +53,11 @@ def _build_auth_url(disco: dict, state: str, nonce: str, verifier: str) -> str:
         "scope": settings.OIDC_SCOPE,
         "state": state,
         "nonce": nonce,
-        "code_challenge": _s256_challenge(verifier),
-        "code_challenge_method": "S256",
     }
     return f"{disco['authorization_endpoint']}?{urlencode(params)}"
 
 
-def _exchange_code(disco: dict, code: str, verifier: str) -> dict:
+def _exchange_code(disco: dict, code: str) -> dict:
     """Exchange authorization code for token using httpx."""
     data = {
         "grant_type": "authorization_code",
@@ -82,7 +65,6 @@ def _exchange_code(disco: dict, code: str, verifier: str) -> dict:
         "client_id": settings.OIDC_CLIENT_ID,
         "client_secret": settings.OIDC_CLIENT_SECRET,
         "redirect_uri": f"{settings.BASE_URL}/auth/callback",
-        "code_verifier": verifier,
     }
     resp = httpx.post(disco["token_endpoint"], data=data)
     if resp.status_code != 200:
@@ -107,12 +89,10 @@ async def login(request: Request):
         raise HTTPException(502, f"OIDC provider unreachable: check OIDC_ISSUER ({exc})")
     state = _gen_state()
     nonce = _gen_nonce()
-    verifier = _gen_verifier()
     _nonce_store[state] = nonce
-    _verifier_store[state] = verifier
     request.session["oauth_state"] = state
     try:
-        url = _build_auth_url(disco, state, nonce, verifier)
+        url = _build_auth_url(disco, state, nonce)
     except Exception as exc:
         log.warning("OIDC auth URL build failed: %s", exc)
         raise HTTPException(502, f"OIDC misconfiguration: {exc}")
@@ -127,13 +107,12 @@ async def callback(request: Request, code: str, state: str):
     if not expected or expected != state:
         raise HTTPException(400, "state mismatch")
     nonce = _nonce_store.pop(state, None)
-    verifier = _verifier_store.pop(state, None)
-    if not nonce or not verifier:
+    if not nonce:
         raise HTTPException(400, "session expired — please log in again")
 
     try:
         disco = _discover(settings.OIDC_ISSUER)
-        token = _exchange_code(disco, code, verifier)
+        token = _exchange_code(disco, code)
     except Exception as exc:
         log.warning("OIDC token exchange failed: %s", exc)
         raise HTTPException(502, f"OIDC token exchange failed: {exc}")
