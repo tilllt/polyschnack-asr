@@ -1,7 +1,7 @@
 stages:
   - build
 
-build-docker:
+build-gpu:
   timeout: 60 minutes
   stage: build
   image: registry.example.com/public/ci-tools
@@ -11,10 +11,19 @@ build-docker:
 
     docker build \
       -t registry.example.com/public/${CI_PROJECT_NAME}:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA} \
       -f approach-a/Dockerfile.gpu \
       approach-a/
 
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA} \
+      webapp/
+
     docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA}
   only:
     - main
   tags:
