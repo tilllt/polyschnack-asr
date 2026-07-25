@@ -6,17 +6,19 @@ Endpoints:
   GET /auth/logout   → clears session, redirects to /
   GET /auth/me       → current user info (or {"anonymous":True})
 
-The implementation uses ``.well-known/openid-configuration`` discovery so it
-works with auth.example.com, Keycloak, Authentik, Google, etc.
+Uses standard OIDC Authorization Code flow with PKCE.
+Works with auth.example.com, Keycloak, Authentik, Google, etc.
+No dependency on authlib — pure httpx + stdlib.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 from typing import Any, Dict
+from urllib.parse import urlencode
 
 import httpx
-from authlib.integrations.httpx_client import OAuthClient
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -25,61 +27,103 @@ from ..crud import get_or_create_user
 from ..db import get_session
 
 log = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/auth")
 
-# In-memory nonce store (single-worker only; fine for this deployment)
+# In-memory stores (single-worker only)
 _nonce_store: Dict[str, str] = {}
+_verifier_store: Dict[str, str] = {}
+
+
+def _discover(issuer: str) -> dict:
+    resp = httpx.get(f"{issuer}/.well-known/openid-configuration")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _gen_state() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _gen_nonce() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def _gen_verifier() -> str:
+    return secrets.token_urlsafe(64)[:128]
+
+
+def _s256_challenge(verifier: str) -> str:
+    return (
+        hashlib.sha256(verifier.encode("ascii"))
+        .digest()
+        .hex()
+    )
+
+
+def _build_auth_url(disco: dict, state: str, nonce: str, verifier: str) -> str:
+    params = {
+        "response_type": "code",
+        "client_id": settings.OIDC_CLIENT_ID,
+        "redirect_uri": f"{settings.BASE_URL}/auth/callback",
+        "scope": settings.OIDC_SCOPE,
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": _s256_challenge(verifier),
+        "code_challenge_method": "S256",
+    }
+    return f"{disco['authorization_endpoint']}?{urlencode(params)}"
+
+
+def _exchange_code(disco: dict, code: str, verifier: str) -> dict:
+    """Exchange authorization code for token using httpx."""
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": settings.OIDC_CLIENT_ID,
+        "client_secret": settings.OIDC_CLIENT_SECRET,
+        "redirect_uri": f"{settings.BASE_URL}/auth/callback",
+        "code_verifier": verifier,
+    }
+    resp = httpx.post(disco["token_endpoint"], data=data)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ------------------------------------------------------------------
+# Routes
+# ------------------------------------------------------------------
 
 
 @router.get("/login")
 async def login(request: Request):
     if not settings.OIDC_ENABLED:
         raise HTTPException(404, "OIDC not configured")
-    issuer = settings.OIDC_ISSUER
-    disco = httpx.get(f"{issuer}/.well-known/openid-configuration").json()
-    auth_url = disco["authorization_endpoint"]
-    state = secrets.token_urlsafe(32)
-    nonce = secrets.token_urlsafe(16)
+    disco = _discover(settings.OIDC_ISSUER)
+    state = _gen_state()
+    nonce = _gen_nonce()
+    verifier = _gen_verifier()
     _nonce_store[state] = nonce
+    _verifier_store[state] = verifier
     request.session["oauth_state"] = state
-    oauth = OAuthClient(
-        client_id=settings.OIDC_CLIENT_ID,
-        client_secret=settings.OIDC_CLIENT_SECRET,
-        scope=settings.OIDC_SCOPE,
-    )
-    redirect = oauth.create_authorization_url(
-        auth_url,
-        state=state,
-        nonce=nonce,
-        redirect_uri=f"{settings.BASE_URL}/auth/callback",
-    )
-    return RedirectResponse(redirect)
+    url = _build_auth_url(disco, state, nonce, verifier)
+    return RedirectResponse(url)
 
 
 @router.get("/callback")
 async def callback(request: Request, code: str, state: str):
     if not settings.OIDC_ENABLED:
         raise HTTPException(404, "OIDC not configured")
-    expected_state = request.session.get("oauth_state")
-    if not expected_state or expected_state != state:
+    expected = request.session.get("oauth_state")
+    if not expected or expected != state:
         raise HTTPException(400, "state mismatch")
     nonce = _nonce_store.pop(state, None)
-    if not nonce:
-        raise HTTPException(400, "nonce not found")
-    issuer = settings.OIDC_ISSUER
-    disco = httpx.get(f"{issuer}/.well-known/openid-configuration").json()
-    token_url = disco["token_endpoint"]
-    oauth = OAuthClient(
-        client_id=settings.OIDC_CLIENT_ID,
-        client_secret=settings.OIDC_CLIENT_SECRET,
-        scope=settings.OIDC_SCOPE,
-    )
-    token = oauth.fetch_token(
-        token_url,
-        code=code,
-        redirect_uri=f"{settings.BASE_URL}/auth/callback",
-    )
+    verifier = _verifier_store.pop(state, None)
+    if not nonce or not verifier:
+        raise HTTPException(400, "session expired — please log in again")
+
+    disco = _discover(settings.OIDC_ISSUER)
+    token = _exchange_code(disco, code, verifier)
+
     # Fetch userinfo
     resp = httpx.get(
         disco["userinfo_endpoint"],
@@ -87,6 +131,7 @@ async def callback(request: Request, code: str, state: str):
     )
     resp.raise_for_status()
     userinfo = resp.json()
+
     with next(get_session()) as session:
         user = get_or_create_user(
             session,
