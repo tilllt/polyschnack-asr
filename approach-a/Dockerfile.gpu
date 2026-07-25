@@ -27,18 +27,9 @@ WORKDIR /app
 # Copy requirements first for layer caching
 COPY requirements.txt .
 
-# Install Python dependencies with GPU support
-# Replace onnxruntime with onnxruntime-gpu
+# Install Python dependencies with GPU support via requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir onnx-asr[hub]>=0.10.0 \
-    waitress>=3.0.0 \
-    flask>=3.0.0 \
-    openai>=1.0.0 \
-    typing_extensions>=4.0.0 \
-    psutil>=5.0.0 \
-    requests>=2.0.0 \
-    onnxruntime-gpu>=1.18.1 \
-    "numpy<2"
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY server.py .
