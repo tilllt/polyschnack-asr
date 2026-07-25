@@ -35,6 +35,9 @@ class _Settings:
     SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
     BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8088").rstrip("/")
 
+    #: Public-space retention in minutes; 0 = off
+    PUBLIC_RETENTION_MINUTES: int = int(os.getenv("PUBLIC_RETENTION_MINUTES", "60"))
+
 
 settings = _Settings()
 

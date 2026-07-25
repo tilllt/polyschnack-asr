@@ -13,13 +13,22 @@
 - **OpenAI-compatible API** — drop-in replacement for `openai.Audio.transcriptions.create()` with no client changes
 - **SSE streaming** — `POST /v1/audio/transcriptions/stream` sends incremental results as VAD chunks are processed
 - **Async jobs** — `POST /v1/audio/transcriptions/async` + `GET /v1/audio/jobs/{id}` for long audio without HTTP timeouts
-- **Web UI** — React SPA: upload audio, play back, click timestamped segments, search transcriptions, export subtitles (SRT / VTT / TXT)
+- **Web UI** — React SPA: upload audio, play back with WaveSurfer waveform with zoom controls, click timestamped segments, crop regions, search transcriptions, export subtitles (SRT / VTT / TXT)
+- **WaveSurfer waveform** — interactive audio visualization with zoom (`1×–50×`), play/pause, and region selection for crop
+- **Crop & re-transcribe** — select a time range on the waveform and transcribe only that segment as a new recording
 - **Multi-language UI** — English (default), Deutsch, Português — switchable via dropdown
 - **VAD silence trimming** — optional pre-ASR trim via `VAD_TRIM_SILENCE=true` (toggle per upload)
 - **Speaker diarization** — optional pyannote.audio-based speaker labels in segments and exports (toggle per upload, requires admin-set `HF_TOKEN`)
+- **Noise reduction** — optional spectral gating preprocessing removes stationary background noise (toggle per upload, default on)
+- **Live Preview** — SSE streaming displays transcribed text chunk-by-chunk as it processes (toggle per upload)
+- **Inline segment editing** — double-click any transcribed segment to correct recognition errors inline
+- **Duplicate detection** — files with identical content are detected via blake2b hash; user is prompted to re-upload or skip
+- **Public-space auto-retention** — recordings in the shared (non-OIDC) space are auto-deleted after 60 minutes (configurable, can be disabled)
 - **OIDC authentication** — optional per-user workspaces via any standard OIDC provider (auth.example.com, Keycloak, Authentik, etc.)
 - **Persistent storage** — SQLite + filesystem (docker volume); survives container restarts
-- **GPU & CPU** — INT8 ONNX for CPU, FP32/FP16 ONNX for NVIDIA GPU
+- **GPU & CPU** — INT8 ONNX for CPU, FP32/FP16 ONNX for NVIDIA GPU (auto-detects GPU type)
+- **Dynamic chunk sizing** — long audio (>30min) adapts chunk target to ~20 total chunks for efficiency
+- **Progress with ETA** — real progress bar (streaming mode: per-chunk; batched mode: periodic bump) with estimated time remaining
 - **Multilingual ASR** — Parakeet TDT v3 covers English and many European languages including German, Portuguese
 - **Metrics endpoint** — queue depth, request count, average and p95 latency
 
@@ -118,14 +127,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 8G                       # GPU model + audio preprocessing
 
   webapp:
     image: registry.example.com/public/parakeet-asr-webapp:latest
     container_name: parakeet-webapp
+    mem_limit: 2g
     environment:
       ASR_URL: "http://asr:5092"
-      ASR_MODEL: parakeet-tdt-0.6b-v3
+      ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
       DATA_DIR: /data
 
       # Optional: VAD silence trimming (per-upload toggle in UI)
@@ -135,6 +145,9 @@ services:
       # Get at https://huggingface.co/settings/tokens
       # Accept terms at pyannote/speaker-diarization-3.1 and segmentation-3.0
       HF_TOKEN: ""
+
+      # Public-space retention (auto-delete recordings after N minutes)
+      PUBLIC_RETENTION_MINUTES: "60"        # 0 to disable
 
       # Optional OIDC — uncomment to enable per-user workspaces
       # OIDC_CLIENT_ID: "parakeet-asr"
@@ -155,6 +168,16 @@ services:
 ---
 
 ## Web UI Features
+
+### Upload & Transcribe
+
+1. **Upload** — drag & drop or click to select audio files (MP3, WAV, OGG, OPUS, M4A, FLAC, WEBM)
+2. **Configure toggles** — set VAD, diarization, noise reduction, live preview before starting
+3. **Waveform + Zoom** — WaveSurfer shows the audio waveform. Use `−` / `+` buttons to zoom (1×–50×)
+4. **Crop region** — drag the blue region handles to select a segment, then click "Transcribe HH:MM–HH:MM" to transcribe only that segment as a new recording
+5. **▶ Transcribe** — click the blue button to start transcription. The recording is no longer editable (toggles are locked)
+6. **Progress** — progress bar with ETA (live preview shows text chunk-by-chunk)
+7. **Playback** — click any segment to seek and play. WaveSurfer cursor highlights the active segment
 
 ### Language
 
@@ -180,6 +203,38 @@ disabled when no token is present — users are not prompted or warned.
 
 The pyannote model (~300 MB) is downloaded lazily from HuggingFace on first use.
 
+### Noise Reduction
+
+Toggle below the upload zone. When enabled (default), spectral noise gating via
+the `noisereduce` Python package removes stationary background noise (fans, traffic,
+AC hum) from the audio before ASR processing. Disable for clean recordings to avoid
+any potential spectral distortion.
+
+### Live Preview
+
+Toggle below the upload zone. When enabled, the webapp uses the SSE streaming endpoint
+to receive and display transcribed text chunk-by-chunk as it processes. When disabled,
+the faster batched GPU endpoint is used (results appear only after full processing).
+
+### Inline Segment Editing
+
+Double-click any transcribed segment text to edit it. Press `Ctrl+Enter` to save,
+`Escape` to cancel. Changes are persisted immediately via a PATCH API call, and
+the full transcript text is updated.
+
+### Duplicate Detection
+
+When uploading a file that has already been uploaded (same content, detected via
+blake2b hash), the UI asks: **Upload again?** or **Skip**. Choosing "Upload again"
+forces the upload and creates a duplicate recording.
+
+### Public Space Retention
+
+Recordings uploaded in the shared (non-OIDC) space are auto-deleted after
+`PUBLIC_RETENTION_MINUTES` (default: 60 minutes. Set to `0` to disable).
+This prevents accumulation of temporary public uploads. Private (OIDC-authenticated)
+recordings are never auto-deleted.
+
 ### Export Formats
 
 Click the Download button on any completed recording to export as:
@@ -194,7 +249,9 @@ If diarization was enabled, exports include speaker prefixes (`[SPEAKER_01] ...`
 ## OIDC Authentication (Admin Setup)
 
 When OIDC is configured, authenticated users see only their own uploads —
-isolated workspaces automatically.
+isolated workspaces automatically. Public (non-OIDC) uploads and private
+(OIDC-authenticated) uploads are stored in strictly separate scopes and never
+leak between spaces.
 
 **Step 1: Create an OIDC application in your provider**
 
@@ -241,13 +298,15 @@ Users see a **Login** button in the header. After login, they see only their rec
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PARAKEET_USE_GPU` | `true` | `true` / `false` / `auto` |
-| `PARAKEET_DEFAULT_MODEL` | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Model key. CPU: `parakeet-tdt-0.6b-v3` (INT8) |
+| `PARAKEET_DEFAULT_MODEL` | auto-detected | Model key. GPU: `istupakov/parakeet-tdt-0.6b-v3-onnx` (FP32), CPU: `parakeet-tdt-0.6b-v3` (INT8), FP16: `grikdotnet/parakeet-tdt-0.6b-fp16` |
 | `PARAKEET_INFER_WORKERS` | `1` | Parallel chunk inference threads |
 | `PARAKEET_CHUNK_TARGET_SEC` | `60` (compose: `20`) | Target VAD chunk length |
 | `PARAKEET_CHUNK_MAX_SEC` | `75` (compose: `25`) | Hard cap per chunk |
 | `PARAKEET_CHUNK_MIN_SEC` | `20` (compose: `10`) | Min chunk before forced silence cut |
 | `PARAKEET_GPU_DEVICE_ID` | `0` | CUDA device index |
 | `PARAKEET_VAD_THRESHOLD` | `0.5` | Silero-VAD speech probability threshold |
+| `PARAKEET_VAD_MIN_SILENCE_MS` | `400` | Min silence duration (ms) for cut point |
+| `PARAKEET_NOISE_REDUCE` | `true` | Apply spectral noise gating before ASR |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 ### Web app environment variables
@@ -255,10 +314,11 @@ Users see a **Login** button in the header. After login, they see only their rec
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ASR_URL` | `http://asr:5092` | ASR service base URL |
-| `ASR_MODEL` | `parakeet-tdt-0.6b-v3` | Model name for transcription requests |
+| `ASR_MODEL` | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Model name for transcription requests |
 | `DATA_DIR` | `/data` | Root for SQLite DB + audio files |
 | `VAD_TRIM_SILENCE` | `false` | Enable VAD silence trimming (toggle in UI) |
 | `HF_TOKEN` | `""` | Required for speaker diarization (set by admin) |
+| `PUBLIC_RETENTION_MINUTES` | `60` | Auto-delete public recordings after N min (`0`=off) |
 | `OIDC_CLIENT_ID` | `""` | OIDC client ID (leave empty = no auth) |
 | `OIDC_CLIENT_SECRET` | `""` | OIDC client secret |
 | `OIDC_ISSUER` | `""` | OIDC issuer URL (e.g. `https://auth.example.com`) |
@@ -301,44 +361,6 @@ ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
 ```bash
 cd approach-a
 uv run python scripts/gen_test_audio.py
-```
-
----
-
-## Project Structure
-
-```
-parakeet-asr-server/
-├── compose.yml                    # Production stack (pulls pre-built images)
-├── docker-compose.yml             # Legacy source build
-├── approach-a/                    # ASR service
-│   ├── Dockerfile.cpu / .gpu
-│   └── parakeet_service/
-├── webapp/                        # Web UI (React + FastAPI)
-│   ├── Dockerfile
-│   ├── pyproject.toml
-│   ├── frontend/                  # React SPA (Vite + TypeScript)
-│   │   └── src/
-│   │       ├── App.tsx
-│   │       ├── useLocale.ts       # i18n (de, en, pt-BR)
-│   │       ├── api.ts             # API client
-│   │       └── components/
-│   │           ├── UploadZone.tsx  # Upload + VAD/diarization toggles
-│   │           ├── SegmentList.tsx # Speaker labels
-│   │           └── ...
-│   └── app/                       # Python backend
-│       ├── main.py
-│       ├── models.py              # Recording + User tables
-│       ├── crud.py                # DB operations
-│       ├── vad.py                 # Silero VAD trimming
-│       ├── diarize.py             # pyannote diarization wrapper
-│       └── routers/
-│           ├── recordings.py      # API endpoints
-│           ├── models.py          # Model download status
-│           └── auth.py            # OIDC login/logout/callback
-├── docs/
-│   └── API.md
-└── tests/
 ```
 
 ---

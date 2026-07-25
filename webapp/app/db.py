@@ -14,10 +14,12 @@ For destructive changes (renames, type changes) the database must be re-created.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import inspect, text as sa_text
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
 from .models import Recording as _Recording  # noqa: F401 — ensures table is registered
@@ -29,6 +31,28 @@ engine = create_engine(
     f"sqlite:///{settings.DB_PATH}",
     connect_args={"check_same_thread": False},
 )
+
+
+def _purge_expired() -> None:
+    """Delete public (user_id=NULL) recordings older than retention period."""
+    ret = settings.PUBLIC_RETENTION_MINUTES
+    if ret <= 0:
+        return
+    with Session(engine) as session:
+        expired = session.exec(
+            select(Recording).where(
+                Recording.user_id.is_(None),
+                Recording.created_at < datetime.utcnow() - timedelta(minutes=ret),
+            )
+        ).all()
+        for rec in expired:
+            path = Path(rec.stored_path)
+            if path.exists():
+                path.unlink()
+            session.delete(rec)
+        if expired:
+            log.info("Purged %d expired public recording(s) (>%d min)", len(expired), ret)
+        session.commit()
 
 
 def _missing_columns(table: str) -> list[str]:
@@ -77,10 +101,11 @@ def _auto_migrate() -> None:
 
 
 def init_db() -> None:
-    """Create tables, run auto-migrations, and ensure the audio directory exists."""
+    """Create tables, run auto-migrations, ensure audio dir, purge expired public recordings."""
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
     _auto_migrate()
+    _purge_expired()
 
 
 def get_session() -> Generator[Session, None, None]:

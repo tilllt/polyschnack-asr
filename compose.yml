@@ -37,6 +37,7 @@ services:
       DATA_DIR: /data
       HF_TOKEN: ""                       # ← Setzen für Speaker Diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
+      PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)
       # Optional OIDC — uncomment to enable per-user workspaces
       # OIDC_CLIENT_ID: ""
       # OIDC_CLIENT_SECRET: ""
