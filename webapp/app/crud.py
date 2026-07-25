@@ -33,6 +33,7 @@ def create_recording(
     enable_streaming: bool = False,
     enable_noise_reduce: bool = True,
     content_hash: Optional[str] = None,
+    duration_s: Optional[float] = None,
     user_id: Optional[int] = None,
 ) -> Recording:
     """Insert a new Recording row with status='processing' and return it."""
@@ -41,6 +42,7 @@ def create_recording(
         stored_path=stored_path,
         mime=mime,
         size_bytes=size_bytes,
+        duration_s=duration_s,
         status="uploaded",
         batch_id=batch_id,
         recorded_at=recorded_at,
@@ -131,7 +133,8 @@ def update_result(
         return None
     rec.status = status
     rec.text = text
-    rec.duration_s = duration_s
+    if duration_s is not None:
+        rec.duration_s = duration_s
     rec.language = language
     rec.segments = segments
     rec.processing_ms = processing_ms

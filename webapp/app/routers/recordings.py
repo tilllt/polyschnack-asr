@@ -141,6 +141,11 @@ async def upload_recording(
 
     recorded_at, source = parse_whatsapp(file.filename)
 
+    # Estimate duration from file size (rough, for ETA display). 
+    # 16kHz/16bit = 32000 bytes/sec; compressed audio is smaller,
+    # so this is a conservative overestimate.
+    est_duration_s = len(raw) / 8000  # ~4:1 compression factor
+
     rec = create_recording(
         session,
         original_name=file.filename,
@@ -150,6 +155,7 @@ async def upload_recording(
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,
+        duration_s=est_duration_s,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
