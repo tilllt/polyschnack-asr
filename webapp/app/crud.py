@@ -115,6 +115,7 @@ def update_result(
     segments: Optional[List[Dict[str, Any]]],
     processing_ms: float,
     error: Optional[str],
+    progress_pct: int = 100,
 ) -> Optional[Recording]:
     """Persist the transcription result (success or failure) for *rec_id*."""
     rec = session.get(Recording, rec_id)
@@ -127,6 +128,7 @@ def update_result(
     rec.segments = segments
     rec.processing_ms = processing_ms
     rec.error = error
+    rec.progress_pct = progress_pct
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -214,18 +216,12 @@ def get_or_create_user(
 
 def get_user(session: Session, user_id: int) -> Optional[User]:
     return session.get(User, user_id)
-    rows = session.exec(select(Recording)).all()
-    total = len(rows)
-    done = sum(1 for r in rows if r.status == "done")
-    processing = sum(1 for r in rows if r.status == "processing")
-    failed = sum(1 for r in rows if r.status == "failed")
-    total_audio_s = sum(r.duration_s or 0.0 for r in rows)
-    total_processing_ms = sum(r.processing_ms or 0.0 for r in rows)
-    return {
-        "total": total,
-        "done": done,
-        "processing": processing,
-        "failed": failed,
-        "total_audio_s": total_audio_s,
-        "total_processing_ms": total_processing_ms,
-    }
+
+
+def set_progress(session: Session, rec_id: int, pct: int) -> None:
+    """Update progress_pct for a recording (no refresh needed)."""
+    rec = session.get(Recording, rec_id)
+    if rec:
+        rec.progress_pct = pct
+        session.add(rec)
+        session.commit()

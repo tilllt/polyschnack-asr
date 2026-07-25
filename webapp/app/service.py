@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from sqlmodel import Session
 
 from . import asr_client, crud
-from .crud import get_or_create_user, get_user
+from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import diarize as run_diarization
 from .vad import trim_silence as _trim_silence
@@ -58,6 +58,10 @@ def process_recording(rec_id: int) -> None:
     try:
         audio_bytes = audio_path.read_bytes()
 
+        # Mark progress: 10% — loaded
+        with Session(engine) as session:
+            set_progress(session, rec_id, 10)
+
         # Optional VAD silence trimming
         if _VAD_TRIM and enable_vad:
             trimmed = _trim_silence(audio_bytes)
@@ -65,7 +69,14 @@ def process_recording(rec_id: int) -> None:
                 log.info("VAD trim: rec_id=%d %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
             audio_bytes = trimmed
 
+        with Session(engine) as session:
+            set_progress(session, rec_id, 20)
+
         result = asr_client.transcribe(audio_bytes, filename, mime)
+
+        with Session(engine) as session:
+            set_progress(session, rec_id, 70)
+
         text = result["text"]
         duration = result["duration"]
         language = result["language"]

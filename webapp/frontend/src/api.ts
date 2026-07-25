@@ -31,6 +31,7 @@ export interface Recording {
   source: string | null;
   enable_vad: boolean;
   enable_diarize: boolean;
+  progress_pct: number;
 }
 
 export interface Stats {

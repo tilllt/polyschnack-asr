@@ -34,6 +34,9 @@ class Recording(SQLModel, table=True):
     error: Optional[str] = None
     processing_ms: Optional[float] = None
 
+    # --- progress (0-100, updated during processing) ---
+    progress_pct: int = 0
+
     # --- timestamps ---
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)

@@ -7,6 +7,16 @@ import { SegmentList } from "./SegmentList";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { useT } from "../useLocale";
 
+function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
+  if (pct <= 0 || !duration_s) return "…";
+  const elapsed = (Date.now() - new Date(created_at).getTime()) / 1000;
+  if (elapsed < 3) return "~" + Math.round(duration_s * 0.15) + "s";
+  const estimated_total = (elapsed / pct) * 100;
+  const eta_s = Math.max(0, estimated_total - elapsed);
+  if (eta_s > 120) return `~${Math.round(eta_s / 60)}m`;
+  return `~${Math.round(eta_s)}s`;
+}
+
 interface Props {
   recording: Recording;
   compact?: boolean;
@@ -196,8 +206,17 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           </div>
         )}
         {r.status === "processing" && (
-          <div className="text-muted italic text-[13px] py-[6px]">
-            {t("transcribing")}
+          <div className="px-4 pb-2">
+            <div className="flex items-center justify-between text-[12px] mb-[6px]">
+              <span className="text-muted">{t("transcribing")}</span>
+              <span className="text-muted2 tabular-nums">{r.progress_pct}% · {fmtETA(r.duration_s, r.progress_pct, r.created_at)}</span>
+            </div>
+            <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-[width] duration-700 ease-out"
+                style={{ width: `${r.progress_pct}%` }}
+              />
+            </div>
           </div>
         )}
       </div>
