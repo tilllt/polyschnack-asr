@@ -137,7 +137,7 @@ async def callback(request: Request, code: str, state: str):
             name=userinfo.get("name"),
         )
         session.commit()
-    request.session["user_id"] = user.id
+        request.session["user_id"] = user.id
     return RedirectResponse("/")
 
 
