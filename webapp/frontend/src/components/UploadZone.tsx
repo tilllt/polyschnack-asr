@@ -21,7 +21,7 @@ export function UploadZone() {
 
   useEffect(() => {
     fetchModelStatus()
-      .then((s) => setModelStatus({ vad: s.vad_available, diarize: s.diarize_available, hf: s.hf_token }))
+      .then(setModelStatus)
       .catch(() => {});
   }, []);
 
@@ -185,14 +185,14 @@ export function UploadZone() {
         <ToggleSwitch
           label="VAD (Silence trim)"
           enabled={vadOn}
-          available={modelStatus?.vad ?? false}
+          available={modelStatus?.vad_available ?? false}
           onChange={toggleVad}
         />
         <ToggleSwitch
           label="Speaker Diarization"
           enabled={diarizeOn}
-          available={modelStatus?.diarize ?? false}
-          noToken={modelStatus !== null && !modelStatus.hf}
+          available={modelStatus?.diarize_available ?? false}
+          noToken={modelStatus !== null && !modelStatus.hf_token}
           onChange={toggleDiarize}
         />
         {/* ASR device badge */}
