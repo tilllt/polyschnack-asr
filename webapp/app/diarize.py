@@ -4,7 +4,7 @@ Requires HF_TOKEN env var (accept terms at
 https://huggingface.co/pyannote/speaker-diarization-3.1 and
 https://huggingface.co/pyannote/segmentation-3.0).
 
-Gracefully returns empty list when token is missing (no crash).
+Silently returns empty list when token is missing (no crash).
 """
 from __future__ import annotations
 
@@ -25,15 +25,12 @@ def _load_pipeline():
     if not token:
         log.warning("HF_TOKEN not set — diarization disabled")
         return None
-    try:
-        from pyannote.audio import Pipeline
-        _pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=token,
-        )
-        log.info("pyannote diarization pipeline loaded")
-    except Exception:
-        log.exception("failed to load pyannote pipeline")
+    from pyannote.audio import Pipeline
+    _pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        use_auth_token=token,
+    )
+    log.info("pyannote diarization pipeline loaded")
     return _pipeline
 
 
@@ -47,19 +44,15 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
     if pipeline is None:
         return []
 
-    try:
-        result = pipeline(audio_path)
-        segments: List[Dict[str, Any]] = []
-        for turn, _, speaker in result.itertracks(yield_label=True):
-            segments.append({
-                "start": round(turn.start, 2),
-                "end": round(turn.end, 2),
-                "speaker": speaker,
-            })
-        segments.sort(key=lambda s: s["start"])
-        log.info("diarization: %d segments, %d speakers",
-                 len(segments), len(set(s["speaker"] for s in segments)))
-        return segments
-    except Exception:
-        log.exception("diarization failed for %s", audio_path)
-        return []
+    result = pipeline(audio_path)
+    segments: List[Dict[str, Any]] = []
+    for turn, _, speaker in result.itertracks(yield_label=True):
+        segments.append({
+            "start": round(turn.start, 2),
+            "end": round(turn.end, 2),
+            "speaker": speaker,
+        })
+    segments.sort(key=lambda s: s["start"])
+    log.info("diarization: %d segments, %d speakers",
+             len(segments), len(set(s["speaker"] for s in segments)))
+    return segments

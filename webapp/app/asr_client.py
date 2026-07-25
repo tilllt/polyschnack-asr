@@ -139,8 +139,9 @@ def transcribe_async(
         job = resp.json()
         job_id = job["job_id"]
 
-        # Poll until done
-        while True:
+        # Poll until done (max 30 min)
+        max_polls = 1800  # 1800 * 1s = 30 min
+        for _ in range(max_polls):
             time.sleep(1)
             try:
                 status_resp = client.get(f"{settings.ASR_URL}/v1/audio/jobs/{job_id}", timeout=5)
@@ -157,3 +158,4 @@ def transcribe_async(
                 return _parse_result(data)
             if data["status"] == "failed":
                 raise RuntimeError(data.get("error", "async job failed"))
+        raise TimeoutError("async job did not complete within 30 minutes")
