@@ -112,11 +112,15 @@ async def upload_recording(
     enable_noise_reduce: bool = Form(True),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
-    """Accept a multipart audio upload, persist it, and kick off transcription."""
+    """Accept a multipart audio upload, persist it."""
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="no file provided")
 
+    # Limit upload size to 1 GB
+    MAX_SIZE = 1024 * 1024 * 1024
     raw = await file.read()
+    if len(raw) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="file too large (max 1 GB)")
     await file.close()
 
     if not raw:

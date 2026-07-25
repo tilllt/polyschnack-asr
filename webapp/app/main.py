@@ -70,6 +70,9 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SESSION_SECRET or secrets.token_urlsafe(32),
     max_age=86400 * 7,
+    httponly=True,
+    secure=settings.BASE_URL.startswith("https"),
+    same_site="lax",
 )
 
 # ------------------------------------------------------------------
