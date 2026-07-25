@@ -98,14 +98,22 @@ def _exchange_code(disco: dict, code: str, verifier: str) -> dict:
 async def login(request: Request):
     if not settings.OIDC_ENABLED:
         raise HTTPException(404, "OIDC not configured")
-    disco = _discover(settings.OIDC_ISSUER)
+    try:
+        disco = _discover(settings.OIDC_ISSUER)
+    except Exception as exc:
+        log.warning("OIDC discovery failed for issuer=%s: %s", settings.OIDC_ISSUER, exc)
+        raise HTTPException(502, f"OIDC provider unreachable: check OIDC_ISSUER ({exc})")
     state = _gen_state()
     nonce = _gen_nonce()
     verifier = _gen_verifier()
     _nonce_store[state] = nonce
     _verifier_store[state] = verifier
     request.session["oauth_state"] = state
-    url = _build_auth_url(disco, state, nonce, verifier)
+    try:
+        url = _build_auth_url(disco, state, nonce, verifier)
+    except Exception as exc:
+        log.warning("OIDC auth URL build failed: %s", exc)
+        raise HTTPException(502, f"OIDC misconfiguration: {exc}")
     return RedirectResponse(url)
 
 
@@ -121,16 +129,23 @@ async def callback(request: Request, code: str, state: str):
     if not nonce or not verifier:
         raise HTTPException(400, "session expired — please log in again")
 
-    disco = _discover(settings.OIDC_ISSUER)
-    token = _exchange_code(disco, code, verifier)
+    try:
+        disco = _discover(settings.OIDC_ISSUER)
+        token = _exchange_code(disco, code, verifier)
+    except Exception as exc:
+        log.warning("OIDC token exchange failed: %s", exc)
+        raise HTTPException(502, f"OIDC token exchange failed: {exc}")
 
-    # Fetch userinfo
-    resp = httpx.get(
-        disco["userinfo_endpoint"],
-        headers={"Authorization": f"Bearer {token['access_token']}"},
-    )
-    resp.raise_for_status()
-    userinfo = resp.json()
+    try:
+        resp = httpx.get(
+            disco["userinfo_endpoint"],
+            headers={"Authorization": f"Bearer {token['access_token']}"},
+        )
+        resp.raise_for_status()
+        userinfo = resp.json()
+    except Exception as exc:
+        log.warning("OIDC userinfo fetch failed: %s", exc)
+        raise HTTPException(502, f"OIDC userinfo failed: {exc}")
 
     with next(get_session()) as session:
         user = get_or_create_user(
