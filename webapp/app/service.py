@@ -15,6 +15,10 @@ from sqlmodel import Session
 from . import asr_client, crud
 from .db import engine
 from .diarize import diarize as run_diarization
+from .vad import trim_silence as _trim_silence
+import os
+
+_VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false").lower() in ("true", "1", "yes")
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +54,14 @@ def process_recording(rec_id: int) -> None:
 
     try:
         audio_bytes = audio_path.read_bytes()
+
+        # Optional VAD silence trimming
+        if _VAD_TRIM:
+            trimmed = _trim_silence(audio_bytes)
+            if len(trimmed) < len(audio_bytes):
+                log.info("VAD trim: rec_id=%d %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
+            audio_bytes = trimmed
+
         result = asr_client.transcribe(audio_bytes, filename, mime)
         text = result["text"]
         duration = result["duration"]
