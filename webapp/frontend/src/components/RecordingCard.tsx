@@ -107,7 +107,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   return (
     <div
       className={`
-        bg-panel border border-border rounded-card overflow-hidden
+        bg-panel border border-border rounded-card
         transition-colors duration-200 hover:border-border2
         ${statusBorderClass}
       `}
