@@ -120,7 +120,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         >
           {r.original_name}
         </span>
-        <StatusBadge status={r.status} />
+        <StatusBadge status={r.status} t={t} />
       </div>
 
       {/* ── Meta chips ── */}
@@ -284,7 +284,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
 /* ──────────────────────────────────────────────────── */
 
-function StatusBadge({ status }: { status: Recording["status"] }) {
+function StatusBadge({ status, t }: { status: Recording["status"]; t: (key: string) => string }) {
   if (status === "done") {
     return (
       <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(63,185,80,.15)] text-ok">
