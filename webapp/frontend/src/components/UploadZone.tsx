@@ -27,19 +27,24 @@ export function UploadZone() {
   }, []);
 
   function toggleVad() {
-    if (!modelStatus?.vad_available) {
-      triggerDownload("vad").catch(() => {});
-      toast("Downloading VAD model…", "ok");
-    }
-    setVadOn((v) => !v);
+    setVadOn((v) => {
+      const next = !v;
+      if (next && !modelStatus?.vad_available) {
+        triggerDownload("vad").catch(() => {});
+      }
+      return next;
+    });
   }
 
   function toggleDiarize() {
-    if (!modelStatus?.hf_token) return;  // silently disabled — admin must set HF_TOKEN
-    if (!modelStatus?.diarize_available) {
-      triggerDownload("diarize").catch(() => {});
-    }
-    setDiarizeOn((d) => !d);
+    if (!modelStatus?.hf_token) return;
+    setDiarizeOn((d) => {
+      const next = !d;
+      if (next && !modelStatus?.diarize_available) {
+        triggerDownload("diarize").catch(() => {});
+      }
+      return next;
+    });
   }
 
   // — Upload logic —
