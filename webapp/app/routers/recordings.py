@@ -244,13 +244,13 @@ def transcribe_ep(
     """Start transcription for an uploaded recording."""
     rec = get_recording(session, rid)
     if rec is None:
-        raise HTTPException(status_code=404, detail=\"not found\")
+        raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
     if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail=\"not your recording\")
+        raise HTTPException(status_code=403, detail="not your recording")
     rec = set_processing(session, rid)
     if rec is None:
-        raise HTTPException(status_code=404, detail=\"not found\")
+        raise HTTPException(status_code=404, detail="not found")
     background.add_task(process_recording, rec.id)
     return _recording_to_dict(rec)
 
