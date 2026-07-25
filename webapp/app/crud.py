@@ -31,6 +31,7 @@ def create_recording(
     enable_vad: bool = False,
     enable_diarize: bool = False,
     enable_streaming: bool = False,
+    enable_noise_reduce: bool = True,
     content_hash: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> Recording:
@@ -47,6 +48,7 @@ def create_recording(
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
+        enable_noise_reduce=enable_noise_reduce,
         content_hash=content_hash,
         user_id=user_id,
     )

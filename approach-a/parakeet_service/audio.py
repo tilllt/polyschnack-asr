@@ -84,5 +84,15 @@ def load_audio(data: bytes) -> np.ndarray:
     return _ffmpeg_decode(data)
 
 
+def reduce_noise(wav: np.ndarray) -> np.ndarray:
+    """Apply spectral noise gating — removes stationary background noise."""
+    try:
+        import noisereduce as nr
+        return nr.reduce_noise(y=wav, sr=TARGET_SR, stationary=True, prop_decrease=0.8)
+    except Exception as exc:
+        logger.warning("Noise reduction failed (%s), using original", exc)
+        return wav
+
+
 def load_audio_path(path: Path) -> np.ndarray:
     return load_audio(Path(path).read_bytes())

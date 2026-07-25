@@ -16,13 +16,17 @@ from .config import settings
 log = logging.getLogger(__name__)
 
 
-def transcribe(audio_bytes: bytes, filename: str, mime: str) -> Dict[str, Any]:
+def transcribe(audio_bytes: bytes, filename: str, mime: str, noise_reduce: bool = True) -> Dict[str, Any]:
     """Send audio via sync (batched) endpoint — faster, no live text."""
     with httpx.Client(timeout=3600) as client:
         resp = client.post(
             f"{settings.ASR_URL}/v1/audio/transcriptions",
             files={"file": (filename, audio_bytes, mime)},
-            data={"model": settings.ASR_MODEL, "response_format": "verbose_json"},
+            data={
+                "model": settings.ASR_MODEL,
+                "response_format": "verbose_json",
+                "noise_reduce": "true" if noise_reduce else "false",
+            },
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -33,6 +37,7 @@ def transcribe_streaming(
     audio_bytes: bytes,
     filename: str,
     mime: str,
+    noise_reduce: bool = True,
     on_chunk: Optional[Callable[[str, int, int, float, float, bool], None]] = None,
 ) -> Dict[str, Any]:
     """Send audio via SSE streaming endpoint — slower but yields live text.
@@ -45,12 +50,14 @@ def transcribe_streaming(
     final_text = ""
     total_chunks = 1
 
+    data = {"model": settings.ASR_MODEL, "noise_reduce": "true" if noise_reduce else "false"}
+
     with httpx.Client(timeout=3600) as client:
         with client.stream(
             "POST",
             f"{settings.ASR_URL}/v1/audio/transcriptions/stream",
             files={"file": (filename, audio_bytes, mime)},
-            data={"model": settings.ASR_MODEL},
+            data=data,
         ) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():

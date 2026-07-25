@@ -51,6 +51,7 @@ def process_recording(rec_id: int) -> None:
         enable_vad = rec.enable_vad
         enable_diarize = rec.enable_diarize
         enable_streaming = rec.enable_streaming
+        enable_noise_reduce = rec.enable_noise_reduce
 
     t0 = time.perf_counter()
     status = "done"
@@ -91,7 +92,11 @@ def process_recording(rec_id: int) -> None:
                             session.add(rec)
                             session.commit()
 
-            result = transcribe_streaming(audio_bytes, filename, mime, on_chunk=_on_chunk)
+            result = transcribe_streaming(
+                audio_bytes, filename, mime,
+                noise_reduce=enable_noise_reduce,
+                on_chunk=_on_chunk,
+            )
             with Session(engine) as session:
                 set_progress(session, rec_id, 80)
         else:
@@ -107,7 +112,7 @@ def process_recording(rec_id: int) -> None:
             t = threading.Thread(target=_bump, daemon=True)
             t.start()
             try:
-                result = transcribe(audio_bytes, filename, mime)
+                result = transcribe(audio_bytes, filename, mime, noise_reduce=enable_noise_reduce)
             finally:
                 _progress_stop_event.set()
             with Session(engine) as session:

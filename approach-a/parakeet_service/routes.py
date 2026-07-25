@@ -10,11 +10,12 @@ from uuid import uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
-from .audio import load_audio
+from .audio import load_audio, reduce_noise
 from .config import (
     CPU_INFO,
     DEFAULT_MODEL,
     MODEL_CONFIGS,
+    NOISE_REDUCE,
     TARGET_SR,
     USE_GPU,
     logger,
@@ -148,6 +149,7 @@ async def transcribe(
     model: str = Form(DEFAULT_MODEL),
     response_format: str = Form("json"),
     timestamp_granularities: Optional[str] = Form(None),
+    noise_reduce: Optional[bool] = Form(None),
 ):
     model_name = _resolve_model(model)
     raw = await _read_upload(file)
@@ -156,6 +158,9 @@ async def transcribe(
     ok = True
     try:
         wav = _decode(raw)
+        # Noise reduction (per-request override, else env default)
+        if noise_reduce if noise_reduce is not None else NOISE_REDUCE:
+            wav = reduce_noise(wav)
         out = await transcribe_wav(request.app.state.worker, wav, model_name)
     except HTTPException:
         ok = False
@@ -203,10 +208,13 @@ async def transcribe_stream(
     request: Request,
     file: UploadFile = File(...),
     model: str = Form(DEFAULT_MODEL),
+    noise_reduce: Optional[bool] = Form(None),
 ):
     model_name = _resolve_model(model)
     raw = await _read_upload(file)
     wav = _decode(raw)
+    if noise_reduce if noise_reduce is not None else NOISE_REDUCE:
+        wav = reduce_noise(wav)
     worker = request.app.state.worker
 
     async def event_gen():

@@ -105,6 +105,9 @@ GPU_DEVICE_ID = int(os.getenv("PARAKEET_GPU_DEVICE_ID", "0"))
 MAX_BATCH_SIZE = int(os.getenv("PARAKEET_MAX_BATCH_SIZE", "4"))
 BATCH_WINDOW_MS = float(os.getenv("PARAKEET_BATCH_WINDOW_MS", "4"))
 
+# Noise reduction (spectral gating)
+NOISE_REDUCE = os.getenv("PARAKEET_NOISE_REDUCE", "true").lower() in ("true", "1", "yes")
+
 
 def _get_env_int(name: str, default: int, minimum: int = 1) -> int:
     try:

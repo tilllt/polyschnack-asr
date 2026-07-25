@@ -18,6 +18,7 @@ export function UploadZone() {
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
   const [livePreview, setLivePreview] = useState(false);
+  const [noiseReduce, setNoiseReduce] = useState(true);
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
@@ -61,7 +62,7 @@ export function UploadZone() {
 
     const results = await Promise.allSettled(
       items.map((f) =>
-        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, false, (pct) => {
+        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, false, (pct) => {
           const fileBytes = (f.size * pct) / 100;
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
@@ -250,6 +251,12 @@ export function UploadZone() {
           enabled={livePreview}
           available={true}
           onChange={() => setLivePreview((v) => !v)}
+        />
+        <ToggleSwitch
+          label="Noise Reduction"
+          enabled={noiseReduce}
+          available={true}
+          onChange={() => setNoiseReduce((v) => !v)}
         />
         {/* ASR device badge */}
         {modelStatus && (

@@ -50,6 +50,9 @@ class Recording(SQLModel, table=True):
     #: User opted into live streaming preview (SSE per-chunk results).
     enable_streaming: bool = False
 
+    # --- preprocessing flags ---
+    enable_noise_reduce: bool = True
+
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)
 

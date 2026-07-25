@@ -32,6 +32,7 @@ export interface Recording {
   enable_vad: boolean;
   enable_diarize: boolean;
   enable_streaming: boolean;
+  enable_noise_reduce: boolean;
   progress_pct: number;
 }
 
@@ -126,6 +127,7 @@ export async function uploadRecording(
   enableVad = false,
   enableDiarize = false,
   enableStreaming = false,
+  enableNoiseReduce = true,
   force = false,
   onProgress?: (pct: number) => void,
 ): Promise<Recording | { duplicate: true; existing_id: number; recording: Recording }> {
@@ -135,6 +137,7 @@ export async function uploadRecording(
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
+  fd.append("enable_noise_reduce", String(enableNoiseReduce));
 
   const url = force ? `/api/recordings?force=true` : "/api/recordings";
   if (!onProgress) {
