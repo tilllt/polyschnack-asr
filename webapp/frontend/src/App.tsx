@@ -39,23 +39,20 @@ function AppContent() {
 
         {/* Language switcher + Stats */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          <button
-            onClick={() => {
-              const langs: Array<Lang> = ["de", "en", "pt-BR"];
-              const idx = langs.indexOf(lang);
-              setLang(langs[(idx + 1) % langs.length]);
-            }}
-            className="btn-ghost-sm text-[12px] px-2"
-            title={
-              lang === "de" ? "Switch to English" :
-              lang === "en" ? "Mudar para português" :
-              "Zu Deutsch wechseln"
-            }
+          <select
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            className="
+              bg-panel border border-border2 rounded-sm
+              text-[12px] text-txt px-2 py-1
+              outline-none cursor-pointer
+              focus:border-accent
+            "
           >
-            {lang === "de" ? "🇬🇧 EN" :
-             lang === "en" ? "🇧🇷 PT" :
-             "🇩🇪 DE"}
-          </button>
+            <option value="en">🇬🇧 English</option>
+            <option value="de">🇩🇪 Deutsch</option>
+            <option value="pt-BR">🇧🇷 Português</option>
+          </select>
           <StatsBar stats={stats} />
         </div>
       </header>
