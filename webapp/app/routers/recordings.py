@@ -277,15 +277,28 @@ def transcribe_ep(
     rid: int,
     request: Request,
     background: BackgroundTasks,
+    enable_vad: bool = Form(False),
+    enable_diarize: bool = Form(False),
+    enable_streaming: bool = Form(False),
+    enable_noise_reduce: bool = Form(True),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Start transcription for an uploaded recording."""
     rec = get_recording(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request)
+    uid = _current_user(request) if settings.OIDC_ENABLED else None
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
+
+    # Update toggle values from the transcribe request (they may have changed since upload)
+    rec.enable_vad = enable_vad
+    rec.enable_diarize = enable_diarize
+    rec.enable_streaming = enable_streaming
+    rec.enable_noise_reduce = enable_noise_reduce
+    session.add(rec)
+    session.commit()
+
     rec = set_processing(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")

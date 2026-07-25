@@ -106,8 +106,13 @@ export async function transcribeRange(id: number, startSec: number, endSec: numb
   return res.json() as Promise<Recording>;
 }
 
-export async function startTranscription(id: number): Promise<Recording> {
-  const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST" }).then(checkOk);
+export async function startTranscription(id: number, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true): Promise<Recording> {
+  const fd = new FormData();
+  fd.append("enable_vad", String(enableVad));
+  fd.append("enable_diarize", String(enableDiarize));
+  fd.append("enable_streaming", String(enableStreaming));
+  fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
 
