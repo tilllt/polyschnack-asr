@@ -5,6 +5,7 @@ the SSE streaming endpoint and the async job worker all share one code path.
 Kept import-light (no dependency on routes) to avoid circular imports.
 """
 from __future__ import annotations
+import asyncio
 import re
 import time
 from typing import Any, AsyncIterator, Dict, List, Tuple
