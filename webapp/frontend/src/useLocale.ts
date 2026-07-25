@@ -45,6 +45,7 @@ const dict: Record<Lang, Record<string, string>> = {
     ready: "pronto",
     failed: "falhou",
     error: "Erro",
+    transcribing: "transcrevendo…",
   },
   de: {
     recordings: "Aufnahmen",
@@ -88,6 +89,7 @@ const dict: Record<Lang, Record<string, string>> = {
     ready: "Fertig",
     failed: "Fehlgeschlagen",
     error: "Fehler",
+    transcribing: "transkribiere…",
   },
   en: {
     recordings: "recordings",
@@ -131,6 +133,7 @@ const dict: Record<Lang, Record<string, string>> = {
     ready: "Ready",
     failed: "Failed",
     error: "Error",
+    transcribing: "transcribing…",
   },
 };
 

@@ -197,7 +197,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         )}
         {r.status === "processing" && (
           <div className="text-muted italic text-[13px] py-[6px]">
-            transcrevendo…
+            {t("transcribing")}
           </div>
         )}
       </div>
