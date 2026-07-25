@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchModelStatus, triggerDownload, uploadRecording } from "../api";
+import { fetchModelStatus, triggerDownload, uploadRecording, type ModelStatus } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 
@@ -17,7 +17,7 @@ export function UploadZone() {
   // — Model toggles —
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
-  const [modelStatus, setModelStatus] = useState<{ vad: boolean; diarize: boolean; hf: boolean } | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
   useEffect(() => {
     fetchModelStatus()

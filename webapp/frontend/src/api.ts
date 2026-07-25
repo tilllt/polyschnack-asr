@@ -2,7 +2,7 @@
    TYPES
    ============================================================ */
 
-export type RecordingStatus = "processing" | "done" | "failed";
+export type RecordingStatus = "uploaded" | "processing" | "done" | "failed";
 
 export interface Segment {
   start: number;
