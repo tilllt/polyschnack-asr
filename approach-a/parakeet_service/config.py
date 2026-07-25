@@ -78,11 +78,13 @@ def _auto_select_model() -> str:
 
 
 _DEFAULT_MODEL_ENV = os.getenv("PARAKEET_DEFAULT_MODEL", "").lower()
-DEFAULT_MODEL = (
-    _DEFAULT_MODEL_ENV
-    if _DEFAULT_MODEL_ENV in MODEL_CONFIGS
-    else _auto_select_model()
-)
+if _DEFAULT_MODEL_ENV in MODEL_CONFIGS:
+    DEFAULT_MODEL = _DEFAULT_MODEL_ENV
+elif _DEFAULT_MODEL_ENV in {k.lower() for k in MODEL_CONFIGS}:
+    # Resolve to canonical casing
+    DEFAULT_MODEL = {k.lower(): k for k in MODEL_CONFIGS}[_DEFAULT_MODEL_ENV]
+else:
+    DEFAULT_MODEL = _auto_select_model()
 
 
 # ---------------------------------------------------------------------------

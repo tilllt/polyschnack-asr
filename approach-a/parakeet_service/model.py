@@ -117,9 +117,18 @@ def _validate_gpu_binding(name: str, model: Any) -> None:
         )
 
 
+def _resolve_model(name: str) -> str:
+    """Resolve a (possibly case-insensitive) model name to the config key."""
+    if name in MODEL_CONFIGS:
+        return name
+    lowered = {k.lower(): k for k in MODEL_CONFIGS}
+    return lowered.get(name.lower(), DEFAULT_MODEL)
+
+
 def load_model(name: str = DEFAULT_MODEL, *, with_timestamps: bool = True):
     if name in _MODELS:
         return _MODELS[name]
+    name = _resolve_model(name)
     if name not in MODEL_CONFIGS:
         logger.warning("Unknown model %r, falling back to %s", name, DEFAULT_MODEL)
         name = DEFAULT_MODEL
@@ -144,6 +153,7 @@ def load_model(name: str = DEFAULT_MODEL, *, with_timestamps: bool = True):
 
 
 def get_model(name: str = DEFAULT_MODEL):
+    name = _resolve_model(name)
     if name not in _MODELS:
         return load_model(name)
     return _MODELS[name]

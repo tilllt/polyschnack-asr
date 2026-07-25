@@ -29,11 +29,15 @@ router = APIRouter()
 # Utilities
 # ---------------------------------------------------------------------------
 def _resolve_model(model: Optional[str]) -> str:
-    name = (model or DEFAULT_MODEL).lower()
-    if name not in MODEL_CONFIGS:
-        logger.warning("Unknown model %r, using default", name)
-        name = DEFAULT_MODEL
-    return name
+    raw = (model or DEFAULT_MODEL)
+    if raw in MODEL_CONFIGS:
+        return raw
+    lowered = raw.lower()
+    for k in MODEL_CONFIGS:
+        if k.lower() == lowered:
+            return k
+    logger.warning("Unknown model %r, using %s", raw, DEFAULT_MODEL)
+    return DEFAULT_MODEL
 
 
 def _device() -> str:
