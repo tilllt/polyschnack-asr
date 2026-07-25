@@ -6,6 +6,8 @@ endpoint.  Subtitle/text export helpers are also housed here.
 from __future__ import annotations
 
 import logging
+import subprocess as sp
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -172,3 +174,24 @@ def to_vtt(segments: List[Dict[str, Any]]) -> str:
 def to_txt(text: str) -> str:
     """Return the plain transcript, normalising line endings."""
     return text.strip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Audio trimming (for crop — uses ffmpeg)
+# ---------------------------------------------------------------------------
+
+
+def trim_audio(audio_bytes: bytes, start: float, end: float) -> bytes:
+    """FFmpeg-based audio trim — returns 16kHz mono WAV bytes."""
+    with tempfile.NamedTemporaryFile(suffix=".in") as fin, \
+         tempfile.NamedTemporaryFile(suffix=".wav") as fout:
+        fin.write(audio_bytes)
+        fin.flush()
+        dur = end - start
+        sp.run([
+            "ffmpeg", "-y", "-i", fin.name,
+            "-ss", str(start), "-t", str(dur),
+            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            fout.name,
+        ], capture_output=True, check=True)
+        return fout.read()

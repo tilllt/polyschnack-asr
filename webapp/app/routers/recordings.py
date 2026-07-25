@@ -25,7 +25,7 @@ from ..crud import (
 )
 from ..db import get_session
 from ..models import Recording
-from ..service import process_recording, to_srt, to_txt, to_vtt
+from ..service import process_recording, to_srt, to_txt, to_vtt, trim_audio
 from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
@@ -281,6 +281,51 @@ def delete_recording_endpoint(
     path = Path(rec.stored_path)
     path.unlink(missing_ok=True)
     return {"deleted": rid}
+
+
+# ---------------------------------------------------------------------------
+# Crop / transcribe-range
+# ---------------------------------------------------------------------------
+
+
+@router.post("/recordings/{rid}/transcribe-range", status_code=201)
+def transcribe_range(
+    rid: int,
+    start_sec: float,
+    end_sec: float,
+    request: Request = None,
+    background: BackgroundTasks = BackgroundTasks(),
+    session: Session = Depends(get_session),
+):
+    """Crop audio to [start_sec, end_sec] and transcribe the segment as a new recording."""
+    rec = get_recording(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request)
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
+
+    audio_bytes = Path(rec.stored_path).read_bytes()
+    trimmed = trim_audio(audio_bytes, start_sec, end_sec)
+
+    stem = Path(rec.stored_path).stem
+    parent = Path(rec.stored_path).parent
+    crop_path = parent / f"{stem}_crop_{int(start_sec)}-{int(end_sec)}.wav"
+    crop_path.write_bytes(trimmed)
+
+    new_rec = create_recording(
+        session,
+        original_name=f"crop_{start_sec:.0f}s-{end_sec:.0f}s_{rec.original_name}",
+        stored_path=str(crop_path),
+        mime="audio/wav",
+        size_bytes=len(trimmed),
+        batch_id=rec.batch_id,
+        enable_vad=rec.enable_vad,
+        enable_diarize=rec.enable_diarize,
+        user_id=uid,
+    )
+    background.add_task(process_recording, new_rec.id)
+    return _recording_to_dict(new_rec)
 
 
 # ---------------------------------------------------------------------------

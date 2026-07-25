@@ -1,10 +1,12 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown } from "lucide-react";
 import type { Recording } from "../api";
+import { transcribeRange } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
+import { WaveformPlayer } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
@@ -17,6 +19,12 @@ function fmtETA(duration_s: number | null, pct: number, created_at: string): str
   return `~${Math.round(eta_s)}s`;
 }
 
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 interface Props {
   recording: Recording;
   compact?: boolean;
@@ -25,10 +33,22 @@ interface Props {
 export function RecordingCard({ recording: r, compact = false }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
+  const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { t } = useT();
+  const qc = useQueryClient();
+
+  async function handleTranscribeCrop(id: number, start: number, end: number) {
+    try {
+      await transcribeRange(id, start, end);
+      toast(`✂ Crop transcribing ${fmtTime(start)}–${fmtTime(end)}`, "ok");
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`Crop failed: ${(e as Error).message}`, "err");
+    }
+  }
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
 
@@ -162,11 +182,12 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
       {/* ── Audio player ── */}
       <div className={compact ? "px-4 pb-1" : "px-4 pb-[6px]"}>
+        <WaveformPlayer audioUrl={r.audio_url} onRegionChange={(s, e) => setCropRange({ start: s, end: e })} />
         <audio
           ref={audioRef}
-          controls
           preload="none"
           src={r.audio_url}
+          className="hidden"
         />
       </div>
 
@@ -223,6 +244,14 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
       {/* ── Actions ── */}
       <div className="px-4 pb-[14px] flex items-center gap-2 flex-wrap">
+        {r.status === "done" && cropRange && (
+          <button
+            onClick={() => handleTranscribeCrop(r.id, cropRange.start, cropRange.end)}
+            className="btn-ghost-sm text-accent"
+          >
+            ✂ Transcribe {fmtTime(cropRange.start)}–{fmtTime(cropRange.end)}
+          </button>
+        )}
         {r.status === "done" && hasText && (
           <button
             onClick={handleCopy}

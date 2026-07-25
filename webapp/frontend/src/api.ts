@@ -96,6 +96,12 @@ export async function triggerDownload(model: "vad" | "diarize"): Promise<{ statu
   return res.json() as Promise<{ status: string; message: string }>;
 }
 
+export async function transcribeRange(id: number, startSec: number, endSec: number): Promise<Recording> {
+  const params = new URLSearchParams({ start_sec: String(startSec), end_sec: String(endSec) });
+  const res = await fetch(`/api/recordings/${id}/transcribe-range?${params}`, { method: "POST" }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
 export async function uploadRecording(
   file: File,
   batchId: string,
