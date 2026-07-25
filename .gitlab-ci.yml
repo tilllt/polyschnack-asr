@@ -1,0 +1,21 @@
+stages:
+  - build
+
+build-docker:
+  timeout: 60 minutes
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}:latest \
+      -f approach-a/Dockerfile.gpu \
+      approach-a/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
+  only:
+    - main
+  tags:
+    - shared
