@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRecordings, useStats } from "./hooks";
 import { ToastProvider } from "./components/Toasts";
 import { LocaleProvider, useT, type Lang } from "./useLocale";
+import { fetchMe, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { SearchBar } from "./components/SearchBar";
@@ -9,7 +10,12 @@ import { RecordingList } from "./components/RecordingList";
 
 function AppContent() {
   const [query, setQuery] = useState("");
+  const [user, setUser] = useState<UserInfo | null>(null);
   const { t, lang, setLang } = useT();
+
+  useEffect(() => {
+    fetchMe().then(setUser).catch(() => setUser({ anonymous: true }));
+  }, []);
 
   const recordingsQuery = useRecordings(query);
   const statsQuery = useStats();
@@ -37,8 +43,21 @@ function AppContent() {
           </h1>
         </div>
 
-        {/* Language switcher + Stats */}
+        {/* Language switcher + Auth + Stats */}
         <div className="flex items-center gap-3 flex-shrink-0">
+          {user && !user.anonymous && !user.authenticated && (
+            <a href="/auth/login" className="btn-ghost-sm text-[12px]">
+              Login
+            </a>
+          )}
+          {user?.authenticated && (
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-muted">{user.name}</span>
+              <a href="/auth/logout" className="btn-ghost-sm text-[12px]">
+                Logout
+              </a>
+            </div>
+          )}
           <select
             value={lang}
             onChange={(e) => setLang(e.target.value as Lang)}

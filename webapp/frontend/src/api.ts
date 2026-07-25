@@ -50,6 +50,14 @@ export interface ModelStatus {
   download_progress: Record<string, string>;
 }
 
+export interface UserInfo {
+  anonymous?: boolean;
+  authenticated?: boolean;
+  sub?: string;
+  name?: string;
+  preferred_username?: string;
+}
+
 /* ============================================================
    FETCH HELPERS
    ============================================================ */
@@ -75,6 +83,11 @@ export async function fetchStats(): Promise<Stats> {
 export async function fetchModelStatus(): Promise<ModelStatus> {
   const res = await fetch("/api/models/status").then(checkOk);
   return res.json() as Promise<ModelStatus>;
+}
+
+export async function fetchMe(): Promise<UserInfo> {
+  const res = await fetch("/auth/me").then(checkOk);
+  return res.json() as Promise<UserInfo>;
 }
 
 export async function triggerDownload(model: "vad" | "diarize"): Promise<{ status: string; message: string }> {

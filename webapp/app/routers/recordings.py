@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session
 
@@ -29,6 +29,18 @@ from ..service import process_recording, to_srt, to_txt, to_vtt
 from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _current_user(request: Request) -> int | None:
+    """Return current user_id from session, or None if OIDC is disabled."""
+    if not settings.OIDC_ENABLED:
+        return None
+    return request.session.get("user_id")
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +73,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "source": rec.source,
         "enable_vad": rec.enable_vad,
         "enable_diarize": rec.enable_diarize,
+        "user_id": rec.user_id,
     }
 
 
@@ -83,6 +96,7 @@ def _guess_mime(stored_path: str, stored_mime: str) -> str:
 @router.post("/recordings", status_code=201)
 async def upload_recording(
     background: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     batch_id: Optional[str] = Form(None),
     enable_vad: bool = Form(False),
@@ -116,6 +130,7 @@ async def upload_recording(
         source=source,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
+        user_id=_current_user(request),
     )
     background.add_task(process_recording, rec.id)
     return _recording_to_dict(rec)
@@ -129,10 +144,11 @@ async def upload_recording(
 @router.get("/recordings")
 def list_recordings_endpoint(
     q: Optional[str] = None,
+    request: Request = None,
     session: Session = Depends(get_session),
 ) -> List[Dict[str, Any]]:
     """Return all recordings (newest first), optionally filtered by *q*."""
-    rows = list_recordings(session, q=q)
+    rows = list_recordings(session, q=q, user_id=_current_user(request))
     return [_recording_to_dict(r) for r in rows]
 
 
@@ -221,10 +237,17 @@ def download_transcript(
 @router.post("/recordings/{rid}/retranscribe")
 def retranscribe(
     rid: int,
+    request: Request,
     background: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Reset transcription state and re-queue the audio for processing."""
+    rec = get_recording(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request)
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
     rec = set_processing(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -240,9 +263,16 @@ def retranscribe(
 @router.delete("/recordings/{rid}")
 def delete_recording_endpoint(
     rid: int,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Delete the database row and the audio file from disk."""
+    rec = get_recording(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request)
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
     rec = delete_recording(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -258,6 +288,9 @@ def delete_recording_endpoint(
 
 
 @router.get("/stats")
-def stats_endpoint(session: Session = Depends(get_session)) -> Dict[str, Any]:
+def stats_endpoint(
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
     """Aggregate counts and totals across all recordings."""
-    return get_stats(session)
+    return get_stats(session, user_id=_current_user(request))

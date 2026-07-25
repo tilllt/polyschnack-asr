@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 from sqlmodel import Session
 
 from . import asr_client, crud
+from .crud import get_or_create_user, get_user
 from .db import engine
 from .diarize import diarize as run_diarization
 from .vad import trim_silence as _trim_silence

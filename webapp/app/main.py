@@ -15,14 +15,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict
 
+import secrets
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
 from .routers.models import router as models_router
+from .routers.auth import router as auth_router
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +64,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="Parakeet PoC UI", lifespan=lifespan)
 
+# Session middleware (for OIDC auth)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET or secrets.token_urlsafe(32),
+    max_age=86400 * 7,
+)
+
 # ------------------------------------------------------------------
 # API router + health — registered BEFORE the SPA mount so /api/*
 # and /health are never swallowed by the static file handler.
@@ -67,6 +78,7 @@ app = FastAPI(title="Parakeet PoC UI", lifespan=lifespan)
 
 app.include_router(recordings_router)
 app.include_router(models_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")

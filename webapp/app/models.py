@@ -45,6 +45,9 @@ class Recording(SQLModel, table=True):
     #: User opted into speaker diarization for this recording.
     enable_diarize: bool = False
 
+    # --- user (optional) ---
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+
     # --- WhatsApp / batch metadata ---
     #: Opaque identifier grouping files uploaded together.
     batch_id: Optional[str] = None
@@ -52,3 +55,15 @@ class Recording(SQLModel, table=True):
     recorded_at: Optional[dt.datetime] = None
     #: "whatsapp" if the filename matched the WhatsApp pattern, else None.
     source: Optional[str] = None
+
+
+class User(SQLModel, table=True):
+    """OIDC-authenticated user — linked to recordings via user_id."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sub: str = Field(unique=True, index=True)
+    preferred_username: Optional[str] = None
+    email: Optional[str] = None
+    name: Optional[str] = None
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )

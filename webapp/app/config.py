@@ -27,5 +27,18 @@ class _Settings:
     #: Model name forwarded in every transcription request.
     ASR_MODEL: str = os.getenv("ASR_MODEL", "parakeet-tdt-0.6b-v3")
 
+    #: OIDC (optional — when unset, no auth)
+    OIDC_CLIENT_ID: str = os.getenv("OIDC_CLIENT_ID", "")
+    OIDC_CLIENT_SECRET: str = os.getenv("OIDC_CLIENT_SECRET", "")
+    OIDC_ISSUER: str = os.getenv("OIDC_ISSUER", "")
+    OIDC_SCOPE: str = os.getenv("OIDC_SCOPE", "openid profile email")
+    SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
+    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8088").rstrip("/")
+
 
 settings = _Settings()
+
+# Derived: OIDC is enabled when all required fields are set
+settings.OIDC_ENABLED = bool(
+    settings.OIDC_CLIENT_ID and settings.OIDC_CLIENT_SECRET and settings.OIDC_ISSUER
+)

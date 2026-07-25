@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from .models import Recording
+from .models import Recording, User
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ def create_recording(
     source: Optional[str] = None,
     enable_vad: bool = False,
     enable_diarize: bool = False,
+    user_id: Optional[int] = None,
 ) -> Recording:
     """Insert a new Recording row with status='processing' and return it."""
     rec = Recording(
@@ -43,6 +44,7 @@ def create_recording(
         source=source,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
+        user_id=user_id,
     )
     session.add(rec)
     session.commit()
@@ -60,13 +62,16 @@ def get_recording(session: Session, rec_id: int) -> Optional[Recording]:
     return session.get(Recording, rec_id)
 
 
-def list_recordings(session: Session, q: Optional[str] = None) -> List[Recording]:
+def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional[int] = None) -> List[Recording]:
     """Return all recordings ordered by newest first.
 
     When *q* is provided, only rows whose ``original_name`` or ``text``
     contain *q* (case-insensitive) are returned.
+    When *user_id* is provided, only recordings belonging to that user.
     """
     stmt = select(Recording)
+    if user_id is not None:
+        stmt = stmt.where(Recording.user_id == user_id)
     if q:
         term = f"%{q.lower()}%"
         stmt = stmt.where(
@@ -151,8 +156,64 @@ def delete_recording(session: Session, rec_id: int) -> Optional[Recording]:
 # ---------------------------------------------------------------------------
 
 
-def get_stats(session: Session) -> Dict[str, Any]:
-    """Return aggregate counts and totals across all recordings."""
+def get_stats(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
+    """Return aggregate counts and totals across all recordings (or per user)."""
+    stmt = select(Recording)
+    if user_id is not None:
+        stmt = stmt.where(Recording.user_id == user_id)
+    rows = list(session.exec(stmt).all())
+    total = len(rows)
+    done = sum(1 for r in rows if r.status == "done")
+    processing = sum(1 for r in rows if r.status == "processing")
+    failed = sum(1 for r in rows if r.status == "failed")
+    total_audio_s = sum(r.duration_s or 0.0 for r in rows)
+    total_processing_ms = sum(r.processing_ms or 0.0 for r in rows)
+    return {
+        "total": total,
+        "done": done,
+        "processing": processing,
+        "failed": failed,
+        "total_audio_s": total_audio_s,
+        "total_processing_ms": total_processing_ms,
+    }
+
+
+# ---------------------------------------------------------------------------
+# User CRUD
+# ---------------------------------------------------------------------------
+
+
+def get_or_create_user(
+    session: Session,
+    *,
+    sub: str,
+    preferred_username: Optional[str] = None,
+    email: Optional[str] = None,
+    name: Optional[str] = None,
+) -> User:
+    user = session.exec(select(User).where(User.sub == sub)).first()
+    if user:
+        if preferred_username:
+            user.preferred_username = preferred_username
+        if email:
+            user.email = email
+        if name:
+            user.name = name
+        session.add(user)
+        return user
+    user = User(
+        sub=sub,
+        preferred_username=preferred_username,
+        email=email,
+        name=name,
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
+def get_user(session: Session, user_id: int) -> Optional[User]:
+    return session.get(User, user_id)
     rows = session.exec(select(Recording)).all()
     total = len(rows)
     done = sum(1 for r in rows if r.status == "done")

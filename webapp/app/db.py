@@ -12,6 +12,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from .config import settings
 from .models import Recording as _Recording  # noqa: F401 — ensures table is registered
+from .models import User as _User  # noqa: F401
 
 engine = create_engine(
     f"sqlite:///{settings.DB_PATH}",

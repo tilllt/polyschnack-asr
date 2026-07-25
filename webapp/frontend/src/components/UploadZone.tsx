@@ -17,7 +17,6 @@ export function UploadZone() {
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
   const [modelStatus, setModelStatus] = useState<{ vad: boolean; diarize: boolean; hf: boolean } | null>(null);
-  const [diarizeWarn, setDiarizeWarn] = useState(false);
 
   useEffect(() => {
     fetchModelStatus()
@@ -34,13 +33,9 @@ export function UploadZone() {
   }
 
   function toggleDiarize() {
-    if (!modelStatus?.hf) {
-      setDiarizeWarn(true);
-      return;
-    }
+    if (!modelStatus?.hf) return;  // silently disabled — admin must set HF_TOKEN
     if (!modelStatus?.diarize) {
       triggerDownload("diarize").catch(() => {});
-      toast("Downloading diarization model (~300 MB)…", "ok");
     }
     setDiarizeOn((d) => !d);
   }
@@ -115,38 +110,6 @@ export function UploadZone() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* HF_TOKEN warning banner */}
-      {diarizeWarn && (
-        <div className="bg-[rgba(248,81,73,.12)] border border-err rounded-sm px-4 py-3 text-[13px] text-txt leading-[1.5]">
-          <strong className="text-err">⚠ HF_TOKEN fehlt</strong>
-          <p className="mt-1 text-muted">
-            Füge den Token in der <code>compose.yml</code> zum WebApp-Service hinzu:
-          </p>
-          <pre className="mt-2 bg-panel2 p-2 rounded text-[12px] text-accent overflow-x-auto">{`  webapp:
-    environment:
-      HF_TOKEN: hf_your_token_here`}</pre>
-          <p className="mt-2">
-            Token holen:{" "}
-            <a
-              href="https://huggingface.co/settings/tokens"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent underline"
-            >
-              huggingface.co/settings/tokens
-            </a>
-            . Terms akzeptieren unter pyannote/speaker-diarization-3.1 und
-            pyannote/segmentation-3.0.
-          </p>
-          <button
-            onClick={() => setDiarizeWarn(false)}
-            className="btn-ghost-sm mt-2 text-[12px]"
-          >
-            Schließen
-          </button>
-        </div>
-      )}
-
       {/* Upload zone */}
       <div
         role="button"
