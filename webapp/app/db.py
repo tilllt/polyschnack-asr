@@ -40,9 +40,9 @@ def _purge_expired() -> None:
         return
     with Session(engine) as session:
         expired = session.exec(
-            select(Recording).where(
-                Recording.user_id.is_(None),
-                Recording.created_at < datetime.utcnow() - timedelta(minutes=ret),
+            select(_Recording).where(
+                _Recording.user_id.is_(None),
+                _Recording.created_at < datetime.utcnow() - timedelta(minutes=ret),
             )
         ).all()
         for rec in expired:
