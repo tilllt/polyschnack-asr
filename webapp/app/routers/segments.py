@@ -35,6 +35,9 @@ def update_segment(
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
 
+    if uid is None and settings.OIDC_ENABLED:
+        raise HTTPException(status_code=401, detail="authentication required")
+
     segments = rec.segments or []
     if idx < 0 or idx >= len(segments):
         raise HTTPException(status_code=404, detail="segment not found")

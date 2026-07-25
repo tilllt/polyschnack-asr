@@ -41,7 +41,10 @@ def _current_user(request: Request) -> int | None:
     """Return current user_id from session, or None if OIDC is disabled."""
     if not settings.OIDC_ENABLED:
         return None
-    return request.session.get("user_id")
+    uid = request.session.get("user_id")
+    if uid is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return uid
 
 
 # ---------------------------------------------------------------------------
@@ -176,12 +179,16 @@ def list_recordings_endpoint(
 @router.get("/recordings/{rid}")
 def get_recording_endpoint(
     rid: int,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Return a single recording dict including segments."""
     rec = get_recording(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
     return _recording_to_dict(rec)
 
 
@@ -193,12 +200,16 @@ def get_recording_endpoint(
 @router.get("/recordings/{rid}/audio")
 def get_audio(
     rid: int,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> FileResponse:
     """Stream the stored audio file with Range request support."""
     rec = get_recording(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
 
     path = Path(rec.stored_path)
     if not path.exists():
@@ -384,4 +395,5 @@ def stats_endpoint(
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Aggregate counts and totals across all recordings."""
-    return get_stats(session, user_id=_current_user(request))
+    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    return get_stats(session, user_id=uid)
