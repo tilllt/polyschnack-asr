@@ -24,6 +24,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const containerRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
     const regionsRef = useRef<RegionsPlugin | null>(null);
+    const onTimeUpdateRef = useRef(onTimeUpdate);
+    const onPlayStateRef = useRef(onPlayStateChange);
+    const onRegionRef = useRef(onRegionChange);
+    // Keep refs in sync with latest props
+    onTimeUpdateRef.current = onTimeUpdate;
+    onPlayStateRef.current = onPlayStateChange;
+    onRegionRef.current = onRegionChange;
     const [ready, setReady] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -79,12 +86,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         });
       });
 
-      ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdate?.(t); });
-      ws.on("play", () => { setPlaying(true); onPlayStateChange?.(true); });
-      ws.on("pause", () => { setPlaying(false); onPlayStateChange?.(false); });
-      ws.on("finish", () => { setPlaying(false); onPlayStateChange?.(false); });
+      ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
+      ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); });
+      ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
+      ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
 
-      regions.on("region-updated", (r) => onRegionChange?.(r.start, r.end));
+      regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
       wsRef.current = ws;
       regionsRef.current = regions;
