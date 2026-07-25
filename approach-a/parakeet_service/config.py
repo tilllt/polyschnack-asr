@@ -33,11 +33,6 @@ MODEL_CONFIGS = {
         "quantization": "fp16",
         "description": "FP16",
     },
-    "Buttermilk03/parakeet-primeline-onnx": {
-        "hf_id": "Buttermilk03/parakeet-primeline-onnx",
-        "quantization": None,
-        "description": "German fine-tune (primeline)",
-    },
 }
 GPU_DEFAULT_MODEL = "istupakov/parakeet-tdt-0.6b-v3-onnx"
 CPU_DEFAULT_MODEL = "parakeet-tdt-0.6b-v3"
