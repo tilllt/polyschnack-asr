@@ -99,7 +99,11 @@ def transcribe_streaming(
 
 def _parse_result(payload: dict) -> Dict[str, Any]:
     segments: List[Dict[str, Any]] = [
-        {"start": seg.get("start"), "end": seg.get("end"), "text": seg.get("text", "")}
+        {
+            "start": seg.get("start"),
+            "end": seg.get("end"),
+            "text": seg.get("text") or seg.get("segment", ""),
+        }
         for seg in payload.get("segments", [])
     ]
     return {
