@@ -42,8 +42,7 @@ COPY parakeet.png .
 RUN mkdir -p temp_uploads models && \
     chown -R parakeet:parakeet /app
 
-# Switch to non-root user
-USER parakeet
+# Run as root so the model download volume works without permission issues
 
 # Environment variables
 ENV HF_HOME=/app/models
