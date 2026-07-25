@@ -31,20 +31,20 @@ function AppContent() {
           sticky top-0 z-[100]
           bg-[rgba(12,14,20,.92)] backdrop-blur-[12px]
           border-b border-border
-          px-6 py-[14px]
-          flex items-center gap-4 flex-wrap
+          px-3 sm:px-6 py-3 sm:py-[14px]
+          flex items-center gap-2 sm:gap-4 flex-wrap
         "
       >
         {/* Brand */}
-        <div className="flex items-center gap-[10px] flex-shrink-0">
-          <span className="text-[20px] leading-none">🦜</span>
-          <h1 className="text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
+        <div className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0">
+          <span className="text-[18px] sm:text-[20px] leading-none">🦜</span>
+          <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
             Parakeet ASR
           </h1>
         </div>
 
         {/* Language switcher + Auth + Stats */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 flex-wrap">
           {user && !user.anonymous && !user.authenticated && (
             <a href="/auth/login" className="btn-ghost-sm text-[12px]">
               Login
@@ -77,7 +77,7 @@ function AppContent() {
       </header>
 
       {/* ── Main content ── */}
-      <main className="max-w-[960px] mx-auto px-5 py-6">
+      <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
         <UploadZone />
 
         <SearchBar

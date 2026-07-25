@@ -150,10 +150,10 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       `}
     >
       {/* ── Header ── */}
-      <div className="px-4 pt-[14px] pb-[10px] flex items-start gap-[10px]">
+      <div className="px-3 sm:px-4 pt-[10px] sm:pt-[14px] pb-[8px] sm:pb-[10px] flex items-start gap-2 sm:gap-[10px]">
         <span
           title={r.original_name}
-          className="font-semibold flex-1 min-w-0 break-words leading-[1.35] text-[14px] text-txt"
+          className="font-semibold flex-1 min-w-0 break-words leading-[1.35] text-[13px] sm:text-[14px] text-txt truncate"
         >
           {r.original_name}
         </span>
