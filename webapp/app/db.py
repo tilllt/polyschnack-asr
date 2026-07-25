@@ -64,6 +64,15 @@ def _auto_migrate() -> None:
     fix = sa_text("UPDATE recording SET status='uploaded' WHERE status='processing' AND text IS NULL")
     session.exec(fix)  # type: ignore[arg-type]
     log.info("Auto-migrate: reset stale 'processing' → 'uploaded'")
+
+    # Mark long-stuck "processing" as failed with memory error hint (>30min old)
+    stale = sa_text(
+        "UPDATE recording SET status='failed', error='Processing terminated (out of memory). "
+        "Try with Live Preview disabled for long files.' "
+        "WHERE status='processing' AND julianday('now') - julianday(created_at) > 0.02"
+    )
+    session.exec(stale)  # type: ignore[arg-type]
+    log.info("Auto-migrate: marked stale processing → failed (OOM hint)")
     session.commit()
 
 

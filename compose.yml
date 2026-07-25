@@ -29,6 +29,8 @@ services:
   webapp:
     image: registry.example.com/public/parakeet-asr-webapp:latest
     container_name: parakeet-webapp
+    mem_limit: 2g
+    memswap_limit: 2g
     environment:
       ASR_URL: "http://asr:5092"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
