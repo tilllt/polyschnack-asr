@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import subprocess as sp
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -74,7 +75,22 @@ def process_recording(rec_id: int) -> None:
         with Session(engine) as session:
             set_progress(session, rec_id, 20)
 
-        result = asr_client.transcribe(audio_bytes, filename, mime)
+        # Run ASR in main thread, bump progress from a timer thread
+        _progress_stop_event = threading.Event()
+
+        def _bump():
+            pct = 20
+            while not _progress_stop_event.wait(timeout=3):
+                pct = min(pct + 5, 65)
+                with Session(engine) as session:
+                    set_progress(session, rec_id, pct)
+
+        t = threading.Thread(target=_bump, daemon=True)
+        t.start()
+        try:
+            result = asr_client.transcribe(audio_bytes, filename, mime)
+        finally:
+            _progress_stop_event.set()
 
         with Session(engine) as session:
             set_progress(session, rec_id, 70)

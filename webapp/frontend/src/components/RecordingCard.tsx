@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown } from "lucide-react";
 import type { Recording } from "../api";
-import { transcribeRange } from "../api";
+import { transcribeRange, startTranscription } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -40,6 +40,15 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const { toast } = useToast();
   const { t } = useT();
   const qc = useQueryClient();
+
+  async function handleStartTranscription(id: number) {
+    try {
+      await startTranscription(id);
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`Failed: ${(e as Error).message}`, "err");
+    }
+  }
 
   async function handleTranscribeCrop(id: number, start: number, end: number) {
     try {
@@ -184,6 +193,16 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       {/* ── Audio player ── */}
       <div className={compact ? "px-4 pb-1" : "px-4 pb-[6px]"}>
         <WaveformPlayer audioUrl={r.audio_url} onRegionChange={(s, e) => setCropRange({ start: s, end: e })} />
+        {r.status === "uploaded" && (
+          <div className="mt-2 flex justify-center">
+            <button
+              onClick={() => handleStartTranscription(r.id)}
+              className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              ▶ {t("transcribe")}
+            </button>
+          </div>
+        )}
         <audio
           ref={audioRef}
           preload="none"

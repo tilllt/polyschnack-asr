@@ -103,6 +103,11 @@ export async function transcribeRange(id: number, startSec: number, endSec: numb
   return res.json() as Promise<Recording>;
 }
 
+export async function startTranscription(id: number): Promise<Recording> {
+  const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST" }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
 export async function uploadRecording(
   file: File,
   batchId: string,

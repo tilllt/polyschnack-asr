@@ -27,7 +27,7 @@ class Recording(SQLModel, table=True):
     # --- transcription results ---
     duration_s: Optional[float] = None
     language: Optional[str] = None
-    status: str = "processing"  # processing | done | failed
+    status: str = "uploaded"  # uploaded | processing | done | failed
     text: Optional[str] = None
     #: JSON list of {start, end, text} dicts; stored as SQLite JSON column.
     segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))

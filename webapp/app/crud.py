@@ -38,7 +38,7 @@ def create_recording(
         stored_path=stored_path,
         mime=mime,
         size_bytes=size_bytes,
-        status="processing",
+        status="uploaded",
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,
@@ -98,6 +98,7 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     rec.error = None
     rec.duration_s = None
     rec.processing_ms = None
+    rec.progress_pct = 0
     session.add(rec)
     session.commit()
     session.refresh(rec)

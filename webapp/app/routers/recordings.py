@@ -133,7 +133,6 @@ async def upload_recording(
         enable_diarize=enable_diarize,
         user_id=_current_user(request),
     )
-    background.add_task(process_recording, rec.id)
     return _recording_to_dict(rec)
 
 
@@ -231,6 +230,32 @@ def download_transcript(
 
 
 # ---------------------------------------------------------------------------
+# Transcribe (start manually)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/recordings/{rid}/transcribe")
+def transcribe_ep(
+    rid: int,
+    request: Request,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Start transcription for an uploaded recording."""
+    rec = get_recording(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=\"not found\")
+    uid = _current_user(request)
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail=\"not your recording\")
+    rec = set_processing(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=\"not found\")
+    background.add_task(process_recording, rec.id)
+    return _recording_to_dict(rec)
+
+
+# ---------------------------------------------------------------------------
 # Re-transcribe
 # ---------------------------------------------------------------------------
 
@@ -324,7 +349,6 @@ def transcribe_range(
         enable_diarize=rec.enable_diarize,
         user_id=uid,
     )
-    background.add_task(process_recording, new_rec.id)
     return _recording_to_dict(new_rec)
 
 
