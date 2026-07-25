@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle (transparent friendly - optional fill) -->
+  <circle cx="256" cy="256" r="240" fill="url(#bg)" opacity="0.9"/>
+
+  <!-- Branch -->
+  <path d="M60 380 Q200 340 300 360 Q380 370 460 340" stroke="#854d0e" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M440 345 Q460 320 470 300" stroke="#854d0e" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- Body -->
+  <ellipse cx="240" cy="310" rx="70" ry="55" fill="url(#body)" transform="rotate(-10, 240, 310)"/>
+
+  <!-- Belly -->
+  <ellipse cx="250" cy="325" rx="38" ry="35" fill="#bbf7d0" opacity="0.7" transform="rotate(-10, 250, 325)"/>
+
+  <!-- Tail feathers -->
+  <path d="M180 340 Q140 370 120 400" stroke="#16a34a" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M185 345 Q150 380 135 410" stroke="#15803d" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M190 348 Q165 385 155 415" stroke="#166534" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- Head -->
+  <circle cx="300" cy="255" r="45" fill="url(#body)"/>
+
+  <!-- Eye white -->
+  <circle cx="315" cy="245" r="12" fill="white"/>
+  <!-- Eye pupil -->
+  <circle cx="318" cy="243" r="6" fill="#1e293b"/>
+  <!-- Eye shine -->
+  <circle cx="320" cy="240" r="2.5" fill="white"/>
+
+  <!-- Beak -->
+  <path d="M342 255 L375 248 L342 265 Z" fill="#f59e0b"/>
+  <line x1="342" y1="260" x2="370" y2="255" stroke="#d97706" stroke-width="1.5"/>
+
+  <!-- Head crest -->
+  <path d="M280 215 Q290 190 300 200 Q310 185 320 205 Q325 195 330 210" fill="#22c55e" stroke="#16a34a" stroke-width="1.5"/>
+
+  <!-- Wing -->
+  <path d="M220 285 Q200 310 210 340 Q230 335 240 310 Z" fill="#16a34a" opacity="0.8"/>
+
+  <!-- Feet -->
+  <path d="M230 365 Q225 380 215 385" stroke="#d97706" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M235 365 Q230 382 225 388" stroke="#d97706" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+
+  <!-- Sound waves from beak -->
+  <path d="M395 240 Q405 230 400 220" stroke="url(#accent)" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M405 248 Q420 230 415 212" stroke="url(#accent)" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <path d="M415 255 Q435 230 428 205" stroke="url(#accent)" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- Transcription bubble -->
+  <rect x="360" y="170" rx="12" ry="12" width="120" height="32" fill="white" opacity="0.15" stroke="url(#accent)" stroke-width="1.5"/>
+  <circle cx="366" cy="202" r="4" fill="url(#accent)" opacity="0.5"/>
+
+  <!-- Text lines in bubble -->
+  <line x1="372" y1="182" x2="460" y2="182" stroke="white" stroke-width="2.5" opacity="0.3" stroke-linecap="round"/>
+  <line x1="372" y1="190" x2="440" y2="190" stroke="white" stroke-width="2.5" opacity="0.2" stroke-linecap="round"/>
+
+  <!-- Small decorative dots -->
+  <circle cx="100" cy="200" r="3" fill="#4ade80" opacity="0.4"/>
+  <circle cx="130" cy="180" r="2" fill="#60a5fa" opacity="0.3"/>
+  <circle cx="80" cy="230" r="2" fill="#4ade80" opacity="0.3"/>
+</svg>
