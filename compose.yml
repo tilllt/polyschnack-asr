@@ -31,7 +31,6 @@ services:
       start_period: 90s
 
   webapp:
-    build: ./webapp
     image: registry.example.com/public/parakeet-asr-webapp:latest
     container_name: parakeet-webapp
     environment:
