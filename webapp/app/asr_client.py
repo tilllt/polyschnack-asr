@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -107,3 +108,48 @@ def _parse_result(payload: dict) -> Dict[str, Any]:
         "language": payload.get("language"),
         "segments": segments,
     }
+
+
+def transcribe_async(
+    audio_bytes: bytes,
+    filename: str,
+    mime: str,
+    noise_reduce: bool = True,
+    on_progress: Optional[Callable[[int], None]] = None,
+) -> Dict[str, Any]:
+    """Submit audio via async job endpoint and poll until done.
+
+    Returns the final result dict. Calls *on_progress(pct)* periodically.
+    """
+    with httpx.Client(timeout=10) as client:
+        # Submit
+        resp = client.post(
+            f"{ASR_URL}/v1/audio/transcriptions/async",
+            files={"file": (filename, audio_bytes, mime)},
+            data={
+                "model": settings.ASR_MODEL,
+                "noise_reduce": "true" if noise_reduce else "false",
+            },
+        )
+        resp.raise_for_status()
+        job = resp.json()
+        job_id = job["job_id"]
+
+        # Poll until done
+        while True:
+            time.sleep(1)
+            try:
+                status_resp = client.get(f"{ASR_URL}/v1/audio/jobs/{job_id}", timeout=5)
+                status_resp.raise_for_status()
+                data = status_resp.json()
+            except Exception:
+                continue
+
+            pct = data.get("progress_pct", 0)
+            if on_progress:
+                on_progress(pct)
+
+            if data["status"] == "done":
+                return _parse_result(data)
+            if data["status"] == "failed":
+                raise RuntimeError(data.get("error", "async job failed"))

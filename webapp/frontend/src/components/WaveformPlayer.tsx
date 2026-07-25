@@ -100,7 +100,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     return (
       <div className="w-full">
-        <div ref={containerRef} className="w-full" />
+        {!ready && (
+          <div className="flex items-center justify-center h-[80px] text-muted2 text-[13px] gap-2">
+            <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
+            Loading waveform…
+          </div>
+        )}
+        <div ref={containerRef} className={`w-full ${ready ? "" : "hidden"}`} />
         {ready && (
           <div className="flex items-center gap-3 mt-2">
             <button

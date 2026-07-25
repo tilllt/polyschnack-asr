@@ -16,7 +16,8 @@ from typing import Any, Dict, List
 from sqlmodel import Session
 
 from . import asr_client, crud
-from .asr_client import transcribe, transcribe_streaming
+from .asr_client import transcribe as _sync_transcribe
+from .asr_client import transcribe_async, transcribe_streaming
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import diarize as run_diarization
@@ -112,7 +113,14 @@ def process_recording(rec_id: int) -> None:
             t = threading.Thread(target=_bump, daemon=True)
             t.start()
             try:
-                result = transcribe(audio_bytes, filename, mime, noise_reduce=enable_noise_reduce)
+                def _on_progress(pct: int):
+                    with Session(engine) as s:
+                        set_progress(s, rec_id, pct)
+                result = transcribe_async(
+                    audio_bytes, filename, mime,
+                    noise_reduce=enable_noise_reduce,
+                    on_progress=_on_progress,
+                )
             finally:
                 _progress_stop_event.set()
             with Session(engine) as session:

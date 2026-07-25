@@ -27,6 +27,7 @@ class Job:
     model_name: str
     raw: bytes = field(repr=False, default=b"")
     status: str = QUEUED
+    progress_pct: int = 0
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     created_at: float = 0.0
@@ -37,6 +38,7 @@ class Job:
         out: Dict[str, Any] = {
             "job_id": self.id,
             "status": self.status,
+            "progress_pct": self.progress_pct,
             "model": self.model_name,
             "created_at": self.created_at,
         }
@@ -100,7 +102,14 @@ class JobManager:
                 wav = await asyncio.to_thread(load_audio, job.raw)
                 if wav.size == 0:
                     raise ValueError("empty audio")
-                job.result = await transcribe_wav(self._get_worker(), wav, job.model_name)
+
+                async def _on_progress(done: int, total: int):
+                    job.progress_pct = int(done / total * 100)
+
+                job.result = await transcribe_wav(
+                    self._get_worker(), wav, job.model_name,
+                    progress_callback=_on_progress,
+                )
                 job.status = DONE
             except Exception as exc:  # noqa: BLE001 - record any failure on the job
                 logger.exception("job %s failed", job_id)

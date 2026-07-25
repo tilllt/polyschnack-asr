@@ -68,20 +68,37 @@ def stitch(ranges: List[Tuple[int, int]], results: List[Any]) -> Dict[str, Any]:
     return {"segments": all_segments, "words": all_words, "text": full_text}
 
 
-async def transcribe_wav(worker, wav: np.ndarray, model_name: str) -> Dict[str, Any]:
+async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
+                         progress_callback=None) -> Dict[str, Any]:
     """Full transcription of an already-decoded waveform. Returns stitched dict
-    with an added `duration` (seconds) and `chunks` count."""
+    with an added `duration` (seconds) and `chunks` count.
+
+    If *progress_callback* is given, it is called after each chunk finishes
+    as `progress_callback(done: int, total: int)`.
+    """
     duration = wav.size / TARGET_SR
     ranges = auto_chunk(wav)
     pieces = slice_chunks(wav, ranges)
     t1 = time.perf_counter()
-    results = await worker.submit_many(pieces, model_name)
+    total = len(pieces)
+
+    async def _track():
+        nonlocal done
+        done += 1
+        if progress_callback:
+            await progress_callback(done, total)
+
+    done = 0
+    futures = [worker.submit(p, model_name) for p in pieces]
+    for f in futures:
+        f.add_done_callback(lambda _: asyncio.ensure_future(_track()))
+    results = await asyncio.gather(*futures)
     infer_ms = (time.perf_counter() - t1) * 1000
     out = stitch(ranges, results)
     out["duration"] = duration
-    out["chunks"] = len(pieces)
+    out["chunks"] = total
     logger.info("transcribe_wav model=%s dur=%.2fs chunks=%d infer=%.0fms",
-                model_name, duration, len(pieces), infer_ms)
+                model_name, duration, total, infer_ms)
     return out
 
 
