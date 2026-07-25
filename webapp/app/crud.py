@@ -28,6 +28,8 @@ def create_recording(
     batch_id: Optional[str] = None,
     recorded_at: Optional[dt.datetime] = None,
     source: Optional[str] = None,
+    enable_vad: bool = False,
+    enable_diarize: bool = False,
 ) -> Recording:
     """Insert a new Recording row with status='processing' and return it."""
     rec = Recording(
@@ -39,6 +41,8 @@ def create_recording(
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,
+        enable_vad=enable_vad,
+        enable_diarize=enable_diarize,
     )
     session.add(rec)
     session.commit()

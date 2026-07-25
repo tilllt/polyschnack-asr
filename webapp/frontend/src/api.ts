@@ -29,6 +29,8 @@ export interface Recording {
   batch_id: string | null;
   recorded_at: string | null;
   source: string | null;
+  enable_vad: boolean;
+  enable_diarize: boolean;
 }
 
 export interface Stats {
@@ -38,6 +40,14 @@ export interface Stats {
   failed: number;
   total_audio_s: number;
   total_processing_ms: number;
+}
+
+export interface ModelStatus {
+  vad_available: boolean;
+  diarize_available: boolean;
+  hf_token: boolean;
+  downloading: Record<string, boolean>;
+  download_progress: Record<string, string>;
 }
 
 /* ============================================================
@@ -62,13 +72,27 @@ export async function fetchStats(): Promise<Stats> {
   return res.json() as Promise<Stats>;
 }
 
+export async function fetchModelStatus(): Promise<ModelStatus> {
+  const res = await fetch("/api/models/status").then(checkOk);
+  return res.json() as Promise<ModelStatus>;
+}
+
+export async function triggerDownload(model: "vad" | "diarize"): Promise<{ status: string; message: string }> {
+  const res = await fetch(`/api/models/${model}/download`, { method: "POST" }).then(checkOk);
+  return res.json() as Promise<{ status: string; message: string }>;
+}
+
 export async function uploadRecording(
   file: File,
-  batchId: string
+  batchId: string,
+  enableVad = false,
+  enableDiarize = false,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("batch_id", batchId);
+  fd.append("enable_vad", String(enableVad));
+  fd.append("enable_diarize", String(enableDiarize));
   const res = await fetch("/api/recordings", {
     method: "POST",
     body: fd,

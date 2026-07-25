@@ -59,6 +59,8 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "batch_id": rec.batch_id,
         "recorded_at": rec.recorded_at.isoformat() if rec.recorded_at else None,
         "source": rec.source,
+        "enable_vad": rec.enable_vad,
+        "enable_diarize": rec.enable_diarize,
     }
 
 
@@ -83,6 +85,8 @@ async def upload_recording(
     background: BackgroundTasks,
     file: UploadFile = File(...),
     batch_id: Optional[str] = Form(None),
+    enable_vad: bool = Form(False),
+    enable_diarize: bool = Form(False),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Accept a multipart audio upload, persist it, and kick off transcription."""
@@ -110,6 +114,8 @@ async def upload_recording(
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,
+        enable_vad=enable_vad,
+        enable_diarize=enable_diarize,
     )
     background.add_task(process_recording, rec.id)
     return _recording_to_dict(rec)

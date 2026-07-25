@@ -33,6 +33,7 @@ services:
       ASR_URL: "http://asr:5092"
       ASR_MODEL: parakeet-tdt-0.6b-v3
       DATA_DIR: /data
+      HF_TOKEN: ""                       # Set your HuggingFace token for diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
     ports:
       - "8088:8080"

@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
+from .routers.models import router as models_router
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ app = FastAPI(title="Parakeet PoC UI", lifespan=lifespan)
 # ------------------------------------------------------------------
 
 app.include_router(recordings_router)
+app.include_router(models_router)
 
 
 @app.get("/health")

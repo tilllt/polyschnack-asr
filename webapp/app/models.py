@@ -39,6 +39,12 @@ class Recording(SQLModel, table=True):
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
 
+    # --- post-processing flags ---
+    #: User opted into VAD silence trimming for this recording.
+    enable_vad: bool = False
+    #: User opted into speaker diarization for this recording.
+    enable_diarize: bool = False
+
     # --- WhatsApp / batch metadata ---
     #: Opaque identifier grouping files uploaded together.
     batch_id: Optional[str] = None

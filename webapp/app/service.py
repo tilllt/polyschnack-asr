@@ -43,6 +43,8 @@ def process_recording(rec_id: int) -> None:
         audio_path = Path(rec.stored_path)
         filename = rec.original_name
         mime = rec.mime or "application/octet-stream"
+        enable_vad = rec.enable_vad
+        enable_diarize = rec.enable_diarize
 
     t0 = time.perf_counter()
     status = "done"
@@ -56,7 +58,7 @@ def process_recording(rec_id: int) -> None:
         audio_bytes = audio_path.read_bytes()
 
         # Optional VAD silence trimming
-        if _VAD_TRIM:
+        if _VAD_TRIM and enable_vad:
             trimmed = _trim_silence(audio_bytes)
             if len(trimmed) < len(audio_bytes):
                 log.info("VAD trim: rec_id=%d %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
@@ -69,7 +71,7 @@ def process_recording(rec_id: int) -> None:
         segments = result["segments"]
 
         # Optional speaker diarization — merge labels into segments
-        diar = run_diarization(str(audio_path))
+        diar = run_diarization(str(audio_path)) if enable_diarize else None
         if diar:
             sd_idx = 0
             for seg in segments:
