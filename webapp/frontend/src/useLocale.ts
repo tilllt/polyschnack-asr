@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, createElement, type ReactNode } from "react";
 
 export type Lang = "de" | "en" | "pt-BR";
 
@@ -145,7 +145,7 @@ const Ctx = createContext<LocaleCtx | null>(null);
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>("en");
   const t = (key: string) => dict[lang][key] ?? key;
-  return <Ctx.Provider value={{ lang, setLang, t }}>{children}</Ctx.Provider>;
+  return createElement(Ctx.Provider, { value: { lang, setLang, t } }, children);
 }
 
 export function useT() {
