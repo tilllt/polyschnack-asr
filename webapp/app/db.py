@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text as sa_text
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import settings
@@ -58,13 +58,13 @@ def _auto_migrate() -> None:
                 dfl = f"DEFAULT {default.arg}" if default is not None else ""
                 sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type} {nullable} {dfl}"
                 log.info("Auto-migrate: %s", sql.strip())
-                session.exec(sql)  # type: ignore[arg-type]
+                session.exec(sa_text(sql))  # type: ignore[arg-type]
 
-                # Fix old recordings stuck in "processing" — reset to "uploaded" (no text = never transcribed)
-                fix = "UPDATE recording SET status='uploaded' WHERE status='processing' AND text IS NULL"
-                session.exec(fix)  # type: ignore[arg-type]
-                log.info("Auto-migrate: reset stale 'processing' → 'uploaded'")
-        session.commit()
+    # Fix old recordings stuck in "processing" — reset to "uploaded" (no text = never transcribed)
+    fix = sa_text("UPDATE recording SET status='uploaded' WHERE status='processing' AND text IS NULL")
+    session.exec(fix)  # type: ignore[arg-type]
+    log.info("Auto-migrate: reset stale 'processing' → 'uploaded'")
+    session.commit()
 
 
 def init_db() -> None:
