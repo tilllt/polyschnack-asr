@@ -41,6 +41,10 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const { t } = useT();
   const qc = useQueryClient();
 
+  // Default collapse: recordings older than 7 days start collapsed
+  const isOld = r.created_at && (Date.now() - new Date(r.created_at).getTime()) > 7 * 24 * 3600 * 1000;
+  const [collapsed, setCollapsed] = useState(isOld);
+
   async function handleStartTranscription(id: number) {
     try {
       await startTranscription(id, r.enable_vad, r.enable_diarize, r.enable_streaming, r.enable_noise_reduce);
@@ -151,15 +155,26 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
     >
       {/* ── Header ── */}
       <div className="px-3 sm:px-4 pt-[10px] sm:pt-[14px] pb-[8px] sm:pb-[10px] flex items-start gap-2 sm:gap-[10px]">
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex-shrink-0 mt-[2px] text-muted2 hover:text-txt transition-colors"
+          title={collapsed ? "Expand" : "Collapse"}
+        >
+          <ChevronDown
+            size={14}
+            className={`transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
+          />
+        </button>
         <span
           title={r.original_name}
-          className="font-semibold flex-1 min-w-0 break-words leading-[1.35] text-[13px] sm:text-[14px] text-txt truncate"
+          className="font-semibold flex-1 min-w-0 leading-[1.35] text-[13px] sm:text-[14px] text-txt truncate"
         >
           {r.original_name}
         </span>
         <StatusBadge status={r.status} t={t} />
       </div>
 
+      {!collapsed && (<>
       {/* ── Meta chips ── */}
       <div className="px-4 pb-[10px] flex gap-[14px] flex-wrap text-muted text-[12px]">
         {r.size_bytes != null && (
@@ -342,6 +357,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           {t("delete")}
         </button>
       </div>
+      </>)}
     </div>
   );
 }
