@@ -7,7 +7,7 @@ import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
-import { WaveformPlayer } from "./WaveformPlayer";
+import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
@@ -32,7 +32,7 @@ interface Props {
 }
 
 export function RecordingCard({ recording: r, compact = false }: Props) {
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const wsRef = useRef<WaveSurferHandle>(null);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
@@ -66,29 +66,17 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const segments = r.segments;
   const hasSegments = segments && segments.length > 0;
 
-  const handleTimeUpdate = useCallback(() => {
-    if (!audioRef.current || !hasSegments || !segments) return;
-    const t = audioRef.current.currentTime;
+  const handleTimeUpdate = useCallback((t: number) => {
+    if (!hasSegments || !segments) return;
     let idx = -1;
     for (let i = 0; i < segments.length; i++) {
-      if (t >= segments[i].start && t < segments[i].end) {
-        idx = i;
-        break;
-      }
+      if (t >= segments[i].start && t < segments[i].end) { idx = i; break; }
     }
-    // If past all end markers, stay on last
     if (idx === -1 && t >= (segments[segments.length - 1]?.start ?? 0)) {
       idx = segments.length - 1;
     }
     setActiveSegIdx((prev) => (prev === idx ? prev : idx));
   }, [hasSegments, segments]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !hasSegments) return;
-    audio.addEventListener("timeupdate", handleTimeUpdate);
-    return () => audio.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [handleTimeUpdate, hasSegments]);
 
   // ──── Close dl menu on outside click ────
   useEffect(() => {
@@ -144,6 +132,15 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
   const hasText = (r.text ?? "").trim().length > 0;
 
+  function handleEdited(newSegs: typeof segments, newText: string) {
+    qc.setQueryData(["recordings"], (old: Recording[] | undefined) => {
+      if (!old) return old;
+      return old.map((rec) =>
+        rec.id === r.id ? { ...rec, segments: newSegs, text: newText } : rec
+      );
+    });
+  }
+
   return (
     <div
       className={`
@@ -192,7 +189,12 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
       {/* ── Audio player ── */}
       <div className={compact ? "px-4 pb-1" : "px-4 pb-[6px]"}>
-        <WaveformPlayer audioUrl={r.audio_url} onRegionChange={(s, e) => setCropRange({ start: s, end: e })} />
+        <WaveformPlayer
+          ref={wsRef}
+          audioUrl={r.audio_url}
+          onTimeUpdate={handleTimeUpdate}
+          onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
+        />
         {r.status === "uploaded" && (
           <div className="mt-2 flex justify-center">
             <button
@@ -203,12 +205,6 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
             </button>
           </div>
         )}
-        <audio
-          ref={audioRef}
-          preload="none"
-          src={r.audio_url}
-          className="hidden"
-        />
       </div>
 
       {/* ── Transcript / Segments / Error ── */}
@@ -218,9 +214,11 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
             {hasSegments && segments ? (
               <SegmentList
                 segments={segments}
-                audioRef={audioRef}
                 activeIdx={activeSegIdx}
                 onActiveChange={setActiveSegIdx}
+                onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
+                recordingId={r.id}
+                onEdited={handleEdited}
               />
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">

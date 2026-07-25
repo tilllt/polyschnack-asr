@@ -110,6 +110,16 @@ export async function startTranscription(id: number): Promise<Recording> {
   return res.json() as Promise<Recording>;
 }
 
+export async function updateSegment(recordingId: number, segmentIdx: number, text: string):
+  Promise<{ segments: Segment[]; text: string }> {
+  const res = await fetch(`/api/recordings/${recordingId}/segments/${segmentIdx}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then(checkOk);
+  return res.json();
+}
+
 export async function uploadRecording(
   file: File,
   batchId: string,

@@ -1,17 +1,23 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
+import { updateSegment } from "../api";
 import { fmtTimecode } from "../format";
 
 interface Props {
   segments: Segment[];
-  audioRef: RefObject<HTMLAudioElement>;
+  onSeekTo?: (seconds: number) => void;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
+  recordingId?: number;
+  onEdited?: (segments: Segment[], text: string) => void;
 }
 
-export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: Props) {
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Auto-scroll the active segment into view
   useEffect(() => {
@@ -30,12 +36,24 @@ export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: P
     }
   }, [activeIdx]);
 
-  function seekTo(idx: number) {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = segments[idx].start;
-    void audio.play().catch(() => undefined);
+  function handleClick(idx: number) {
+    if (editingIdx !== null) return;  // don't seek while editing
     onActiveChange(idx);
+    onSeekTo?.(segments[idx].start);
+  }
+
+  async function handleSave(idx: number) {
+    if (saving || !recordingId || !onEdited) return;
+    setSaving(true);
+    try {
+      const result = await updateSegment(recordingId, idx, editText);
+      onEdited(result.segments, result.text);
+      setEditingIdx(null);
+    } catch {
+      // keep edit open on error, user can retry
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -53,9 +71,14 @@ export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: P
           ref={(el) => { rowRefs.current[i] = el; }}
           role="button"
           tabIndex={0}
-          onClick={() => seekTo(i)}
+          onClick={() => handleClick(i)}
+          onDoubleClick={() => {
+            if (!recordingId) return;
+            setEditingIdx(i);
+            setEditText(seg.text);
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") seekTo(i);
+            if (e.key === "Enter" || e.key === " ") { handleClick(i); }
           }}
           className={`
             flex items-baseline gap-[10px] px-3 py-[6px]
@@ -64,6 +87,7 @@ export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: P
             text-[13.5px] leading-[1.5]
             hover:bg-[rgba(91,140,255,0.07)]
             ${i === activeIdx ? "seg-active" : ""}
+            ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
           <span className="text-[11px] font-semibold text-accent min-w-[42px] flex-shrink-0 opacity-85 tabular-nums">
@@ -74,7 +98,24 @@ export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: P
               {seg.speaker.replace("SPEAKER_", "")}
             </span>
           )}
-          <span className="text-txt flex-1 min-w-0">{seg.text}</span>
+          {editingIdx === i ? (
+            <textarea
+              className="flex-1 min-w-0 bg-panel2 border border-border rounded-sm px-2 py-1 text-[13px] resize-y leading-[1.4]"
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Escape") { setEditingIdx(null); return; }
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  await handleSave(i);
+                }
+              }}
+              onBlur={() => handleSave(i)}
+              autoFocus
+            />
+          ) : (
+            <span className="text-txt flex-1 min-w-0">{seg.text}</span>
+          )}
         </div>
       ))}
     </div>
