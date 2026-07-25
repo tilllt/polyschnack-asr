@@ -143,7 +143,7 @@ interface LocaleCtx {
 const Ctx = createContext<LocaleCtx | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>("de");
+  const [lang, setLang] = useState<Lang>("en");
   const t = (key: string) => dict[lang][key] ?? key;
   return <Ctx.Provider value={{ lang, setLang, t }}>{children}</Ctx.Provider>;
 }
