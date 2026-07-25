@@ -195,6 +195,23 @@ export function UploadZone() {
           noToken={modelStatus !== null && !modelStatus.hf}
           onChange={toggleDiarize}
         />
+        {/* ASR device badge */}
+        {modelStatus && (
+          <span
+            className={[
+              "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
+              modelStatus.asr_device === "cuda"
+                ? "bg-[rgba(59,130,246,.12)] text-accent"
+                : modelStatus.asr_device === "cpu"
+                ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
+                : "bg-[rgba(248,81,73,.1)] text-err",
+            ].join(" ")}
+            title={`ASR inference: ${modelStatus.asr_device}`}
+          >
+            {modelStatus.asr_device === "cuda" ? "⚡ GPU" :
+             modelStatus.asr_device === "cpu" ? "💻 CPU" : "❓"}
+          </span>
+        )}
       </div>
     </div>
   );

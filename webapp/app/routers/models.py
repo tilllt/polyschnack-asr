@@ -7,6 +7,7 @@ import sys
 import threading
 from typing import Any, Dict
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -98,11 +99,21 @@ def _download_diarize():
 
 @router.get("/status")
 def model_status() -> Dict[str, Any]:
-    """Return availability of VAD, diarization models, and HF_TOKEN."""
+    """Return availability of VAD, diarization models, HF_TOKEN, and ASR device."""
+    asr_device = "unknown"
+    try:
+        resp = httpx.get(f"{settings.ASR_URL}/health", timeout=3)
+        resp.raise_for_status()
+        info = resp.json()
+        asr_device = info.get("device", "unknown")
+    except Exception:
+        asr_device = "unreachable"
+
     return {
         "vad_available": _check_vad(),
         "diarize_available": _check_diarize(),
         "hf_token": _hf_token(),
+        "asr_device": asr_device,
         "downloading": _downloading,
         "download_progress": _download_progress,
     }
