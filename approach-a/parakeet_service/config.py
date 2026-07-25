@@ -37,15 +37,50 @@ MODEL_CONFIGS = {
 GPU_DEFAULT_MODEL = "istupakov/parakeet-tdt-0.6b-v3-onnx"
 CPU_DEFAULT_MODEL = "parakeet-tdt-0.6b-v3"
 
-_DEFAULT_MODEL_ENV = os.getenv("PARAKEET_DEFAULT_MODEL", GPU_DEFAULT_MODEL).lower()
+
+def _auto_select_model() -> str:
+    """Detect GPU and pick the best model, falling back to CPU INT8."""
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        has_cuda = "CUDAExecutionProvider" in providers
+        if not has_cuda:
+            logger.info("Auto-select: no CUDA → CPU INT8 model")
+            return CPU_DEFAULT_MODEL
+
+        # Try to read GPU name
+        gpu_name = ""
+        try:
+            import subprocess
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                gpu_name = out.stdout.strip().lower()
+        except Exception:
+            pass
+
+        # Pick model based on GPU class
+        if "a100" in gpu_name or "h100" in gpu_name or "a10" in gpu_name or "l40" in gpu_name:
+            logger.info("Auto-select: enterprise GPU (%s) → FP16 model", gpu_name[:40])
+            return "grikdotnet/parakeet-tdt-0.6b-fp16"
+        logger.info("Auto-select: CUDA GPU (%s) → FP32 model", gpu_name[:40] if gpu_name else "unknown")
+        return GPU_DEFAULT_MODEL  # istupakov/parakeet-tdt-0.6b-v3-onnx
+    except Exception as exc:
+        logger.info("Auto-select: detection failed (%s) → CPU INT8 model", exc)
+        return CPU_DEFAULT_MODEL
+
+
+_DEFAULT_MODEL_ENV = os.getenv("PARAKEET_DEFAULT_MODEL", "").lower()
 DEFAULT_MODEL = (
     _DEFAULT_MODEL_ENV
     if _DEFAULT_MODEL_ENV in MODEL_CONFIGS
-    else GPU_DEFAULT_MODEL
+    else _auto_select_model()
 )
 
+
 # ---------------------------------------------------------------------------
-# Performance knobs
 # ---------------------------------------------------------------------------
 TARGET_SR = 16_000
 
