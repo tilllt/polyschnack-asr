@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 from . import asr_client, crud
 from .db import engine
+from .diarize import diarize as run_diarization
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,24 @@ def process_recording(rec_id: int) -> None:
         duration = result["duration"]
         language = result["language"]
         segments = result["segments"]
+
+        # Optional speaker diarization — merge labels into segments
+        diar = run_diarization(str(audio_path))
+        if diar:
+            sd_idx = 0
+            for seg in segments:
+                s_start = seg.get("start", 0)
+                s_end = seg.get("end", 0)
+                speakers = set()
+                while sd_idx < len(diar) and diar[sd_idx]["end"] <= s_start:
+                    sd_idx += 1
+                for d in diar[sd_idx:]:
+                    if d["start"] >= s_end:
+                        break
+                    if d["start"] < s_end and d["end"] > s_start:
+                        speakers.add(d["speaker"])
+                if speakers:
+                    seg["speaker"] = "/".join(sorted(speakers))
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
@@ -104,7 +123,9 @@ def to_srt(segments: List[Dict[str, Any]]) -> str:
     for i, seg in enumerate(segments, start=1):
         start = _format_timestamp_srt(float(seg.get("start", 0)))
         end = _format_timestamp_srt(float(seg.get("end", 0)))
-        text = seg.get("text", "").strip()
+        speaker = seg.get("speaker", "")
+        prefix = f"[{speaker}] " if speaker else ""
+        text = prefix + seg.get("text", "").strip()
         lines.append(f"{i}\n{start} --> {end}\n{text}\n")
     return "\n".join(lines)
 
@@ -115,7 +136,9 @@ def to_vtt(segments: List[Dict[str, Any]]) -> str:
     for seg in segments:
         start = _format_timestamp_vtt(float(seg.get("start", 0)))
         end = _format_timestamp_vtt(float(seg.get("end", 0)))
-        text = seg.get("text", "").strip()
+        speaker = seg.get("speaker", "")
+        prefix = f"[{speaker}] " if speaker else ""
+        text = prefix + seg.get("text", "").strip()
         lines.append(f"{start} --> {end}\n{text}\n")
     return "\n".join(lines)
 

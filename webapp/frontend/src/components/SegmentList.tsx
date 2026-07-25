@@ -69,6 +69,11 @@ export function SegmentList({ segments, audioRef, activeIdx, onActiveChange }: P
           <span className="text-[11px] font-semibold text-accent min-w-[42px] flex-shrink-0 opacity-85 tabular-nums">
             {fmtTimecode(seg.start)}
           </span>
+          {seg.speaker && (
+            <span className="text-[11px] font-bold text-[#25d366] min-w-[48px] flex-shrink-0 uppercase tracking-[.04em]">
+              {seg.speaker.replace("SPEAKER_", "")}
+            </span>
+          )}
           <span className="text-txt flex-1 min-w-0">{seg.text}</span>
         </div>
       ))}
