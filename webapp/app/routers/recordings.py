@@ -116,11 +116,11 @@ async def upload_recording(
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="no file provided")
 
-    # Limit upload size to 1 GB
-    MAX_SIZE = 1024 * 1024 * 1024
+    # Limit upload size
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     raw = await file.read()
-    if len(raw) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail="file too large (max 1 GB)")
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"file too large (max {settings.MAX_UPLOAD_SIZE_MB} MB)")
     await file.close()
 
     if not raw:

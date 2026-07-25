@@ -38,6 +38,9 @@ class _Settings:
     #: Public-space retention in minutes; 0 = off
     PUBLIC_RETENTION_MINUTES: int = int(os.getenv("PUBLIC_RETENTION_MINUTES", "60"))
 
+    #: Max upload file size in MB (default 1024 = 1 GB)
+    MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "1024"))
+
 
 settings = _Settings()
 
