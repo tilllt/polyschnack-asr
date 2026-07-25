@@ -30,6 +30,7 @@ def create_recording(
     source: Optional[str] = None,
     enable_vad: bool = False,
     enable_diarize: bool = False,
+    enable_streaming: bool = False,
     user_id: Optional[int] = None,
 ) -> Recording:
     """Insert a new Recording row with status='processing' and return it."""
@@ -44,6 +45,7 @@ def create_recording(
         source=source,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
+        enable_streaming=enable_streaming,
         user_id=user_id,
     )
     session.add(rec)

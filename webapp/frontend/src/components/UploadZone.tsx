@@ -17,6 +17,7 @@ export function UploadZone() {
   // — Model toggles —
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
+  const [livePreview, setLivePreview] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function UploadZone() {
 
     const results = await Promise.allSettled(
       items.map((f) =>
-        uploadRecording(f, batchId, vadOn, diarizeOn, (pct) => {
+        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, (pct) => {
           const fileBytes = (f.size * pct) / 100;
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
@@ -194,6 +195,12 @@ export function UploadZone() {
           available={modelStatus?.diarize_available ?? false}
           noToken={modelStatus !== null && !modelStatus.hf_token}
           onChange={toggleDiarize}
+        />
+        <ToggleSwitch
+          label="Live Preview"
+          enabled={livePreview}
+          available={true}
+          onChange={() => setLivePreview((v) => !v)}
         />
         {/* ASR device badge */}
         {modelStatus && (

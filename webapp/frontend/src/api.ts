@@ -31,6 +31,7 @@ export interface Recording {
   source: string | null;
   enable_vad: boolean;
   enable_diarize: boolean;
+  enable_streaming: boolean;
   progress_pct: number;
 }
 
@@ -114,6 +115,7 @@ export async function uploadRecording(
   batchId: string,
   enableVad = false,
   enableDiarize = false,
+  enableStreaming = false,
   onProgress?: (pct: number) => void,
 ): Promise<Recording> {
   const fd = new FormData();
@@ -121,6 +123,7 @@ export async function uploadRecording(
   fd.append("batch_id", batchId);
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
+  fd.append("enable_streaming", String(enableStreaming));
 
   // Use XHR for progress tracking; fall back to fetch if unavailable
   if (!onProgress) {

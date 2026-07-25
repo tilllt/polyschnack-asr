@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 from sqlmodel import Session
 
 from . import asr_client, crud
+from .asr_client import transcribe, transcribe_streaming
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import diarize as run_diarization
@@ -49,6 +50,7 @@ def process_recording(rec_id: int) -> None:
         mime = rec.mime or "application/octet-stream"
         enable_vad = rec.enable_vad
         enable_diarize = rec.enable_diarize
+        enable_streaming = rec.enable_streaming
 
     t0 = time.perf_counter()
     status = "done"
@@ -75,25 +77,41 @@ def process_recording(rec_id: int) -> None:
         with Session(engine) as session:
             set_progress(session, rec_id, 20)
 
-        # Run ASR in main thread, bump progress from a timer thread
-        _progress_stop_event = threading.Event()
+        # Run ASR (batched sync or SSE streaming)
+        if enable_streaming:
 
-        def _bump():
-            pct = 20
-            while not _progress_stop_event.wait(timeout=3):
-                pct = min(pct + 5, 65)
+            def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
+                pct = int((idx + 1) / total * 70) + 10
                 with Session(engine) as session:
                     set_progress(session, rec_id, pct)
+                    if acc_text:
+                        rec = crud.get_recording(session, rec_id)
+                        if rec:
+                            rec.text = acc_text
+                            session.add(rec)
+                            session.commit()
 
-        t = threading.Thread(target=_bump, daemon=True)
-        t.start()
-        try:
-            result = asr_client.transcribe(audio_bytes, filename, mime)
-        finally:
-            _progress_stop_event.set()
+            result = transcribe_streaming(audio_bytes, filename, mime, on_chunk=_on_chunk)
+            with Session(engine) as session:
+                set_progress(session, rec_id, 80)
+        else:
+            _progress_stop_event = threading.Event()
 
-        with Session(engine) as session:
-            set_progress(session, rec_id, 70)
+            def _bump():
+                pct = 20
+                while not _progress_stop_event.wait(timeout=3):
+                    pct = min(pct + 5, 65)
+                    with Session(engine) as session:
+                        set_progress(session, rec_id, pct)
+
+            t = threading.Thread(target=_bump, daemon=True)
+            t.start()
+            try:
+                result = transcribe(audio_bytes, filename, mime)
+            finally:
+                _progress_stop_event.set()
+            with Session(engine) as session:
+                set_progress(session, rec_id, 70)
 
         text = result["text"]
         duration = result["duration"]

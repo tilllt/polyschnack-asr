@@ -223,14 +223,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                 onActiveChange={setActiveSegIdx}
               />
             ) : hasText ? (
-              <div
-                className="
-                  bg-panel2 border border-border rounded-sm
-                  px-[14px] py-3 whitespace-pre-wrap leading-[1.65]
-                  max-h-[240px] overflow-y-auto scrollbar-thin
-                  text-[13.5px] text-txt break-words
-                "
-              >
+              <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
                 {r.text}
               </div>
             ) : (
@@ -239,6 +232,11 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
               </div>
             )}
           </>
+        )}
+        {r.status === "processing" && r.text && (
+          <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt/70 break-words">
+            {r.text}
+          </div>
         )}
         {r.status === "failed" && (
           <div className="text-err text-[13px] py-1 leading-[1.5]">

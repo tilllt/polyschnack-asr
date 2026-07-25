@@ -74,6 +74,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "source": rec.source,
         "enable_vad": rec.enable_vad,
         "enable_diarize": rec.enable_diarize,
+        "enable_streaming": rec.enable_streaming,
         "user_id": rec.user_id,
     }
 
@@ -102,6 +103,7 @@ async def upload_recording(
     batch_id: Optional[str] = Form(None),
     enable_vad: bool = Form(False),
     enable_diarize: bool = Form(False),
+    enable_streaming: bool = Form(False),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Accept a multipart audio upload, persist it, and kick off transcription."""
@@ -131,6 +133,7 @@ async def upload_recording(
         source=source,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
+        enable_streaming=enable_streaming,
         user_id=_current_user(request),
     )
     return _recording_to_dict(rec)

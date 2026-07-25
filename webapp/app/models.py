@@ -47,6 +47,8 @@ class Recording(SQLModel, table=True):
     enable_vad: bool = False
     #: User opted into speaker diarization for this recording.
     enable_diarize: bool = False
+    #: User opted into live streaming preview (SSE per-chunk results).
+    enable_streaming: bool = False
 
     # --- user (optional) ---
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
