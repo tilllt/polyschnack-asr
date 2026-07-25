@@ -8,6 +8,7 @@ import { useT } from "../useLocale";
 export function UploadZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { t } = useT();
@@ -46,10 +47,22 @@ export function UploadZone() {
     if (!items.length) return;
 
     setIsUploading(true);
+    setUploadProgress(0);
     const batchId = crypto.randomUUID();
+    const totalSize = items.reduce((s, f) => s + f.size, 0);
+    let uploadedBytes = 0;
 
     const results = await Promise.allSettled(
-      items.map((f) => uploadRecording(f, batchId, vadOn, diarizeOn))
+      items.map((f) =>
+        uploadRecording(f, batchId, vadOn, diarizeOn, (pct) => {
+          const fileBytes = (f.size * pct) / 100;
+          setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
+        }).then((r) => {
+          uploadedBytes += f.size;
+          setUploadProgress(Math.round((uploadedBytes / totalSize) * 100));
+          return r;
+        })
+      )
     );
 
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
@@ -133,7 +146,20 @@ export function UploadZone() {
         `}
       >
         <div className="text-[32px] mb-2 leading-none">
-          {isUploading ? "⏳" : <Mic size={32} className="mx-auto text-muted" />}
+          {isUploading ? (
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[18px]">⏳</span>
+              <div className="w-[200px] h-2 bg-border rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-muted2">{uploadProgress}%</span>
+            </div>
+          ) : (
+            <Mic size={32} className="mx-auto text-muted" />
+          )}
         </div>
         <div className="font-semibold text-[15px] text-txt">
           {isUploading ? t("uploading") : t("drag_here")}

@@ -100,17 +100,36 @@ export async function uploadRecording(
   batchId: string,
   enableVad = false,
   enableDiarize = false,
+  onProgress?: (pct: number) => void,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("batch_id", batchId);
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
-  const res = await fetch("/api/recordings", {
-    method: "POST",
-    body: fd,
-  }).then(checkOk);
-  return res.json() as Promise<Recording>;
+
+  // Use XHR for progress tracking; fall back to fetch if unavailable
+  if (!onProgress) {
+    const res = await fetch("/api/recordings", { method: "POST", body: fd }).then(checkOk);
+    return res.json() as Promise<Recording>;
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/recordings");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText) as Recording);
+      } else {
+        reject(new Error(`upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(fd);
+  });
 }
 
 export async function deleteRecording(id: number): Promise<void> {
