@@ -26,7 +26,7 @@ export function UploadZone() {
   }, []);
 
   function toggleVad() {
-    if (!modelStatus?.vad) {
+    if (!modelStatus?.vad_available) {
       triggerDownload("vad").catch(() => {});
       toast("Downloading VAD model…", "ok");
     }
@@ -34,8 +34,8 @@ export function UploadZone() {
   }
 
   function toggleDiarize() {
-    if (!modelStatus?.hf) return;  // silently disabled — admin must set HF_TOKEN
-    if (!modelStatus?.diarize) {
+    if (!modelStatus?.hf_token) return;  // silently disabled — admin must set HF_TOKEN
+    if (!modelStatus?.diarize_available) {
       triggerDownload("diarize").catch(() => {});
     }
     setDiarizeOn((d) => !d);
