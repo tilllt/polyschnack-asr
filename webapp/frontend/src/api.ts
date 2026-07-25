@@ -38,6 +38,7 @@ export interface Stats {
   total: number;
   done: number;
   processing: number;
+  uploaded: number;
   failed: number;
   total_audio_s: number;
   total_processing_ms: number;

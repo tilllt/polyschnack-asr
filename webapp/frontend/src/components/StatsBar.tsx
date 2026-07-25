@@ -13,6 +13,7 @@ export function StatsBar({ stats }: Props) {
     <div className="flex gap-[18px] flex-wrap flex-1 justify-end">
       <StatItem val={stats?.total ?? "—"} lbl={t("recordings")} />
       <StatItem val={stats?.done ?? "—"} lbl={t("done")} />
+      <StatItem val={stats?.uploaded ?? "—"} lbl={"uploaded"} />
       <StatItem val={stats?.processing ?? "—"} lbl={t("processing")} />
       <StatItem val={fmtTotalDur(stats?.total_audio_s)} lbl={t("total_audio")} />
     </div>

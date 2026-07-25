@@ -59,6 +59,11 @@ def _auto_migrate() -> None:
                 sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type} {nullable} {dfl}"
                 log.info("Auto-migrate: %s", sql.strip())
                 session.exec(sql)  # type: ignore[arg-type]
+
+                # Fix old recordings stuck in "processing" — reset to "uploaded" (no text = never transcribed)
+                fix = "UPDATE recording SET status='uploaded' WHERE status='processing' AND text IS NULL"
+                session.exec(fix)  # type: ignore[arg-type]
+                log.info("Auto-migrate: reset stale 'processing' → 'uploaded'")
         session.commit()
 
 
