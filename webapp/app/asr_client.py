@@ -124,7 +124,7 @@ def transcribe_async(
     with httpx.Client(timeout=10) as client:
         # Submit
         resp = client.post(
-            f"{ASR_URL}/v1/audio/transcriptions/async",
+            f"{settings.ASR_URL}/v1/audio/transcriptions/async",
             files={"file": (filename, audio_bytes, mime)},
             data={
                 "model": settings.ASR_MODEL,
@@ -139,7 +139,7 @@ def transcribe_async(
         while True:
             time.sleep(1)
             try:
-                status_resp = client.get(f"{ASR_URL}/v1/audio/jobs/{job_id}", timeout=5)
+                status_resp = client.get(f"{settings.ASR_URL}/v1/audio/jobs/{job_id}", timeout=5)
                 status_resp.raise_for_status()
                 data = status_resp.json()
             except Exception:
