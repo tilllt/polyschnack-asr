@@ -109,9 +109,21 @@ def auto_chunk(wav: np.ndarray) -> List[Tuple[int, int]]:
     if total <= int(CHUNK_MAX_SEC * TARGET_SR):
         return [(0, total)]
 
-    target = int(CHUNK_TARGET_SEC * TARGET_SR)
-    max_len = int(CHUNK_MAX_SEC * TARGET_SR)
-    min_len = int(CHUNK_MIN_SEC * TARGET_SR)
+    # Dynamic chunk sizing: for long audio, scale target to keep ~20 chunks
+    total_sec = total / TARGET_SR
+    base_target = int(CHUNK_TARGET_SEC * TARGET_SR)
+    if total_sec > 30 * 60:
+        # Aim for 20-25 chunks regardless of file length
+        dynamic_sec = max(total_sec / 22, CHUNK_TARGET_SEC)
+        dynamic_sec = min(dynamic_sec, CHUNK_MAX_SEC * 2)  # cap at 150s
+        target = int(dynamic_sec * TARGET_SR)
+        max_len = int(min(dynamic_sec * 1.5, CHUNK_MAX_SEC * 2) * TARGET_SR)
+        min_len = int(base_target * 0.5)
+        logger.info("Dynamic chunk: total=%.1fs target=%.0fs max=%.0fs", total_sec, dynamic_sec, max_len / TARGET_SR)
+    else:
+        target = base_target
+        max_len = int(CHUNK_MAX_SEC * TARGET_SR)
+        min_len = int(CHUNK_MIN_SEC * TARGET_SR)
 
     segs = _silero_speech_segments(wav)
     if not segs:
@@ -159,4 +171,15 @@ def auto_chunk(wav: np.ndarray) -> List[Tuple[int, int]]:
 
 
 def slice_chunks(wav: np.ndarray, ranges: List[Tuple[int, int]]) -> List[np.ndarray]:
-    return [wav[s:e].copy() for s, e in ranges]
+    """Slice wav by ranges, skipping near-silent chunks."""
+    out: List[np.ndarray] = []
+    skipped = 0
+    for s, e in ranges:
+        piece = wav[s:e]
+        if piece.size > 0 and np.sqrt((piece * piece).mean()) < 1e-4:
+            skipped += 1
+            continue
+        out.append(piece.copy())
+    if skipped:
+        logger.info("slice_chunks: skipped %d silent chunk(s)", skipped)
+    return out
