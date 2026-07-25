@@ -18,6 +18,7 @@ export function UploadZone() {
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
   const [livePreview, setLivePreview] = useState(false);
+  const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
   useEffect(() => {
@@ -60,10 +61,15 @@ export function UploadZone() {
 
     const results = await Promise.allSettled(
       items.map((f) =>
-        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, (pct) => {
+        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, false, (pct) => {
           const fileBytes = (f.size * pct) / 100;
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
+          // Check for duplicate detection
+          if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
+            setDupPrompt({ file: f, batchId });
+            return null;
+          }
           uploadedBytes += f.size;
           setUploadProgress(Math.round((uploadedBytes / totalSize) * 100));
           return r;
@@ -89,6 +95,19 @@ export function UploadZone() {
     await qc.invalidateQueries({ queryKey: ["stats"] });
 
     setIsUploading(false);
+  }
+
+  async function handleForceUpload(file: File, batchId: string) {
+    setIsUploading(true);
+    try {
+      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, true);
+      toast("Uploaded (forced)", "ok");
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`Upload failed: ${(e as Error).message}`, "err");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   // — Drag/drop handlers —
@@ -185,6 +204,31 @@ export function UploadZone() {
           onChange={handleInputChange}
         />
       </div>
+
+      {/* Duplicate file prompt */}
+      {dupPrompt && (
+        <div className="bg-[rgba(248,81,73,.08)] border border-err/30 rounded-sm px-4 py-3 text-[13px] flex items-center gap-3">
+          <span className="text-muted flex-1">
+            <strong>{dupPrompt.file.name}</strong> already exists.
+          </span>
+          <button
+            onClick={async () => {
+              const f = dupPrompt.file;
+              setDupPrompt(null);
+              await handleForceUpload(f, dupPrompt.batchId);
+            }}
+            className="btn-ghost-sm text-err text-[12px]"
+          >
+            Upload again
+          </button>
+          <button
+            onClick={() => setDupPrompt(null)}
+            className="btn-ghost-sm text-[12px]"
+          >
+            Skip
+          </button>
+        </div>
+      )}
 
       {/* Toggle switches */}
       <div className="flex items-center justify-center gap-6 flex-wrap">

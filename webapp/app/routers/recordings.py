@@ -8,11 +8,12 @@ from __future__ import annotations
 import mimetypes
 import uuid
 from pathlib import Path
+import hashlib
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..config import settings
 from ..crud import (
@@ -116,6 +117,19 @@ async def upload_recording(
     if not raw:
         raise HTTPException(status_code=400, detail="empty file")
 
+    # Compute content hash for duplicate detection
+    content_hash = hashlib.blake2b(raw, digest_size=16).hexdigest()
+    existing = session.exec(
+        select(Recording).where(Recording.content_hash == content_hash)
+    ).first()
+
+    if existing and not (request.query_params.get("force") == "true"):
+        return {
+            "duplicate": True,
+            "existing_id": existing.id,
+            "recording": _recording_to_dict(existing),
+        }
+
     ext = Path(file.filename).suffix or ".bin"
     stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{ext}"
     stored.write_bytes(raw)
@@ -134,6 +148,7 @@ async def upload_recording(
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
+        content_hash=content_hash,
         user_id=_current_user(request),
     )
     return _recording_to_dict(rec)

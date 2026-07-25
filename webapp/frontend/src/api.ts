@@ -126,8 +126,9 @@ export async function uploadRecording(
   enableVad = false,
   enableDiarize = false,
   enableStreaming = false,
+  force = false,
   onProgress?: (pct: number) => void,
-): Promise<Recording> {
+): Promise<Recording | { duplicate: true; existing_id: number; recording: Recording }> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("batch_id", batchId);
@@ -135,21 +136,21 @@ export async function uploadRecording(
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
 
-  // Use XHR for progress tracking; fall back to fetch if unavailable
+  const url = force ? `/api/recordings?force=true` : "/api/recordings";
   if (!onProgress) {
-    const res = await fetch("/api/recordings", { method: "POST", body: fd }).then(checkOk);
+    const res = await fetch(url, { method: "POST", body: fd }).then(checkOk);
     return res.json() as Promise<Recording>;
   }
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/recordings");
+    xhr.open("POST", url);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText) as Recording);
+        resolve(JSON.parse(xhr.responseText));
       } else {
         reject(new Error(`upload failed: ${xhr.status}`));
       }
