@@ -85,6 +85,8 @@ def _exchange_code(disco: dict, code: str, verifier: str) -> dict:
         "code_verifier": verifier,
     }
     resp = httpx.post(disco["token_endpoint"], data=data)
+    if resp.status_code != 200:
+        log.error("OIDC token exchange failed (HTTP %d): %s", resp.status_code, resp.text[:500])
     resp.raise_for_status()
     return resp.json()
 
