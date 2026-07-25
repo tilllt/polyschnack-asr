@@ -5,6 +5,7 @@ import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
+import { useT } from "../useLocale";
 
 interface Props {
   recording: Recording;
@@ -17,6 +18,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const [dlOpen, setDlOpen] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { t } = useT();
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
 
@@ -65,30 +67,30 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       text = segments.map((s) => s.text).join(" ");
     }
     if (!text.trim()) {
-      toast("Sem texto para copiar.", "err");
+      toast(t("no_text_to_copy"), "err");
       return;
     }
     try {
       await navigator.clipboard.writeText(text.trim());
-      toast("Texto copiado!", "ok");
+      toast(t("text_copied"), "ok");
     } catch {
-      toast("Falha ao copiar (sem permissão?)", "err");
+      toast(t("copy_failed"), "err");
     }
   }
 
   function handleDelete() {
-    if (!confirm("Excluir essa gravação permanentemente?")) return;
+    if (!confirm(t("confirm_delete"))) return;
     deleteMut.mutate(r.id, {
-      onSuccess: () => toast("Gravação excluída.", "ok"),
-      onError: (e) => toast(`Erro ao excluir: ${e.message}`, "err"),
+      onSuccess: () => toast(t("deleted"), "ok"),
+      onError: (e) => toast(`${t("delete_error")}: ${e.message}`, "err"),
     });
   }
 
   function handleRetranscribe() {
-    if (!confirm("Re-transcrever esse áudio? A transcrição atual será substituída.")) return;
+    if (!confirm(t("confirm_retranscribe"))) return;
     retranscribeMut.mutate(r.id, {
-      onSuccess: () => toast("Re-transcrição iniciada!", "ok"),
-      onError: (e) => toast(`Erro: ${e.message}`, "err"),
+      onSuccess: () => toast(t("retranscribe_started"), "ok"),
+      onError: (e) => toast(`${t("error")}: ${e.message}`, "err"),
     });
   }
 
@@ -124,22 +126,22 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       {/* ── Meta chips ── */}
       <div className="px-4 pb-[10px] flex gap-[14px] flex-wrap text-muted text-[12px]">
         {r.size_bytes != null && (
-          <span title="Tamanho">{fmtBytes(r.size_bytes)}</span>
+          <span title={t("size")}>{fmtBytes(r.size_bytes)}</span>
         )}
         {r.duration_s != null && (
-          <span title="Duração" className="flex items-center gap-1">
+          <span title={t("duration")} className="flex items-center gap-1">
             <span>⏱</span>
             {fmtDurSec(r.duration_s)}
           </span>
         )}
         {r.processing_ms != null && (
-          <span title="Tempo de processamento" className="flex items-center gap-1">
+          <span title={t("processing_time")} className="flex items-center gap-1">
             <span>⚡</span>
             {fmtMs(r.processing_ms)}
           </span>
         )}
         {r.created_at && (
-          <span title="Criado em">{fmtDate(r.created_at)}</span>
+          <span title={t("created_at")}>{fmtDate(r.created_at)}</span>
         )}
         {r.language && (
           <span className="bg-[rgba(91,140,255,.1)] text-accent px-[7px] py-[1px] rounded-full text-[11px] font-semibold">
@@ -182,7 +184,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
               </div>
             ) : (
               <div className="text-muted italic text-[13px] py-[6px]">
-                (transcrição vazia)
+                {t("empty_transcript")}
               </div>
             )}
           </>
@@ -190,7 +192,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         {r.status === "failed" && (
           <div className="text-err text-[13px] py-1 leading-[1.5]">
             <span className="mr-1">⚠️</span>
-            {r.error ?? "Erro desconhecido"}
+            {r.error ?? t("unknown_error")}
           </div>
         )}
         {r.status === "processing" && (
@@ -208,7 +210,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
             className="btn-ghost-sm"
           >
             <Copy size={12} />
-            Copiar
+            {t("copy")}
           </button>
         )}
 
@@ -249,7 +251,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                       {fmt.toUpperCase()}
                     </span>
                     <span>
-                      {fmt === "txt" ? "Plain text" : fmt === "srt" ? "SubRip" : "WebVTT"}
+                      {fmt === "txt" ? t("plain_text") : fmt === "srt" ? "SubRip" : "WebVTT"}
                     </span>
                   </a>
                 ))}
@@ -264,7 +266,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           className="btn-ghost-sm flex items-center gap-1"
         >
           <RotateCcw size={12} className={retranscribeMut.isPending ? "animate-spin" : ""} />
-          Re-transcrever
+          {t("retranscribe")}
         </button>
 
         <button
@@ -273,7 +275,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           className="btn-danger-sm flex items-center gap-1"
         >
           <Trash2 size={12} />
-          Excluir
+          {t("delete")}
         </button>
       </div>
     </div>
@@ -287,7 +289,7 @@ function StatusBadge({ status }: { status: Recording["status"] }) {
     return (
       <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(63,185,80,.15)] text-ok">
         <CheckCircle2 size={11} />
-        pronto
+          {t("ready")}
       </span>
     );
   }
@@ -295,14 +297,14 @@ function StatusBadge({ status }: { status: Recording["status"] }) {
     return (
       <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(248,81,73,.15)] text-err">
         <XCircle size={11} />
-        falhou
+        {t("failed")}
       </span>
     );
   }
   return (
     <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(88,166,255,.15)] text-proc">
-      <Loader2 size={11} className="animate-spin" />
-      processando
+        <Loader2 size={11} className="animate-spin" />
+        {t("processing")}
     </span>
   );
 }

@@ -3,12 +3,14 @@ import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { uploadRecording } from "../api";
 import { useToast } from "./Toasts";
+import { useT } from "../useLocale";
 
 export function UploadZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { t } = useT();
   const qc = useQueryClient();
 
   async function handleFiles(files: FileList | File[]) {
@@ -32,10 +34,7 @@ export function UploadZone() {
       .filter((e): e is string => e !== null);
 
     if (succeeded > 0) {
-      toast(
-        `${succeeded} arquivo${succeeded !== 1 ? "s" : ""} enviado${succeeded !== 1 ? "s" : ""}`,
-        "ok"
-      );
+      toast(`${succeeded} ${t("recordings")}`, "ok");
     }
     errors.forEach((msg) => toast(msg, "err"));
 
@@ -84,7 +83,7 @@ export function UploadZone() {
     <div
       role="button"
       tabIndex={0}
-      aria-label="Área de upload de áudio"
+      aria-label={t("drag_zone")}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       onDragOver={handleDragOver}
@@ -107,11 +106,11 @@ export function UploadZone() {
       </div>
       <div className="font-semibold text-[15px] text-txt">
         {isUploading
-          ? "Enviando arquivos…"
-          : "Arraste arquivos aqui ou clique para escolher"}
+          ? t("uploading")
+          : t("drag_here")}
       </div>
       <div className="text-[12.5px] mt-1 text-muted">
-        Múltiplos arquivos aceitos — todos enviados em paralelo
+        {t("multi_files")}
       </div>
       <div className="mt-[10px] text-[11px] text-muted2 tracking-[.03em]">
         MP3 · WAV · OGG / OPUS · M4A · FLAC · WEBM

@@ -8,20 +8,23 @@ interface Props {
   query: string;
 }
 
+import { useT } from "../useLocale";
+
 export function RecordingList({ recordings, query }: Props) {
+  const { t } = useT();
   if (!recordings.length) {
     return (
       <div className="text-center py-[60px] px-6 text-muted">
         <div className="text-[40px] mb-3">🎧</div>
         <p className="text-[15px] m-1">
           {query
-            ? `Nenhum resultado para "${query}"`
-            : "Nenhum áudio ainda"}
+            ? `${t("no_results")} "${query}"`
+            : t("no_audio_yet")}
         </p>
         <small className="text-[12px] text-muted2">
           {query
-            ? "Tente outra busca."
-            : "Arraste arquivos acima para começar."}
+            ? t("try_other_search")
+            : t("drag_to_start")}
         </small>
       </div>
     );

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRecordings, useStats } from "./hooks";
 import { ToastProvider } from "./components/Toasts";
+import { LocaleProvider, useT, type Lang } from "./useLocale";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { SearchBar } from "./components/SearchBar";
@@ -8,6 +9,7 @@ import { RecordingList } from "./components/RecordingList";
 
 function AppContent() {
   const [query, setQuery] = useState("");
+  const { t, lang, setLang } = useT();
 
   const recordingsQuery = useRecordings(query);
   const statsQuery = useStats();
@@ -35,8 +37,27 @@ function AppContent() {
           </h1>
         </div>
 
-        {/* Stats */}
-        <StatsBar stats={stats} />
+        {/* Language switcher + Stats */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <button
+            onClick={() => {
+              const langs: Array<Lang> = ["de", "en", "pt-BR"];
+              const idx = langs.indexOf(lang);
+              setLang(langs[(idx + 1) % langs.length]);
+            }}
+            className="btn-ghost-sm text-[12px] px-2"
+            title={
+              lang === "de" ? "Switch to English" :
+              lang === "en" ? "Mudar para português" :
+              "Zu Deutsch wechseln"
+            }
+          >
+            {lang === "de" ? "🇬🇧 EN" :
+             lang === "en" ? "🇧🇷 PT" :
+             "🇩🇪 DE"}
+          </button>
+          <StatsBar stats={stats} />
+        </div>
       </header>
 
       {/* ── Main content ── */}
@@ -51,8 +72,8 @@ function AppContent() {
 
         {recordingsQuery.isError && (
           <div className="mt-4 text-err text-[13px]">
-            Erro ao carregar gravações:{" "}
-            {recordingsQuery.error?.message ?? "desconhecido"}
+            {t("error_loading")}{" "}
+            {recordingsQuery.error?.message ?? t("unknown")}
           </div>
         )}
 
@@ -64,8 +85,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
+    <LocaleProvider>
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
+    </LocaleProvider>
   );
 }

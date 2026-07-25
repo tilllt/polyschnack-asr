@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
+import { useT } from "../useLocale";
 
 interface Props {
   value: string;
@@ -10,6 +11,7 @@ interface Props {
 export function SearchBar({ value, onChange, count }: Props) {
   const [local, setLocal] = useState(value);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { t } = useT();
 
   // Sync external reset (e.g. if parent clears)
   useEffect(() => {
@@ -37,7 +39,7 @@ export function SearchBar({ value, onChange, count }: Props) {
           type="search"
           value={local}
           onChange={handleChange}
-          placeholder="Buscar por nome ou texto…"
+          placeholder={t("search_placeholder")}
           autoComplete="off"
           className="
             w-full bg-panel border border-border2 rounded-sm
@@ -52,7 +54,7 @@ export function SearchBar({ value, onChange, count }: Props) {
       {/* Count */}
       {count !== null && count > 0 && (
         <span className="text-muted text-[13px] whitespace-nowrap flex-shrink-0">
-          {count} gravaç{count !== 1 ? "ões" : "ão"}
+          {count} {t("recordings")}
         </span>
       )}
     </div>

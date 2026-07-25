@@ -1,17 +1,20 @@
 import type { Stats } from "../api";
 import { fmtTotalDur } from "../format";
 
+import { useT } from "../useLocale";
+
 interface Props {
   stats: Stats | undefined;
 }
 
 export function StatsBar({ stats }: Props) {
+  const { t } = useT();
   return (
     <div className="flex gap-[18px] flex-wrap flex-1 justify-end">
-      <StatItem val={stats?.total ?? "—"} lbl="gravações" />
-      <StatItem val={stats?.done ?? "—"} lbl="prontas" />
-      <StatItem val={stats?.processing ?? "—"} lbl="processando" />
-      <StatItem val={fmtTotalDur(stats?.total_audio_s)} lbl="áudio total" />
+      <StatItem val={stats?.total ?? "—"} lbl={t("recordings")} />
+      <StatItem val={stats?.done ?? "—"} lbl={t("done")} />
+      <StatItem val={stats?.processing ?? "—"} lbl={t("processing")} />
+      <StatItem val={fmtTotalDur(stats?.total_audio_s)} lbl={t("total_audio")} />
     </div>
   );
 }

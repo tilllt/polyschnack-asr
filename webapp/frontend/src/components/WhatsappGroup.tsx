@@ -9,6 +9,8 @@ interface Props {
   group: WhatsappGroupItem;
 }
 
+import { useT } from "../useLocale";
+
 export function WhatsappGroup({ group }: Props) {
   const [expanded, setExpanded] = useState(true);
   const { toast } = useToast();
@@ -28,6 +30,8 @@ export function WhatsappGroup({ group }: Props) {
       ? firstTime
       : `${firstTime}–${lastTime}`;
 
+  const { t } = useT();
+
   async function handleCopyAll() {
     const texts = members
       .map((m) => {
@@ -38,14 +42,14 @@ export function WhatsappGroup({ group }: Props) {
       .filter(Boolean);
 
     if (!texts.length) {
-      toast("Sem texto para copiar.", "err");
+      toast(t("no_text_to_copy"), "err");
       return;
     }
     try {
       await navigator.clipboard.writeText(texts.join("\n\n"));
-      toast("Tudo copiado!", "ok");
+      toast(t("copied"), "ok");
     } catch {
-      toast("Falha ao copiar (sem permissão?)", "err");
+      toast(t("copy_failed"), "err");
     }
   }
 
@@ -58,7 +62,7 @@ export function WhatsappGroup({ group }: Props) {
           <MessageCircle size={16} className="text-[#25d366] flex-shrink-0" />
           <span className="font-semibold text-[14px] text-txt">WhatsApp</span>
           <span className="bg-[rgba(37,211,102,.12)] text-[#25d366] text-[11px] font-semibold px-[7px] py-[1px] rounded-full flex-shrink-0">
-            {members.length} áudios
+            {members.length} {t("recordings")}
           </span>
           <span className="text-muted text-[12px] flex-shrink-0 hidden sm:inline">
             {dateLabel}
@@ -77,11 +81,11 @@ export function WhatsappGroup({ group }: Props) {
             className="btn-ghost-sm flex items-center gap-1"
           >
             <Copy size={12} />
-            Copiar tudo
+            {t("copy_all")}
           </button>
           <button
             onClick={() => setExpanded((e) => !e)}
-            aria-label={expanded ? "Recolher grupo" : "Expandir grupo"}
+            aria-label={expanded ? t("collapse_group") : t("expand_group")}
             className="btn-ghost-sm p-[6px]"
           >
             <ChevronDown
