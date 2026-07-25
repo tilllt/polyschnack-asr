@@ -69,15 +69,16 @@ def get_recording(session: Session, rec_id: int) -> Optional[Recording]:
 
 
 def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional[int] = None) -> List[Recording]:
-    """Return all recordings ordered by newest first.
+    """Return recordings ordered by newest first.
 
-    When *q* is provided, only rows whose ``original_name`` or ``text``
-    contain *q* (case-insensitive) are returned.
-    When *user_id* is provided, only recordings belonging to that user.
+    - *user_id* = ``None`` → only recordings with no owner (public/shared space)
+    - *user_id* = ``int`` → only recordings belonging to that user (private space)
     """
     stmt = select(Recording)
     if user_id is not None:
         stmt = stmt.where(Recording.user_id == user_id)
+    else:
+        stmt = stmt.where(Recording.user_id.is_(None))
     if q:
         term = f"%{q.lower()}%"
         stmt = stmt.where(
@@ -170,6 +171,8 @@ def get_stats(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]
     stmt = select(Recording)
     if user_id is not None:
         stmt = stmt.where(Recording.user_id == user_id)
+    else:
+        stmt = stmt.where(Recording.user_id.is_(None))
     rows = list(session.exec(stmt).all())
     total = len(rows)
     done = sum(1 for r in rows if r.status == "done")
