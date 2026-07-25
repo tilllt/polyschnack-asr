@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import subprocess as sp
 import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -101,30 +100,16 @@ def process_recording(rec_id: int) -> None:
             with Session(engine) as session:
                 set_progress(session, rec_id, 80)
         else:
-            _progress_stop_event = threading.Event()
-
-            def _bump():
-                pct = 20
-                while not _progress_stop_event.wait(timeout=3):
-                    pct = min(pct + 5, 65)
-                    with Session(engine) as session:
-                        set_progress(session, rec_id, pct)
-
-            t = threading.Thread(target=_bump, daemon=True)
-            t.start()
-            try:
-                def _on_progress(pct: int):
-                    with Session(engine) as s:
-                        set_progress(s, rec_id, pct)
-                result = transcribe_async(
-                    audio_bytes, filename, mime,
-                    noise_reduce=enable_noise_reduce,
-                    on_progress=_on_progress,
-                )
-            finally:
-                _progress_stop_event.set()
+            def _on_progress(pct: int):
+                with Session(engine) as s:
+                    set_progress(s, rec_id, pct)
+            result = transcribe_async(
+                audio_bytes, filename, mime,
+                noise_reduce=enable_noise_reduce,
+                on_progress=_on_progress,
+            )
             with Session(engine) as session:
-                set_progress(session, rec_id, 70)
+                set_progress(session, rec_id, 95)
 
         text = result["text"]
         duration = result["duration"]
