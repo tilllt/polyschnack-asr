@@ -14,6 +14,7 @@ export interface Segment {
 
 export interface Recording {
   id: string;
+  uid: string;
   original_name: string;
   mime: string;
   size_bytes: number;
