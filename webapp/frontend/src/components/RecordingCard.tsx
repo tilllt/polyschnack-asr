@@ -35,6 +35,7 @@ interface Props {
 export function RecordingCard({ recording: r, compact = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
+  const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -73,6 +74,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const hasSegments = segments && segments.length > 0;
 
   const handleTimeUpdate = useCallback((t: number) => {
+    setCurrentTime(t);
     if (!hasSegments || !segments) return;
     let idx = -1;
     for (let i = 0; i < segments.length; i++) {
@@ -258,6 +260,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                 onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
                 recordingId={r.uid}
                 onEdited={handleEdited}
+                currentTime={currentTime}
               />
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">

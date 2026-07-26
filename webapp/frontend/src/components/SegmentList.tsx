@@ -10,9 +10,14 @@ interface Props {
   onActiveChange: (idx: number) => void;
   recordingId?: string;
   onEdited?: (segments: Segment[], text: string) => void;
+  currentTime?: number;
 }
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited }: Props) {
+function wordsMatchText(words: { word: string }[], text: string): boolean {
+  return words.map((w) => w.word).join(" ") === text;
+}
+
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -114,7 +119,25 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
               autoFocus
             />
           ) : (
-            <span className="text-txt flex-1 min-w-0">{seg.text}</span>
+            <span className="text-txt flex-1 min-w-0">
+              {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx && wordsMatchText(seg.words, seg.text)
+                ? seg.words.map((w, wi) => {
+                    const isActive = currentTime >= w.start && currentTime < w.end;
+                    return (
+                      <span
+                        key={wi}
+                        className={
+                          isActive
+                            ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
+                            : ""
+                        }
+                      >
+                        {w.word}{wi < seg.words!.length - 1 ? " " : ""}
+                      </span>
+                    );
+                  })
+                : seg.text}
+            </span>
           )}
         </div>
       ))}
