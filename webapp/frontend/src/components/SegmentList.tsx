@@ -125,11 +125,13 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                         role="button"
                         tabIndex={isActive ? 0 : -1}
                         onClick={(e) => {
+                          if (editingIdx !== null) return;
                           e.stopPropagation();
                           onActiveChange(i);
                           onSeekTo?.(w.start);
                         }}
                         onKeyDown={(e) => {
+                          if (editingIdx !== null) return;
                           if (e.key === "Enter" || e.key === " ") {
                             e.stopPropagation();
                             onActiveChange(i);
