@@ -122,10 +122,24 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                     return (
                       <span
                         key={wi}
+                        role="button"
+                        tabIndex={isActive ? 0 : -1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onActiveChange(i);
+                          onSeekTo?.(w.start);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            onActiveChange(i);
+                            onSeekTo?.(w.start);
+                          }
+                        }}
                         className={
                           isActive
-                            ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
-                            : ""
+                            ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2 cursor-pointer"
+                            : "cursor-pointer hover:text-accent/70 transition-colors"
                         }
                       >
                         {w.word}{wi < seg.words!.length - 1 ? " " : ""}
