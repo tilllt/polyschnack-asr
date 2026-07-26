@@ -35,8 +35,9 @@ def update_segment(
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
 
-    if uid is None and settings.OIDC_ENABLED:
-        raise HTTPException(status_code=401, detail="authentication required")
+    # Anonymous users may only edit public (shared-space) recordings
+    if uid is None and rec.user_id is not None:
+        raise HTTPException(status_code=403, detail="cannot edit another user's recording")
 
     segments = rec.segments or []
     if idx < 0 or idx >= len(segments):
