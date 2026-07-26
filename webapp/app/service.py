@@ -72,7 +72,7 @@ def process_recording(rec_id: int) -> None:
         if _VAD_TRIM and enable_vad:
             trimmed = _trim_silence(audio_bytes)
             if len(trimmed) < len(audio_bytes):
-                log.info("VAD trim: rec_id=%d %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
+                log.info("VAD trim: rec_id=%s %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
             audio_bytes = trimmed
 
         with Session(engine) as session:

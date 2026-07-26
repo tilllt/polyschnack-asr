@@ -20,6 +20,7 @@ from ..crud import (
     create_recording,
     delete_recording,
     get_recording,
+    get_recording_by_uid,
     get_stats,
     list_recordings,
     set_processing,
@@ -56,8 +57,10 @@ _AUDIO_MIME_FALLBACK = "audio/mpeg"
 
 def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
     """Serialise a Recording row to the canonical API response shape."""
+    uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
     return {
         "id": rec.id,
+        "uid": uid,
         "original_name": rec.original_name,
         "mime": rec.mime,
         "size_bytes": rec.size_bytes,
@@ -70,8 +73,8 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "created_at": rec.created_at.isoformat(),
         "language": rec.language,
         "segments": rec.segments,
-        "audio_url": f"/api/recordings/{rec.id}/audio",
-        "download_url": f"/api/recordings/{rec.id}/download",
+        "audio_url": f"/api/recordings/{uid}/audio",
+        "download_url": f"/api/recordings/{uid}/download",
         # WhatsApp / batch fields
         "batch_id": rec.batch_id,
         "recorded_at": rec.recorded_at.isoformat() if rec.recorded_at else None,
@@ -188,12 +191,12 @@ def list_recordings_endpoint(
 
 @router.get("/recordings/{rid}")
 def get_recording_endpoint(
-    rid: int,
+    rid: str,
     request: Request,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Return a single recording dict including segments."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
@@ -209,12 +212,12 @@ def get_recording_endpoint(
 
 @router.get("/recordings/{rid}/audio")
 def get_audio(
-    rid: int,
+    rid: str,
     request: Request,
     session: Session = Depends(get_session),
 ) -> FileResponse:
     """Stream the stored audio file with Range request support."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
@@ -226,7 +229,12 @@ def get_audio(
         raise HTTPException(status_code=410, detail="audio file gone")
 
     mime = _guess_mime(rec.stored_path, rec.mime)
-    return FileResponse(str(path), media_type=mime, filename=rec.original_name)
+    return FileResponse(
+        str(path),
+        media_type=mime,
+        filename=rec.original_name,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +244,7 @@ def get_audio(
 
 @router.get("/recordings/{rid}/download")
 def download_transcript(
-    rid: int,
+    rid: str,
     format: str = "txt",
     session: Session = Depends(get_session),
 ) -> Response:
@@ -244,7 +252,7 @@ def download_transcript(
     if format not in ("txt", "srt", "vtt"):
         raise HTTPException(status_code=400, detail="format must be txt, srt, or vtt")
 
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
 
@@ -278,7 +286,7 @@ def download_transcript(
 
 @router.post("/recordings/{rid}/transcribe")
 def transcribe_ep(
-    rid: int,
+    rid: str,
     request: Request,
     background: BackgroundTasks,
     enable_vad: bool = Form(False),
@@ -288,7 +296,7 @@ def transcribe_ep(
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Start transcription for an uploaded recording."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
@@ -303,7 +311,7 @@ def transcribe_ep(
     session.add(rec)
     session.commit()
 
-    rec = set_processing(session, rid)
+    rec = set_processing(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     background.add_task(process_recording, rec.id)
@@ -317,19 +325,19 @@ def transcribe_ep(
 
 @router.post("/recordings/{rid}/retranscribe")
 def retranscribe(
-    rid: int,
+    rid: str,
     request: Request,
     background: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Reset transcription state and re-queue the audio for processing."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
-    rec = set_processing(session, rid)
+    rec = set_processing(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     background.add_task(process_recording, rec.id)
@@ -343,18 +351,18 @@ def retranscribe(
 
 @router.delete("/recordings/{rid}")
 def delete_recording_endpoint(
-    rid: int,
+    rid: str,
     request: Request,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Delete the database row and the audio file from disk."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
-    rec = delete_recording(session, rid)
+    rec = delete_recording(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
 
@@ -370,7 +378,7 @@ def delete_recording_endpoint(
 
 @router.post("/recordings/{rid}/transcribe-range", status_code=201)
 def transcribe_range(
-    rid: int,
+    rid: str,
     start_sec: float,
     end_sec: float,
     request: Request = None,
@@ -378,7 +386,7 @@ def transcribe_range(
     session: Session = Depends(get_session),
 ):
     """Crop audio to [start_sec, end_sec] and transcribe the segment as a new recording."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)

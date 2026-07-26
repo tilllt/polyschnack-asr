@@ -70,6 +70,11 @@ def get_recording(session: Session, rec_id: int) -> Optional[Recording]:
     return session.get(Recording, rec_id)
 
 
+def get_recording_by_uid(session: Session, uid: str) -> Optional[Recording]:
+    """Return the Recording with *uid*, or ``None`` if not found."""
+    return session.exec(select(Recording).where(Recording.uid == uid)).first()
+
+
 def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional[int] = None) -> List[Recording]:
     """Return recordings ordered by newest first.
 
@@ -86,7 +91,7 @@ def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional
         stmt = stmt.where(
             Recording.original_name.ilike(term) | Recording.text.ilike(term)  # type: ignore[union-attr]
         )
-    stmt = stmt.order_by(Recording.id.desc())  # type: ignore[arg-type]
+    stmt = stmt.order_by(Recording.created_at.desc())  # type: ignore[arg-type]
     return list(session.exec(stmt).all())
 
 

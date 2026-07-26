@@ -7,6 +7,7 @@ word/sentence-level timeline returned by the ASR service as a JSON list.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, List, Optional
 
 from sqlalchemy import JSON, Column
@@ -17,6 +18,14 @@ class Recording(SQLModel, table=True):
     """Persisted metadata + transcription result for one uploaded audio file."""
 
     id: Optional[int] = Field(default=None, primary_key=True)
+
+    # Unique external reference (UUID hex) — prevents browser-cache confusion
+    # when recordings are deleted and re-created.
+    uid: str = Field(
+        default_factory=lambda: uuid.uuid4().hex,
+        unique=True,
+        index=True,
+    )
 
     # --- upload metadata ---
     original_name: str

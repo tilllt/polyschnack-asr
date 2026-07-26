@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..config import settings
-from ..crud import get_recording
+from ..crud import get_recording_by_uid
 from ..db import get_session
 
 router = APIRouter(prefix="/api")
@@ -20,14 +20,14 @@ class SegmentUpdate(BaseModel):
 
 @router.patch("/recordings/{rid}/segments/{idx}")
 def update_segment(
-    rid: int,
+    rid: str,
     idx: int,
     body: SegmentUpdate,
     request: Request = None,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Update the text of a single segment in-place."""
-    rec = get_recording(session, rid)
+    rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
 

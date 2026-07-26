@@ -12,7 +12,7 @@ export interface Segment {
 }
 
 export interface Recording {
-  id: number;
+  id: string;
   original_name: string;
   mime: string;
   size_bytes: number;
@@ -100,13 +100,13 @@ export async function triggerDownload(model: "vad" | "diarize"): Promise<{ statu
   return res.json() as Promise<{ status: string; message: string }>;
 }
 
-export async function transcribeRange(id: number, startSec: number, endSec: number): Promise<Recording> {
+export async function transcribeRange(id: string, startSec: number, endSec: number): Promise<Recording> {
   const params = new URLSearchParams({ start_sec: String(startSec), end_sec: String(endSec) });
   const res = await fetch(`/api/recordings/${id}/transcribe-range?${params}`, { method: "POST" }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
 
-export async function startTranscription(id: number, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true): Promise<Recording> {
+export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
@@ -116,7 +116,7 @@ export async function startTranscription(id: number, enableVad = false, enableDi
   return res.json() as Promise<Recording>;
 }
 
-export async function updateSegment(recordingId: number, segmentIdx: number, text: string):
+export async function updateSegment(recordingId: string, segmentIdx: number, text: string):
   Promise<{ segments: Segment[]; text: string }> {
   const res = await fetch(`/api/recordings/${recordingId}/segments/${segmentIdx}`, {
     method: "PATCH",
@@ -135,7 +135,7 @@ export async function uploadRecording(
   enableNoiseReduce = true,
   force = false,
   onProgress?: (pct: number) => void,
-): Promise<Recording | { duplicate: true; existing_id: number; recording: Recording }> {
+): Promise<Recording | { duplicate: true; existing_id: string; recording: Recording }> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("batch_id", batchId);
@@ -168,11 +168,11 @@ export async function uploadRecording(
   });
 }
 
-export async function deleteRecording(id: number): Promise<void> {
+export async function deleteRecording(id: string): Promise<void> {
   await fetch(`/api/recordings/${id}`, { method: "DELETE" }).then(checkOk);
 }
 
-export async function retranscribeRecording(id: number): Promise<Recording> {
+export async function retranscribeRecording(id: string): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",
   }).then(checkOk);

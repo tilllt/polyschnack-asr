@@ -50,7 +50,7 @@ export function useStats() {
 export function useUpload() {
   const qc = useQueryClient();
 
-  return useMutation<Recording | { duplicate: true; existing_id: number; recording: Recording }, Error, { file: File; batchId: string }>({
+  return useMutation<Recording | { duplicate: true; existing_id: string; recording: Recording }, Error, { file: File; batchId: string }>({
     mutationFn: ({ file, batchId }) => uploadRecording(file, batchId),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });

@@ -45,7 +45,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const isOld = r.created_at && (Date.now() - new Date(r.created_at).getTime()) > 7 * 24 * 3600 * 1000;
   const [collapsed, setCollapsed] = useState(isOld);
 
-  async function handleStartTranscription(id: number) {
+  async function handleStartTranscription(id: string) {
     try {
       await startTranscription(id, r.enable_vad, r.enable_diarize, r.enable_streaming, r.enable_noise_reduce);
       await qc.invalidateQueries({ queryKey: ["recordings"] });
@@ -54,7 +54,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
     }
   }
 
-  async function handleTranscribeCrop(id: number, start: number, end: number) {
+  async function handleTranscribeCrop(id: string, start: number, end: number) {
     try {
       await transcribeRange(id, start, end);
       toast(`✂ Crop transcribing ${fmtTime(start)}–${fmtTime(end)}`, "ok");

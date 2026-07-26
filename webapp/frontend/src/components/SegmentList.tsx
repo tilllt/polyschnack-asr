@@ -8,7 +8,7 @@ interface Props {
   onSeekTo?: (seconds: number) => void;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
-  recordingId?: number;
+  recordingId?: string;
   onEdited?: (segments: Segment[], text: string) => void;
 }
 
