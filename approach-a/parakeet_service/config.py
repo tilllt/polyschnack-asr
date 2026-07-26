@@ -12,6 +12,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = ROOT_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+logger = logging.getLogger("parakeet_v3")
+
 # Point HF cache at local models dir
 os.environ.setdefault("HF_HOME", str(MODELS_DIR))
 os.environ.setdefault("HF_HUB_CACHE", str(MODELS_DIR))
@@ -151,7 +153,6 @@ logging.basicConfig(
     stream=sys.stdout,
     force=True,
 )
-logger = logging.getLogger("parakeet_v3")
 
 CPU_INFO = {
     "physical": _physical,

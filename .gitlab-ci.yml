@@ -10,7 +10,7 @@ test-core:
   script:
     - apt-get update -qq && apt-get install -y -qq ffmpeg > /dev/null 2>&1
     - pip install -q numpy pytest 2>/dev/null
-    - cd approach-a && python -m pytest tests/ -v --tb=short
+    - cd approach-a && PARAKEET_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 python -m pytest tests/ -v --tb=short
   only:
     - main
 

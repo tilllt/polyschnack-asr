@@ -8,13 +8,8 @@ Validates:
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-
 import pytest
-from asr_client import _parse_result
+from app.asr_client import _parse_result
 
 
 def test_parse_result_passes_words_through():
