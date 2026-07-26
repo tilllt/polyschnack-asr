@@ -190,7 +190,7 @@ async def transcribe(
                 {
                     "id": i, "seek": 0,
                     "start": s["start"], "end": s["end"], "text": s["segment"],
-                    "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
+                    "tokens": [], "words": s.get("words", []), "temperature": 0.0, "avg_logprob": 0.0,
                     "compression_ratio": 0.0, "no_speech_prob": 0.0,
                 }
                 for i, s in enumerate(segments)
