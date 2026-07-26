@@ -96,7 +96,13 @@ def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional
 
 
 def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
-    """Reset a recording to processing state, clearing previous results."""
+    """Reset a recording to processing state, clearing previous results.
+
+    ``duration_s`` is NOT cleared here so the frontend can show a meaningful
+    ETA from the upload-time estimate while the ASR worker is still starting up.
+    The worker will overwrite it with the decoded duration when it finishes.
+    ``progress_pct`` starts at 1 (not 0) so the frontend does not hide the ETA.
+    """
     rec = session.get(Recording, rec_id)
     if rec is None:
         return None
@@ -105,9 +111,9 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     rec.segments = None
     rec.language = None
     rec.error = None
-    rec.duration_s = None
+    # keep duration_s — the upload already gave us a rough estimate for ETA
     rec.processing_ms = None
-    rec.progress_pct = 0
+    rec.progress_pct = 1  # 1 instead of 0 so fmtETA can compute
     session.add(rec)
     session.commit()
     session.refresh(rec)
