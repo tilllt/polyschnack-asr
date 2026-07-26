@@ -10,10 +10,9 @@ interface Props {
   onActiveChange: (idx: number) => void;
   recordingId?: string;
   onEdited?: (segments: Segment[], text: string) => void;
-  currentTime?: number;
 }
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime }: Props) {
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
