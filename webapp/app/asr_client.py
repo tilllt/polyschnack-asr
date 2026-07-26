@@ -99,22 +99,15 @@ def transcribe_streaming(
 
 
 def _parse_result(payload: dict) -> Dict[str, Any]:
-    segments: List[Dict[str, Any]] = []
-    for seg in payload.get("segments", []):
-        words = seg.get("words", [])
-        text = seg.get("text") or seg.get("segment", "")
-        # If ASR didn't return word timestamps, generate proportional ones
-        if not words and text.strip():
-            s = seg.get("start", 0)
-            e = seg.get("end", s + 0.1)
-            text_words = text.strip().split()
-            n = len(text_words)
-            dur = max(e - s, 0.1)
-            words = [
-                {"word": w, "start": s + (i / n) * dur, "end": s + ((i + 1) / n) * dur}
-                for i, w in enumerate(text_words)
-            ]
-        segments.append({"start": seg.get("start"), "end": seg.get("end"), "text": text, "words": words})
+    segments: List[Dict[str, Any]] = [
+        {
+            "start": seg.get("start"),
+            "end": seg.get("end"),
+            "text": seg.get("text") or seg.get("segment", ""),
+            "words": seg.get("words", []),
+        }
+        for seg in payload.get("segments", [])
+    ]
     return {
         "text": payload.get("text", ""),
         "duration": payload.get("duration"),

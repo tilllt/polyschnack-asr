@@ -261,7 +261,15 @@ def get_recording_endpoint(
     uid = _current_user(request) if settings.OIDC_ENABLED else None
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
-    return _recording_to_dict(rec)
+    d = _recording_to_dict(rec)
+    # Debug: include word presence info without changing data
+    segs = d.get("segments") or []
+    d["_words_debug"] = {
+        "total_segments": len(segs),
+        "segs_with_words": sum(1 for s in segs if s.get("words") and len(s["words"]) > 0),
+        "total_words": sum(len(s.get("words") or []) for s in segs),
+    }
+    return d
 
 
 # ---------------------------------------------------------------------------
