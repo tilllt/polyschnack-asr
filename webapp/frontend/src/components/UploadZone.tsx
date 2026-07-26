@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchModelStatus, triggerDownload, uploadRecording, type ModelStatus } from "../api";
+import { fetchModelStatus, triggerDownload, uploadRecording, importFromUrl, recordFromMic, type ModelStatus } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 
 export function UploadZone() {
+  const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -14,7 +15,7 @@ export function UploadZone() {
   const { t } = useT();
   const qc = useQueryClient();
 
-  // — Model toggles —
+  // — Model toggles (shared by all tabs) —
   const [vadOn, setVadOn] = useState(false);
   const [diarizeOn, setDiarizeOn] = useState(false);
   const [livePreview, setLivePreview] = useState(false);
@@ -49,7 +50,7 @@ export function UploadZone() {
     });
   }
 
-  // — Upload logic —
+  // — Upload logic (same as before) —
   async function handleFiles(files: FileList | File[]) {
     const items = Array.from(files);
     if (!items.length) return;
@@ -66,7 +67,6 @@ export function UploadZone() {
           const fileBytes = (f.size * pct) / 100;
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
-          // Check for duplicate detection
           if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
             setDupPrompt({ file: f, batchId });
             return null;
@@ -111,7 +111,7 @@ export function UploadZone() {
     }
   }
 
-  // — Drag/drop handlers —
+  // — Drag/drop handlers (for UploadTab) —
   function handleClick() {
     if (isUploading) return;
     fileRef.current?.click();
@@ -149,62 +149,55 @@ export function UploadZone() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Upload zone */}
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label={t("drag_zone")}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`
-          border-2 border-dashed rounded-card
-          px-6 py-9 text-center cursor-pointer
-          select-none transition-all duration-200
-          bg-panel
-          ${
-            active
-              ? "border-accent bg-[rgba(91,140,255,0.06)] text-txt"
-              : "border-border2 text-muted hover:border-accent hover:bg-[rgba(91,140,255,0.06)] hover:text-txt"
-          }
-        `}
-      >
-        <div className="text-[32px] mb-2 leading-none">
-          {isUploading ? (
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-[18px]">⏳</span>
-              <div className="w-[200px] h-2 bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-              <span className="text-[11px] text-muted2">{uploadProgress}%</span>
-            </div>
-          ) : (
-            <Mic size={32} className="mx-auto text-muted" />
-          )}
-        </div>
-        <div className="font-semibold text-[15px] text-txt">
-          {isUploading ? t("uploading") : t("drag_here")}
-        </div>
-        <div className="text-[12.5px] mt-1 text-muted">
-          {t("multi_files")}
-        </div>
-        <div className="mt-[10px] text-[11px] text-muted2 tracking-[.03em]">
-          MP3 · WAV · OGG / OPUS · M4A · FLAC · WEBM
-        </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/*"
-          multiple
-          className="hidden"
-          onChange={handleInputChange}
-        />
+      {/* Tab bar */}
+      <div className="flex gap-0 border-b border-border">
+        <TabButton active={inputMode === "upload"} onClick={() => setInputMode("upload")}>
+          📤 {t("tab_upload")}
+        </TabButton>
+        <TabButton active={inputMode === "record"} onClick={() => setInputMode("record")}>
+          🎤 {t("tab_record")}
+        </TabButton>
+        <TabButton active={inputMode === "url"} onClick={() => setInputMode("url")}>
+          🔗 {t("tab_url")}
+        </TabButton>
       </div>
+
+      {/* Tab content */}
+      {inputMode === "upload" && (
+        <UploadTab
+          isUploading={isUploading}
+          isDragging={isDragging}
+          uploadProgress={uploadProgress}
+          active={active}
+          handleClick={handleClick}
+          handleKeyDown={handleKeyDown}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          handleInputChange={handleInputChange}
+          fileRef={fileRef}
+          t={t}
+        />
+      )}
+      {inputMode === "record" && (
+        <RecordTab
+          setIsUploading={setIsUploading}
+          toast={toast}
+          qc={qc}
+          t={t}
+          vadOn={vadOn} diarizeOn={diarizeOn}
+          livePreview={livePreview} noiseReduce={noiseReduce}
+        />
+      )}
+      {inputMode === "url" && (
+        <UrlTab
+          toast={toast}
+          qc={qc}
+          t={t}
+          vadOn={vadOn} diarizeOn={diarizeOn}
+          livePreview={livePreview} noiseReduce={noiseReduce}
+        />
+      )}
 
       {/* Duplicate file prompt */}
       {dupPrompt && (
@@ -231,7 +224,7 @@ export function UploadZone() {
         </div>
       )}
 
-      {/* Toggle switches */}
+      {/* Toggle switches (shared by all tabs) */}
       <div className="flex items-center justify-center gap-6 flex-wrap">
         <ToggleSwitch
           label="VAD (Silence trim)"
@@ -258,7 +251,6 @@ export function UploadZone() {
           available={true}
           onChange={() => setNoiseReduce((v) => !v)}
         />
-        {/* ASR device badge */}
         {modelStatus && (
           <span
             className={[
@@ -275,6 +267,230 @@ export function UploadZone() {
              modelStatus.asr_device === "cpu" ? "💻 CPU" : "❓"}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab button ──
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors ${
+        active
+          ? "border-accent text-accent"
+          : "border-transparent text-muted hover:text-txt"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Upload tab ──
+
+function UploadTab({ isUploading, isDragging, uploadProgress, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={t("drag_zone")}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`
+        border-2 border-dashed rounded-card
+        px-6 py-9 text-center cursor-pointer
+        select-none transition-all duration-200
+        bg-panel
+        ${
+          active
+            ? "border-accent bg-[rgba(91,140,255,0.06)] text-txt"
+            : "border-border2 text-muted hover:border-accent hover:bg-[rgba(91,140,255,0.06)] hover:text-txt"
+        }
+      `}
+    >
+      <div className="text-[32px] mb-2 leading-none">
+        {isUploading ? (
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-[18px]">⏳</span>
+            <div className="w-[200px] h-2 bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+            <span className="text-[11px] text-muted2">{uploadProgress}%</span>
+          </div>
+        ) : (
+          <Mic size={32} className="mx-auto text-muted" />
+        )}
+      </div>
+      <div className="font-semibold text-[15px] text-txt">
+        {isUploading ? t("uploading") : t("drag_here")}
+      </div>
+      <div className="text-[12.5px] mt-1 text-muted">
+        {t("multi_files")}
+      </div>
+      <div className="mt-[10px] text-[11px] text-muted2 tracking-[.03em]">
+        MP3 · WAV · OGG / OPUS · M4A · FLAC · WEBM
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        onChange={handleInputChange}
+      />
+    </div>
+  );
+}
+
+// ── Record tab ──
+
+function RecordTab({ setIsUploading, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
+  const [duration, setDuration] = useState(0);
+  const timerRef = useRef<number>(0);
+
+  async function acquireWakeLock() {
+    try {
+      const wl = await navigator.wakeLock.request("screen");
+      setWakelock(wl);
+      wl.addEventListener("release", () => setWakelock(null));
+    } catch {}
+  }
+
+  function releaseWakeLock() {
+    wakelock?.release().catch(() => {});
+    setWakelock(null);
+  }
+
+  function getBestMime(): string {
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+    return "";
+  }
+
+  async function startRecording() {
+    acquireWakeLock();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = getBestMime();
+    const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks: BlobPart[] = [];
+    mr.ondataavailable = (e) => chunks.push(e.data);
+    mr.onstop = async () => {
+      releaseWakeLock();
+      clearInterval(timerRef.current);
+      setDuration(0);
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+      setIsUploading(true);
+      try {
+        const batchId = crypto.randomUUID();
+        await recordFromMic(blob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
+        await qc.invalidateQueries({ queryKey: ["recordings"] });
+        toast("Recording uploaded", "ok");
+      } catch (e) {
+        toast(`Upload failed: ${(e as Error).message}`, "err");
+      } finally {
+        setIsUploading(false);
+      }
+    };
+    mr.start(1000);
+    setMediaRecorder(mr);
+    setRecording(true);
+    timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
+  }
+
+  function stopRecording() {
+    mediaRecorder?.stop();
+    setRecording(false);
+    setMediaRecorder(null);
+  }
+
+  useEffect(() => {
+    return () => {
+      clearInterval(timerRef.current);
+      releaseWakeLock();
+    };
+  }, []);
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-6">
+      <button
+        onClick={recording ? stopRecording : startRecording}
+        disabled={false}
+        className={`w-20 h-20 rounded-full text-2xl flex items-center justify-center transition-all
+          ${recording
+            ? "bg-err text-white shadow-lg animate-pulse"
+            : "bg-accent text-white hover:bg-accent/90"
+          }
+        `}
+      >
+        {recording ? "⏹" : "🎤"}
+      </button>
+      <div className="text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
+      {wakelock && (
+        <div className="text-[11px] text-muted2 flex items-center gap-1">
+          <span>🔒</span> {t("rec_wakelock")}
+        </div>
+      )}
+      <div className="text-[12px] text-muted">{t("rec_btn")}</div>
+    </div>
+  );
+}
+
+// ── URL tab ──
+
+function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
+  const [url, setUrl] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleSubmit() {
+    if (!url.trim() || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const result = await importFromUrl(url.trim(), vadOn, diarizeOn, livePreview, noiseReduce);
+      toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+      await qc.invalidateQueries({ queryKey: ["stats"] });
+      setUrl("");
+    } catch (e) {
+      toast(`Import failed: ${(e as Error).message}`, "err");
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <div className="text-[12px] text-muted">{t("url_placeholder")}</div>
+      <div className="flex gap-2 w-full max-w-[500px]">
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://youtube.com/watch?v=…"
+          className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={isDownloading || !url.trim()}
+          className="btn-accent text-[13px] px-4 py-2 rounded-sm whitespace-nowrap"
+        >
+          {isDownloading ? "⏳" : "🔗"} {t("url_download")}
+        </button>
       </div>
     </div>
   );

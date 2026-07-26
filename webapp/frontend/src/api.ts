@@ -170,6 +170,44 @@ export async function uploadRecording(
   });
 }
 
+export async function importFromUrl(
+  url: string,
+  enableVad = false,
+  enableDiarize = false,
+  enableStreaming = false,
+  enableNoiseReduce = true,
+): Promise<Recording> {
+  const fd = new FormData();
+  fd.append("url", url);
+  fd.append("enable_vad", String(enableVad));
+  fd.append("enable_diarize", String(enableDiarize));
+  fd.append("enable_streaming", String(enableStreaming));
+  fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  const res = await fetch("/api/recordings/from-url", { method: "POST", body: fd }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
+export async function recordFromMic(
+  blob: Blob,
+  batchId: string,
+  enableVad = false,
+  enableDiarize = false,
+  enableStreaming = false,
+  enableNoiseReduce = true,
+): Promise<Recording> {
+  const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
+  const fd = new FormData();
+  const file = new File([blob], `recording_${Date.now()}${ext}`, { type: blob.type });
+  fd.append("file", file);
+  fd.append("batch_id", batchId);
+  fd.append("enable_vad", String(enableVad));
+  fd.append("enable_diarize", String(enableDiarize));
+  fd.append("enable_streaming", String(enableStreaming));
+  fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  const res = await fetch("/api/recordings", { method: "POST", body: fd }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
 export async function deleteRecording(id: string): Promise<void> {
   await fetch(`/api/recordings/${id}`, { method: "DELETE" }).then(checkOk);
 }

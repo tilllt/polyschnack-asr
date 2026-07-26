@@ -24,6 +24,7 @@ WORKDIR /app
 # Resolve Python deps first for layer caching
 COPY pyproject.toml ./
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN uv pip install --system yt-dlp
 RUN uv sync
 
 # Copy application source

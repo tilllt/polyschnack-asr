@@ -28,6 +28,7 @@ from .routers.recordings import router as recordings_router
 from .routers.models import router as models_router
 from .routers.auth import router as auth_router
 from .routers.segments import router as segments_router
+from .routers.url_import import router as url_import_router
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ app.add_middleware(
 app.include_router(recordings_router)
 app.include_router(models_router)
 app.include_router(segments_router)
+app.include_router(url_import_router)
 app.include_router(auth_router)
 
 
