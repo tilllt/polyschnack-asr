@@ -7,6 +7,7 @@ import { useT } from "../useLocale";
 
 export function UploadZone() {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
+  const [recording, setRecording] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -151,13 +152,13 @@ export function UploadZone() {
     <div className="flex flex-col gap-4">
       {/* Tab bar */}
       <div className="flex gap-0 border-b border-border">
-        <TabButton active={inputMode === "upload"} onClick={() => setInputMode("upload")}>
+        <TabButton active={inputMode === "upload"} disabled={recording} onClick={() => setInputMode("upload")}>
           📤 {t("tab_upload")}
         </TabButton>
-        <TabButton active={inputMode === "record"} onClick={() => setInputMode("record")}>
+        <TabButton active={inputMode === "record"} disabled={recording} onClick={() => setInputMode("record")}>
           🎤 {t("tab_record")}
         </TabButton>
-        <TabButton active={inputMode === "url"} onClick={() => setInputMode("url")}>
+        <TabButton active={inputMode === "url"} disabled={recording} onClick={() => setInputMode("url")}>
           🔗 {t("tab_url")}
         </TabButton>
       </div>
@@ -182,6 +183,7 @@ export function UploadZone() {
       {inputMode === "record" && (
         <RecordTab
           setIsUploading={setIsUploading}
+          onRecordingChange={setRecording}
           toast={toast}
           qc={qc}
           t={t}
@@ -230,6 +232,7 @@ export function UploadZone() {
           label="VAD (Silence trim)"
           enabled={vadOn}
           available={modelStatus?.vad_available ?? false}
+          disabled={recording}
           onChange={toggleVad}
         />
         <ToggleSwitch
@@ -237,18 +240,21 @@ export function UploadZone() {
           enabled={diarizeOn}
           available={modelStatus?.diarize_available ?? false}
           noToken={modelStatus !== null && !modelStatus.hf_token}
+          disabled={recording}
           onChange={toggleDiarize}
         />
         <ToggleSwitch
           label="Live Preview"
           enabled={livePreview}
           available={true}
+          disabled={recording}
           onChange={() => setLivePreview((v) => !v)}
         />
         <ToggleSwitch
           label="Noise Reduction"
           enabled={noiseReduce}
           available={true}
+          disabled={recording}
           onChange={() => setNoiseReduce((v) => !v)}
         />
         {modelStatus && (
@@ -274,15 +280,16 @@ export function UploadZone() {
 
 // ── Tab button ──
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabButton({ active, disabled, onClick, children }: { active: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors ${
         active
           ? "border-accent text-accent"
           : "border-transparent text-muted hover:text-txt"
-      }`}
+      } ${disabled ? "opacity-40 pointer-events-none" : ""}`}
     >
       {children}
     </button>
@@ -353,7 +360,7 @@ function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKey
 
 // ── Record tab ──
 
-function RecordTab({ setIsUploading, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
+function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -381,6 +388,7 @@ function RecordTab({ setIsUploading, toast, qc, t, vadOn, diarizeOn, livePreview
 
   async function startRecording() {
     acquireWakeLock();
+    onRecordingChange(true);
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const mimeType = getBestMime();
     const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
@@ -402,6 +410,7 @@ function RecordTab({ setIsUploading, toast, qc, t, vadOn, diarizeOn, livePreview
         toast(`Upload failed: ${(e as Error).message}`, "err");
       } finally {
         setIsUploading(false);
+        onRecordingChange(false);
       }
     };
     mr.start(1000);
@@ -502,12 +511,14 @@ function ToggleSwitch({
   enabled,
   available,
   noToken,
+  disabled,
   onChange,
 }: {
   label: string;
   enabled: boolean;
   available: boolean;
   noToken?: boolean;
+  disabled?: boolean;
   onChange: () => void;
 }) {
   const badge = available
@@ -519,6 +530,7 @@ function ToggleSwitch({
   return (
     <button
       onClick={onChange}
+      disabled={disabled}
       className={`
         flex items-center gap-2 px-3 py-2 rounded-sm text-[13px] transition-colors
         ${enabled ? "bg-[rgba(63,185,80,.12)] text-ok" : "bg-panel border border-border2 text-muted"}
