@@ -9,6 +9,7 @@ import mimetypes
 import uuid
 from pathlib import Path
 import hashlib
+import subprocess
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
@@ -32,6 +33,7 @@ from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
 
+log = __import__("logging").getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,6 +55,9 @@ def _current_user(request: Request) -> int | None:
 # ---------------------------------------------------------------------------
 
 _AUDIO_MIME_FALLBACK = "audio/mpeg"
+
+# Formats the browser can decode natively → WaveSurfer works
+_BROWSER_AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".webm", ".opus", ".aac"}
 
 
 def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
@@ -96,6 +101,54 @@ def _guess_mime(stored_path: str, stored_mime: str) -> str:
         return stored_mime
     guessed, _ = mimetypes.guess_type(stored_path)
     return guessed or _AUDIO_MIME_FALLBACK
+
+
+def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, str, str | None]:
+    """Convert non-browser formats to 16kHz 16bit mono WAV.
+
+    Returns (audio_bytes, final_extension, conversion_note).
+    If the file is already browser-compatible, returns as-is.
+    If conversion fails, raises HTTPException.
+    """
+    ext = Path(original_name).suffix.lower()
+    if ext in _BROWSER_AUDIO_EXTS:
+        return raw, ext, None  # native format, no conversion needed
+
+    # Try ffmpeg conversion
+    log.info("Converting %s to WAV (not browser-native)", original_name)
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostdin",
+                "-i", "pipe:0",
+                "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+                "-f", "wav",
+                "pipe:1",
+            ],
+            input=raw,
+            capture_output=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.decode("utf-8", errors="replace")[:500]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Konnte {original_name} nicht konvertieren: {err}",
+            )
+        out = proc.stdout
+        if not out:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Konnte {original_name} nicht konvertieren: leere Ausgabe",
+            )
+        log.info("Converted %s: %d → %d bytes", original_name, len(raw), len(out))
+        note = f"(konvertiert von {ext or 'unbekannt'} nach WAV)"
+        return out, ".wav", note
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Konvertierung von {original_name} abgebrochen (länger als 120s)",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -142,23 +195,30 @@ async def upload_recording(
             "recording": _recording_to_dict(existing),
         }
 
-    ext = Path(file.filename).suffix or ".bin"
-    stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{ext}"
-    stored.write_bytes(raw)
+    # Convert non-browser formats to WAV
+    audio_data, new_ext, conv_note = _convert_to_wav_if_needed(raw, file.filename)
+
+    stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
+    stored.write_bytes(audio_data)
 
     recorded_at, source = parse_whatsapp(file.filename)
 
-    # Estimate duration from file size (rough, for ETA display). 
+    # Estimate duration from file size (rough, for ETA display).
     # 16kHz/16bit = 32000 bytes/sec; compressed audio is smaller,
     # so this is a conservative overestimate.
-    est_duration_s = len(raw) / 8000  # ~4:1 compression factor
+    est_duration_s = len(audio_data) / 16000 if new_ext == ".wav" else len(raw) / 8000
+
+    # Append conversion note to original name so the user knows
+    display_name = file.filename
+    if conv_note:
+        display_name = f"{file.filename} {conv_note}"
 
     rec = create_recording(
         session,
-        original_name=file.filename,
+        original_name=display_name,
         stored_path=str(stored),
-        mime=file.content_type or "application/octet-stream",
-        size_bytes=len(raw),
+        mime="audio/wav" if new_ext == ".wav" else (file.content_type or "application/octet-stream"),
+        size_bytes=len(audio_data),
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,

@@ -116,7 +116,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
   function handleDelete() {
     if (!confirm(t("confirm_delete"))) return;
-    deleteMut.mutate(r.id, {
+    deleteMut.mutate(r.uid, {
       onSuccess: () => toast(t("deleted"), "ok"),
       onError: (e) => toast(`${t("delete_error")}: ${e.message}`, "err"),
     });
@@ -124,7 +124,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
   function handleRetranscribe() {
     if (!confirm(t("confirm_retranscribe"))) return;
-    retranscribeMut.mutate(r.id, {
+    retranscribeMut.mutate(r.uid, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),
       onError: (e) => toast(`${t("error")}: ${e.message}`, "err"),
     });
@@ -230,7 +230,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         {r.status === "uploaded" && (
           <div className="mt-2 flex justify-center">
             <button
-              onClick={() => handleStartTranscription(r.id)}
+              onClick={() => handleStartTranscription(r.uid)}
               className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
             >
               ▶ {t("transcribe")}
@@ -247,7 +247,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
               <div className="mb-3">
                 <SegmentSearch
                   segments={segments}
-                  recordingId={r.id}
+                  recordingId={r.uid}
                   onEdited={handleEdited}
                 />
               </div>
@@ -258,7 +258,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                 activeIdx={activeSegIdx}
                 onActiveChange={setActiveSegIdx}
                 onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
-                recordingId={r.id}
+                recordingId={r.uid}
                 onEdited={handleEdited}
                 currentTime={currentTime}
               />
@@ -304,7 +304,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       <div className="px-4 pb-[14px] flex items-center gap-2 flex-wrap">
         {r.status === "done" && cropRange && (
           <button
-            onClick={() => handleTranscribeCrop(r.id, cropRange.start, cropRange.end)}
+            onClick={() => handleTranscribeCrop(r.uid, cropRange.start, cropRange.end)}
             className="btn-ghost-sm text-accent"
           >
             ✂ Transcribe {fmtTime(cropRange.start)}–{fmtTime(cropRange.end)}
