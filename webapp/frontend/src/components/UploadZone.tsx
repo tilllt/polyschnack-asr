@@ -291,7 +291,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 // ── Upload tab ──
 
-function UploadTab({ isUploading, isDragging, uploadProgress, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
+function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
   return (
     <div
       role="button"
