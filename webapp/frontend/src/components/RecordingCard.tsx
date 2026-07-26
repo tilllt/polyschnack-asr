@@ -1,11 +1,12 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
 import type { Recording } from "../api";
 import { transcribeRange, startTranscription } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
+import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
@@ -37,6 +38,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { t } = useT();
@@ -174,6 +176,19 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           {r.original_name}
         </span>
         <StatusBadge status={r.status} t={t} />
+        {r.status === "done" && (
+          <button
+            onClick={() => setSearchOpen((v) => !v)}
+            className={`flex-shrink-0 text-[12px] px-[6px] py-[3px] rounded-sm font-semibold transition-colors ${
+              searchOpen
+                ? "bg-accent/15 text-accent"
+                : "text-muted2 hover:text-txt"
+            }`}
+            title="Search transcript"
+          >
+            <Search size={13} />
+          </button>
+        )}
       </div>
 
       {!collapsed && (<>
@@ -228,6 +243,15 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       <div className="px-4 pb-[14px]">
         {r.status === "done" && (
           <>
+            {searchOpen && hasSegments && segments && r.id && (
+              <div className="mb-3">
+                <SegmentSearch
+                  segments={segments}
+                  recordingId={r.id}
+                  onEdited={handleEdited}
+                />
+              </div>
+            )}
             {hasSegments && segments ? (
               <SegmentList
                 segments={segments}
