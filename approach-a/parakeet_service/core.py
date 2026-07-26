@@ -41,7 +41,6 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
     else:
         seg_start = offset
         seg_end = offset + 0.1
-    segment = {"start": seg_start, "end": seg_end, "segment": info["text"]}
     words: List[Dict[str, Any]] = []
     for i, (tok, ts) in enumerate(zip(info["tokens"], starts)):
         word_end = (starts[i + 1] if i + 1 < len(starts) else seg_end - offset) + offset
@@ -50,6 +49,7 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
             "end": word_end,
             "word": tok.replace("▁", " ").strip(),
         })
+    segment = {"start": seg_start, "end": seg_end, "segment": info["text"], "words": words}
     return segment, words
 
 

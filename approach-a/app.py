@@ -1016,28 +1016,33 @@ def transcribe_audio():
             return Response(full_text, mimetype="text/plain")
 
         elif response_format == "verbose_json":
-            # Minimal verbose_json structure
+            # Minimal verbose_json structure with word timestamps
+            segments_out = []
+            for idx, seg in enumerate(all_segments):
+                seg_words = [
+                    w for w in all_words
+                    if w["start"] >= seg["start"] - 0.01 and w["end"] <= seg["end"] + 0.01
+                ]
+                segments_out.append({
+                    "id": idx,
+                    "seek": 0,
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "text": seg["segment"],
+                    "tokens": [],
+                    "words": seg_words,
+                    "temperature": 0.0,
+                    "avg_logprob": 0.0,
+                    "compression_ratio": 0.0,
+                    "no_speech_prob": 0.0,
+                })
             return jsonify(
                 {
                     "task": "transcribe",
-                    "language": "english",  # detection not implemented here, hardcoded or param?
+                    "language": "english",
                     "duration": total_duration,
                     "text": full_text,
-                    "segments": [
-                        {
-                            "id": idx,
-                            "seek": 0,
-                            "start": seg["start"],
-                            "end": seg["end"],
-                            "text": seg["segment"],
-                            "tokens": [],  # Populate if needed
-                            "temperature": 0.0,
-                            "avg_logprob": 0.0,
-                            "compression_ratio": 0.0,
-                            "no_speech_prob": 0.0,
-                        }
-                        for idx, seg in enumerate(all_segments)
-                    ],
+                    "segments": segments_out,
                 }
             )
 
