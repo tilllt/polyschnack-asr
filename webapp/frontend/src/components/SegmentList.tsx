@@ -13,10 +13,6 @@ interface Props {
   currentTime?: number;
 }
 
-function wordsMatchText(words: { word: string }[], text: string): boolean {
-  return words.map((w) => w.word).join(" ") === text;
-}
-
 export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -120,7 +116,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             />
           ) : (
             <span className="text-txt flex-1 min-w-0">
-              {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx && wordsMatchText(seg.words, seg.text)
+              {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
                 ? seg.words.map((w, wi) => {
                     const isActive = currentTime >= w.start && currentTime < w.end;
                     return (
