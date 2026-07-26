@@ -132,7 +132,30 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                       </span>
                     );
                   })
-                : seg.text}
+                : currentTime != null && i === activeIdx
+                  ? (() => {
+                      const words = seg.text.split(/\s+/);
+                      const wordLen = words.length;
+                      const segDur = seg.end - seg.start;
+                      return words.map((w, wi) => {
+                        const wStart = seg.start + (wi / wordLen) * segDur;
+                        const wEnd = seg.start + ((wi + 1) / wordLen) * segDur;
+                        const isActive = currentTime >= wStart && currentTime < wEnd;
+                        return (
+                          <span
+                            key={wi}
+                            className={
+                              isActive
+                                ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
+                                : ""
+                            }
+                          >
+                            {w}{wi < words.length - 1 ? " " : ""}
+                          </span>
+                        );
+                      });
+                    })()
+                  : seg.text}
             </span>
           )}
         </div>
