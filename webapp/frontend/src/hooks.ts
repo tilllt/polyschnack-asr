@@ -62,7 +62,7 @@ export function useUpload() {
 export function useDelete() {
   const qc = useQueryClient();
 
-  return useMutation<void, Error, number>({
+  return useMutation<void, Error, string>({
     mutationFn: (id) => deleteRecording(id),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
@@ -74,7 +74,7 @@ export function useDelete() {
 export function useRetranscribe() {
   const qc = useQueryClient();
 
-  return useMutation<Recording, Error, number>({
+  return useMutation<Recording, Error, string>({
     mutationFn: (id) => retranscribeRecording(id),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });

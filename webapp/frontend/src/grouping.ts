@@ -74,7 +74,7 @@ export function buildRenderItems(recordings: Recording[]): RenderItem[] {
   }
 
   // 3. Singles = all recordings NOT in a qualifying group
-  const groupedIds = new Set<number>(
+  const groupedIds = new Set<string>(
     groups.flatMap((g) => g.members.map((m) => m.id))
   );
 
