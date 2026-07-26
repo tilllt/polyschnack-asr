@@ -115,41 +115,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
               autoFocus
             />
           ) : (
-            <span className="text-txt flex-1 min-w-0">
-              {i === activeIdx && seg.words && seg.words.length > 0 && currentTime != null
-                ? seg.words.map((w, wi) => {
-                    const isActive = currentTime >= w.start && currentTime < w.end;
-                    return (
-                      <span
-                        key={wi}
-                        role="button"
-                        tabIndex={isActive ? 0 : -1}
-                        onClick={(e) => {
-                          if (editingIdx !== null) return;
-                          e.stopPropagation();
-                          onActiveChange(i);
-                          onSeekTo?.(w.start);
-                        }}
-                        onKeyDown={(e) => {
-                          if (editingIdx !== null) return;
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.stopPropagation();
-                            onActiveChange(i);
-                            onSeekTo?.(w.start);
-                          }
-                        }}
-                        className={
-                          isActive
-                            ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2 cursor-pointer"
-                            : "cursor-pointer hover:text-accent/70 transition-colors"
-                        }
-                      >
-                        {w.word}{wi < seg.words!.length - 1 ? " " : ""}
-                      </span>
-                    );
-                  })
-                : seg.text}
-            </span>
+            <span className="text-txt flex-1 min-w-0">{seg.text}</span>
           )}
         </div>
       ))}
