@@ -419,7 +419,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         onRecordingChange(false);
       }
     };
-    mr.start(1000);
+    mr.start();
     setMediaRecorder(mr);
     setRecording(true);
     timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
