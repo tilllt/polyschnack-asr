@@ -965,22 +965,41 @@ def transcribe_audio():
                 # Update partial text for real-time streaming
                 progress_tracker[unique_id]["partial_text"] += cleaned_text + " "
 
+                merged_words = []
+                current_word: dict | None = None
+                last_j = -1
                 for j, (token, timestamp) in enumerate(
                     zip(result.tokens, result.timestamps)
                 ):
-                    if j < len(result.timestamps) - 1:
-                        word_end = result.timestamps[j + 1]
+                    last_j = j
+                    # SentencePiece: ▁ marks start of a new word
+                    is_new_word = "▁" in token or current_word is None
+                    clean_token = token.replace("▁", "").strip()
+                    if not clean_token:
+                        continue
+                    if is_new_word:
+                        if current_word is not None:
+                            merged_words.append(current_word)
+                        current_word = {
+                            "start": timestamp + cumulative_time_offset,
+                            "end": 0.0,
+                            "word": clean_token,
+                        }
                     else:
-                        word_end = end_time
+                        current_word["word"] += clean_token
+                # Finalize last word
+                if current_word is not None and last_j >= 0:
+                    if last_j < len(result.timestamps) - 1:
+                        current_word["end"] = result.timestamps[last_j + 1] + cumulative_time_offset
+                    else:
+                        current_word["end"] = end_time
+                    merged_words.append(current_word)
 
-                    # Clean tokens too
-                    clean_token = token.replace("\u2581", " ").strip()
-                    word = {
-                        "start": timestamp + cumulative_time_offset,
-                        "end": word_end + cumulative_time_offset,
-                        "word": clean_token,
-                    }
-                    all_words.append(word)
+                # Fix end times: each word's end = next word's start
+                for wi in range(len(merged_words) - 1):
+                    merged_words[wi]["end"] = merged_words[wi + 1]["start"]
+
+                all_words.extend(merged_words)
 
             # Use planned chunk duration instead of ffprobe
             cumulative_time_offset += chunk_durations[i]
