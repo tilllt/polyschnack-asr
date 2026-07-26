@@ -41,13 +41,13 @@ log = __import__("logging").getLogger(__name__)
 
 
 def _current_user(request: Request) -> int | None:
-    """Return current user_id from session, or None if OIDC is disabled."""
+    """Return current user_id from session, or None if anonymous or OIDC disabled.
+
+    A ``None`` return means the recording is public (shared space).
+    """
     if not settings.OIDC_ENABLED:
         return None
-    uid = request.session.get("user_id")
-    if uid is None:
-        raise HTTPException(status_code=401, detail="authentication required")
-    return uid
+    return request.session.get("user_id")  # None = anonymous → shared space
 
 
 # ---------------------------------------------------------------------------
