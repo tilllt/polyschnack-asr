@@ -117,8 +117,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
           ) : (
             <span className="text-txt flex-1 min-w-0">
               {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
-                ? (console.log("KARAOKE_WORDS", seg.words),
-                  seg.words.map((w, wi) => {
+                ? seg.words.map((w, wi) => {
                     const isActive = currentTime >= w.start && currentTime < w.end;
                     return (
                       <span
@@ -132,9 +131,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                         {w.word}{wi < seg.words!.length - 1 ? " " : ""}
                       </span>
                     );
-                  }))
-                : console.log("KARAOKE_SKIP", {hasWords: !!seg.words, len: seg.words?.length, ct: currentTime, active: i === activeIdx, idx: i}),
-                  seg.text}
+                  })
+                : seg.text}
             </span>
           )}
         </div>
