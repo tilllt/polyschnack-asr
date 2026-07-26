@@ -429,7 +429,6 @@ function RecordTab({ setIsUploading, toast, qc, t, vadOn, diarizeOn, livePreview
     <div className="flex flex-col items-center gap-4 py-6">
       <button
         onClick={recording ? stopRecording : startRecording}
-        disabled={false}
         className={`w-20 h-20 rounded-full text-2xl flex items-center justify-center transition-all
           ${recording
             ? "bg-err text-white shadow-lg animate-pulse"
