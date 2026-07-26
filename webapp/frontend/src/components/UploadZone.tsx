@@ -389,7 +389,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   async function startRecording() {
     acquireWakeLock();
     onRecordingChange(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
     const mimeType = getBestMime();
     const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     const chunks: BlobPart[] = [];
