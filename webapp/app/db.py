@@ -79,7 +79,7 @@ def _auto_migrate() -> None:
                 col_type = model_col.type
                 nullable = "NULL" if model_col.nullable else "NOT NULL"
                 default = model_col.default
-                dfl = f"DEFAULT {default.arg}" if default is not None else ""
+                dfl = f"DEFAULT {default.arg}" if default is not None and default.is_scalar else ""
                 sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type} {nullable} {dfl}"
                 log.info("Auto-migrate: %s", sql.strip())
                 session.exec(sa_text(sql))  # type: ignore[arg-type]
