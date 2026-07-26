@@ -104,18 +104,17 @@ def _guess_mime(stored_path: str, stored_mime: str) -> str:
 
 
 def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, str, str | None]:
-    """Convert non-browser formats to 16kHz 16bit mono WAV.
+    """Convert any audio format to 16kHz 16bit mono WAV via ffmpeg.
 
     Returns (audio_bytes, final_extension, conversion_note).
-    If the file is already browser-compatible, returns as-is.
+    Always converts — WebM/Opus from mic recordings need it for the ASR
+    service, and a uniform WAV store avoids surprises.
     If conversion fails, raises HTTPException.
     """
     ext = Path(original_name).suffix.lower()
-    if ext in _BROWSER_AUDIO_EXTS:
-        return raw, ext, None  # native format, no conversion needed
 
     # Try ffmpeg conversion
-    log.info("Converting %s to WAV (not browser-native)", original_name)
+    log.info("Converting %s to WAV", original_name)
     try:
         proc = subprocess.run(
             [
