@@ -252,7 +252,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                 />
               </div>
             )}
-            {hasSegments && segments ? (
+            {hasSegments && segments ? (console.log("SEGDEBUG", segments[0]),
               <SegmentList
                 segments={segments}
                 activeIdx={activeSegIdx}

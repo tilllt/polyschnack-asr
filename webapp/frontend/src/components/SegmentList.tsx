@@ -117,7 +117,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
           ) : (
             <span className="text-txt flex-1 min-w-0">
               {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
-                ? seg.words.map((w, wi) => {
+                ? (console.log("KARAOKE_WORDS", seg.words),
+                  seg.words.map((w, wi) => {
                     const isActive = currentTime >= w.start && currentTime < w.end;
                     return (
                       <span
@@ -131,31 +132,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                         {w.word}{wi < seg.words!.length - 1 ? " " : ""}
                       </span>
                     );
-                  })
-                : currentTime != null && i === activeIdx
-                  ? (() => {
-                      const words = seg.text.split(/\s+/);
-                      const wordLen = words.length;
-                      const segDur = seg.end - seg.start;
-                      return words.map((w, wi) => {
-                        const wStart = seg.start + (wi / wordLen) * segDur;
-                        const wEnd = seg.start + ((wi + 1) / wordLen) * segDur;
-                        const isActive = currentTime >= wStart && currentTime < wEnd;
-                        return (
-                          <span
-                            key={wi}
-                            className={
-                              isActive
-                                ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
-                                : ""
-                            }
-                          >
-                            {w}{wi < words.length - 1 ? " " : ""}
-                          </span>
-                        );
-                      });
-                    })()
-                  : seg.text}
+                  }))
+                : console.log("KARAOKE_SKIP", {hasWords: !!seg.words, len: seg.words?.length, ct: currentTime, active: i === activeIdx, idx: i}),
+                  seg.text}
             </span>
           )}
         </div>
