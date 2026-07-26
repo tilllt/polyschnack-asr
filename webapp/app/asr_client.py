@@ -22,10 +22,11 @@ def transcribe(audio_bytes: bytes, filename: str, mime: str, noise_reduce: bool 
     with httpx.Client(timeout=3600) as client:
         resp = client.post(
             f"{settings.ASR_URL}/v1/audio/transcriptions",
-            files={"file": (filename, audio_bytes, mime)},
+            files=({"file": (filename, audio_bytes, mime)}),
             data={
                 "model": settings.ASR_MODEL,
                 "response_format": "verbose_json",
+                "timestamp_granularities": "word",
                 "noise_reduce": "true" if noise_reduce else "false",
             },
         )
@@ -103,6 +104,7 @@ def _parse_result(payload: dict) -> Dict[str, Any]:
             "start": seg.get("start"),
             "end": seg.get("end"),
             "text": seg.get("text") or seg.get("segment", ""),
+            "words": seg.get("words", []),
         }
         for seg in payload.get("segments", [])
     ]
@@ -132,6 +134,8 @@ def transcribe_async(
             files={"file": (filename, audio_bytes, mime)},
             data={
                 "model": settings.ASR_MODEL,
+                "response_format": "verbose_json",
+                "timestamp_granularities": "word",
                 "noise_reduce": "true" if noise_reduce else "false",
             },
         )

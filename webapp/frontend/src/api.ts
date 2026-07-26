@@ -9,6 +9,7 @@ export interface Segment {
   end: number;
   text: string;
   speaker?: string;
+  words?: { word: string; start: number; end: number }[];
 }
 
 export interface Recording {
