@@ -43,14 +43,11 @@ export function UploadZone() {
   }
 
   function toggleDiarize() {
+    if (!modelStatus?.hf_token) return;
     setDiarizeOn((d) => {
       const next = !d;
       if (next && !modelStatus?.diarize_available) {
-        if (!modelStatus?.hf_token) {
-          toast("HF_TOKEN not set — set it in compose.yml and restart", "err");
-        } else {
-          triggerDownload("diarize").catch(() => {});
-        }
+        triggerDownload("diarize").catch(() => {});
       }
       return next;
     });
@@ -245,7 +242,7 @@ export function UploadZone() {
           enabled={diarizeOn}
           available={modelStatus?.diarize_available ?? false}
           noToken={modelStatus !== null && !modelStatus.hf_token}
-          disabled={recording}
+          disabled={recording || (modelStatus !== null && !modelStatus.hf_token)}
           onChange={toggleDiarize}
         />
         <ToggleSwitch
