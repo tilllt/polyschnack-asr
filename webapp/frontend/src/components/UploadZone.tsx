@@ -428,10 +428,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       releaseWakeLock();
       setIsUploading(true);
       try {
-        // Apply gain to the recorded audio — boosts quiet mics to a usable level
-        const gainedBlob = await applyGain(blob, 2.5);
+        // Peak-normalize to -1 dBFS — boosts quiet recordings, leaves loud ones alone
+        const normBlob = await normalizePeak(blob);
         const batchId = crypto.randomUUID();
-        await recordFromMic(gainedBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
+        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {
@@ -512,13 +512,15 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   );
 }
 
-// ── Audio gain helper ──
+// ── Audio peak-normalization helper ──
 
 /**
- * Apply gain to an audio blob and return a 16-bit mono WAV blob.
- * Used to boost quiet microphone recordings to a usable level.
+ * Peak-normalize an audio blob to -1 dBFS and return a 16-bit mono WAV blob.
+ * Computes the peak sample across all channels, then scales so the peak hits
+ * the target level. Quiet recordings get a boost; already-loud ones are unchanged
+ * (or very gently attenuated if they'd clip).
  */
-async function applyGain(blob: Blob, factor: number): Promise<Blob> {
+async function normalizePeak(blob: Blob): Promise<Blob> {
   const ctx = new AudioContext();
   try {
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
@@ -526,18 +528,39 @@ async function applyGain(blob: Blob, factor: number): Promise<Blob> {
     const sampleRate = buf.sampleRate;
     const length = buf.length;
 
-    // Create OfflineAudioContext with same config
-    const offline = new OfflineAudioContext(numChannels, length, sampleRate);
+    // Find global peak across all channels
+    let peak = 0;
+    for (let ch = 0; ch < numChannels; ch++) {
+      const data = buf.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        const abs = Math.abs(data[i]);
+        if (abs > peak) peak = abs;
+      }
+    }
+
+    // Scale so peak hits -1 dBFS (≈ 0.891). Intentionally below 1.0 so
+    // the encoder's int16 rounding never clips.
+    const targetPeak = 10 ** (-1 / 20); // ~0.891
+    const scale = peak > 0 ? targetPeak / peak : 1;
+
+    // Render scaled audio and encode as mono WAV
+    const offline = new OfflineAudioContext(1, length, sampleRate);
     const source = offline.createBufferSource();
-    source.buffer = buf;
-    const gain = offline.createGain();
-    gain.gain.value = factor;
-    source.connect(gain).connect(offline.destination);
+    // Build mono buffer with scaling
+    const monoBuf = offline.createBuffer(1, length, sampleRate);
+    const outData = monoBuf.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+      let sum = 0;
+      for (let ch = 0; ch < numChannels; ch++) {
+        sum += buf.getChannelData(ch)[i];
+      }
+      outData[i] = (sum / numChannels) * scale;
+    }
+    source.buffer = monoBuf;
+    source.connect(offline.destination);
     source.start();
 
     const rendered = await offline.startRendering();
-
-    // Encode to 16-bit mono WAV
     return encodeWav(rendered);
   } finally {
     ctx.close();
