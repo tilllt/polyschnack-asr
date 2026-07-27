@@ -428,8 +428,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       releaseWakeLock();
       setIsUploading(true);
       try {
+        // Apply gain to the recorded audio — boosts quiet mics to a usable level
+        const gainedBlob = await applyGain(blob, 2.5);
         const batchId = crypto.randomUUID();
-        await recordFromMic(blob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
+        await recordFromMic(gainedBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {
@@ -446,11 +448,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     });
 
     try {
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       await record.startRecording({
         noiseSuppression: false,
         echoCancellation: false,
-        autoGainControl: isMobile,
+        autoGainControl: true,
       });
     } catch (e) {
       toast(`Mic access denied: ${(e as Error).message}`, "err");
@@ -509,6 +510,93 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       <div className="text-[12px] text-muted">{t("rec_btn")}</div>
     </div>
   );
+}
+
+// ── Audio gain helper ──
+
+/**
+ * Apply gain to an audio blob and return a 16-bit mono WAV blob.
+ * Used to boost quiet microphone recordings to a usable level.
+ */
+async function applyGain(blob: Blob, factor: number): Promise<Blob> {
+  const ctx = new AudioContext();
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const numChannels = buf.numberOfChannels;
+    const sampleRate = buf.sampleRate;
+    const length = buf.length;
+
+    // Create OfflineAudioContext with same config
+    const offline = new OfflineAudioContext(numChannels, length, sampleRate);
+    const source = offline.createBufferSource();
+    source.buffer = buf;
+    const gain = offline.createGain();
+    gain.gain.value = factor;
+    source.connect(gain).connect(offline.destination);
+    source.start();
+
+    const rendered = await offline.startRendering();
+
+    // Encode to 16-bit mono WAV
+    return encodeWav(rendered);
+  } finally {
+    ctx.close();
+  }
+}
+
+/**
+ * Encode an AudioBuffer to a 16-bit mono WAV blob.
+ */
+function encodeWav(audioBuffer: AudioBuffer): Blob {
+  const numChannels = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const length = audioBuffer.length;
+
+  // Downmix to mono by averaging channels, and apply soft limiting
+  const mono = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    let sum = 0;
+    for (let ch = 0; ch < numChannels; ch++) {
+      sum += audioBuffer.getChannelData(ch)[i];
+    }
+    mono[i] = Math.max(-1, Math.min(1, sum / numChannels));
+  }
+
+  // 16-bit PCM
+  const dataLen = length * 2;
+  const buffer = new ArrayBuffer(44 + dataLen);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  writeStr(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataLen, true);
+  writeStr(view, 8, "WAVE");
+  writeStr(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // chunk size
+  view.setUint16(20, 1, true);  // PCM
+  view.setUint16(22, 1, true);  // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);  // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(view, 36, "data");
+  view.setUint32(40, dataLen, true);
+
+  // Write PCM samples
+  let offset = 44;
+  for (let i = 0; i < length; i++) {
+    const s = Math.max(-1, Math.min(1, mono[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function writeStr(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
 }
 
 // ── URL tab ──
