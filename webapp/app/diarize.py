@@ -40,6 +40,7 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
     Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts,
     or an empty list when diarization is unavailable.
     """
+    log.info("Running speaker diarization on %s", audio_path)
     pipeline = _load_pipeline()
     if pipeline is None:
         return []

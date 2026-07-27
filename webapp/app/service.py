@@ -53,6 +53,9 @@ def process_recording(rec_id: int) -> None:
         enable_streaming = rec.enable_streaming
         enable_noise_reduce = rec.enable_noise_reduce
 
+    log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
+             rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
+
     t0 = time.perf_counter()
     status = "done"
     text: str = ""
