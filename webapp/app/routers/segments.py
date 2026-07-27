@@ -48,8 +48,16 @@ def update_segment(
         raise HTTPException(status_code=400, detail="text must not be empty")
 
     segments[idx]["text"] = new_text
-    # Words no longer match the edited text — clear so frontend shows plain text
-    segments[idx].pop("words", None)
+    # Rebuild words from edited text so karaoke still works
+    text_words = new_text.split()
+    seg_start = segments[idx].get("start", 0)
+    seg_end = segments[idx].get("end", seg_start + 1)
+    seg_duration = max(seg_end - seg_start, 0.1)
+    w_duration = seg_duration / max(len(text_words), 1)
+    segments[idx]["words"] = [
+        {"word": w, "start": seg_start + i * w_duration, "end": seg_start + (i + 1) * w_duration}
+        for i, w in enumerate(text_words)
+    ]
     rec.segments = segments
     rec.text = " ".join(s["text"] for s in segments)
     session.add(rec)
