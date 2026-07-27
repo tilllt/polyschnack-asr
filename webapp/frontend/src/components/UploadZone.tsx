@@ -366,6 +366,11 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
   const timerRef = useRef<number>(0);
+  const volumeRef = useRef<HTMLDivElement>(null);
+  const animRef = useRef<number>(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   async function acquireWakeLock() {
     try {
@@ -386,6 +391,54 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     return "";
   }
 
+  function startVolumeMeter(stream: MediaStream) {
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      audioCtxRef.current = ctx;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let lastPct = 0;
+
+      function tick() {
+        analyser.getByteTimeDomainData(data);
+        // RMS volume (0..1)
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        // Smooth with log scale so quiet sounds are visible
+        const pct = Math.min(100, Math.round(Math.pow(rms, 0.6) * 100));
+        if (pct !== lastPct && volumeRef.current) {
+          volumeRef.current.style.width = `${pct}%`;
+          volumeRef.current.style.background =
+            pct > 80 ? "#f85149" : pct > 55 ? "#eab308" : "#59a8ff";
+          lastPct = pct;
+        }
+        animRef.current = requestAnimationFrame(tick);
+      }
+      tick();
+    } catch {
+      // Volume meter is best-effort
+    }
+  }
+
+  function stopVolumeMeter() {
+    cancelAnimationFrame(animRef.current);
+    sourceRef.current?.disconnect();
+    audioCtxRef.current?.close().catch(() => {});
+    sourceRef.current = null;
+    analyserRef.current = null;
+    audioCtxRef.current = null;
+  }
+
   async function startRecording() {
     acquireWakeLock();
     onRecordingChange(true);
@@ -400,6 +453,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     const chunks: BlobPart[] = [];
     mr.ondataavailable = (e) => chunks.push(e.data);
     mr.onstop = async () => {
+      stopVolumeMeter();
       releaseWakeLock();
       clearInterval(timerRef.current);
       setDuration(0);
@@ -422,6 +476,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     setMediaRecorder(mr);
     setRecording(true);
     timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
+    startVolumeMeter(stream);
   }
 
   function stopRecording() {
@@ -433,6 +488,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   useEffect(() => {
     return () => {
       clearInterval(timerRef.current);
+      stopVolumeMeter();
       releaseWakeLock();
     };
   }, []);
@@ -453,6 +509,17 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         {recording ? "⏹" : "🎤"}
       </button>
       <div className="text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
+
+      {recording && (
+        <div className="w-full max-w-[300px] h-[6px] bg-border rounded-full overflow-hidden">
+          <div
+            ref={volumeRef}
+            className="h-full rounded-full transition-[width,background] duration-[80ms]"
+            style={{ width: "0%" }}
+          />
+        </div>
+      )}
+
       {wakelock && (
         <div className="text-[11px] text-muted2 flex items-center gap-1">
           <span>🔒</span> {t("rec_wakelock")}
