@@ -102,7 +102,7 @@ export function UploadZone() {
   async function handleForceUpload(file: File, batchId: string) {
     setIsUploading(true);
     try {
-      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, true);
+      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, true, true);
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
