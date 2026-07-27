@@ -75,7 +75,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         height,
         normalize: true,
         minPxPerSec: 1,
-        peaks: hasPeaks ? peaks : undefined,
+        peaks: hasPeaks ? [peaks as number[]] : undefined,
         duration: hasPeaks && propDuration ? propDuration : undefined,
         plugins: [regions, timeline, minimap, hover],
       });
