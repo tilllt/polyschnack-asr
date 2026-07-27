@@ -407,15 +407,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
 
       function tick() {
         analyser.getByteTimeDomainData(data);
-        // RMS volume (0..1)
-        let sum = 0;
+        // Peak amplitude (0..128), faster than RMS
+        let peak = 0;
         for (let i = 0; i < data.length; i++) {
-          const v = (data[i] - 128) / 128;
-          sum += v * v;
+          const v = Math.abs(data[i] - 128);
+          if (v > peak) peak = v;
         }
-        const rms = Math.sqrt(sum / data.length);
-        // Smooth with log scale so quiet sounds are visible
-        const pct = Math.min(100, Math.round(Math.pow(rms, 0.6) * 100));
+        const pct = Math.min(100, Math.round((peak / 128) * 100));
         if (pct !== lastPct && volumeRef.current) {
           volumeRef.current.style.width = `${pct}%`;
           volumeRef.current.style.background =
@@ -446,6 +444,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       audio: {
         noiseSuppression: false,
         echoCancellation: false,
+        autoGainControl: false,
       },
     });
     const mimeType = getBestMime();
@@ -514,7 +513,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         <div className="w-full max-w-[300px] h-[6px] bg-border rounded-full overflow-hidden">
           <div
             ref={volumeRef}
-            className="h-full rounded-full transition-[width,background] duration-[80ms]"
+            className="h-full rounded-full transition-[background] duration-[80ms]"
             style={{ width: "0%" }}
           />
         </div>
