@@ -43,11 +43,14 @@ export function UploadZone() {
   }
 
   function toggleDiarize() {
-    if (!modelStatus?.hf_token) return;
     setDiarizeOn((d) => {
       const next = !d;
       if (next && !modelStatus?.diarize_available) {
-        triggerDownload("diarize").catch(() => {});
+        if (!modelStatus?.hf_token) {
+          toast("HF_TOKEN not set — set it in compose.yml and restart", "err");
+        } else {
+          triggerDownload("diarize").catch(() => {});
+        }
       }
       return next;
     });
