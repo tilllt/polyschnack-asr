@@ -78,14 +78,13 @@ def get_recording_by_uid(session: Session, uid: str) -> Optional[Recording]:
 def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional[int] = None) -> List[Recording]:
     """Return recordings ordered by newest first.
 
-    - *user_id* = ``None`` → only recordings with no owner (public/shared space)
-    - *user_id* = ``int`` → only recordings belonging to that user (private space)
+    - *user_id* = ``None`` → all recordings (shared space, no filter)
+    - *user_id* = ``int``  → only recordings belonging to that user (private workspace)
     """
     stmt = select(Recording)
     if user_id is not None:
         stmt = stmt.where(Recording.user_id == user_id)
-    else:
-        stmt = stmt.where(Recording.user_id.is_(None))
+    # user_id is None → shared space: no user_id filter (show all public recordings)
     if q:
         term = f"%{q.lower()}%"
         stmt = stmt.where(
@@ -185,8 +184,7 @@ def get_stats(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]
     stmt = select(Recording)
     if user_id is not None:
         stmt = stmt.where(Recording.user_id == user_id)
-    else:
-        stmt = stmt.where(Recording.user_id.is_(None))
+    # user_id is None → shared space: no filter
     rows = list(session.exec(stmt).all())
     total = len(rows)
     done = sum(1 for r in rows if r.status == "done")
