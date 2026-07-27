@@ -440,11 +440,12 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   async function startRecording() {
     acquireWakeLock();
     onRecordingChange(true);
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         noiseSuppression: false,
         echoCancellation: false,
-        autoGainControl: false,
+        autoGainControl: isMobile,  // AGC on for phones (compensates mic placement), off for desktop
       },
     });
     const mimeType = getBestMime();
