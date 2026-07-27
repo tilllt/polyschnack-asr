@@ -99,6 +99,28 @@ def test_segment_from_skips_empty_tokens():
     assert words[1]["word"] == "b"
 
 
+def test_segment_from_standalone_word_break_after_subword():
+    """Standalone ▁ after a subword continuation token creates a word boundary.
+
+    This catches the bug where ▁ as its own token was skipped without closing
+    the previous word, merging consecutive words together (removing whitespace).
+    E.g. tokens=["▁", "Hel", "lo", "▁", "world"] must produce ["Hello", "world"],
+    not ["Helloworld"].
+    """
+    info = {
+        "text": "Hello world",
+        "tokens": ["▁", "Hel", "lo", "▁", "world"],
+        "timestamps": [0.0, 0.1, 0.3, 1.0, 1.5],
+    }
+    _, words = _segment_from(info, 0.0)
+    assert len(words) == 2, f"expected 2 words, got {len(words)}: {[w['word'] for w in words]}"
+    assert words[0]["word"] == "Hello", f"word[0] should be 'Hello', got '{words[0]['word']}'"
+    assert words[1]["word"] == "world", f"word[1] should be 'world', got '{words[1]['word']}'"
+    # Timestamps should be correct
+    assert words[0]["start"] == 0.1  # first non-▁ token's timestamp
+    assert words[1]["start"] == 1.5  # "▁world" timestamp
+
+
 def test_segment_from_no_tokens():
     """No tokens → empty words list."""
     info = {"text": "", "tokens": [], "timestamps": []}

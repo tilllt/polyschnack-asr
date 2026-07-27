@@ -47,6 +47,12 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
         is_new_word = "▁" in tok or current_word is None
         clean_tok = tok.replace("▁", "").strip()
         if not clean_tok:
+            # "▁" as standalone token = word boundary
+            if current_word is not None:
+                word_end = ts + offset
+                current_word["end"] = word_end
+                words.append(current_word)
+                current_word = None
             continue
         if is_new_word:
             if current_word is not None:

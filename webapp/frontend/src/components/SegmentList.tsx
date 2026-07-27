@@ -43,6 +43,11 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     onSeekTo?.(segments[idx].start);
   }
 
+  function handleWordClick(seconds: number) {
+    if (editingIdx !== null) return;
+    onSeekTo?.(seconds);
+  }
+
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
     setSaving(true);
@@ -122,11 +127,20 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                     return (
                       <span
                         key={wi}
-                        className={
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleWordClick(w.start)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleWordClick(w.start);
+                          }
+                        }}
+                        className={`cursor-pointer transition-colors duration-[100ms] ${
                           isActive
                             ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
-                            : ""
-                        }
+                            : "hover:text-accent/70"
+                        }`}
                       >
                         {w.word}{wi < seg.words!.length - 1 ? " " : ""}
                       </span>
