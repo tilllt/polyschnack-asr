@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
+import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
+import MinimapPlugin from "wavesurfer.js/dist/plugins/minimap.js";
+import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 
 export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
@@ -22,6 +25,8 @@ const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
   function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const timelineRef = useRef<HTMLDivElement>(null);
+    const minimapRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
     const regionsRef = useRef<RegionsPlugin | null>(null);
     const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -47,6 +52,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       if (!containerRef.current) return;
 
       const regions = RegionsPlugin.create();
+      const timeline = TimelinePlugin.create({ container: timelineRef.current! });
+      const minimap = MinimapPlugin.create({
+        container: minimapRef.current!,
+        height: 30,
+        waveColor: "rgba(91,140,255,0.15)",
+        progressColor: "rgba(91,140,255,0.3)",
+      });
+      const hover = HoverPlugin.create();
       const ws = WaveSurfer.create({
         container: containerRef.current,
         waveColor: "rgba(91,140,255,0.3)",
@@ -59,7 +72,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         height,
         normalize: true,
         minPxPerSec: 1,
-        plugins: [regions],
+        plugins: [regions, timeline, minimap, hover],
       });
 
       ws.load(audioUrl);
@@ -114,6 +127,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           </div>
         )}
         <div ref={containerRef} className={`w-full ${ready ? "" : "hidden"}`} />
+        {/* Timeline ruler */}
+        <div ref={timelineRef} className={`w-full ${ready ? "mt-0" : "hidden"}`} />
+        {/* Minimap overview */}
+        <div ref={minimapRef} className={`w-full mt-2 ${ready ? "" : "hidden"}`} />
         {ready && (
           <div className="flex items-center gap-3 mt-2">
             <button

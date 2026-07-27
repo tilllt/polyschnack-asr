@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { fetchModelStatus, triggerDownload, uploadRecording, importFromUrl, recordFromMic, type ModelStatus } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
+import WaveSurfer from "wavesurfer.js";
+import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 
 export function UploadZone() {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
@@ -362,15 +364,13 @@ function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKey
 
 function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
   const [recording, setRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
+  const recordRef = useRef<RecordPlugin | null>(null);
   const timerRef = useRef<number>(0);
-  const volumeRef = useRef<HTMLDivElement>(null);
-  const animRef = useRef<number>(0);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   async function acquireWakeLock() {
     try {
@@ -385,80 +385,47 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     setWakelock(null);
   }
 
-  function getBestMime(): string {
-    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
-    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
-    return "";
-  }
-
-  function startVolumeMeter(stream: MediaStream) {
-    try {
-      const ctx = new AudioContext();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      const source = ctx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      audioCtxRef.current = ctx;
-      analyserRef.current = analyser;
-      sourceRef.current = source;
-
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      let lastPct = 0;
-
-      function tick() {
-        analyser.getByteTimeDomainData(data);
-        // Peak amplitude (0..128), faster than RMS
-        let peak = 0;
-        for (let i = 0; i < data.length; i++) {
-          const v = Math.abs(data[i] - 128);
-          if (v > peak) peak = v;
-        }
-        const pct = Math.min(100, Math.round((peak / 128) * 100));
-        if (pct !== lastPct && volumeRef.current) {
-          volumeRef.current.style.width = `${pct}%`;
-          volumeRef.current.style.background =
-            pct > 80 ? "#f85149" : pct > 55 ? "#eab308" : "#59a8ff";
-          lastPct = pct;
-        }
-        animRef.current = requestAnimationFrame(tick);
-      }
-      tick();
-    } catch {
-      // Volume meter is best-effort
-    }
-  }
-
-  function stopVolumeMeter() {
-    cancelAnimationFrame(animRef.current);
-    sourceRef.current?.disconnect();
-    audioCtxRef.current?.close().catch(() => {});
-    sourceRef.current = null;
-    analyserRef.current = null;
-    audioCtxRef.current = null;
-  }
-
   async function startRecording() {
     acquireWakeLock();
     onRecordingChange(true);
-    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        noiseSuppression: false,
-        echoCancellation: false,
-        autoGainControl: isMobile,  // AGC on for phones (compensates mic placement), off for desktop
-      },
+    chunksRef.current = [];
+
+    // Create WaveSurfer with Record plugin
+    const record = RecordPlugin.create({
+      scrollingWaveform: true,
+      scrollingWaveformWindow: 5,
+      renderRecordedAudio: false,  // we handle upload ourselves
     });
-    const mimeType = getBestMime();
-    const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    const chunks: BlobPart[] = [];
-    mr.ondataavailable = (e) => chunks.push(e.data);
-    mr.onstop = async () => {
-      stopVolumeMeter();
-      releaseWakeLock();
+
+    const ws = WaveSurfer.create({
+      container: containerRef.current!,
+      waveColor: "rgba(91,140,255,0.3)",
+      progressColor: "rgba(91,140,255,0.8)",
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 2,
+      height: 60,
+      normalize: true,
+      plugins: [record],
+    });
+
+    wsRef.current = ws;
+    recordRef.current = record;
+
+    record.on("record-start", () => {
+      setRecording(true);
+      setDuration(0);
+      timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
+    });
+
+    record.on("record-end", async (blob: Blob) => {
       clearInterval(timerRef.current);
       setDuration(0);
-      stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+      ws.destroy();
+      wsRef.current = null;
+      recordRef.current = null;
+
+      releaseWakeLock();
       setIsUploading(true);
       try {
         const batchId = crypto.randomUUID();
@@ -471,24 +438,40 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         setIsUploading(false);
         onRecordingChange(false);
       }
-    };
-    mr.start();
-    setMediaRecorder(mr);
-    setRecording(true);
-    timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
-    startVolumeMeter(stream);
+    });
+
+    // Record progress for more accurate timer
+    record.on("record-progress", (ms: number) => {
+      setDuration(Math.floor(ms / 1000));
+    });
+
+    try {
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      await record.startRecording({
+        noiseSuppression: false,
+        echoCancellation: false,
+        autoGainControl: isMobile,
+      });
+    } catch (e) {
+      toast(`Mic access denied: ${(e as Error).message}`, "err");
+      ws.destroy();
+      wsRef.current = null;
+      recordRef.current = null;
+      releaseWakeLock();
+      onRecordingChange(false);
+    }
   }
 
-  function stopRecording() {
-    mediaRecorder?.stop();
+  async function stopRecording() {
+    recordRef.current?.stopRecording();
+    recordRef.current?.stopMic();
     setRecording(false);
-    setMediaRecorder(null);
   }
 
   useEffect(() => {
     return () => {
       clearInterval(timerRef.current);
-      stopVolumeMeter();
+      wsRef.current?.destroy();
       releaseWakeLock();
     };
   }, []);
@@ -496,10 +479,16 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   return (
-    <div className="flex flex-col items-center gap-4 py-6">
+    <div className="flex flex-col items-center gap-3 py-4">
+      {/* WaveSurfer waveform container — only visible during recording */}
+      <div
+        ref={containerRef}
+        className={`w-full max-w-[500px] ${recording ? "" : "hidden"}`}
+      />
+
       <button
         onClick={recording ? stopRecording : startRecording}
-        className={`w-20 h-20 rounded-full text-2xl flex items-center justify-center transition-all
+        className={`w-20 h-20 rounded-full text-2xl flex items-center justify-center transition-all shrink-0
           ${recording
             ? "bg-err text-white shadow-lg animate-pulse"
             : "bg-accent text-white hover:bg-accent/90"
@@ -508,23 +497,15 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       >
         {recording ? "⏹" : "🎤"}
       </button>
-      <div className="text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
 
-      {recording && (
-        <div className="w-full max-w-[300px] h-[6px] bg-border rounded-full overflow-hidden">
-          <div
-            ref={volumeRef}
-            className="h-full rounded-full transition-[background] duration-[80ms]"
-            style={{ width: "0%" }}
-          />
-        </div>
-      )}
+      <div className="text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
 
       {wakelock && (
         <div className="text-[11px] text-muted2 flex items-center gap-1">
           <span>🔒</span> {t("rec_wakelock")}
         </div>
       )}
+
       <div className="text-[12px] text-muted">{t("rec_btn")}</div>
     </div>
   );
