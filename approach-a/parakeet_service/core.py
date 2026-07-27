@@ -71,24 +71,23 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
     # by joining words with spaces and comparing to the full text.
     # Models that put ▁ on every subword token produce words like
     # ["Hel","lo","wo","rld"] instead of ["Hello","world"]. When that
-    # happens, fall back to text-based word splitting.
-    if words:
-        reconstructed = " ".join(w["word"] for w in words)
-        if reconstructed != info["text"].strip():
-            # Primary detection produced wrong word boundaries — try
-            # timestamp-gap fallback first, then text-based split
-            has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
-            if not has_any_wordbreak:
-                words = _segment_by_timestamp_gap(info, offset, seg_end)
-            # If still wrong (e.g. ▁ on subwords), split text by whitespace
-            if not _words_match_text(words, info["text"]):
-                words = _segment_by_text(info, offset, seg_start, seg_end)
+    # happens, fall back to smarter approaches.
+    if words and not _words_match_text(words, info["text"]):
+        # Try timestamp-gap detection (uses real token timestamps)
+        has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
+        if not has_any_wordbreak:
+            words = _segment_by_timestamp_gap(info, offset, seg_end)
+        # If still wrong (e.g. ▁ on subwords), use text words + token timestamps
+        if not _words_match_text(words, info["text"]):
+            words = _segment_with_token_timestamps(info, offset, seg_start, seg_end)
 
     # Legacy fallback for empty-word case
     if not words and len(info["tokens"]) > 1:
         has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
         if not has_any_wordbreak:
             words = _segment_by_timestamp_gap(info, offset, seg_end)
+        if not words:
+            words = _segment_with_token_timestamps(info, offset, seg_start, seg_end)
 
     segment = {"start": seg_start, "end": seg_end, "segment": info["text"], "words": words}
     return segment, words
@@ -102,33 +101,46 @@ def _words_match_text(words: List[Dict[str, Any]], text: str) -> bool:
     return reconstructed.strip() == text.strip()
 
 
-def _segment_by_text(
+def _segment_with_token_timestamps(
     info: Dict[str, Any], offset: float,
     seg_start: float, seg_end: float,
 ) -> List[Dict[str, Any]]:
-    """Fallback: split the full text by whitespace and distribute timestamps.
+    """Split text into words by whitespace; use ACTUAL token timestamps.
 
-    Used when the model produces subword tokens with ▁ on every subword,
-    making word-boundary detection from tokens unreliable.
+    Distributes tokens proportionally across text words, then uses each
+    word's first token timestamp as start and the next word's first token
+    timestamp as end. Preserves the model's per-token timing accuracy
+    even when ▁-based grouping fails (e.g. ▁ on every subword).
     """
     text = info["text"].strip()
     if not text:
         return []
 
     text_words = text.split()
-    if not text_words or len(text_words) <= 1:
+    if len(text_words) <= 1:
         return []
 
-    duration = seg_end - seg_start
-    word_duration = duration / len(text_words)
+    starts = info["timestamps"]
+    n_tokens = len(starts)
+    n_words = len(text_words)
+    if n_tokens < 2 or n_words < 2:
+        return []
 
     words: List[Dict[str, Any]] = []
     for i, w in enumerate(text_words):
-        words.append({
-            "word": w,
-            "start": seg_start + i * word_duration,
-            "end": seg_start + (i + 1) * word_duration,
-        })
+        # Proportionally distribute tokens across words
+        first_tok = int(round(i * n_tokens / n_words))
+        last_tok = int(round((i + 1) * n_tokens / n_words)) - 1
+        last_tok = max(last_tok, first_tok)  # at least 1 token per word
+
+        word_start = starts[first_tok] + offset
+
+        if last_tok + 1 < n_tokens:
+            word_end = starts[last_tok + 1] + offset
+        else:
+            word_end = seg_end
+
+        words.append({"word": w, "start": word_start, "end": word_end})
 
     return words
 
