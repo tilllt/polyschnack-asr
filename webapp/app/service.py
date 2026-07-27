@@ -20,6 +20,7 @@ from .asr_client import transcribe_async, transcribe_streaming
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import diarize as run_diarization
+from .peaks import compute_peaks
 from .vad import trim_silence as _trim_silence
 import os
 
@@ -63,6 +64,7 @@ def process_recording(rec_id: int) -> None:
     language = None
     segments: List[Dict[str, Any]] = []
     error = None
+    peaks = None
 
     try:
         audio_bytes = audio_path.read_bytes()
@@ -147,6 +149,13 @@ def process_recording(rec_id: int) -> None:
                     seg["speaker"] = "/".join(sorted(speakers))
             labeled = sum(1 for s in segments if s.get("speaker"))
             log.info("Speaker merge: %d/%d segments labeled for rec_id=%s", labeled, len(segments), rec_id)
+        # Compute waveform peaks for fast WaveSurfer render
+        try:
+            audio_bytes_for_peaks = audio_path.read_bytes()
+            peaks = compute_peaks(audio_bytes_for_peaks)
+        except Exception:
+            log.exception("peaks: compute failed for rec_id=%s", rec_id)
+            peaks = None
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
@@ -165,6 +174,7 @@ def process_recording(rec_id: int) -> None:
             segments=segments if segments else None,
             processing_ms=elapsed_ms,
             error=error,
+            waveform_peaks=peaks,
         )
 
 

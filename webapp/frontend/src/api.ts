@@ -36,6 +36,7 @@ export interface Recording {
   enable_streaming: boolean;
   enable_noise_reduce: boolean;
   progress_pct: number;
+  waveform_peaks: number[] | null;
 }
 
 export interface Stats {

@@ -88,6 +88,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "enable_diarize": rec.enable_diarize,
         "enable_streaming": rec.enable_streaming,
         "enable_noise_reduce": rec.enable_noise_reduce,
+        "waveform_peaks": rec.waveform_peaks,
         "user_id": rec.user_id,
     }
 

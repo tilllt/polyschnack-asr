@@ -59,6 +59,9 @@ class Recording(SQLModel, table=True):
     #: User opted into live streaming preview (SSE per-chunk results).
     enable_streaming: bool = False
 
+    # --- waveform peaks (cached for fast WaveSurfer render) ---
+    waveform_peaks: Optional[List[float]] = Field(default=None, sa_column=Column(JSON))
+
     # --- preprocessing flags ---
     enable_noise_reduce: bool = True
 

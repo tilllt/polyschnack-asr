@@ -224,6 +224,8 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         <WaveformPlayer
           ref={wsRef}
           audioUrl={r.audio_url}
+          peaks={r.waveform_peaks}
+          duration={r.duration_s}
           onTimeUpdate={handleTimeUpdate}
           onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
         />

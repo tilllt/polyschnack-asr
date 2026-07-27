@@ -14,6 +14,8 @@ export interface WaveSurferHandle {
 
 interface Props {
   audioUrl: string;
+  peaks?: number[] | null;
+  duration?: number | null;
   onRegionChange?: (start: number, end: number) => void;
   onTimeUpdate?: (time: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
@@ -23,7 +25,7 @@ interface Props {
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, duration: propDuration, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const minimapRef = useRef<HTMLDivElement>(null);
@@ -60,6 +62,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         progressColor: "rgba(91,140,255,0.3)",
       });
       const hover = HoverPlugin.create();
+      const hasPeaks = peaks && peaks.length > 0;
       const ws = WaveSurfer.create({
         container: containerRef.current,
         waveColor: "rgba(91,140,255,0.3)",
@@ -72,6 +75,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         height,
         normalize: true,
         minPxPerSec: 1,
+        peaks: hasPeaks ? peaks : undefined,
+        duration: hasPeaks && propDuration ? propDuration : undefined,
         plugins: [regions, timeline, minimap, hover],
       });
 
@@ -109,7 +114,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       wsRef.current = ws;
       regionsRef.current = regions;
       return () => { ws.destroy(); };
-    }, [audioUrl]);
+    }, [audioUrl, peaks, propDuration]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => { wsRef.current?.setTime(s); wsRef.current?.play(); },

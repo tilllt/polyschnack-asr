@@ -137,6 +137,7 @@ def update_result(
     processing_ms: float,
     error: Optional[str],
     progress_pct: int = 100,
+    waveform_peaks: Optional[List[float]] = None,
 ) -> Optional[Recording]:
     """Persist the transcription result (success or failure) for *rec_id*."""
     rec = session.get(Recording, rec_id)
@@ -151,6 +152,8 @@ def update_result(
     rec.processing_ms = processing_ms
     rec.error = error
     rec.progress_pct = progress_pct
+    if waveform_peaks is not None:
+        rec.waveform_peaks = waveform_peaks
     session.add(rec)
     session.commit()
     session.refresh(rec)
