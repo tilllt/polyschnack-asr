@@ -67,17 +67,70 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
         current_word["end"] = seg_end
         words.append(current_word)
 
-    # Fallback: if ▁-based detection produced nothing (≤1 word) AND no token
-    # had a ▁ marker, try timestamp-gap detection for models that don't use
-    # SentencePiece ▁. Skip fallback if any token had ▁ — the primary method
-    # is working correctly for that model.
-    if len(words) <= 1 and len(info["tokens"]) > 1:
+    # Validation: check if ▁-based detection produced correct word boundaries
+    # by joining words with spaces and comparing to the full text.
+    # Models that put ▁ on every subword token produce words like
+    # ["Hel","lo","wo","rld"] instead of ["Hello","world"]. When that
+    # happens, fall back to text-based word splitting.
+    if words:
+        reconstructed = " ".join(w["word"] for w in words)
+        if reconstructed != info["text"].strip():
+            # Primary detection produced wrong word boundaries — try
+            # timestamp-gap fallback first, then text-based split
+            has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
+            if not has_any_wordbreak:
+                words = _segment_by_timestamp_gap(info, offset, seg_end)
+            # If still wrong (e.g. ▁ on subwords), split text by whitespace
+            if not _words_match_text(words, info["text"]):
+                words = _segment_by_text(info, offset, seg_start, seg_end)
+
+    # Legacy fallback for empty-word case
+    if not words and len(info["tokens"]) > 1:
         has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
         if not has_any_wordbreak:
             words = _segment_by_timestamp_gap(info, offset, seg_end)
 
     segment = {"start": seg_start, "end": seg_end, "segment": info["text"], "words": words}
     return segment, words
+
+
+def _words_match_text(words: List[Dict[str, Any]], text: str) -> bool:
+    """Check if words joined with single spaces equal the full text."""
+    if not words:
+        return False
+    reconstructed = " ".join(w["word"] for w in words)
+    return reconstructed.strip() == text.strip()
+
+
+def _segment_by_text(
+    info: Dict[str, Any], offset: float,
+    seg_start: float, seg_end: float,
+) -> List[Dict[str, Any]]:
+    """Fallback: split the full text by whitespace and distribute timestamps.
+
+    Used when the model produces subword tokens with ▁ on every subword,
+    making word-boundary detection from tokens unreliable.
+    """
+    text = info["text"].strip()
+    if not text:
+        return []
+
+    text_words = text.split()
+    if not text_words or len(text_words) <= 1:
+        return []
+
+    duration = seg_end - seg_start
+    word_duration = duration / len(text_words)
+
+    words: List[Dict[str, Any]] = []
+    for i, w in enumerate(text_words):
+        words.append({
+            "word": w,
+            "start": seg_start + i * word_duration,
+            "end": seg_start + (i + 1) * word_duration,
+        })
+
+    return words
 
 
 # Threshold for timestamp-gap word detection (seconds)
