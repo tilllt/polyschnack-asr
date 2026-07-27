@@ -5,6 +5,10 @@ This validates the core invariant for karaoke:
 - With valid timestamps: words list is non-empty with correct {word,start,end} format
 - Without timestamps: words list is empty (but key still exists)
 - stitch() propagates words through to the final result["segments"]
+
+Two word-detection strategies are tested:
+  1. Primary: SentencePiece ▁-marker detection
+  2. Fallback: timestamp-gap detection (for models without ▁)
 """
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pytest
-from parakeet_service.core import _segment_from, stitch
+from parakeet_service.core import _segment_from, stitch, _segment_by_timestamp_gap
 
 
 class FakeResult:
@@ -28,7 +32,7 @@ class FakeResult:
 
 
 # ---------------------------------------------------------------------------
-# _segment_from tests
+# _segment_from tests — Primary ▁-based detection
 # ---------------------------------------------------------------------------
 
 def test_segment_from_has_words_key():
@@ -139,6 +143,125 @@ def test_segment_from_word_end_times():
     assert words[0]["end"] == pytest.approx(1.0)
     assert words[1]["end"] == pytest.approx(2.0)
     assert words[2]["end"] == seg["end"]
+
+
+# ---------------------------------------------------------------------------
+# _segment_from tests — Timestamp-gap fallback (models without ▁)
+# ---------------------------------------------------------------------------
+
+def test_no_wordbreak_marker_leading_space_tokens():
+    """Tokens with leading spaces (but no ▁) use the timestamp-gap fallback."""
+    info = {
+        "text": "Hello world",
+        "tokens": [" Hello", " world"],  # SentencePiece without ▁
+        "timestamps": [0.0, 0.5],
+    }
+    _, words = _segment_from(info, 0.0)
+    assert len(words) == 2, f"expected 2 words, got {len(words)}"
+    assert words[0]["word"] == "Hello"
+    assert words[1]["word"] == "World" or words[1]["word"] == "world"
+
+
+def test_no_wordbreak_marker_bare_tokens():
+    """Plain tokens without any whitespace markers use the timestamp-gap fallback."""
+    info = {
+        "text": "Hello world",
+        "tokens": ["Hello", "world"],  # no ▁, no leading space
+        "timestamps": [0.0, 0.5],
+    }
+    _, words = _segment_from(info, 0.0)
+    assert len(words) == 2, f"expected 2 words, got {len(words)}"
+    assert words[0]["word"] == "Hello"
+    assert words[1]["word"] == "world"
+
+
+def test_no_wordbreak_marker_subword_small_gap_stays_merged():
+    """Subword tokens with small gaps stay merged (not falsely split)."""
+    info = {
+        "text": "Hello",
+        "tokens": ["Hel", "lo"],       # subword, gap only 0.05s
+        "timestamps": [0.0, 0.05],
+    }
+    _, words = _segment_from(info, 0.0)
+    assert len(words) == 1, f"expected 1 merged word, got {len(words)}: {[w['word'] for w in words]}"
+    assert words[0]["word"] == "Hello"
+
+
+def test_no_wordbreak_marker_three_words():
+    """Three bare tokens → three separate words with gap detection."""
+    info = {
+        "text": "how are you",
+        "tokens": ["how", "are", "you"],
+        "timestamps": [0.0, 0.5, 1.0],
+    }
+    _, words = _segment_from(info, 0.0)
+    assert len(words) == 3, f"expected 3 words, got {len(words)}"
+    assert words[0]["word"] == "how"
+    assert words[1]["word"] == "are"
+    assert words[2]["word"] == "you"
+
+
+def test_fallback_timestamps_correct():
+    """Timestamp-gap fallback produces correct per-word timestamps."""
+    seg, words = _segment_from({
+        "text": "Hello world",
+        "tokens": ["Hello", "world"],
+        "timestamps": [1.0, 2.0],
+    }, 10.0)  # offset 10s
+    assert len(words) == 2
+    assert words[0]["start"] == 11.0  # 1.0 + 10
+    assert words[0]["end"] == 12.0    # 2.0 + 10 (next word start)
+    assert words[1]["start"] == 12.0  # 2.0 + 10
+    assert words[1]["end"] == seg["end"]
+
+
+# ---------------------------------------------------------------------------
+# _segment_by_timestamp_gap direct tests
+# ---------------------------------------------------------------------------
+
+def test_gap_detection_produces_correct_words():
+    """Direct test of _segment_by_timestamp_gap()."""
+    words = _segment_by_timestamp_gap({
+        "text": "hello world",
+        "tokens": ["hello", "world"],
+        "timestamps": [0.0, 0.5],
+    }, 0.0, 1.0)
+    assert len(words) == 2
+    assert words[0]["word"] == "hello"
+    assert words[1]["word"] == "world"
+
+
+def test_gap_detection_merges_small_gaps():
+    """Small gaps merge subword tokens."""
+    words = _segment_by_timestamp_gap({
+        "text": "Hello",
+        "tokens": ["Hel", "lo"],
+        "timestamps": [0.0, 0.03],  # 30ms < threshold
+    }, 0.0, 1.0)
+    assert len(words) == 1
+    assert words[0]["word"] == "Hello"
+
+
+def test_gap_detection_splits_large_gaps():
+    """Large gaps split into separate words."""
+    words = _segment_by_timestamp_gap({
+        "text": "a b",
+        "tokens": ["a", "b"],
+        "timestamps": [0.0, 0.2],  # 200ms > threshold
+    }, 0.0, 1.0)
+    assert len(words) == 2
+    assert words[0]["word"] == "a"
+    assert words[1]["word"] == "b"
+
+
+def test_gap_detection_empty_input():
+    """Empty or mismatched input returns empty list."""
+    assert _segment_by_timestamp_gap(
+        {"text": "", "tokens": [], "timestamps": []}, 0.0, 1.0
+    ) == []
+    assert _segment_by_timestamp_gap(
+        {"text": "a", "tokens": ["a"], "timestamps": []}, 0.0, 1.0
+    ) == []  # len mismatch
 
 
 # ---------------------------------------------------------------------------

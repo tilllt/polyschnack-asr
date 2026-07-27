@@ -43,8 +43,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     onSeekTo?.(segments[idx].start);
   }
 
-  function handleWordClick(seconds: number) {
+  function handleWordClick(idx: number, seconds: number) {
     if (editingIdx !== null) return;
+    onActiveChange(idx);
     onSeekTo?.(seconds);
   }
 
@@ -129,11 +130,14 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                         key={wi}
                         role="button"
                         tabIndex={0}
-                        onClick={() => handleWordClick(w.start)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWordClick(i, w.start);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            handleWordClick(w.start);
+                            handleWordClick(i, w.start);
                           }
                         }}
                         className={`cursor-pointer transition-colors duration-[100ms] ${

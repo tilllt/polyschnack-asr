@@ -66,8 +66,70 @@ def _segment_from(info: Dict[str, Any], offset: float) -> Tuple[Dict[str, Any], 
     if current_word is not None:
         current_word["end"] = seg_end
         words.append(current_word)
+
+    # Fallback: if ▁-based detection produced nothing (≤1 word) AND no token
+    # had a ▁ marker, try timestamp-gap detection for models that don't use
+    # SentencePiece ▁. Skip fallback if any token had ▁ — the primary method
+    # is working correctly for that model.
+    if len(words) <= 1 and len(info["tokens"]) > 1:
+        has_any_wordbreak = any("▁" in tok for tok in info["tokens"])
+        if not has_any_wordbreak:
+            words = _segment_by_timestamp_gap(info, offset, seg_end)
+
     segment = {"start": seg_start, "end": seg_end, "segment": info["text"], "words": words}
     return segment, words
+
+
+# Threshold for timestamp-gap word detection (seconds)
+_WORD_GAP_THRESHOLD = 0.08  # 80ms — typical inter-word pause
+
+
+def _segment_by_timestamp_gap(
+    info: Dict[str, Any], offset: float, seg_end: float
+) -> List[Dict[str, Any]]:
+    """Fallback: detect word boundaries by timestamp gaps between tokens.
+
+    Used when the primary ▁-based detection fails (e.g. models that don't
+    use SentencePiece's ▁ convention). A gap > WORD_GAP_THRESHOLD between
+    consecutive token timestamps indicates a word boundary.
+    """
+    tokens = info["tokens"]
+    starts = info["timestamps"]
+    if not tokens or not starts or len(tokens) != len(starts):
+        return []
+
+    words: List[Dict[str, Any]] = []
+    current_word: Dict[str, Any] | None = None
+
+    for i, (tok, ts) in enumerate(zip(tokens, starts)):
+        clean_tok = tok.replace("▁", "").strip()
+        if not clean_tok:
+            continue
+
+        # Start a new word when:
+        #   a) first token (no current word)
+        #   b) gap from previous token exceeds threshold
+        is_new = current_word is None
+        if not is_new and i > 0:
+            gap = ts - starts[i - 1]
+            if gap > _WORD_GAP_THRESHOLD:
+                word_end = ts + offset
+                current_word["end"] = word_end
+                words.append(current_word)
+                current_word = None
+                is_new = True
+
+        if is_new:
+            current_word = {"start": ts + offset, "end": 0.0, "word": clean_tok}
+        else:
+            current_word["word"] += clean_tok
+
+    # Close final word
+    if current_word is not None:
+        current_word["end"] = seg_end
+        words.append(current_word)
+
+    return words
 
 
 def stitch(ranges: List[Tuple[int, int]], results: List[Any]) -> Dict[str, Any]:
