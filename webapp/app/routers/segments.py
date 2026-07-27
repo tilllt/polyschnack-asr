@@ -48,6 +48,8 @@ def update_segment(
         raise HTTPException(status_code=400, detail="text must not be empty")
 
     segments[idx]["text"] = new_text
+    # Words no longer match the edited text — clear so frontend shows plain text
+    segments[idx].pop("words", None)
     rec.segments = segments
     rec.text = " ".join(s["text"] for s in segments)
     session.add(rec)
