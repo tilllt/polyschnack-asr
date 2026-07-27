@@ -120,7 +120,16 @@ def process_recording(rec_id: int) -> None:
         segments = result["segments"]
 
         # Optional speaker diarization — merge labels into segments
-        diar = run_diarization(str(audio_path)) if enable_diarize else None
+        if enable_diarize:
+            log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
+            try:
+                diar = run_diarization(str(audio_path))
+                log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
+            except Exception as exc_d:
+                log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
+                diar = None
+        else:
+            diar = None
         if diar:
             sd_idx = 0
             for seg in segments:
@@ -136,6 +145,8 @@ def process_recording(rec_id: int) -> None:
                         speakers.add(d["speaker"])
                 if speakers:
                     seg["speaker"] = "/".join(sorted(speakers))
+            labeled = sum(1 for s in segments if s.get("speaker"))
+            log.info("Speaker merge: %d/%d segments labeled for rec_id=%s", labeled, len(segments), rec_id)
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"

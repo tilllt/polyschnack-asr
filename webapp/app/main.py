@@ -11,6 +11,7 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict
@@ -25,7 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
-from .routers.models import router as models_router
+from .routers.models import router as models_router, _hf_token, _check_vad, _check_diarize
 from .routers.auth import router as auth_router
 from .routers.segments import router as segments_router
 from .routers.url_import import router as url_import_router
@@ -61,6 +62,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_db()
     # Ensure the static directory exists so the StaticFiles mount never errors.
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Startup diagnostics: model availability
+    hf_token_ok = bool(os.getenv("HF_TOKEN"))
+    log.info("HF_TOKEN: %s", "✓ set" if hf_token_ok else "✗ NOT SET — diarization disabled")
+    log.info("silero-vad (VAD): %s", "✓ cached" if _check_vad() else "✗ not installed")
+    if hf_token_ok:
+        log.info("pyannote (diarize): %s", "✓ cached" if _check_diarize() else "✗ not installed — click toggle to download")
+    else:
+        log.info("pyannote (diarize): skipped (no HF_TOKEN)")
+
     yield
 
 

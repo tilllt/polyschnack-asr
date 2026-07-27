@@ -40,12 +40,18 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
     Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts,
     or an empty list when diarization is unavailable.
     """
-    log.info("Running speaker diarization on %s", audio_path)
     pipeline = _load_pipeline()
     if pipeline is None:
+        log.warning("diarize(%s): pipeline not loaded (HF_TOKEN missing or pyannote not installed)", audio_path)
         return []
 
-    result = pipeline(audio_path)
+    log.info("diarize: running pyannote pipeline on %s", audio_path)
+    try:
+        result = pipeline(audio_path)
+    except Exception as exc:
+        log.exception("diarize: pipeline() threw on %s: %s", audio_path, exc)
+        return []
+
     segments: List[Dict[str, Any]] = []
     for turn, _, speaker in result.itertracks(yield_label=True):
         segments.append({
@@ -54,6 +60,8 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
             "speaker": speaker,
         })
     segments.sort(key=lambda s: s["start"])
-    log.info("diarization: %d segments, %d speakers",
-             len(segments), len(set(s["speaker"] for s in segments)))
+    speaker_set = set(s["speaker"] for s in segments)
+    log.info("diarize: %d segments, %d speakers (%s)",
+             len(segments), len(speaker_set),
+             ", ".join(sorted(speaker_set)) if speaker_set else "none")
     return segments
