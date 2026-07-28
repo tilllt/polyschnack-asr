@@ -79,7 +79,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, minimap, hover],
       });
 
+      // Step 1: Load audio normally (playback works)
       ws.load(audioUrl)
+        .then(() => {
+          // Step 2: Audio decoded, playback ready – re-render waveform
+          // with cached peaks for instant display next time
+          if (peaks && peaks.length > 0) {
+            ws.options.peaks = [peaks as number[]];
+            ws.options.duration = propDuration ?? ws.getDuration();
+            ws.render();
+          }
+        })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn("WaveSurfer load error:", msg);
