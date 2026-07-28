@@ -32,9 +32,10 @@ export function SegmentSearch({ segments, recordingId, onEdited }: Props) {
       for (let i = 0; i < changed.length; i++) {
         const oldText = changed[i].text;
         if (one) {
-          const idx = oldText.search(new RegExp(query, "i"));
+          const re = new RegExp(query, "i");
+          const idx = oldText.search(re);
           if (idx !== -1) {
-            changed[i] = { ...changed[i], text: oldText.replace(new RegExp(query, "i"), replace) };
+            changed[i].text = oldText.replace(re, replace);
             await updateSegment(recordingId, i, changed[i].text);
             break;
           }

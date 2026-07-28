@@ -117,7 +117,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                   await handleSave(i);
                 }
               }}
-              onBlur={() => handleSave(i)}
+              onBlur={() => {
+                if (editText !== segments[i].text) handleSave(i);
+              }}
               autoFocus
             />
           ) : (
