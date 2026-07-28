@@ -228,17 +228,19 @@ export function UploadZone() {
         </div>
       )}
 
-      {/* Toggle switches (shared by all tabs) */}
-      <div className="flex items-center justify-center gap-6 flex-wrap">
+      {/* Toggle switches (shared by all tabs) — mini on mobile */}
+      <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
         <ToggleSwitch
-          label="VAD (Silence trim)"
+          label="VAD"
+          title="VAD (Silence trim)"
           enabled={vadOn}
           available={modelStatus?.vad_available ?? false}
           disabled={recording}
           onChange={toggleVad}
         />
         <ToggleSwitch
-          label="Speaker Diarization"
+          label="Diarize"
+          title="Speaker Diarization"
           enabled={diarizeOn}
           available={modelStatus?.diarize_available ?? false}
           noToken={modelStatus !== null && !modelStatus.hf_token}
@@ -246,14 +248,16 @@ export function UploadZone() {
           onChange={toggleDiarize}
         />
         <ToggleSwitch
-          label="Live Preview"
+          label="Live"
+          title="Live Preview"
           enabled={livePreview}
           available={true}
           disabled={recording}
           onChange={() => setLivePreview((v) => !v)}
         />
         <ToggleSwitch
-          label="Noise Reduction"
+          label="NR"
+          title="Noise Reduction"
           enabled={noiseReduce}
           available={true}
           disabled={recording}
@@ -672,6 +676,7 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: an
 
 function ToggleSwitch({
   label,
+  title,
   enabled,
   available,
   noToken,
@@ -679,6 +684,7 @@ function ToggleSwitch({
   onChange,
 }: {
   label: string;
+  title?: string;
   enabled: boolean;
   available: boolean;
   noToken?: boolean;
@@ -689,33 +695,34 @@ function ToggleSwitch({
     ? null
     : noToken
     ? "⚠ no token"
-    : "⏳ not cached";
+    : "⏳";
 
   return (
     <button
       onClick={onChange}
       disabled={disabled}
+      title={title ?? label}
       className={`
-        flex items-center gap-2 px-3 py-2 rounded-sm text-[13px] transition-colors
+        flex items-center gap-1.5 px-2 py-1 rounded-sm text-[12px] transition-colors
         ${enabled ? "bg-[rgba(63,185,80,.12)] text-ok" : "bg-panel border border-border2 text-muted"}
         ${noToken ? "opacity-60" : "hover:bg-panel2"}
       `}
     >
       <div
         className={`
-          w-[36px] h-[20px] rounded-full relative transition-colors flex-shrink-0
+          w-[24px] h-[14px] rounded-full relative transition-colors flex-shrink-0
           ${enabled ? "bg-ok" : "bg-border2"}
         `}
       >
         <div
           className={`
-            absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white shadow-sm transition-transform
-            ${enabled ? "translate-x-[18px]" : "translate-x-[2px]"}
+            absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-transform
+            ${enabled ? "translate-x-[12px]" : "translate-x-[2px]"}
           `}
         />
       </div>
       <span>{label}</span>
-      {badge && <span className="text-[11px] text-muted2">{badge}</span>}
+      {badge && <span className="text-[10px] text-muted2">{badge}</span>}
     </button>
   );
 }
