@@ -54,28 +54,44 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     useEffect(() => {
       if (!containerRef.current) return;
 
+      let cancelled = false;
+
       const regions = RegionsPlugin.create();
       const timeline = TimelinePlugin.create({ container: timelineRef.current! });
       const hover = HoverPlugin.create();
-      const ws = WaveSurfer.create({
-        container: containerRef.current,
-        backend: "WebAudio",
-        waveColor: "rgba(91,140,255,0.3)",
-        progressColor: "rgba(91,140,255,0.8)",
-        cursorColor: "#3b82f6",
-        cursorWidth: 1,
-        barWidth: 2,
-        barGap: 1,
-        barRadius: 2,
-        height,
-        normalize: true,
-        minPxPerSec: 1,
-        plugins: [regions, timeline, hover],
-      });
+      let ws: WaveSurfer;
 
-      let cancelled = false;
+      try {
+        ws = WaveSurfer.create({
+          container: containerRef.current,
+          backend: "WebAudio",
+          waveColor: "rgba(91,140,255,0.3)",
+          progressColor: "rgba(91,140,255,0.8)",
+          cursorColor: "#3b82f6",
+          cursorWidth: 1,
+          barWidth: 2,
+          barGap: 1,
+          barRadius: 2,
+          height,
+          normalize: true,
+          minPxPerSec: 1,
+          plugins: [regions, timeline, hover],
+        });
+      } catch (e) {
+        setError(true);
+        setReady(true);
+        onLoadErrorRef.current?.();
+        return;
+      }
 
-      ws.load(audioUrl);
+      try {
+        ws.load(audioUrl);
+      } catch (e) {
+        setError(true);
+        setReady(true);
+        onLoadErrorRef.current?.();
+        return;
+      }
 
       // Timeout safety net — 10s, cleared by ready or error
       timerRef.current = setTimeout(() => {
@@ -85,6 +101,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           onLoadErrorRef.current?.();
         }
       }, 10000);
+
+      // WaveSurfer fires "error" when audio fails to load/decode
+      ws.on("error", () => {
+        if (cancelled) return;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setError(true);
+        setReady(true);
+        onLoadErrorRef.current?.();
+      });
 
       ws.on("ready", () => {
         if (cancelled) return;
