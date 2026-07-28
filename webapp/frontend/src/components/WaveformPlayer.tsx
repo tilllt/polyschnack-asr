@@ -79,12 +79,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         height,
         normalize: true,
         minPxPerSec: 1,
-        peaks: hasPeaks ? [peaks as number[]] : undefined,
-        duration: hasPeaks && propDuration ? propDuration : undefined,
         plugins: [regions, timeline, minimap, hover],
       });
 
-      ws.load(audioUrl);
+      ws.load(audioUrl, hasPeaks ? [peaks as number[]] : undefined, hasPeaks && propDuration ? propDuration : undefined);
 
       ws.on("loading", (pct: number) => {
         // Show loading indicator when audio is being fetched/decoded
