@@ -62,6 +62,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       const hover = HoverPlugin.create();
       const ws = WaveSurfer.create({
         container: containerRef.current,
+        backend: "WebAudio",
         waveColor: "rgba(91,140,255,0.3)",
         progressColor: "rgba(91,140,255,0.8)",
         cursorColor: "#3b82f6",
