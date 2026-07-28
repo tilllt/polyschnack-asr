@@ -51,7 +51,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
   async function handleStartTranscription(id: string) {
     try {
-      await startTranscription(id, r.enable_vad, r.enable_diarize, r.enable_streaming, r.enable_noise_reduce);
+      await startTranscription(id, r.enable_vad, r.enable_diarize, r.enable_streaming, r.enable_noise_reduce, r.enable_enhance);
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Failed: ${(e as Error).message}`, "err");

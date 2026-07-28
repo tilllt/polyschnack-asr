@@ -68,7 +68,7 @@ export function UploadZone() {
 
     const results = await Promise.allSettled(
       items.map((f) =>
-        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, false, (pct) => {
+        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, false, (pct) => {
           const fileBytes = (f.size * pct) / 100;
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
@@ -106,7 +106,7 @@ export function UploadZone() {
   async function handleForceUpload(file: File, batchId: string) {
     setIsUploading(true);
     try {
-      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, true, true);
+      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, true, true);
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -471,7 +471,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         // Peak-normalize to -1 dBFS — boosts quiet recordings, leaves loud ones alone
         const normBlob = await normalizePeak(blob);
         const batchId = crypto.randomUUID();
-        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce);
+        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel);
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {

@@ -110,12 +110,13 @@ export async function transcribeRange(id: string, startSec: number, endSec: numb
   return res.json() as Promise<Recording>;
 }
 
-export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true): Promise<Recording> {
+export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true, enableEnhance = "off"): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  fd.append("enable_enhance", enableEnhance);
   const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -137,6 +138,7 @@ export async function uploadRecording(
   enableDiarize = false,
   enableStreaming = false,
   enableNoiseReduce = true,
+  enableEnhance = "off",
   force = false,
   onProgress?: (pct: number) => void,
 ): Promise<Recording | { duplicate: true; existing_id: string; recording: Recording }> {
@@ -147,6 +149,7 @@ export async function uploadRecording(
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  fd.append("enable_enhance", enableEnhance);
 
   const url = force ? `/api/recordings?force=true` : "/api/recordings";
   if (!onProgress) {
@@ -198,6 +201,7 @@ export async function recordFromMic(
   enableDiarize = false,
   enableStreaming = false,
   enableNoiseReduce = true,
+  enableEnhance = "off",
 ): Promise<Recording> {
   const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
   const fd = new FormData();
@@ -208,6 +212,7 @@ export async function recordFromMic(
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  fd.append("enable_enhance", enableEnhance);
   const res = await fetch("/api/recordings", { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }

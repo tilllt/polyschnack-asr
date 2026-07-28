@@ -31,6 +31,7 @@ async def import_from_url(
     enable_diarize: bool = Form(False),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
+    enable_enhance: str = Form("off"),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Download audio from *url* via yt-dlp, convert to 16 kHz mono WAV, save."""
@@ -45,7 +46,6 @@ async def import_from_url(
             proc = subprocess.run(
                 [
                     "yt-dlp",
-                    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "-x",
                     "--audio-format", "wav",
                     "--audio-quality", "0",
@@ -65,6 +65,7 @@ async def import_from_url(
 
         if proc.returncode != 0:
             err = (proc.stderr or "no output")[:500]
+            log.warning("yt-dlp failed for url=%s: %s", url[:80], err)
             raise HTTPException(status_code=400, detail=f"yt-dlp failed: {err}")
 
         wav_path_str = proc.stdout.strip().split("\n")[0].strip()
@@ -103,6 +104,7 @@ async def import_from_url(
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
+        enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=_current_user(request),
     )

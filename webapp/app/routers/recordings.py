@@ -168,6 +168,7 @@ async def upload_recording(
     enable_diarize: bool = Form(False),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
+    enable_enhance: str = Form("off"),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Accept a multipart audio upload, persist it."""
@@ -229,6 +230,7 @@ async def upload_recording(
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
+        enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=_current_user(request),
     )
@@ -363,6 +365,7 @@ def transcribe_ep(
     enable_diarize: bool = Form(False),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
+    enable_enhance: str = Form("off"),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Start transcription for an uploaded recording."""
@@ -378,6 +381,7 @@ def transcribe_ep(
     rec.enable_diarize = enable_diarize
     rec.enable_streaming = enable_streaming
     rec.enable_noise_reduce = enable_noise_reduce
+    rec.enable_enhance = enable_enhance
     session.add(rec)
     session.commit()
 
