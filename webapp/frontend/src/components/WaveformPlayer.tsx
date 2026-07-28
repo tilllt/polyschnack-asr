@@ -82,7 +82,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, minimap, hover],
       });
 
-      ws.load(audioUrl, hasPeaks ? [peaks as number[]] : undefined, hasPeaks && propDuration ? propDuration : undefined);
+      const loadPromise = ws.load(audioUrl, hasPeaks ? [peaks as number[]] : undefined, hasPeaks && propDuration ? propDuration : undefined)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          setAudioLoading(false);
+          setAudioLoaded(true); // unblock button so user can see error
+          console.warn("WaveSurfer load error:", msg);
+        });
 
       ws.on("loading", (pct: number) => {
         // Show loading indicator when audio is being fetched/decoded
