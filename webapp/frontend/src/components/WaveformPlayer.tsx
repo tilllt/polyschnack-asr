@@ -75,21 +75,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       let cancelled = false;
 
-      // Pre-flight: HEAD request to catch 404/500 before WaveSurfer tries
-      fetch(audioUrl, { method: "HEAD" }).then((res) => {
-        if (!cancelled && !res.ok) {
-          setError(true);
-          setReady(true);
-          onLoadErrorRef.current?.();
-        }
-      }).catch(() => {
-        if (!cancelled) {
-          setError(true);
-          setReady(true);
-          onLoadErrorRef.current?.();
-        }
-      });
-
       ws.load(audioUrl);
 
       // Timeout safety net — 10s, cleared by ready or error
