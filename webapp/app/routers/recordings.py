@@ -13,6 +13,7 @@ import subprocess
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
@@ -391,20 +392,34 @@ def transcribe_ep(
 # ---------------------------------------------------------------------------
 
 
+class RetranscribeParams(BaseModel):
+    enable_vad: bool = False
+    enable_diarize: bool = False
+    enable_streaming: bool = False
+    enable_noise_reduce: bool = True
+
+
 @router.post("/recordings/{rid}/retranscribe")
 def retranscribe(
     rid: str,
-    request: Request,
-    background: BackgroundTasks,
+    params: RetranscribeParams = RetranscribeParams(),
+    request: Request = None,
+    background: BackgroundTasks = None,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
-    """Reset transcription state and re-queue the audio for processing."""
+    """Reset transcription state, update settings, and re-queue for processing."""
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
     if uid is not None and rec.user_id != uid:
         raise HTTPException(status_code=403, detail="not your recording")
+    rec.enable_vad = params.enable_vad
+    rec.enable_diarize = params.enable_diarize
+    rec.enable_streaming = params.enable_streaming
+    rec.enable_noise_reduce = params.enable_noise_reduce
+    session.add(rec)
+    session.commit()
     rec = set_processing(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")

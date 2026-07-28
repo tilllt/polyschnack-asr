@@ -213,9 +213,16 @@ export async function deleteRecording(id: string): Promise<void> {
   await fetch(`/api/recordings/${id}`, { method: "DELETE" }).then(checkOk);
 }
 
-export async function retranscribeRecording(id: string): Promise<Recording> {
+export async function retranscribeRecording(id: string, opts?: {
+  enable_vad?: boolean;
+  enable_diarize?: boolean;
+  enable_streaming?: boolean;
+  enable_noise_reduce?: boolean;
+}): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
   }).then(checkOk);
   return res.json() as Promise<Recording>;
 }

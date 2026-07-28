@@ -122,11 +122,18 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
     });
   }
 
-  function handleRetranscribe() {
+  async function handleRetranscribe() {
     if (!confirm(t("confirm_retranscribe"))) return;
-    retranscribeMut.mutate(r.uid, {
+    retranscribeMut.mutate({
+      id: r.uid,
+      opts: {
+        enable_vad: r.enable_vad,
+        enable_diarize: r.enable_diarize,
+        enable_streaming: r.enable_streaming,
+        enable_noise_reduce: r.enable_noise_reduce,
+      },
+    }, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),
-      onError: (e) => toast(`${t("error")}: ${e.message}`, "err"),
     });
   }
 
@@ -141,7 +148,8 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const hasText = (r.text ?? "").trim().length > 0;
 
   function handleEdited(newSegs: typeof segments, newText: string) {
-    qc.setQueryData(["recordings"], (old: Recording[] | undefined) => {
+    // Update cache for all recordings queries (with and without search)
+    qc.setQueriesData({ queryKey: ["recordings"] }, (old: Recording[] | undefined) => {
       if (!old) return old;
       return old.map((rec) =>
         rec.id === r.id ? { ...rec, segments: newSegs, text: newText } : rec
