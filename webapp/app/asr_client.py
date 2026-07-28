@@ -98,25 +98,54 @@ def transcribe_streaming(
     }
 
 
+def _merge_token_words(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge BPE-subword tokens into real words with real timestamps.
+
+    Tokens starting with ``##`` are continuations of the previous word.
+    A simple ``split()`` is the fallback when no tokens are available.
+    """
+    merged: List[Dict[str, Any]] = []
+    cur: Dict[str, Any] | None = None
+    for t in tokens:
+        w = t.get("word", "")
+        s = t.get("start")
+        e = t.get("end")
+        if w.startswith("##") and cur is not None:
+            cur["word"] += w[2:]
+            if e is not None:
+                cur["end"] = e
+        else:
+            if cur is not None:
+                merged.append(cur)
+            cur = {"word": w, "start": s, "end": e}
+    if cur is not None:
+        merged.append(cur)
+    return merged
+
+
 def _parse_result(payload: dict) -> Dict[str, Any]:
-    segments: List[Dict[str, Any]] = [
-        {
+    segments: List[Dict[str, Any]] = []
+    for seg in payload.get("segments", []):
+        token_words = seg.get("words", [])
+        if token_words:
+            words = _merge_token_words(token_words)
+        else:
+            # Fallback: uniform distribution from text
+            text_words = (seg.get("text") or seg.get("segment", "")).split()
+            s = seg.get("start") or 0
+            e = seg.get("end") or 0
+            dur = max(e - s, 0.1)
+            w_dur = dur / max(len(text_words), 1)
+            words = [
+                {"word": w, "start": s + i * w_dur, "end": s + (i + 1) * w_dur}
+                for i, w in enumerate(text_words)
+            ]
+        segments.append({
             "start": seg.get("start"),
             "end": seg.get("end"),
             "text": seg.get("text") or seg.get("segment", ""),
-        }
-        for seg in payload.get("segments", [])
-    ]
-    # Rebuild words from text (strip subword tokens from ASR model)
-    for s in segments:
-        text_words = (s["text"] or "").split()
-        dur = max((s.get("end") or 0) - (s.get("start") or 0), 0.1)
-        w_dur = dur / max(len(text_words), 1)
-        s["words"] = [
-            {"word": w, "start": (s["start"] or 0) + i * w_dur,
-             "end": (s["start"] or 0) + (i + 1) * w_dur}
-            for i, w in enumerate(text_words)
-        ]
+            "words": words,
+        })
     return {
         "text": payload.get("text", ""),
         "duration": payload.get("duration"),
