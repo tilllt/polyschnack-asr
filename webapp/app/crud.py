@@ -32,6 +32,7 @@ def create_recording(
     enable_diarize: bool = False,
     enable_streaming: bool = False,
     enable_noise_reduce: bool = True,
+    enable_enhance: str = "off",
     content_hash: Optional[str] = None,
     duration_s: Optional[float] = None,
     user_id: Optional[int] = None,
@@ -51,6 +52,7 @@ def create_recording(
         enable_diarize=enable_diarize,
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
+        enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=user_id,
     )

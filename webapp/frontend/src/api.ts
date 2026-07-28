@@ -35,6 +35,7 @@ export interface Recording {
   enable_diarize: boolean;
   enable_streaming: boolean;
   enable_noise_reduce: boolean;
+  enable_enhance: string;
   progress_pct: number;
   waveform_peaks: number[] | null;
 }
@@ -177,6 +178,7 @@ export async function importFromUrl(
   enableDiarize = false,
   enableStreaming = false,
   enableNoiseReduce = true,
+  enableEnhance = "off",
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
@@ -184,6 +186,7 @@ export async function importFromUrl(
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
+  fd.append("enable_enhance", enableEnhance);
   const res = await fetch("/api/recordings/from-url", { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -218,6 +221,7 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_diarize?: boolean;
   enable_streaming?: boolean;
   enable_noise_reduce?: boolean;
+  enable_enhance?: string;
 }): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",

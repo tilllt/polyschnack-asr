@@ -131,6 +131,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         enable_diarize: r.enable_diarize,
         enable_streaming: r.enable_streaming,
         enable_noise_reduce: r.enable_noise_reduce,
+        enable_enhance: r.enable_enhance,
       },
     }, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),

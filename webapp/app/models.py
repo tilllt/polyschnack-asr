@@ -67,6 +67,8 @@ class Recording(SQLModel, table=True):
 
     # --- preprocessing flags ---
     enable_noise_reduce: bool = True
+    #: ffmpeg pre-processing level — "off", "light", "medium", "aggressive".
+    enable_enhance: str = "off"
 
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)

@@ -25,8 +25,88 @@ from .vad import trim_silence as _trim_silence
 import os
 
 _VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false").lower() in ("true", "1", "yes")
+_ENHANCE_LEVEL = os.getenv("ENHANCE_LEVEL", "off")  # off, light, medium, aggressive
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Audio enhancement pre-processing
+# ---------------------------------------------------------------------------
+
+
+def enhance_audio(audio_bytes: bytes, level: str = "light") -> bytes:
+    """Apply ffmpeg audio filters to improve ASR accuracy.
+
+    All filters run on a 16 kHz mono WAV stream regardless of input format.
+    Returns enhanced WAV bytes (or original if level is ``"off"``).
+
+    Levels:
+    - ``light``:     highpass + lowpass bandpass (speech range)
+    - ``medium``:    bandpass + mild afftdn (adaptive denoising) + loudnorm
+    - ``aggressive``: bandpass + strong afftdn + loudnorm + compand
+    """
+    if level == "off":
+        return audio_bytes
+
+    filters: Dict[str, str] = {
+        "light": (
+            "highpass=f=80,lowpass=f=4000"
+        ),
+        "medium": (
+            "highpass=f=80,lowpass=f=4000,"
+            "afftdn=nr=12:nt=w,"
+            "loudnorm=I=-16:TP=-1.5:LRA=11"
+        ),
+        "aggressive": (
+            "highpass=f=80,lowpass=f=4000,"
+            "afftdn=nr=25:nt=w,"
+            "loudnorm=I=-16:TP=-1.5:LRA=11,"
+            "compand=attacks=0.01:decays=0.05:"
+            "points=-80,-80|-30,-15|-10,-1|0,0|20,20:"
+            "gain=2:volume=on"
+        ),
+    }
+
+    chain = filters.get(level)
+    if not chain:
+        log.warning("enhance_audio: unknown level %r, falling back to light", level)
+        chain = filters["light"]
+
+    try:
+        proc = sp.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-i", "pipe:0",          # read from stdin
+                "-af", chain,
+                "-ar", "16000",          # 16 kHz
+                "-ac", "1",              # mono
+                "-f", "wav",             # WAV output
+                "pipe:1",                # write to stdout
+            ],
+            input=audio_bytes,
+            capture_output=True,
+            timeout=120,
+        )
+    except sp.TimeoutExpired:
+        log.warning("enhance_audio: ffmpeg timed out after 120s, returning original")
+        return audio_bytes
+    except FileNotFoundError:
+        log.warning("enhance_audio: ffmpeg not found, returning original")
+        return audio_bytes
+
+    if proc.returncode != 0:
+        log.warning("enhance_audio: ffmpeg exit=%d, returning original; stderr=%s",
+                     proc.returncode, proc.stderr[:200].decode(errors="replace"))
+        return audio_bytes
+
+    enhanced = proc.stdout
+    if not enhanced:
+        log.warning("enhance_audio: ffmpeg produced no output, returning original")
+        return audio_bytes
+
+    return enhanced
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +133,7 @@ def process_recording(rec_id: int) -> None:
         enable_diarize = rec.enable_diarize
         enable_streaming = rec.enable_streaming
         enable_noise_reduce = rec.enable_noise_reduce
+        enable_enhance = rec.enable_enhance
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
@@ -79,6 +160,14 @@ def process_recording(rec_id: int) -> None:
             if len(trimmed) < len(audio_bytes):
                 log.info("VAD trim: rec_id=%s %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
             audio_bytes = trimmed
+
+        # Optional audio enhancement (ffmpeg filters before ASR)
+        if enable_enhance and enable_enhance != "off":
+            log.info("Enhance: rec_id=%s level=%s", rec_id, enable_enhance)
+            enhanced = enhance_audio(audio_bytes, level=enable_enhance)
+            if len(enhanced) != len(audio_bytes):
+                log.info("Enhance: rec_id=%s %d→%d bytes", rec_id, len(audio_bytes), len(enhanced))
+            audio_bytes = enhanced
 
         with Session(engine) as session:
             set_progress(session, rec_id, 20)

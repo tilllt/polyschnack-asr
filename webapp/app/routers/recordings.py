@@ -89,6 +89,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "enable_diarize": rec.enable_diarize,
         "enable_streaming": rec.enable_streaming,
         "enable_noise_reduce": rec.enable_noise_reduce,
+        "enable_enhance": rec.enable_enhance,
         "waveform_peaks": rec.waveform_peaks,
         "user_id": rec.user_id,
     }
@@ -397,6 +398,7 @@ class RetranscribeParams(BaseModel):
     enable_diarize: bool = False
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
+    enable_enhance: str = "off"
 
 
 @router.post("/recordings/{rid}/retranscribe")
@@ -418,6 +420,7 @@ def retranscribe(
     rec.enable_diarize = params.enable_diarize
     rec.enable_streaming = params.enable_streaming
     rec.enable_noise_reduce = params.enable_noise_reduce
+    rec.enable_enhance = params.enable_enhance
     session.add(rec)
     session.commit()
     rec = set_processing(session, rec.id)

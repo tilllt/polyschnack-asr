@@ -23,6 +23,7 @@ export function UploadZone() {
   const [diarizeOn, setDiarizeOn] = useState(false);
   const [livePreview, setLivePreview] = useState(false);
   const [noiseReduce, setNoiseReduce] = useState(true);
+  const [enhanceLevel, setEnhanceLevel] = useState("off");
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
@@ -199,7 +200,7 @@ export function UploadZone() {
           qc={qc}
           t={t}
           vadOn={vadOn} diarizeOn={diarizeOn}
-          livePreview={livePreview} noiseReduce={noiseReduce}
+          livePreview={livePreview} noiseReduce={noiseReduce} enhanceLevel={enhanceLevel}
         />
       )}
 
@@ -263,6 +264,18 @@ export function UploadZone() {
           disabled={recording}
           onChange={() => setNoiseReduce((v) => !v)}
         />
+        <select
+          value={enhanceLevel}
+          onChange={(e) => setEnhanceLevel(e.target.value)}
+          disabled={recording}
+          className="bg-panel border border-border2 rounded-sm text-[12px] text-txt px-1.5 py-1 outline-none cursor-pointer focus:border-accent"
+          title="Audio enhancement pre-processing"
+        >
+          <option value="off">Enh: Off</option>
+          <option value="light">Enh: Light</option>
+          <option value="medium">Enh: Medium</option>
+          <option value="aggressive">Enh: Aggr.</option>
+        </select>
         {modelStatus && (
           <span
             className={[
@@ -628,7 +641,7 @@ function writeStr(view: DataView, offset: number, str: string) {
 
 // ── URL tab ──
 
-function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
+function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel }: any) {
   const [url, setUrl] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -636,7 +649,7 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: an
     if (!url.trim() || isDownloading) return;
     setIsDownloading(true);
     try {
-      const result = await importFromUrl(url.trim(), vadOn, diarizeOn, livePreview, noiseReduce);
+      const result = await importFromUrl(url.trim(), vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel);
       toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
       await qc.invalidateQueries({ queryKey: ["stats"] });
