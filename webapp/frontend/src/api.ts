@@ -27,7 +27,6 @@ export interface Recording {
   language: string | null;
   segments: Segment[] | null;
   audio_url: string;
-  audio_preview_url: string | null;
   download_url: string;
   batch_id: string | null;
   recorded_at: string | null;

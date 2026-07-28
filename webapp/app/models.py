@@ -62,9 +62,8 @@ class Recording(SQLModel, table=True):
     # --- waveform peaks (cached for fast WaveSurfer render) ---
     waveform_peaks: Optional[List[float]] = Field(default=None, sa_column=Column(JSON))
 
-    # --- Opus preview path (compressed for fast WaveSurfer load) ---
-    preview_path: Optional[str] = Field(default=None)
-    preview_size_bytes: Optional[int] = Field(default=None)
+    # --- notification URLs ---
+    notification_urls: Optional[str] = Field(default=None)
 
     # --- preprocessing flags ---
     enable_noise_reduce: bool = True

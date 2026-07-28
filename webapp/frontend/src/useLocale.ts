@@ -55,7 +55,6 @@ const dict: Record<Lang, Record<string, string>> = {
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Baixar & transcrever",
     original_audio: "Áudio original (WAV)",
-    preview_audio: "Pré-visualização (OGG)",
   },
   de: {
     recordings: "Aufnahmen",
@@ -109,7 +108,6 @@ const dict: Record<Lang, Record<string, string>> = {
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Herunterladen & transkribieren",
     original_audio: "Original (WAV)",
-    preview_audio: "Vorschau (OGG)",
   },
   en: {
     recordings: "recordings",
@@ -163,7 +161,6 @@ const dict: Record<Lang, Record<string, string>> = {
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Download & transcribe",
     original_audio: "Original Audio (WAV)",
-    preview_audio: "Preview (OGG)",
   },
 };
 

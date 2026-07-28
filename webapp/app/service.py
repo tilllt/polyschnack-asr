@@ -156,25 +156,6 @@ def process_recording(rec_id: int) -> None:
         except Exception:
             log.exception("peaks: compute failed for rec_id=%s", rec_id)
             peaks = None
-
-        # Generate MP3 preview for fast WaveSurfer loading (universal browser support)
-        preview_path_val = None
-        preview_size_val = None
-        try:
-            wav_p = Path(rec.stored_path)
-            preview_p = wav_p.with_name(wav_p.stem + "_preview.mp3")
-            sp.run([
-                "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
-                "-i", str(wav_p),
-                "-c:a", "libmp3lame", "-b:a", "64k",
-                "-ar", "16000", "-ac", "1",
-                str(preview_p),
-            ], capture_output=True, timeout=120)
-            if preview_p.exists() and preview_p.stat().st_size > 0:
-                preview_path_val = str(preview_p)
-                preview_size_val = preview_p.stat().st_size
-        except Exception:
-            log.exception("preview: ffmpeg failed for rec_id=%s", rec_id)
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
@@ -194,8 +175,6 @@ def process_recording(rec_id: int) -> None:
             processing_ms=elapsed_ms,
             error=error,
             waveform_peaks=peaks,
-            preview_path=preview_path_val,
-            preview_size_bytes=preview_size_val,
         )
 
 
