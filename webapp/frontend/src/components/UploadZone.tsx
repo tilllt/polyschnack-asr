@@ -24,6 +24,7 @@ export function UploadZone() {
   const [livePreview, setLivePreview] = useState(false);
   const [noiseReduce, setNoiseReduce] = useState(true);
   const [enhanceLevel, setEnhanceLevel] = useState("off");
+  const [showEnhanceHelp, setShowEnhanceHelp] = useState(false);
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
@@ -276,6 +277,28 @@ export function UploadZone() {
           <option value="medium">Enh: Medium</option>
           <option value="aggressive">Enh: Aggr.</option>
         </select>
+        <span className="relative inline-flex">
+          <button
+            type="button"
+            onClick={() => setShowEnhanceHelp((v) => !v)}
+            className="text-muted2 hover:text-txt text-[13px] leading-none px-0.5 cursor-pointer"
+            title="What do these mean?"
+          >❓</button>
+          {showEnhanceHelp && (
+            <div className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 z-50 w-[240px] bg-panel3 border border-border2 rounded-sm shadow-[0_8px_24px_rgba(0,0,0,.4)] px-3 py-2.5 text-[12px] text-txt leading-[1.5]">
+              <div className="font-semibold mb-1.5 text-[12px]">Enhance levels</div>
+              <div className="space-y-1.5">
+                <div><span className="font-semibold text-muted2">Off</span> — no pre-processing</div>
+                <div><span className="font-semibold text-muted2">Light</span> — bandpass-filter 80–4000Hz (remove rumble + hiss)</div>
+                <div><span className="font-semibold text-muted2">Medium</span> — bandpass + adaptive denoising + loudness normalization</div>
+                <div><span className="font-semibold text-muted2">Aggressive</span> — bandpass + strong denoising + normalization + compression</div>
+              </div>
+              <div className="text-[11px] text-muted2 mt-1.5 pt-1.5 border-t border-border">
+                Runs locally via ffmpeg before ASR. Higher levels change the audio more aggressively — try Light first.
+              </div>
+            </div>
+          )}
+        </span>
         {modelStatus && (
           <span
             className={[
