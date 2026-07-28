@@ -104,10 +104,19 @@ def _parse_result(payload: dict) -> Dict[str, Any]:
             "start": seg.get("start"),
             "end": seg.get("end"),
             "text": seg.get("text") or seg.get("segment", ""),
-            "words": seg.get("words", []),
         }
         for seg in payload.get("segments", [])
     ]
+    # Rebuild words from text (strip subword tokens from ASR model)
+    for s in segments:
+        text_words = (s["text"] or "").split()
+        dur = max((s.get("end") or 0) - (s.get("start") or 0), 0.1)
+        w_dur = dur / max(len(text_words), 1)
+        s["words"] = [
+            {"word": w, "start": (s["start"] or 0) + i * w_dur,
+             "end": (s["start"] or 0) + (i + 1) * w_dur}
+            for i, w in enumerate(text_words)
+        ]
     return {
         "text": payload.get("text", ""),
         "duration": payload.get("duration"),

@@ -49,7 +49,7 @@ def test_parse_result_passes_words_through():
 
 
 def test_parse_result_missing_words():
-    """Missing/empty words in ASR response → empty list in output (not None)."""
+    """No ASR words → words are rebuilt from text.split()."""
     payload = {
         "text": "hello",
         "segments": [
@@ -60,7 +60,9 @@ def test_parse_result_missing_words():
     result = _parse_result(payload)
     for seg in result["segments"]:
         assert "words" in seg
-        assert seg["words"] == []
+        # words are now rebuilt from text, not empty
+        assert len(seg["words"]) == 1
+        assert seg["words"][0]["word"] == "hello"
 
 
 def test_parse_result_no_segments():
