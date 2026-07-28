@@ -73,18 +73,36 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, hover],
       });
 
-      ws.load(audioUrl);
+      let cancelled = false;
 
-      // 15-second timeout: if waveform never fires "ready", treat as load error
-      timerRef.current = setTimeout(() => {
-        if (!wsRef.current?.isReady) {
+      // Pre-flight: HEAD request to catch 404/500 before WaveSurfer tries
+      fetch(audioUrl, { method: "HEAD" }).then((res) => {
+        if (!cancelled && !res.ok) {
           setError(true);
-          setReady(true); // Stop spinner, show error UI
+          setReady(true);
           onLoadErrorRef.current?.();
         }
-      }, 15000);
+      }).catch(() => {
+        if (!cancelled) {
+          setError(true);
+          setReady(true);
+          onLoadErrorRef.current?.();
+        }
+      });
+
+      ws.load(audioUrl);
+
+      // Timeout safety net — 10s, cleared by ready or error
+      timerRef.current = setTimeout(() => {
+        if (!wsRef.current?.isReady && !cancelled) {
+          setError(true);
+          setReady(true);
+          onLoadErrorRef.current?.();
+        }
+      }, 10000);
 
       ws.on("ready", () => {
+        if (cancelled) return;
         if (timerRef.current) clearTimeout(timerRef.current);
         setReady(true);
         const dur = ws.getDuration();
@@ -116,7 +134,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       wsRef.current = ws;
       regionsRef.current = regions;
-      return () => { ws.destroy(); };
+      return () => { cancelled = true; ws.destroy(); };
     }, [audioUrl]);
 
     useImperativeHandle(ref, () => ({
