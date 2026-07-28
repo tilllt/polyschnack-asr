@@ -134,6 +134,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
       ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
 
+      ws.on("error", (err: string) => {
+        console.warn("WaveSurfer error:", err);
+      });
+
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
       wsRef.current = ws;
