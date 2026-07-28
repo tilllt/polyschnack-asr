@@ -34,7 +34,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onPlayStateRef = useRef(onPlayStateChange);
     const onRegionRef = useRef(onRegionChange);
-    const audioLoadedRef = useRef(false);
     // Keep refs in sync with latest props
     onTimeUpdateRef.current = onTimeUpdate;
     onPlayStateRef.current = onPlayStateChange;
@@ -55,7 +54,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     useEffect(() => {
       if (!containerRef.current) return;
-      audioLoadedRef.current = false;
 
       const regions = RegionsPlugin.create();
       const timeline = TimelinePlugin.create({ container: timelineRef.current! });
@@ -66,7 +64,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         progressColor: "rgba(91,140,255,0.3)",
       });
       const hover = HoverPlugin.create();
-      const hasPeaks = peaks && peaks.length > 0;
       const ws = WaveSurfer.create({
         container: containerRef.current,
         waveColor: "rgba(91,140,255,0.3)",
@@ -82,11 +79,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, minimap, hover],
       });
 
-      const loadPromise = ws.load(audioUrl, hasPeaks ? [peaks as number[]] : undefined, hasPeaks && propDuration ? propDuration : undefined)
+      ws.load(audioUrl)
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
-          setAudioLoading(false);
-          setAudioLoaded(true); // unblock button so user can see error
           console.warn("WaveSurfer load error:", msg);
         });
 
@@ -97,16 +92,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       ws.on("ready", () => {
         setReady(true);
+        setAudioLoaded(true);
+        setAudioLoading(false);
         const dur = ws.getDuration();
         setDuration(dur);
-
-        // Without peaks: audio is decoded with "ready"
-        // With peaks: "ready" fires early, audio is still loading
-        if (!hasPeaks) {
-          setAudioLoaded(true);
-        } else {
-          setAudioLoading(true);
-        }
         // Initial zoom = fit container width
         const containerW = containerRef.current?.clientWidth ?? 800;
         const fitPps = Math.max(1, Math.round(containerW / dur));
@@ -126,11 +115,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       });
 
       ws.on("timeupdate", (t) => {
-        if (!audioLoadedRef.current && ready && hasPeaks) {
-          // First timeupdate = audio is decoded and playable
-          setAudioLoaded(true);
-          setAudioLoading(false);
-        }
         setCurrentTime(t);
         onTimeUpdateRef.current?.(t);
       });
