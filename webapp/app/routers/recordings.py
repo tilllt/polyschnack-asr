@@ -79,6 +79,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "language": rec.language,
         "segments": rec.segments,
         "audio_url": f"/api/recordings/{uid}/audio",
+        "audio_preview_url": f"/api/recordings/{uid}/audio/preview",
         "download_url": f"/api/recordings/{uid}/download",
         # WhatsApp / batch fields
         "batch_id": rec.batch_id,
@@ -305,6 +306,48 @@ def get_audio(
     )
 
 
+@router.get("/recordings/{rid}/audio/preview")
+def get_audio_preview(
+    rid: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    """Stream the Opus/OGG preview for fast WaveSurfer loading.
+
+    Falls back to the original WAV if no preview file exists
+    (legacy recordings generated before this feature).
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    if uid is not None and rec.user_id != uid:
+        raise HTTPException(status_code=403, detail="not your recording")
+
+    if rec.preview_path and Path(rec.preview_path).exists():
+        return FileResponse(
+            str(rec.preview_path),
+            media_type="audio/ogg",
+            filename=Path(rec.preview_path).name,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    # Fallback: serve the original WAV
+    path = Path(rec.stored_path)
+    if not path.exists():
+        raise HTTPException(status_code=410, detail="audio file gone")
+    mime = _guess_mime(rec.stored_path, rec.mime)
+    return FileResponse(
+        str(path),
+        media_type=mime,
+        filename=rec.original_name,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Audio-Preview": "fallback",
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Download (subtitle/transcript export)
 # ---------------------------------------------------------------------------
@@ -436,6 +479,9 @@ def delete_recording_endpoint(
 
     path = Path(rec.stored_path)
     path.unlink(missing_ok=True)
+    # Also remove preview file if it exists
+    if rec.preview_path:
+        Path(rec.preview_path).unlink(missing_ok=True)
     return {"deleted": rid}
 
 

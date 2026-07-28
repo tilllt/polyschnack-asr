@@ -14,6 +14,7 @@ export interface WaveSurferHandle {
 
 interface Props {
   audioUrl: string;
+  audioPreviewUrl?: string | null;
   peaks?: number[] | null;
   duration?: number | null;
   onRegionChange?: (start: number, end: number) => void;
@@ -25,7 +26,7 @@ interface Props {
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, duration: propDuration, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, audioPreviewUrl, peaks, duration: propDuration, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const minimapRef = useRef<HTMLDivElement>(null);
@@ -80,7 +81,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, minimap, hover],
       });
 
-      ws.load(audioUrl);
+      ws.load(audioPreviewUrl || audioUrl);
 
       ws.on("ready", () => {
         setReady(true);

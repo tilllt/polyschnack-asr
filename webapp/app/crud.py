@@ -119,6 +119,9 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     # keep duration_s — the upload already gave us a rough estimate for ETA
     rec.processing_ms = None
     rec.progress_pct = 1  # 1 instead of 0 so fmtETA can compute
+    # Clear preview path (will be re-generated on next process_recording)
+    rec.preview_path = None
+    rec.preview_size_bytes = None
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -138,6 +141,8 @@ def update_result(
     error: Optional[str],
     progress_pct: int = 100,
     waveform_peaks: Optional[List[float]] = None,
+    preview_path: Optional[str] = None,
+    preview_size_bytes: Optional[int] = None,
 ) -> Optional[Recording]:
     """Persist the transcription result (success or failure) for *rec_id*."""
     rec = session.get(Recording, rec_id)
@@ -154,6 +159,8 @@ def update_result(
     rec.progress_pct = progress_pct
     if waveform_peaks is not None:
         rec.waveform_peaks = waveform_peaks
+    rec.preview_path = preview_path
+    rec.preview_size_bytes = preview_size_bytes
     session.add(rec)
     session.commit()
     session.refresh(rec)
