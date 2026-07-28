@@ -16,13 +16,14 @@ interface Props {
   onRegionChange?: (start: number, end: number) => void;
   onTimeUpdate?: (time: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
+  onLoadError?: () => void;
   height?: number;
 }
 
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
@@ -30,11 +31,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onPlayStateRef = useRef(onPlayStateChange);
     const onRegionRef = useRef(onRegionChange);
+    const onLoadErrorRef = useRef(onLoadError);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Keep refs in sync with latest props
     onTimeUpdateRef.current = onTimeUpdate;
     onPlayStateRef.current = onPlayStateChange;
     onRegionRef.current = onRegionChange;
+    onLoadErrorRef.current = onLoadError;
     const [ready, setReady] = useState(false);
+    const [error, setError] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
@@ -70,7 +75,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       ws.load(audioUrl);
 
+      // 15-second timeout: if waveform never fires "ready", treat as load error
+      timerRef.current = setTimeout(() => {
+        if (!wsRef.current?.isReady) {
+          setError(true);
+          setReady(true); // Stop spinner, show error UI
+          onLoadErrorRef.current?.();
+        }
+      }, 15000);
+
       ws.on("ready", () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
         setReady(true);
         const dur = ws.getDuration();
         setDuration(dur);
@@ -119,10 +134,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             Loading waveform…
           </div>
         )}
-        <div ref={containerRef} className={`w-full ${ready ? "" : "hidden"}`} />
+        {error && (
+          <div className="flex items-center justify-center h-[80px] text-[13px] gap-2 bg-[rgba(248,81,73,.08)] border border-err/20 rounded-sm">
+            <span>⚠️</span>
+            <span className="text-err">Waveform data corrupted</span>
+          </div>
+        )}
+        <div ref={containerRef} className={`w-full ${ready && !error ? "" : "hidden"}`} />
         {/* Timeline ruler */}
-        <div ref={timelineRef} className={`w-full ${ready ? "mt-0" : "hidden"}`} />
-        {ready && (
+        <div ref={timelineRef} className={`w-full ${ready && !error ? "mt-0" : "hidden"}`} />
+        {ready && !error && (
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={() => wsRef.current?.playPause()}

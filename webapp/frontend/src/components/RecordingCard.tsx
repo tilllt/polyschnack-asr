@@ -39,6 +39,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [waveformError, setWaveformError] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { t } = useT();
@@ -138,6 +139,9 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
     });
   }
 
+  // Reset waveform error when audio URL changes
+  useEffect(() => { setWaveformError(false); }, [r.audio_url]);
+
   // ──── Status badge ────
   const statusBorderClass =
     r.status === "done"
@@ -235,7 +239,13 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           audioUrl={r.audio_url}
           onTimeUpdate={handleTimeUpdate}
           onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
+          onLoadError={() => setWaveformError(true)}
         />
+        {waveformError && (
+          <div className="mt-2 text-center">
+            <span className="text-[12px] text-err">ⓘ Try Re-transcribe to regenerate waveform data</span>
+          </div>
+        )}
         {r.status === "uploaded" && (
           <div className="mt-2 flex justify-center">
             <button
