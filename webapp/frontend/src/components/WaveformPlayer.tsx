@@ -94,7 +94,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       // Timeout safety net — 10s, cleared by ready or error
       timerRef.current = setTimeout(() => {
-        if (!wsRef.current?.isReady && !cancelled) {
+        if (!cancelled) {
           setError(true);
           setReady(true);
           onLoadErrorRef.current?.();
