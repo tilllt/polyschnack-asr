@@ -291,7 +291,7 @@ function TabButton({ active, disabled, onClick, children }: { active: boolean; d
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors ${
+      className={`px-3 py-[6px] sm:px-4 sm:py-2 text-[12px] sm:text-[13px] font-semibold border-b-2 transition-colors ${
         active
           ? "border-accent text-accent"
           : "border-transparent text-muted hover:text-txt"
@@ -317,7 +317,7 @@ function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKey
       onDrop={handleDrop}
       className={`
         border-2 border-dashed rounded-card
-        px-6 py-9 text-center cursor-pointer
+        px-4 py-6 sm:px-6 sm:py-9 text-center cursor-pointer
         select-none transition-all duration-200
         bg-panel
         ${
@@ -488,12 +488,12 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       {/* WaveSurfer waveform container — only visible during recording */}
       <div
         ref={containerRef}
-        className={`w-full max-w-[500px] ${recording ? "" : "hidden"}`}
+        className={`w-full max-w-[500px] px-2 sm:px-0 ${recording ? "" : "hidden"}`}
       />
 
       <button
         onClick={recording ? stopRecording : startRecording}
-        className={`w-20 h-20 rounded-full text-2xl flex items-center justify-center transition-all shrink-0
+        className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full text-xl sm:text-2xl flex items-center justify-center transition-all shrink-0
           ${recording
             ? "bg-err text-white shadow-lg animate-pulse"
             : "bg-accent text-white hover:bg-accent/90"
@@ -503,7 +503,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         {recording ? "⏹" : "🎤"}
       </button>
 
-      <div className="text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
+      <div className="text-[22px] sm:text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
 
       {wakelock && (
         <div className="text-[11px] text-muted2 flex items-center gap-1">

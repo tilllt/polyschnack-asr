@@ -10,7 +10,7 @@ interface Props {
 export function StatsBar({ stats }: Props) {
   const { t } = useT();
   return (
-    <div className="flex gap-[18px] flex-wrap max-w-[960px] mx-auto px-3 sm:px-5">
+    <div className="flex gap-[10px] sm:gap-[18px] flex-wrap max-w-[960px] mx-auto px-3 sm:px-5">
       <StatItem val={stats?.total ?? "—"} lbl={t("recordings")} />
       <StatItem val={stats?.done ?? "—"} lbl={t("done")} />
       <StatItem val={stats?.uploaded ?? "—"} lbl={"uploaded"} />
@@ -28,11 +28,11 @@ function StatItem({
   lbl: string;
 }) {
   return (
-    <div className="flex flex-col items-end">
-      <span className="text-[15px] font-semibold text-txt leading-none">
+    <div className="flex flex-col items-start sm:items-end">
+      <span className="text-[13px] sm:text-[15px] font-semibold text-txt leading-none">
         {val}
       </span>
-      <span className="text-[11px] text-muted uppercase tracking-[.05em]">
+      <span className="text-[10px] sm:text-[11px] text-muted uppercase tracking-[.05em]">
         {lbl}
       </span>
     </div>

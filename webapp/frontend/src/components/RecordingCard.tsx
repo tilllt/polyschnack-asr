@@ -193,7 +193,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
 
       {!collapsed && (<>
       {/* ── Meta chips ── */}
-      <div className="px-4 pb-[10px] flex gap-[14px] flex-wrap text-muted text-[12px]">
+      <div className="px-3 sm:px-4 pb-[10px] flex gap-[10px] sm:gap-[14px] flex-wrap text-muted text-[11px] sm:text-[12px]">
         {r.size_bytes != null && (
           <span title={t("size")}>{fmtBytes(r.size_bytes)}</span>
         )}
@@ -301,7 +301,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
       </div>
 
       {/* ── Actions ── */}
-      <div className="px-4 pb-[14px] flex items-center gap-2 flex-wrap">
+      <div className="px-3 sm:px-4 pb-[14px] flex items-center gap-2 flex-wrap">
         {r.status === "done" && cropRange && (
           <button
             onClick={() => handleTranscribeCrop(r.uid, cropRange.start, cropRange.end)}
