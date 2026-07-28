@@ -40,6 +40,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     onPlayStateRef.current = onPlayStateChange;
     onRegionRef.current = onRegionChange;
     const [ready, setReady] = useState(false);
+    const [audioReady, setAudioReady] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
@@ -83,9 +85,44 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       ws.load(audioPreviewUrl || audioUrl);
 
+      // Track when actual audio is decoded (separate from peak-based "ready")
+      let audioDecoded = false;
+      ws.on("decode", () => {
+        audioDecoded = true;
+        setAudioReady(true);
+        setError(null);
+      });
+
+      // Timeout: if audio doesn't become playable within 30s, fall back to original WAV
+      const audioTimeout = setTimeout(() => {
+        if (!audioDecoded) {
+          console.warn("WaveformPlayer: audio decode timeout, falling back to original WAV");
+          // Re-load with original URL
+          const url = audioPreviewUrl ? audioUrl : null; // only retry if we were using preview
+          if (url) {
+            ws.load(url);
+          } else {
+            setError("Audio konnte nicht geladen werden");
+            setAudioReady(true); // unblock interaction anyway
+          }
+        }
+      }, 30000);
+
+      ws.on("loading", (pct: number) => {
+        if (pct >= 100 && !audioDecoded) {
+          // Fetch completed but decode still pending – WS7 handles this internally
+        }
+      });
+
       ws.on("ready", () => {
         setReady(true);
+        setError(null);
         const dur = ws.getDuration();
+
+        // If we can already get currentTime > 0, audio is decoded
+        try { ws.getCurrentTime(); setAudioReady(true); } catch (_) {}
+
+        // Initial zoom = fit container width
         setDuration(dur);
         // Initial zoom = fit container width
         const containerW = containerRef.current?.clientWidth ?? 800;
@@ -112,10 +149,22 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
+      // Error handling: retry with original URL if preview fails
+      ws.on("error", (err: string) => {
+        console.warn("WaveformPlayer error:", err);
+        if (audioPreviewUrl && audioUrl) {
+          setError("Preview fehlgeschlagen, lade Original…");
+          setTimeout(() => ws.load(audioUrl), 500);
+        } else {
+          setError(`Fehler: ${err}`);
+          setAudioReady(true);
+        }
+      });
+
       wsRef.current = ws;
       regionsRef.current = regions;
-      return () => { ws.destroy(); };
-    }, [audioUrl, peaks, propDuration]);
+      return () => { clearTimeout(audioTimeout); ws.destroy(); };
+    }, [audioUrl, audioPreviewUrl, peaks, propDuration]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => { wsRef.current?.setTime(s); wsRef.current?.play(); },
@@ -130,6 +179,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           <div className="flex items-center justify-center h-[80px] text-muted2 text-[13px] gap-2">
             <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
             Loading waveform…
+          </div>
+        )}
+        {error && ready && (
+          <div className="flex items-center justify-center h-[40px] text-[13px] text-amber-400 gap-2">
+            <span>⚠️</span> {error}
+          </div>
+        )}
+        {ready && !audioReady && !error && (
+          <div className="flex items-center justify-center h-[30px] text-muted2 text-[12px] gap-2">
+            <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+            Loading audio…
           </div>
         )}
         <div ref={containerRef} className={`w-full ${ready ? "" : "hidden"}`} />

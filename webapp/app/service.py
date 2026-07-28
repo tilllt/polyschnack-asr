@@ -157,18 +157,17 @@ def process_recording(rec_id: int) -> None:
             log.exception("peaks: compute failed for rec_id=%s", rec_id)
             peaks = None
 
-        # Generate Opus preview for fast WaveSurfer loading
+        # Generate MP3 preview for fast WaveSurfer loading (universal browser support)
         preview_path_val = None
         preview_size_val = None
         try:
             wav_p = Path(rec.stored_path)
-            preview_p = wav_p.with_name(wav_p.stem + "_preview.ogg")
+            preview_p = wav_p.with_name(wav_p.stem + "_preview.mp3")
             sp.run([
                 "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
                 "-i", str(wav_p),
-                "-c:a", "libopus", "-b:a", "64k",
+                "-c:a", "libmp3lame", "-b:a", "64k",
                 "-ar", "16000", "-ac", "1",
-                "-application", "lowdelay",
                 str(preview_p),
             ], capture_output=True, timeout=120)
             if preview_p.exists() and preview_p.stat().st_size > 0:

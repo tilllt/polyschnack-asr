@@ -325,9 +325,11 @@ def get_audio_preview(
         raise HTTPException(status_code=403, detail="not your recording")
 
     if rec.preview_path and Path(rec.preview_path).exists():
+        ext = Path(rec.preview_path).suffix.lower()
+        mime = "audio/mpeg" if ext == ".mp3" else "audio/ogg"
         return FileResponse(
             str(rec.preview_path),
-            media_type="audio/ogg",
+            media_type=mime,
             filename=Path(rec.preview_path).name,
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
