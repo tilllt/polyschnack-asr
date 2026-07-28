@@ -14,8 +14,6 @@ export interface WaveSurferHandle {
 
 interface Props {
   audioUrl: string;
-  peaks?: number[] | null;
-  duration?: number | null;
   onRegionChange?: (start: number, end: number) => void;
   onTimeUpdate?: (time: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
@@ -25,7 +23,7 @@ interface Props {
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, duration: propDuration, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const minimapRef = useRef<HTMLDivElement>(null);
@@ -39,8 +37,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     onPlayStateRef.current = onPlayStateChange;
     onRegionRef.current = onRegionChange;
     const [ready, setReady] = useState(false);
-    const [audioLoading, setAudioLoading] = useState(false);
-    const [audioLoaded, setAudioLoaded] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
@@ -79,31 +75,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         plugins: [regions, timeline, minimap, hover],
       });
 
-      // Step 1: Load audio normally (playback works)
-      ws.load(audioUrl)
-        .then(() => {
-          // Step 2: Audio decoded, playback ready – re-render waveform
-          // with cached peaks for instant display next time
-          if (peaks && peaks.length > 0) {
-            ws.options.peaks = [peaks as number[]];
-            ws.options.duration = propDuration ?? ws.getDuration();
-            ws.render();
-          }
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("WaveSurfer load error:", msg);
-        });
-
-      ws.on("loading", (pct: number) => {
-        // Show loading indicator when audio is being fetched/decoded
-        if (pct < 100) setAudioLoading(ready);
-      });
+      ws.load(audioUrl);
 
       ws.on("ready", () => {
         setReady(true);
-        setAudioLoaded(true);
-        setAudioLoading(false);
         const dur = ws.getDuration();
         setDuration(dur);
         // Initial zoom = fit container width
@@ -124,24 +99,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         });
       });
 
-      ws.on("timeupdate", (t) => {
-        setCurrentTime(t);
-        onTimeUpdateRef.current?.(t);
-      });
+      ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
       ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); });
       ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
       ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
-
-      ws.on("error", (err: string) => {
-        console.warn("WaveSurfer error:", err);
-      });
 
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
       wsRef.current = ws;
       regionsRef.current = regions;
       return () => { ws.destroy(); };
-    }, [audioUrl, peaks, propDuration]);
+    }, [audioUrl]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => { wsRef.current?.setTime(s); wsRef.current?.play(); },
@@ -167,17 +135,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={() => wsRef.current?.playPause()}
-              disabled={!audioLoaded}
-              className="btn-ghost-sm text-[13px] flex items-center gap-1 disabled:opacity-40"
-              title={audioLoading ? "Loading audio…" : playing ? "Pause" : "Play"}
+              className="btn-ghost-sm text-[13px] flex items-center gap-1"
+              title={playing ? "Pause" : "Play"}
             >
-              {audioLoading ? (
-                <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" />
-              ) : playing ? (
-                "⏸"
-              ) : (
-                "▶"
-              )}
+              {playing ? "⏸" : "▶"}
             </button>
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}

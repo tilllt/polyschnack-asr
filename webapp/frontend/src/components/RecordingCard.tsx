@@ -224,8 +224,6 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         <WaveformPlayer
           ref={wsRef}
           audioUrl={r.audio_url}
-          peaks={r.waveform_peaks}
-          duration={r.duration_s}
           onTimeUpdate={handleTimeUpdate}
           onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
         />
@@ -363,21 +361,6 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
                     </span>
                   </a>
                 ))}
-                <div className="border-t border-border my-1" />
-                <a
-                  href={r.audio_url}
-                  download
-                  onClick={() => setDlOpen(false)}
-                  className="
-                    flex items-center gap-2 px-[10px] py-[7px] rounded-[5px]
-                    text-txt text-[13px] no-underline cursor-pointer
-                    hover:bg-panel2 transition-colors duration-[120ms]
-                  "
-                >
-                  <span className="font-semibold text-[11px] text-accent w-[26px]">WAV</span>
-                  <span>{t("original_audio")}</span>
-                </a>
-
               </div>
             )}
           </div>
