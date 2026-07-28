@@ -34,11 +34,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onPlayStateRef = useRef(onPlayStateChange);
     const onRegionRef = useRef(onRegionChange);
+    const audioLoadedRef = useRef(false);
     // Keep refs in sync with latest props
     onTimeUpdateRef.current = onTimeUpdate;
     onPlayStateRef.current = onPlayStateChange;
     onRegionRef.current = onRegionChange;
     const [ready, setReady] = useState(false);
+    const [audioLoading, setAudioLoading] = useState(false);
+    const [audioLoaded, setAudioLoaded] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
@@ -52,6 +55,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     useEffect(() => {
       if (!containerRef.current) return;
+      audioLoadedRef.current = false;
 
       const regions = RegionsPlugin.create();
       const timeline = TimelinePlugin.create({ container: timelineRef.current! });
@@ -82,10 +86,23 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       ws.load(audioUrl);
 
+      ws.on("loading", (pct: number) => {
+        // Show loading indicator when audio is being fetched/decoded
+        if (pct < 100) setAudioLoading(ready);
+      });
+
       ws.on("ready", () => {
         setReady(true);
         const dur = ws.getDuration();
         setDuration(dur);
+
+        // Without peaks: audio is decoded with "ready"
+        // With peaks: "ready" fires early, audio is still loading
+        if (!hasPeaks) {
+          setAudioLoaded(true);
+        } else {
+          setAudioLoading(true);
+        }
         // Initial zoom = fit container width
         const containerW = containerRef.current?.clientWidth ?? 800;
         const fitPps = Math.max(1, Math.round(containerW / dur));
@@ -104,7 +121,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         });
       });
 
-      ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
+      ws.on("timeupdate", (t) => {
+        if (!audioLoadedRef.current && ready && hasPeaks) {
+          // First timeupdate = audio is decoded and playable
+          setAudioLoaded(true);
+          setAudioLoading(false);
+        }
+        setCurrentTime(t);
+        onTimeUpdateRef.current?.(t);
+      });
       ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); });
       ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
       ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
@@ -140,10 +165,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={() => wsRef.current?.playPause()}
-              className="btn-ghost-sm text-[13px] flex items-center gap-1"
-              title={playing ? "Pause" : "Play"}
+              disabled={!audioLoaded}
+              className="btn-ghost-sm text-[13px] flex items-center gap-1 disabled:opacity-40"
+              title={audioLoading ? "Loading audio…" : playing ? "Pause" : "Play"}
             >
-              {playing ? "⏸" : "▶"}
+              {audioLoading ? (
+                <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" />
+              ) : playing ? (
+                "⏸"
+              ) : (
+                "▶"
+              )}
             </button>
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}
