@@ -36,7 +36,7 @@ entstanden und wurde **massiv erweitert**:
 ## Features
 
 - **OpenAI-kompatible API** — Drop-in für `openai.Audio.transcriptions.create()`
-- **Multi-Backend** — `ASR_BACKEND=pk-python|pk-cpp|qwen3-asr|voxtral` per Env-Var
+- **Multi-Backend** — `ASR_BACKEND=pk-python|pk-cpp|qwen3-asr|ark-asr|voxtral` per Env-Var
 - **Word-Timestamps** — echte Word-Level-Timestamps via ForcedAligner (Qwen3-ASR)
 - **Web UI** — Upload, Playback, Zoom, Crop, Segment-Edit, Export
 - **Live Preview** — SSE Streaming zeigt Text chunkweise an
@@ -77,6 +77,7 @@ Env-Variable — kein Code nötig.
 | **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Läuft auf CPU oder GPU. |
 | **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). |
 | **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
+| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
 | **Voxtral** | *(kommt)* | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming. |
 
 ### Parakeet (Python/ONNX) — Standard, einfach loslegen
@@ -118,6 +119,173 @@ docker run --rm -v qwen3-models:/models alpine sh -c '
 '
 ```
 
+### ARK-ASR — State-of-the-Art Erkennung
+
+```bash
+ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
+  docker compose --profile ark up -d
+```
+
+Das GGUF-Modell (~4 GB, Q8_0) muss einmalig geladen werden:
+```bash
+docker run --rm -v ark-models:/models alpine wget -O /models/ark-asr-3b-q8_0.gguf \
+  https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
+```
+
+---
+
+## compose.yml Referenz
+
+Die `compose.yml` definiert vier Dienste. Die Backends sind über **Docker-Profile**
+wählbar — nur das jeweils aktive Backend wird gestartet.
+
+### Dienste im Überblick
+
+```yaml
+services:
+  # ──────────────────────────────────────────────────
+  # Backend: Parakeet Python/ONNX (Default-Profil)
+  # ──────────────────────────────────────────────────
+  asr:
+    image: registry.example.com/public/parakeet-asr:latest
+    container_name: parakeet-asr
+    runtime: nvidia
+    environment:
+      PARAKEET_USE_GPU: "true"
+      PARAKEET_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      PARAKEET_INFER_WORKERS: "1"
+      PARAKEET_CHUNK_TARGET_SEC: "20"
+      PARAKEET_CHUNK_MAX_SEC: "25"
+      PARAKEET_CHUNK_MIN_SEC: "10"
+    ports:
+      - "5092:5092"
+    volumes:
+      - parakeet-models:/app/models
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # ──────────────────────────────────────────────────
+  # Backend: parakeet.cpp (Profil: --profile cpp)
+  # ──────────────────────────────────────────────────
+  asr-cpp:
+    profiles: ["cpp"]
+    image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
+    container_name: parakeet-cpp
+    runtime: nvidia
+    environment:
+      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+    volumes:
+      - cpp-models:/models:ro
+    ports:
+      - "5093:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+
+  # ──────────────────────────────────────────────────
+  # Backend: Qwen3-ASR (Profil: --profile qwen3)
+  # ──────────────────────────────────────────────────
+  qwen3-asr:
+    profiles: ["qwen3"]
+    image: registry.example.com/public/parakeet-asr-qwen3:latest
+    container_name: qwen3-asr
+    runtime: nvidia
+    environment:
+      QWEN_USE_VRAM: "1"
+      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
+      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+    volumes:
+      - qwen3-models:/models:ro
+    ports:
+      - "5094:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+
+  # ──────────────────────────────────────────────────
+  # Backend: ARK-ASR via CrispASR (Profil: --profile ark)
+  # ──────────────────────────────────────────────────
+  ark-asr:
+    profiles: ["ark"]
+    image: registry.example.com/public/parakeet-asr-ark:latest
+    container_name: ark-asr
+    runtime: nvidia
+    environment:
+      CRISPASR_CLI: /usr/local/bin/crispasr
+      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+    volumes:
+      - ark-models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  # ──────────────────────────────────────────────────
+  # Web UI (für alle Backends identisch)
+  # ──────────────────────────────────────────────────
+  webapp:
+    image: registry.example.com/public/parakeet-asr-webapp:latest
+    container_name: parakeet-webapp
+    mem_limit: 2g
+    memswap_limit: 2g
+    environment:
+      ASR_URL: "${ASR_URL:-http://asr:5092}"
+      ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
+      ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      DATA_DIR: /data
+      VAD_TRIM_SILENCE: "false"
+      HF_TOKEN: ""
+      PUBLIC_RETENTION_MINUTES: "60"
+    ports:
+      - "8088:8080"
+    volumes:
+      - poc-data:/data
+    depends_on:
+      asr:
+        condition: service_healthy
+
+volumes:
+  parakeet-models:
+  cpp-models:
+  qwen3-models:
+  ark-models:
+  poc-data:
+```
+
+### Profile im Detail
+
+| Profil | Befehl | Startet | Nutzt GPU |
+|--------|--------|---------|:---------:|
+| *(kein Profil)* | `docker compose up -d` | asr + webapp | ✅ |
+| `--profile cpp` | `docker compose --profile cpp up -d` | asr-cpp + webapp | ✅ |
+| `--profile qwen3` | `docker compose --profile qwen3 up -d` | qwen3-asr + webapp | ✅ |
+| `--profile ark` | `docker compose --profile ark up -d` | ark-asr + webapp | ✅ |
+
+Das Backend wird über zwei Umgebungsvariablen gesteuert:
+
+| Variable | Beispiel | Beschreibung |
+|----------|----------|-------------|
+| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr` | Adapter-Auswahl |
+| `ASR_URL` | `http://qwen3-asr:8080` | Addresse des Backend-Containers |
+
+```bash
+# Kurzform: nur ASR_URL setzen (Adapter wird automatisch erkannt)
+ASR_URL=http://qwen3-asr:8080 docker compose --profile qwen3 up -d
+
+# Explizit: beide Variablen
+ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr docker compose --profile ark up -d
+```
+
 ---
 
 ## Architektur
@@ -128,7 +296,7 @@ graph LR
     webapp -->|HTTP :5092| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr"]
     asr --> model["ASR Modell (GGUF / ONNX)"]
     webapp --- db[("SQLite + Audio-Dateien<br/>(poc-data Volume)")]
-    asr --- mcache[("Modell-Cache<br/>(parakeet-models /<br/>cpp-models / qwen3-models)")]
+    asr --- mcache[("Modell-Cache<br/>(parakeet-models /<br/>cpp-models / qwen3-models<br/>/ ark-models)")]
 ```
 
 Die Webapp kommuniziert mit dem ASR-Backend über die OpenAI-kompatible
@@ -163,7 +331,7 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr` | `pk-python` |
+| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr` | `pk-python` |
 | `ASR_URL` | URL des ASR-Dienstes | `http://asr:5092` |
 
 ### Webapp-Umgebungsvariablen
