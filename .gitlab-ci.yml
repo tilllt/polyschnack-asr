@@ -47,6 +47,27 @@ build-qwen3:
   needs:
     - test-webapp
 
+build-ark:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:${CI_COMMIT_SHORT_SHA} \
+      ark-asr-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 build-gpu:
   timeout: 60 minutes
   stage: build

@@ -93,6 +93,10 @@ def get_client() -> AsrClient:
         from .adapters.qwen3_asr_cpp import Qwen3AsrCppClient
         _client_instance = Qwen3AsrCppClient()
         log.info("ASR backend: qwen3-asr (qwen3-asr.cpp)")
+    elif backend in ("ark-asr", "crispasr", "crisp-asr"):
+        from .adapters.crisp_asr import CrispAsrClient
+        _client_instance = CrispAsrClient()
+        log.info("ASR backend: ark-asr (CrispASR)")
     else:
         from .adapters.pk_python import PkPythonClient
         _client_instance = PkPythonClient()

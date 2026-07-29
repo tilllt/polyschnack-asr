@@ -72,6 +72,21 @@ services:
       retries: 3
       start_period: 30s
 
+  ark-asr:
+    profiles: ["ark"]
+    image: registry.example.com/public/ark-asr-cpp:latest
+    container_name: ark-asr
+    runtime: nvidia
+    environment:
+      CRISPASR_CLI: /usr/local/bin/crispasr
+      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+    volumes:
+      - ark-models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
   webapp:
     image: registry.example.com/public/parakeet-asr-webapp:latest
     container_name: parakeet-webapp
@@ -109,4 +124,5 @@ volumes:
   parakeet-models:
   cpp-models:
   qwen3-models:
+  ark-models:
   poc-data:
