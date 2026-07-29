@@ -39,7 +39,7 @@ function AppContent() {
           <div className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0">
             <span className="text-[18px] sm:text-[20px] leading-none">🦜</span>
             <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
-              Parakeet ASR
+              PolySchnack
             </h1>
           </div>
 

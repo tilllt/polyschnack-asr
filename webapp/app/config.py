@@ -42,6 +42,10 @@ class _Settings:
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "1024"))
 
 
+    #: Which ASR backend adapter to use: ``pk-python`` or ``pk-cpp``
+    ASR_BACKEND: str = os.getenv("ASR_BACKEND", "pk-python")
+
+
 settings = _Settings()
 
 # Derived: OIDC is enabled when all required fields are set

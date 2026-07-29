@@ -15,8 +15,7 @@ from typing import Any, Dict, List
 from sqlmodel import Session
 
 from . import asr_client, crud
-from .asr_client import transcribe as _sync_transcribe
-from .asr_client import transcribe_async, transcribe_streaming
+from .asr_client import get_client
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import diarize as run_diarization
@@ -173,7 +172,8 @@ def process_recording(rec_id: int) -> None:
             set_progress(session, rec_id, 20)
 
         # Run ASR (batched sync or SSE streaming)
-        if enable_streaming:
+        client = get_client()
+        if enable_streaming and client.capabilities.streaming:
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
                 pct = int((idx + 1) / total * 70) + 10
@@ -186,7 +186,7 @@ def process_recording(rec_id: int) -> None:
                             session.add(rec)
                             session.commit()
 
-            result = transcribe_streaming(
+            result = client.transcribe_streaming(
                 audio_bytes, filename, mime,
                 noise_reduce=enable_noise_reduce,
                 on_chunk=_on_chunk,
@@ -197,7 +197,7 @@ def process_recording(rec_id: int) -> None:
             def _on_progress(pct: int):
                 with Session(engine) as s:
                     set_progress(s, rec_id, pct)
-            result = transcribe_async(
+            result = client.transcribe_async(
                 audio_bytes, filename, mime,
                 noise_reduce=enable_noise_reduce,
                 on_progress=_on_progress,

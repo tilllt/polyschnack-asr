@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..asr_client import get_client
 from ..config import settings
 
 _MODEL_CACHE = settings.DATA_DIR / "models"
@@ -109,11 +110,18 @@ def model_status() -> Dict[str, Any]:
     except Exception:
         asr_device = "unreachable"
 
+    client = get_client()
     return {
         "vad_available": _check_vad(),
         "diarize_available": _check_diarize(),
         "hf_token": _hf_token(),
         "asr_device": asr_device,
+        "backend": client.capabilities.label,
+        "features": {
+            "streaming": client.capabilities.streaming,
+            "noise_reduce": client.capabilities.noise_reduce,
+            "async_jobs": client.capabilities.async_jobs,
+        },
         "downloading": _downloading,
         "download_progress": _download_progress,
     }

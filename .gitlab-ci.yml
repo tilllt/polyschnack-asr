@@ -25,6 +25,28 @@ test-webapp:
   only:
     - main
 
+build-qwen3:
+  timeout: 60 minutes
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:${CI_COMMIT_SHORT_SHA} \
+      qwen3-asr-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 build-gpu:
   timeout: 60 minutes
   stage: build
