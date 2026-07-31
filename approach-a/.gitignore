@@ -28,7 +28,7 @@ wheels/
 .installed.cfg
 *.egg
 
-# Parakeet Server
+# PolySchnack Server
 models/
 temp_uploads/
 server.log

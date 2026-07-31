@@ -1854,7 +1854,7 @@ wheels = [
 ]
 
 [[package]]
-name = "parakeet-webapp"
+name = "polyschnack-webapp"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

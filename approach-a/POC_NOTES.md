@@ -1,16 +1,16 @@
 # Approach A — PoC notes
 
-OpenAI-compatible Parakeet ASR (ONNX via `onnx_asr`), FastAPI. Adapted from
+OpenAI-compatible PolySchnack ASR (ONNX via `onnx_asr`), FastAPI. Adapted from
 [groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai](https://github.com/groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai).
 
 ## New modules added for the PoC
 
 | File | Purpose |
 |---|---|
-| `parakeet_service/core.py` | Shared decode→chunk→infer→stitch. Sync, stream, async all use it. |
-| `parakeet_service/streaming.py`* | (logic lives in `core.stream_wav`) per-chunk async generator |
-| `parakeet_service/jobs.py` | Async job queue (`asyncio.Queue` + background worker) + in-memory job store |
-| `parakeet_service/metrics.py` | Thread-safe counters (requests, errors, latency p95) |
+| `polyschnack_service/core.py` | Shared decode→chunk→infer→stitch. Sync, stream, async all use it. |
+| `polyschnack_service/streaming.py`* | (logic lives in `core.stream_wav`) per-chunk async generator |
+| `polyschnack_service/jobs.py` | Async job queue (`asyncio.Queue` + background worker) + in-memory job store |
+| `polyschnack_service/metrics.py` | Thread-safe counters (requests, errors, latency p95) |
 
 \* streaming generator is in `core.py`; routing in `routes.py`.
 
@@ -29,14 +29,14 @@ OpenAI-compatible Parakeet ASR (ONNX via `onnx_asr`), FastAPI. Adapted from
 ## Run (CPU, Docker)
 
 ```bash
-docker compose --profile cpu up -d --build parakeet-cpu
-# first boot downloads the int8 model (~600MB) to the parakeet-models volume
+docker compose --profile cpu up -d --build polyschnack-cpu
+# first boot downloads the int8 model (~600MB) to the polyschnack-models volume
 curl localhost:5092/health
 ```
 
 GPU (Linux server, NVIDIA Container Toolkit):
 ```bash
-docker compose up -d --build parakeet-gpu
+docker compose up -d --build polyschnack-gpu
 ```
 
 ## Benchmark + fixtures (host tooling, uv)
@@ -54,10 +54,10 @@ is too high. Two independent causes, both fixed via env in `docker-compose.yml`:
 
 1. **Long single chunk** — a 60s+ audio = one ORT `recognize()` over a long
    sequence → large activation memory. Fixed by capping chunk length:
-   `PARAKEET_CHUNK_MAX_SEC=25`, `PARAKEET_CHUNK_TARGET_SEC=20`.
+   `POLYSNACK_CHUNK_MAX_SEC=25`, `POLYSNACK_CHUNK_TARGET_SEC=20`.
 2. **Parallel chunk inference** — `InferencePool` fans chunks across
-   `PARAKEET_INFER_WORKERS` threads → N× model working set. Fixed by serializing:
-   `PARAKEET_INFER_WORKERS=1`.
+   `POLYSNACK_INFER_WORKERS` threads → N× model working set. Fixed by serializing:
+   `POLYSNACK_INFER_WORKERS=1`.
 
 On the real Linux/GPU target (more RAM, GPU memory) these caps can be relaxed;
 GPU mode uses the single-threaded `BatchWorker` already.

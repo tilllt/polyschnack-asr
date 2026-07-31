@@ -543,7 +543,7 @@ git commit -m "feat: add login button + user info in header"
       # OIDC_ISSUER: "https://auth.example.com"
       # OIDC_SCOPE: "openid profile email"
       # SESSION_SECRET: "generate-a-random-secret-here"
-      # BASE_URL: "https://parakeet.example.com"
+      # BASE_URL: "https://polyschnack.example.com"
 ```
 
 **Step 2: Commit**

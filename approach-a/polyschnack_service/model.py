@@ -21,6 +21,7 @@ from .config import (
     USE_GPU,
     GPU_DEVICE_ID,
     logger,
+    _getenv,
 )
 
 _MODELS: Dict[str, object] = {}
@@ -58,7 +59,7 @@ def _build_sess_options() -> ort.SessionOptions:
     # shrinks; over many sequential chunk inferences (long audio) this balloons
     # RAM and can get the process OOM-killed on memory-constrained hosts.
     # Disabling it trades a little speed for a bounded, much lower peak.
-    if os.getenv("PARAKEET_DISABLE_MEM_ARENA", "1" if USE_GPU == "false" else "0") == "1":
+    if _getenv("DISABLE_MEM_ARENA", "1" if USE_GPU == "false" else "0") == "1":
         so.enable_cpu_mem_arena = False
     return so
 
@@ -113,7 +114,7 @@ def _validate_gpu_binding(name: str, model: Any) -> None:
     )
     if not gpu_bound:
         raise RuntimeError(
-            f"PARAKEET_USE_GPU=true but {name} did not bind all sessions to GPU: {report}"
+            f"POLYSNACK_USE_GPU=true but {name} did not bind all sessions to GPU: {report}"
         )
 
 

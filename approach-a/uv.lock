@@ -391,7 +391,7 @@ wheels = [
 ]
 
 [[package]]
-name = "parakeet-bench"
+name = "polyschnack-bench"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

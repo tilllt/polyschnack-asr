@@ -19,7 +19,7 @@ bar is practical: correctness, clarity, and staying true to the project goals.
 ```bash
 cd approach-a
 uv sync               # creates .venv and installs all deps
-uv run uvicorn parakeet_service.main:app --reload --port 5092
+uv run uvicorn polyschnack_service.main:app --reload --port 5092
 ```
 
 ### Web app (`webapp`)
@@ -104,7 +104,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 feat(approach-a): add SSE streaming endpoint
 fix(webapp): handle empty transcript segments gracefully
 bench: update approach-a results after GPU run
-docs: document PARAKEET_INFER_WORKERS memory behaviour
+docs: document POLYSNACK_INFER_WORKERS memory behaviour
 ```
 
 Types: `feat`, `fix`, `refactor`, `test`, `bench`, `docs`, `chore`, `ci`.

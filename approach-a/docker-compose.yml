@@ -2,24 +2,24 @@ version: '3.8'
 
 services:
   # GPU deployment (default; requires NVIDIA Container Toolkit)
-  parakeet-gpu:
+  polyschnack-gpu:
     build:
       context: .
       dockerfile: Dockerfile.gpu
-    image: parakeet-tdt:gpu
-    container_name: parakeet-gpu
+    image: polyschnack-asr:gpu
+    container_name: polyschnack-gpu
     environment:
-      PARAKEET_USE_GPU: "true"
-      PARAKEET_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      PARAKEET_BATCHED: "1"
-      PARAKEET_MAX_BATCH_SIZE: "4"
-      PARAKEET_BATCH_WINDOW_MS: "4"
-      PARAKEET_ORT_INTRA_THREADS: "1"
-      PARAKEET_AUDIO_WORKERS: "8"
+      POLYSNACK_USE_GPU: "true"
+      POLYSNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      POLYSNACK_BATCHED: "1"
+      POLYSNACK_MAX_BATCH_SIZE: "4"
+      POLYSNACK_BATCH_WINDOW_MS: "4"
+      POLYSNACK_ORT_INTRA_THREADS: "1"
+      POLYSNACK_AUDIO_WORKERS: "8"
     ports:
       - "5092:5092"
     volumes:
-      - parakeet-models:/app/models
+      - polyschnack-models:/app/models
     restart: unless-stopped
     deploy:
       resources:
@@ -36,28 +36,28 @@ services:
       start_period: 120s
 
   # CPU-only deployment (explicit profile)
-  parakeet-cpu:
+  polyschnack-cpu:
     build:
       context: .
       dockerfile: Dockerfile.cpu
-    image: parakeet-tdt:cpu
-    container_name: parakeet-cpu
+    image: polyschnack-asr:cpu
+    container_name: polyschnack-cpu
     profiles: ["cpu"]
     environment:
-      PARAKEET_USE_GPU: "false"
-      PARAKEET_DEFAULT_MODEL: parakeet-tdt-0.6b-v3
-      PARAKEET_BATCHED: "0"
+      POLYSNACK_USE_GPU: "false"
+      POLYSNACK_DEFAULT_MODEL: parakeet-tdt-0.6b-v3
+      POLYSNACK_BATCHED: "0"
       # Serialize chunk inference: parallel ORT sessions multiply the model
       # working set and OOM-kill the process in a small (~3GB) Docker VM.
-      PARAKEET_INFER_WORKERS: "1"
+      POLYSNACK_INFER_WORKERS: "1"
       # Cap chunk length so each ORT recognize() handles a short segment.
-      PARAKEET_CHUNK_TARGET_SEC: "20"
-      PARAKEET_CHUNK_MAX_SEC: "25"
-      PARAKEET_CHUNK_MIN_SEC: "10"
+      POLYSNACK_CHUNK_TARGET_SEC: "20"
+      POLYSNACK_CHUNK_MAX_SEC: "25"
+      POLYSNACK_CHUNK_MIN_SEC: "10"
     ports:
       - "5092:5092"
     volumes:
-      - parakeet-models:/app/models
+      - polyschnack-models:/app/models
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5092/health')" ]
@@ -67,5 +67,5 @@ services:
       start_period: 60s
 
 volumes:
-  parakeet-models:
-    name: parakeet-models
+  polyschnack-models:
+    name: polyschnack-models

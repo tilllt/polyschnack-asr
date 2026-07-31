@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pytest
-from parakeet_service.core import _segment_from, stitch, _segment_by_timestamp_gap
+from polyschnack_service.core import _segment_from, stitch, _segment_by_timestamp_gap
 
 
 class FakeResult:

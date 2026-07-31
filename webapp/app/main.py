@@ -1,4 +1,4 @@
-"""Application factory for the Parakeet PoC UI.
+"""Application factory for the PolySchnack Web UI.
 
 Responsibilities:
   - create the FastAPI instance
@@ -39,7 +39,7 @@ _SPA_INDEX = _STATIC_DIR / "index.html"
 _DEV_HINT_HTML = """\
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Parakeet PoC — frontend not built</title></head>
+<head><meta charset="utf-8"><title>PolySchnack — frontend not built</title></head>
 <body>
 <h1>Frontend not built</h1>
 <p>
@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
-app = FastAPI(title="Parakeet PoC UI", lifespan=lifespan)
+app = FastAPI(title="PolySchnack Web UI", lifespan=lifespan)
 
 # Session middleware (for OIDC auth)
 # httponly + same_site=lax are the hard-coded defaults in Starlette >=0.40;

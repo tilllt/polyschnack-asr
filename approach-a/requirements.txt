@@ -14,4 +14,4 @@ numpy<2
 noisereduce>=3.0.0
 
 # CPU-only deployments can replace onnxruntime-gpu with onnxruntime and run with:
-# PARAKEET_USE_GPU=false PARAKEET_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 PARAKEET_BATCHED=0
+# POLYSNACK_USE_GPU=false POLYSNACK_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 POLYSNACK_BATCHED=0

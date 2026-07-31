@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-This document covers Docker deployment options for Parakeet TDT transcription service.
+This document covers Docker deployment options for PolySchnack ASR (Parakeet TDT) transcription service.
 
 ## Quick Start
 
@@ -8,11 +8,11 @@ This document covers Docker deployment options for Parakeet TDT transcription se
 
 ```bash
 # Build and run
-docker compose up parakeet-cpu -d
+docker compose up polyschnack-cpu -d
 
 # Or build manually
-docker build -f Dockerfile.cpu -t parakeet-tdt:cpu .
-docker run -d --name parakeet -p 5092:5092 -v parakeet-models:/app/models parakeet-tdt:cpu
+docker build -f Dockerfile.cpu -t polyschnack-asr:cpu .
+docker run -d --name polyschnack -p 5092:5092 -v polyschnack-models:/app/models polyschnack-asr:cpu
 ```
 
 ### GPU Deployment (Requires NVIDIA GPU)
@@ -23,12 +23,12 @@ docker run -d --name parakeet -p 5092:5092 -v parakeet-models:/app/models parake
 
 ```bash
 # Build and run with Docker Compose
-docker compose up parakeet-gpu -d
+docker compose up polyschnack-gpu -d
 
 # Or build manually
-docker build -f Dockerfile.gpu -t parakeet-tdt:gpu .
-docker run -d --name parakeet-gpu -p 5092:5092 --gpus all \
-    -v parakeet-models:/app/models parakeet-tdt:gpu
+docker build -f Dockerfile.gpu -t polyschnack-asr:gpu .
+docker run -d --name polyschnack-gpu -p 5092:5092 --gpus all \
+    -v polyschnack-models:/app/models polyschnack-asr:gpu
 ```
 
 ## Endpoints
@@ -55,13 +55,13 @@ Models are cached in a Docker volume to avoid re-downloading:
 
 ```bash
 # List volumes
-docker volume ls | grep parakeet
+docker volume ls | grep polyschnack
 
 # Inspect volume
-docker volume inspect parakeet-models
+docker volume inspect polyschnack-models
 
 # Remove volume (forces model re-download)
-docker volume rm parakeet-models
+docker volume rm polyschnack-models
 ```
 
 ## Files Created
@@ -88,7 +88,7 @@ curl -X POST http://localhost:5092/v1/audio/transcriptions \
 ## Troubleshooting
 
 **Container won't start:**
-- Check logs: `docker logs parakeet-cpu`
+- Check logs: `docker logs polyschnack-cpu`
 - First startup takes ~60s to download the model
 
 **GPU not detected:**

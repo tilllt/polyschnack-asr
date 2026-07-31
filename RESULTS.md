@@ -1,4 +1,4 @@
-# Parakeet ASR Server — PoC Results
+# PolySchnack ASR Server — PoC Results
 
 > Status: **in progress**. Approach A implemented + validated on CPU (Apple M1 Pro, Docker).
 > GPU latency/VRAM/throughput numbers require an NVIDIA box (target: Linux server, 4GB VRAM)

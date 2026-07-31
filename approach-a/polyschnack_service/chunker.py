@@ -30,7 +30,7 @@ def _get_vad():
         try:
             from silero_vad import load_silero_vad  # type: ignore
             _vad_model = load_silero_vad(onnx=True)
-            logger.info("Parakeet chunker: loaded Silero VAD for speech-pause detection (not silence trimming)")
+            logger.info("PolySchnack chunker: loaded Silero VAD for speech-pause detection (not silence trimming)")
         except Exception as exc:
             logger.warning("Silero VAD unavailable (%s); falling back to energy VAD", exc)
             _vad_model = "energy"

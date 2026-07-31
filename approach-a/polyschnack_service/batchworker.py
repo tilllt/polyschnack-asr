@@ -1,7 +1,7 @@
-"""Inference pool for the optimized Parakeet v3 service.
+"""Inference pool for the optimized PolySchnack v3 service.
 
 The default deployment is GPU-backed and uses cross-request micro-batching.
-For CPU INT8 deployments, set `PARAKEET_BATCHED=0`; batched `recognize([N])`
+For CPU INT8 deployments, set `POLYSNACK_BATCHED=0`; batched `recognize([N])`
 scales close to linear in time on CPU and is counter-productive there.
 """
 from __future__ import annotations
@@ -14,10 +14,10 @@ from typing import Any, List, Optional
 
 import numpy as np
 
-from .config import MAX_BATCH_SIZE, BATCH_WINDOW_MS, logger
+from .config import MAX_BATCH_SIZE, BATCH_WINDOW_MS, logger, _getenv
 
-INFER_WORKERS = int(os.getenv("PARAKEET_INFER_WORKERS", "4"))
-BATCHED = os.getenv("PARAKEET_BATCHED", "1") == "1"
+INFER_WORKERS = int(_getenv("INFER_WORKERS", "4"))
+BATCHED = _getenv("BATCHED", "1") == "1"
 
 
 @dataclass

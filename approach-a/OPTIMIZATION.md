@@ -32,23 +32,23 @@ now the best stable RTX 3090 profile: FP32 + GPU micro-batching.
 Default GPU command:
 
 ```bash
-PARAKEET_USE_GPU=true \
-PARAKEET_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx \
-PARAKEET_BATCHED=1 \
-PARAKEET_MAX_BATCH_SIZE=4 \
-PARAKEET_BATCH_WINDOW_MS=4 \
-PARAKEET_ORT_INTRA_THREADS=1 \
-PARAKEET_AUDIO_WORKERS=8 \
+POLYSNACK_USE_GPU=true \
+POLYSNACK_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx \
+POLYSNACK_BATCHED=1 \
+POLYSNACK_MAX_BATCH_SIZE=4 \
+POLYSNACK_BATCH_WINDOW_MS=4 \
+POLYSNACK_ORT_INTRA_THREADS=1 \
+POLYSNACK_AUDIO_WORKERS=8 \
 python server.py
 ```
 
 CPU override:
 
 ```bash
-PARAKEET_USE_GPU=false \
-PARAKEET_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 \
-PARAKEET_BATCHED=0 \
-PARAKEET_ORT_INTRA_THREADS=12 \
+POLYSNACK_USE_GPU=false \
+POLYSNACK_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 \
+POLYSNACK_BATCHED=0 \
+POLYSNACK_ORT_INTRA_THREADS=12 \
 python server.py
 ```
 
@@ -77,16 +77,16 @@ changing code" and "identify bottlenecks with evidence":
 
 ### What worked
 
-- **In-process audio decode** (`parakeet_service/audio.py`): single
+- **In-process audio decode** (`polyschnack_service/audio.py`): single
   `ffmpeg -i pipe:0 -ac 1 -ar 16000 -f s16le pipe:1` for non-WAV inputs,
   and stdlib `wave`+`audioop` for WAVs. Removes per-chunk subprocess
   fork/exec.
-- **Silero-VAD auto-chunking** (`parakeet_service/chunker.py`): pack speech
+- **Silero-VAD auto-chunking** (`polyschnack_service/chunker.py`): pack speech
   segments into 60 s targets, cutting on pause midpoints, with min/max
   guards. Falls back to energy-RMS when silero-vad is unavailable.
   - Bypasses chunking entirely for clips ≤ `CHUNK_MAX_SEC` (75 s by
     default), so 10 s and 60 s files are processed in a single ORT call.
-- **Parallel `InferencePool`** (`parakeet_service/batchworker.py`):
+- **Parallel `InferencePool`** (`polyschnack_service/batchworker.py`):
   4 worker threads, each calling `model.recognize(single_wav)`. Used for
   both concurrent requests *and* fan-out of multiple chunks from one long
   request, via `asyncio.gather`. This is what produced the 73% jump on
@@ -94,14 +94,14 @@ changing code" and "identify bottlenecks with evidence":
 - **FastAPI + uvicorn**: removes Flask's per-thread blocking model and
   makes the audio pipeline async-friendly without changing the
   OpenAI-compatible response shape.
-- **CUDA preload + provider validation** (`parakeet_service/model.py`):
+- **CUDA preload + provider validation** (`polyschnack_service/model.py`):
   `onnxruntime-gpu` can list `CUDAExecutionProvider` even when the provider
   later fails to load cuDNN. The loader now calls `ort.preload_dlls()` and,
-  when `PARAKEET_USE_GPU=true`, raises if the live encoder/decoder sessions
+  when `POLYSNACK_USE_GPU=true`, raises if the live encoder/decoder sessions
   do not actually bind to CUDA/TensorRT first.
 - **GPU micro-batching**: on RTX 3090 the fastest stable profile was FP32
-  model `istupakov/parakeet-tdt-0.6b-v3-onnx` with `PARAKEET_BATCHED=1`,
-  `PARAKEET_MAX_BATCH_SIZE=4`, and `PARAKEET_BATCH_WINDOW_MS=4`.
+  model `istupakov/parakeet-tdt-0.6b-v3-onnx` with `POLYSNACK_BATCHED=1`,
+  `POLYSNACK_MAX_BATCH_SIZE=4`, and `POLYSNACK_BATCH_WINDOW_MS=4`.
 
 ### What did NOT work (and why)
 
@@ -111,7 +111,7 @@ changing code" and "identify bottlenecks with evidence":
   from 34.6× to 20.6×**. Reason: on CPU INT8, batched `recognize` scales
   near-linearly in wall time per item (you pay padding to the longest
   clip times the batch size). The optimization is GPU-shaped, not
-  CPU-shaped. We **kept** `BatchWorker` behind the `PARAKEET_BATCHED=1`
+  CPU-shaped. We **kept** `BatchWorker` behind the `POLYSNACK_BATCHED=1`
   env flag for users on `onnxruntime-gpu`, where this design is expected
   to win, but the default is `InferencePool`.
 - **P-core pinning** (`taskset -c 0-15` via `pin_pcores.sh`): mildly
@@ -133,7 +133,7 @@ parakeet-tdt-0.6b-v3-fastapi-openai/
 ├── app.py                       # Legacy Flask service (kept for reference)
 ├── server.py                    # New uvicorn entry point (port 5092)
 ├── pin_pcores.sh                # Optional P-core taskset wrapper
-└── parakeet_service/
+└── polyschnack_service/
     ├── config.py                # Env knobs, CPU detection
     ├── audio.py                 # In-process decode (wave / single ffmpeg)
     ├── chunker.py               # Silero-VAD auto-chunking
@@ -157,31 +157,31 @@ All optional. Defaults are tuned for an 8-core CPU.
 
 | Variable                   | Default      | Meaning                                                  |
 |----------------------------|--------------|----------------------------------------------------------|
-| `PARAKEET_HOST`            | `0.0.0.0`    | bind host                                                |
-| `PARAKEET_PORT`            | `5092`       | bind port (matches the legacy service)                   |
-| `PARAKEET_DEFAULT_MODEL`   | `istupakov/parakeet-tdt-0.6b-v3-onnx` | default OpenAI model when form field is omitted |
-| `PARAKEET_INFER_WORKERS`   | `4`          | parallel ORT workers in `InferencePool` when `PARAKEET_BATCHED=0` |
-| `PARAKEET_BATCHED`         | `1`          | `1` → use GPU-friendly `BatchWorker`; set `0` for CPU INT8 |
-| `PARAKEET_USE_GPU`         | `true`       | `true` / `auto` / `false`                                |
-| `PARAKEET_GPU_DEVICE_ID`   | `0`          | CUDA device for ORT                                      |
-| `PARAKEET_CHUNK_TARGET_SEC`| `60`         | preferred chunk length                                   |
-| `PARAKEET_CHUNK_MAX_SEC`   | `75`         | hard cap before force-cut; ≤ this skips chunking         |
-| `PARAKEET_CHUNK_MIN_SEC`   | `20`         | min chunk length before merge                            |
-| `PARAKEET_VAD_THRESHOLD`   | `0.5`        | Silero-VAD speech probability                            |
-| `PARAKEET_VAD_MIN_SILENCE_MS` | `400`     | min silence between chunks                               |
-| `PARAKEET_VAD_SPEECH_PAD_MS` | `120`      | pad around speech segments                               |
-| `PARAKEET_MAX_BATCH_SIZE`  | `4`          | max batch (only used when `PARAKEET_BATCHED=1`)          |
-| `PARAKEET_BATCH_WINDOW_MS` | `4`          | batch collection window                                  |
-| `PARAKEET_ORT_INTRA_THREADS` | `1` for GPU, physical cores for CPU override | ORT intra-op threads |
-| `PARAKEET_ORT_INTER_THREADS` | `1`        | ORT inter-op threads                                     |
-| `PARAKEET_AUDIO_WORKERS`   | `min(8, physical)` | audio decode/chunk worker pool                     |
+| `POLYSNACK_HOST`            | `0.0.0.0`    | bind host                                                |
+| `POLYSNACK_PORT`            | `5092`       | bind port (matches the legacy service)                   |
+| `POLYSNACK_DEFAULT_MODEL`   | `istupakov/parakeet-tdt-0.6b-v3-onnx` | default OpenAI model when form field is omitted |
+| `POLYSNACK_INFER_WORKERS`   | `4`          | parallel ORT workers in `InferencePool` when `POLYSNACK_BATCHED=0` |
+| `POLYSNACK_BATCHED`         | `1`          | `1` → use GPU-friendly `BatchWorker`; set `0` for CPU INT8 |
+| `POLYSNACK_USE_GPU`         | `true`       | `true` / `auto` / `false`                                |
+| `POLYSNACK_GPU_DEVICE_ID`   | `0`          | CUDA device for ORT                                      |
+| `POLYSNACK_CHUNK_TARGET_SEC`| `60`         | preferred chunk length                                   |
+| `POLYSNACK_CHUNK_MAX_SEC`   | `75`         | hard cap before force-cut; ≤ this skips chunking         |
+| `POLYSNACK_CHUNK_MIN_SEC`   | `20`         | min chunk length before merge                            |
+| `POLYSNACK_VAD_THRESHOLD`   | `0.5`        | Silero-VAD speech probability                            |
+| `POLYSNACK_VAD_MIN_SILENCE_MS` | `400`     | min silence between chunks                               |
+| `POLYSNACK_VAD_SPEECH_PAD_MS` | `120`      | pad around speech segments                               |
+| `POLYSNACK_MAX_BATCH_SIZE`  | `4`          | max batch (only used when `POLYSNACK_BATCHED=1`)          |
+| `POLYSNACK_BATCH_WINDOW_MS` | `4`          | batch collection window                                  |
+| `POLYSNACK_ORT_INTRA_THREADS` | `1` for GPU, physical cores for CPU override | ORT intra-op threads |
+| `POLYSNACK_ORT_INTER_THREADS` | `1`        | ORT inter-op threads                                     |
+| `POLYSNACK_AUDIO_WORKERS`   | `min(8, physical)` | audio decode/chunk worker pool                     |
 
 ## Running
 
 ```bash
 # Conda-isolated install (matches the benchmark env)
-conda create -n parakeet-v3 python=3.11 -y
-conda activate parakeet-v3
+conda create -n polyschnack-v3 python=3.11 -y
+conda activate polyschnack-v3
 pip install -r requirements.txt
 
 # Optional CUDA path, installed only in the benchmark env used for GPU tests
@@ -193,12 +193,12 @@ python server.py
 ./pin_pcores.sh python server.py
 
 # Default RTX 3090 profile
-PARAKEET_USE_GPU=true \
-PARAKEET_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx \
-PARAKEET_BATCHED=1 \
-PARAKEET_MAX_BATCH_SIZE=4 \
-PARAKEET_BATCH_WINDOW_MS=4 \
-PARAKEET_ORT_INTRA_THREADS=1 \
+POLYSNACK_USE_GPU=true \
+POLYSNACK_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx \
+POLYSNACK_BATCHED=1 \
+POLYSNACK_MAX_BATCH_SIZE=4 \
+POLYSNACK_BATCH_WINDOW_MS=4 \
+POLYSNACK_ORT_INTRA_THREADS=1 \
 python server.py
 ```
 

@@ -7,8 +7,8 @@ development workflow. It is intentionally empty in the repository.
 
 - **Docker image tarballs** exported via `docker save`, e.g.:
   ```bash
-  docker save parakeet-tdt:cpu | gzip > dist/parakeet-tdt-cpu-v1.0.tar.gz
-  docker save parakeet-webapp:latest | gzip > dist/parakeet-webapp-v1.0.tar.gz
+  docker save polyschnack-asr:cpu | gzip > dist/polyschnack-asr-cpu-v1.0.tar.gz
+  docker save polyschnack-webapp:latest | gzip > dist/polyschnack-webapp-v1.0.tar.gz
   ```
 - **GitHub release packages** — any `zip`/`tar.gz` bundles created for a versioned release.
 - **Pre-built ONNX model snapshots** if distributed separately from HuggingFace.
@@ -16,7 +16,7 @@ development workflow. It is intentionally empty in the repository.
 ## What does NOT go here
 
 - Source code changes — those live in `approach-a/`, `webapp/`, etc.
-- Model weights downloaded at runtime — those go into the `parakeet-models` docker volume.
+- Model weights downloaded at runtime — those go into the `polyschnack-models` docker volume.
 - Benchmark outputs — those live in `results/`.
 
 ## .gitignore behaviour

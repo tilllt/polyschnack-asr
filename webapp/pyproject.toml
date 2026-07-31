@@ -1,7 +1,7 @@
 [project]
-name = "parakeet-webapp"
+name = "polyschnack-webapp"
 version = "0.1.0"
-description = "Minimal PoC UI for the Parakeet ASR server"
+description = "Minimal PoC UI for the PolySchnack ASR server"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

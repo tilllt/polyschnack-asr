@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Pin the Parakeet v3 server to the Intel 12th Gen P-cores (cores 0-7, threads 0-15).
+# Pin the PolySchnack v3 server to the Intel 12th Gen P-cores (cores 0-7, threads 0-15).
 # Usage:  ./pin_pcores.sh python server.py
-#         ./pin_pcores.sh uvicorn parakeet_service.main:app --port 5092
+#         ./pin_pcores.sh uvicorn polyschnack_service.main:app --port 5092
 set -euo pipefail
 
 # Detect P-cores via /sys (Intel hybrid). Fallback to physical-core assumption.

@@ -1,4 +1,4 @@
-"""Async benchmark client for the Parakeet ASR server (approach-a).
+"""Async benchmark client for the PolySchnack ASR server (approach-a).
 
 Exercises all server endpoints and writes results to results/approach-a.{json,md}.
 
@@ -44,7 +44,7 @@ except ImportError:
 # Paths
 # ---------------------------------------------------------------------------
 _THIS_DIR = Path(__file__).resolve().parent
-# Repo root = parakeet-asr-server/
+# Repo root = polyschnack-asr/
 REPO_ROOT = _THIS_DIR.parent
 DEFAULT_AUDIO_DIR = REPO_ROOT / "tests" / "audio"
 DEFAULT_RESULTS_DIR = REPO_ROOT / "results"
@@ -407,7 +407,7 @@ def build_markdown_report(
     async_result: Metrics,
     device: str,
 ) -> str:
-    lines = ["# Parakeet ASR Server — Approach A Benchmark", ""]
+    lines = ["# PolySchnack ASR Server — Approach A Benchmark", ""]
     lines += [
         "## Server Info",
         f"- Device: `{device}`",
@@ -651,7 +651,7 @@ async def run_benchmark(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark the Parakeet ASR server (approach-a)."
+        description="Benchmark the PolySchnack ASR server (approach-a)."
     )
     parser.add_argument(
         "--base-url",

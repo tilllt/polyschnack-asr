@@ -1,4 +1,4 @@
-# Parakeet ASR Server — Approach A Benchmark
+# PolySchnack ASR Server — Approach A Benchmark
 
 ## Server Info
 - Device: `cpu`

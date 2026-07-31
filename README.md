@@ -147,20 +147,20 @@ services:
   # Backend: Parakeet Python/ONNX (Default-Profil)
   # ──────────────────────────────────────────────────
   asr:
-    image: registry.example.com/public/parakeet-asr:latest
-    container_name: parakeet-asr
+    image: registry.example.com/public/polyschnack-asr:latest
+    container_name: polyschnack-asr
     runtime: nvidia
     environment:
-      PARAKEET_USE_GPU: "true"
-      PARAKEET_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      PARAKEET_INFER_WORKERS: "1"
-      PARAKEET_CHUNK_TARGET_SEC: "20"
-      PARAKEET_CHUNK_MAX_SEC: "25"
-      PARAKEET_CHUNK_MIN_SEC: "10"
+      POLYSNACK_USE_GPU: "true"
+      POLYSNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      POLYSNACK_INFER_WORKERS: "1"
+      POLYSNACK_CHUNK_TARGET_SEC: "20"
+      POLYSNACK_CHUNK_MAX_SEC: "25"
+      POLYSNACK_CHUNK_MIN_SEC: "10"
     ports:
       - "5092:5092"
     volumes:
-      - parakeet-models:/app/models
+      - polyschnack-models:/app/models
     deploy:
       resources:
         limits:
@@ -178,7 +178,7 @@ services:
   asr-cpp:
     profiles: ["cpp"]
     image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
-    container_name: parakeet-cpp
+    container_name: polyschnack-cpp
     runtime: nvidia
     environment:
       MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
@@ -194,7 +194,7 @@ services:
   # ──────────────────────────────────────────────────
   qwen3-asr:
     profiles: ["qwen3"]
-    image: registry.example.com/public/parakeet-asr-qwen3:latest
+    image: registry.example.com/public/polyschnack-asr-qwen3:latest
     container_name: qwen3-asr
     runtime: nvidia
     environment:
@@ -217,7 +217,7 @@ services:
   # ──────────────────────────────────────────────────
   ark-asr:
     profiles: ["ark"]
-    image: registry.example.com/public/parakeet-asr-ark:latest
+    image: registry.example.com/public/polyschnack-asr-ark:latest
     container_name: ark-asr
     runtime: nvidia
     environment:
@@ -234,8 +234,8 @@ services:
   # Web UI (für alle Backends identisch)
   # ──────────────────────────────────────────────────
   webapp:
-    image: registry.example.com/public/parakeet-asr-webapp:latest
-    container_name: parakeet-webapp
+    image: registry.example.com/public/polyschnack-asr-webapp:latest
+    container_name: polyschnack-webapp
     mem_limit: 2g
     memswap_limit: 2g
     environment:
@@ -255,7 +255,7 @@ services:
         condition: service_healthy
 
 volumes:
-  parakeet-models:
+  polyschnack-models:
   cpp-models:
   qwen3-models:
   ark-models:
@@ -296,7 +296,7 @@ graph LR
     webapp -->|HTTP :5092| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr"]
     asr --> model["ASR Modell (GGUF / ONNX)"]
     webapp --- db[("SQLite + Audio-Dateien<br/>(poc-data Volume)")]
-    asr --- mcache[("Modell-Cache<br/>(parakeet-models /<br/>cpp-models / qwen3-models<br/>/ ark-models)")]
+    asr --- mcache[("Modell-Cache<br/>(polyschnack-models /<br/>cpp-models / qwen3-models<br/>/ ark-models)")]
 ```
 
 Die Webapp kommuniziert mit dem ASR-Backend über die OpenAI-kompatible
@@ -363,7 +363,7 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 ```bash
 cd approach-a
 uv sync
-uv run uvicorn parakeet_service.main:app --reload --port 5092
+uv run uvicorn polyschnack_service.main:app --reload --port 5092
 ```
 
 ### Web App

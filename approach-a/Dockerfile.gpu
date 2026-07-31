@@ -1,9 +1,9 @@
-# Parakeet TDT 0.6B ONNX - GPU Dockerfile
+# PolySchnack ASR (Parakeet TDT 0.6B ONNX) - GPU Dockerfile
 # High-performance speech transcription with NVIDIA CUDA
 
 FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
-LABEL maintainer="Parakeet TDT"
+LABEL maintainer="PolySchnack"
 LABEL description="ONNX-optimized speech transcription service (GPU/CUDA)"
 
 # Prevent interactive prompts during build
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # Create non-root user for security
-RUN useradd --create-home --shell /bin/bash parakeet
+RUN useradd --create-home --shell /bin/bash polyschnack
 WORKDIR /app
 
 # Copy requirements first for layer caching
@@ -33,14 +33,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY server.py .
-COPY parakeet_service/ parakeet_service/
+COPY polyschnack_service/ polyschnack_service/
 COPY app.py .
 COPY templates/ templates/
-COPY parakeet.png .
+COPY polyschnack.png .
 
 # Create directories for runtime
 RUN mkdir -p temp_uploads models && \
-    chown -R parakeet:parakeet /app
+    chown -R polyschnack:polyschnack /app
 
 # Run as root so the model download volume works without permission issues
 
@@ -51,13 +51,13 @@ ENV HF_HUB_DISABLE_SYMLINKS_WARNING=true
 ENV PYTHONUNBUFFERED=1
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-ENV PARAKEET_USE_GPU=true
-ENV PARAKEET_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx
-ENV PARAKEET_BATCHED=1
-ENV PARAKEET_MAX_BATCH_SIZE=4
-ENV PARAKEET_BATCH_WINDOW_MS=4
-ENV PARAKEET_ORT_INTRA_THREADS=1
-ENV PARAKEET_AUDIO_WORKERS=8
+ENV POLYSNACK_USE_GPU=true
+ENV POLYSNACK_DEFAULT_MODEL=istupakov/parakeet-tdt-0.6b-v3-onnx
+ENV POLYSNACK_BATCHED=1
+ENV POLYSNACK_MAX_BATCH_SIZE=4
+ENV POLYSNACK_BATCH_WINDOW_MS=4
+ENV POLYSNACK_ORT_INTRA_THREADS=1
+ENV POLYSNACK_AUDIO_WORKERS=8
 
 # Expose the API port
 EXPOSE 5092

@@ -1,7 +1,7 @@
 [project]
-name = "parakeet-bench"
+name = "polyschnack-bench"
 version = "0.1.0"
-description = "Client-side tooling and benchmarks for the Parakeet ASR server (approach-a)"
+description = "Client-side tooling and benchmarks for the PolySchnack ASR server (approach-a)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

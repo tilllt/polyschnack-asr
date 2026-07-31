@@ -1,1 +1,1 @@
-# Parakeet PoC UI — application package
+# PolySchnack Web UI — application package

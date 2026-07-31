@@ -14,8 +14,8 @@
 **Objective:** The existing `transcribe_wav` → `submit_many` → `stitch` pipeline runs all chunks silently. Add a callback mechanism so the sync endpoint can report progress (chunks_completed / total_chunks → percentage) back to the caller via a lightweight side-channel (HTTP headers or response metadata).
 
 **Files:**
-- Modify: `approach-a/parakeet_service/core.py`
-- Modify: `approach-a/parakeet_service/routes.py`
+- Modify: `approach-a/polyschnack_service/core.py`
+- Modify: `approach-a/polyschnack_service/routes.py`
 
 **Step 1:** Add a `progress_callback` parameter to `transcribe_wav(..., progress_callback=None)` that is called after each chunk is processed.
 
@@ -133,7 +133,7 @@ async def transcribe(audio_bytes, filename, mime, on_progress=None) -> dict:
 **Objective:** For audio >30min, increase chunk target to reduce total chunk count and ORT call overhead.
 
 **Files:**
-- Modify: `approach-a/parakeet_service/chunker.py`
+- Modify: `approach-a/polyschnack_service/chunker.py`
 
 **Step 1:** In `auto_chunk()`, add adaptive sizing: if total audio > 30min, scale TARGET_SEC:
 
@@ -156,7 +156,7 @@ else:
 **Objective:** After VAD-based chunking, skip chunks that contain no speech (pure silence) before sending to ASR. The chunker already uses VAD to find speech segments — silent sections between them are already excluded from chunks. But verify and add a guard.
 
 **Files:**
-- Modify: `approach-a/parakeet_service/chunker.py`
+- Modify: `approach-a/polyschnack_service/chunker.py`
 
 **Step 1:** Add a RMS-based silence check in `slice_chunks` or after auto_chunk:
 

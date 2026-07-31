@@ -1,18 +1,18 @@
 services:
   asr:
-    image: registry.example.com/public/parakeet-asr:latest
-    container_name: parakeet-asr
+    image: registry.example.com/public/polyschnack-asr:latest
+    container_name: polyschnack-asr
     environment:
-      PARAKEET_USE_GPU: "true"
-      PARAKEET_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      PARAKEET_INFER_WORKERS: "1"
-      PARAKEET_CHUNK_TARGET_SEC: "20"
-      PARAKEET_CHUNK_MAX_SEC: "25"
-      PARAKEET_CHUNK_MIN_SEC: "10"
+      POLYSNACK_USE_GPU: "true"
+      POLYSNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      POLYSNACK_INFER_WORKERS: "1"
+      POLYSNACK_CHUNK_TARGET_SEC: "20"
+      POLYSNACK_CHUNK_MAX_SEC: "25"
+      POLYSNACK_CHUNK_MIN_SEC: "10"
     ports:
       - "5092:5092"
     volumes:
-      - parakeet-models:/app/models
+      - polyschnack-models:/app/models
     restart: unless-stopped
     runtime: nvidia
     deploy:
@@ -29,7 +29,7 @@ services:
   asr-cpp:
     profiles: ["cpp"]
     image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
-    container_name: parakeet-cpp
+    container_name: polyschnack-cpp
     runtime: nvidia
     environment:
       MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
@@ -88,8 +88,8 @@ services:
           memory: 6G
 
   webapp:
-    image: registry.example.com/public/parakeet-asr-webapp:latest
-    container_name: parakeet-webapp
+    image: registry.example.com/public/polyschnack-asr-webapp:latest
+    container_name: polyschnack-webapp
     mem_limit: 2g
     memswap_limit: 2g
     environment:
@@ -106,7 +106,7 @@ services:
       # OIDC_ISSUER: "https://auth.example.com"   # or your Keycloak/Authentik URL
       # OIDC_SCOPE: "openid profile email"
       # SESSION_SECRET: "generate-a-random-secret-here"
-      # BASE_URL: "https://parakeet.example.com"
+      # BASE_URL: "https://polyschnack.example.com"
     ports:
       - "8088:8080"
     volumes:
@@ -121,7 +121,7 @@ services:
           memory: 512M
 
 volumes:
-  parakeet-models:
+  polyschnack-models:
   cpp-models:
   qwen3-models:
   ark-models:

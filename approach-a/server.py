@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""Entry point for the optimized Parakeet v3 server.
+"""Entry point for the optimized PolySchnack v3 server.
 
 Run with::
 
     python server.py                 # uvicorn defaults
-    PARAKEET_USE_GPU=true python server.py
-    PARAKEET_PORT=5093 python server.py
+    POLYSNACK_USE_GPU=true python server.py
+    POLYSNACK_PORT=5093 python server.py
 
 Or directly with uvicorn::
 
-    uvicorn parakeet_service.main:app --host 0.0.0.0 --port 5092
+    uvicorn polyschnack_service.main:app --host 0.0.0.0 --port 5092
 """
 from __future__ import annotations
 import os
 
 import uvicorn
 
+from polyschnack_service.config import _getenv
+
 
 def main() -> None:
-    host = os.getenv("PARAKEET_HOST", "0.0.0.0")
-    port = int(os.getenv("PARAKEET_PORT", "5092"))
-    workers = int(os.getenv("PARAKEET_UVICORN_WORKERS", "1"))
+    host = _getenv("HOST", "0.0.0.0")
+    port = int(_getenv("PORT", "5092"))
+    workers = int(_getenv("UVICORN_WORKERS", "1"))
     log_level = os.getenv("LOG_LEVEL", "info").lower()
     uvicorn.run(
-        "parakeet_service.main:app",
+        "polyschnack_service.main:app",
         host=host,
         port=port,
         workers=workers,

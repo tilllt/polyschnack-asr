@@ -1,4 +1,4 @@
-# Parakeet TDT Transcription with ONNX Runtime
+# PolySchnack — Parakeet TDT Transcription with ONNX Runtime
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -9,7 +9,7 @@ This implementation achieves exceptional real-time speeds, outperforming standar
 
 ## 🚀 Optimized FastAPI service (v2)
 
-A refactored async service lives under [`parakeet_service/`](parakeet_service/)
+A refactored async service lives under [`polyschnack_service/`](polyschnack_service/)
 and is started via [`server.py`](server.py). It keeps the OpenAI-compatible
 contract of the legacy [`app.py`](app.py) but adds:
 
@@ -41,9 +41,9 @@ rationale, and tunable env knobs.
 python server.py                  # serve on :5092
 
 # CPU override
-PARAKEET_USE_GPU=false \
-PARAKEET_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 \
-PARAKEET_BATCHED=0 \
+POLYSNACK_USE_GPU=false \
+POLYSNACK_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 \
+POLYSNACK_BATCHED=0 \
 python server.py
 ```
 
@@ -144,9 +144,9 @@ ONNX Runtime's CPU execution provider automatically dispatches AVX2/FMA kernels 
 
 For hybrid CPUs (like Intel 12th-14th Gen), performance is still improved by pinning the process to Performance cores (P-cores). You can also override the auto-tuned defaults:
 
-* `PARAKEET_ORT_INTRA_THREADS`: ONNX Runtime intra-op worker threads. Defaults to the lower of detected physical CPUs and available logical CPUs in the container/affinity mask. Minimum: `1`.
-* `PARAKEET_ORT_INTER_THREADS`: ONNX Runtime inter-op threads. Defaults to `1`, which is best for single-model inference. Minimum: `1`.
-* `PARAKEET_WAITRESS_THREADS`: HTTP worker threads. Defaults to a conservative value to avoid oversubscribing ONNX Runtime's AVX2 worker pool. Minimum: `1`.
+* `POLYSNACK_ORT_INTRA_THREADS`: ONNX Runtime intra-op worker threads. Defaults to the lower of detected physical CPUs and available logical CPUs in the container/affinity mask. Minimum: `1`.
+* `POLYSNACK_ORT_INTER_THREADS`: ONNX Runtime inter-op threads. Defaults to `1`, which is best for single-model inference. Minimum: `1`.
+* `POLYSNACK_WAITRESS_THREADS`: HTTP worker threads. Defaults to a conservative value to avoid oversubscribing ONNX Runtime's AVX2 worker pool. Minimum: `1`.
 
 ## Installation
 
@@ -158,12 +158,12 @@ The easiest way to get started. No dependencies to install!
 ```bash
 git clone https://github.com/groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai
 cd parakeet-tdt-0.6b-v3-fastapi-openai
-docker compose up parakeet-cpu -d
+docker compose up polyschnack-cpu -d
 ```
 
 **GPU Deployment** (requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)):
 ```bash
-docker compose up parakeet-gpu -d
+docker compose up polyschnack-gpu -d
 ```
 
 The server will be available at `http://localhost:5092`. See [DOCKER.md](DOCKER.md) for more options.

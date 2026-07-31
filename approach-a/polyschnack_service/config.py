@@ -1,4 +1,4 @@
-"""Configuration for the optimized Parakeet v3 service."""
+"""Configuration for the optimized PolySchnack v3 service."""
 from __future__ import annotations
 import logging
 import os
@@ -12,7 +12,23 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = ROOT_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-logger = logging.getLogger("parakeet_v3")
+logger = logging.getLogger("polyschnack_v3")
+
+
+def _getenv(name: str, default: str = "") -> str:
+    """Read POLYSNACK_<name>, falling back to legacy PARAKEET_<name>.
+
+    The PARAKEET_* prefix is deprecated since the PolySchnack rename but kept
+    so existing deployments (compose files, systemd units) keep working.
+    """
+    val = os.getenv(f"POLYSNACK_{name}")
+    if val is not None:
+        return val
+    legacy = os.getenv(f"PARAKEET_{name}")
+    if legacy is not None:
+        logger.warning("PARAKEET_%s is deprecated — use POLYSNACK_%s", name, name)
+        return legacy
+    return default
 
 # Point HF cache at local models dir
 os.environ.setdefault("HF_HOME", str(MODELS_DIR))
@@ -74,7 +90,7 @@ def _auto_select_model() -> str:
         return CPU_DEFAULT_MODEL
 
 
-_DEFAULT_MODEL_ENV = os.getenv("PARAKEET_DEFAULT_MODEL", "").lower()
+_DEFAULT_MODEL_ENV = _getenv("DEFAULT_MODEL", "").lower()
 if _DEFAULT_MODEL_ENV in MODEL_CONFIGS:
     DEFAULT_MODEL = _DEFAULT_MODEL_ENV
 elif _DEFAULT_MODEL_ENV in {k.lower() for k in MODEL_CONFIGS}:
@@ -89,31 +105,31 @@ else:
 TARGET_SR = 16_000
 
 # Auto-chunking targets (seconds)
-CHUNK_TARGET_SEC = float(os.getenv("PARAKEET_CHUNK_TARGET_SEC", "60"))
-CHUNK_MAX_SEC = float(os.getenv("PARAKEET_CHUNK_MAX_SEC", "75"))
-CHUNK_MIN_SEC = float(os.getenv("PARAKEET_CHUNK_MIN_SEC", "20"))
+CHUNK_TARGET_SEC = float(_getenv("CHUNK_TARGET_SEC", "60"))
+CHUNK_MAX_SEC = float(_getenv("CHUNK_MAX_SEC", "75"))
+CHUNK_MIN_SEC = float(_getenv("CHUNK_MIN_SEC", "20"))
 
 # VAD parameters (Silero)
-VAD_THRESHOLD = float(os.getenv("PARAKEET_VAD_THRESHOLD", "0.5"))
-VAD_MIN_SILENCE_MS = int(os.getenv("PARAKEET_VAD_MIN_SILENCE_MS", "400"))
-VAD_SPEECH_PAD_MS = int(os.getenv("PARAKEET_VAD_SPEECH_PAD_MS", "120"))
+VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", "0.5"))
+VAD_MIN_SILENCE_MS = int(_getenv("VAD_MIN_SILENCE_MS", "400"))
+VAD_SPEECH_PAD_MS = int(_getenv("VAD_SPEECH_PAD_MS", "120"))
 
 # Providers
-USE_GPU = os.getenv("PARAKEET_USE_GPU", "true").lower()  # auto|true|false
-GPU_DEVICE_ID = int(os.getenv("PARAKEET_GPU_DEVICE_ID", "0"))
+USE_GPU = _getenv("USE_GPU", "true").lower()  # auto|true|false
+GPU_DEVICE_ID = int(_getenv("GPU_DEVICE_ID", "0"))
 
 # Micro-batch worker. The default is the validated RTX 3090 GPU profile;
-# CPU deployments should set PARAKEET_BATCHED=0 and PARAKEET_USE_GPU=false.
-MAX_BATCH_SIZE = int(os.getenv("PARAKEET_MAX_BATCH_SIZE", "4"))
-BATCH_WINDOW_MS = float(os.getenv("PARAKEET_BATCH_WINDOW_MS", "4"))
+# CPU deployments should set POLYSNACK_BATCHED=0 and POLYSNACK_USE_GPU=false.
+MAX_BATCH_SIZE = int(_getenv("MAX_BATCH_SIZE", "4"))
+BATCH_WINDOW_MS = float(_getenv("BATCH_WINDOW_MS", "4"))
 
 # Noise reduction (spectral gating)
-NOISE_REDUCE = os.getenv("PARAKEET_NOISE_REDUCE", "true").lower() in ("true", "1", "yes")
+NOISE_REDUCE = _getenv("NOISE_REDUCE", "true").lower() in ("true", "1", "yes")
 
 
 def _get_env_int(name: str, default: int, minimum: int = 1) -> int:
     try:
-        return max(minimum, int(os.environ.get(name, default)))
+        return max(minimum, int(_getenv(name, str(default))))
     except (TypeError, ValueError):
         return max(minimum, default)
 
@@ -132,11 +148,11 @@ except Exception:
     _physical = _available_logical
 
 DEFAULT_INTRA = 1 if USE_GPU != "false" else min(_physical, _available_logical)
-ORT_INTRA_THREADS = _get_env_int("PARAKEET_ORT_INTRA_THREADS", DEFAULT_INTRA)
-ORT_INTER_THREADS = _get_env_int("PARAKEET_ORT_INTER_THREADS", 1)
+ORT_INTRA_THREADS = _get_env_int("ORT_INTRA_THREADS", DEFAULT_INTRA)
+ORT_INTER_THREADS = _get_env_int("ORT_INTER_THREADS", 1)
 
 # Audio preprocessing pool
-AUDIO_WORKERS = _get_env_int("PARAKEET_AUDIO_WORKERS", min(8, _physical))
+AUDIO_WORKERS = _get_env_int("AUDIO_WORKERS", min(8, _physical))
 
 # Keep numeric libs from creating competing thread pools
 for _e in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",

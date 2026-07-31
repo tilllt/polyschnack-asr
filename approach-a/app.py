@@ -108,11 +108,11 @@ default_ort_intra_threads = min(
     CPU_OPTIMIZATION["physical_cpus"], CPU_OPTIMIZATION["available_logical_cpus"]
 )
 CPU_OPTIMIZATION["ort_intra_op_threads"] = get_env_int(
-    "PARAKEET_ORT_INTRA_THREADS",
+    "POLYSNACK_ORT_INTRA_THREADS",
     default_ort_intra_threads,
 )
 CPU_OPTIMIZATION["ort_inter_op_threads"] = get_env_int(
-    "PARAKEET_ORT_INTER_THREADS", 1
+    "POLYSNACK_ORT_INTER_THREADS", 1
 )
 # Cap HTTP workers separately from ORT workers to avoid oversubscribing AVX2 kernels.
 default_waitress_threads = min(
@@ -120,7 +120,7 @@ default_waitress_threads = min(
     max(1, CPU_OPTIMIZATION["available_logical_cpus"] // WAITRESS_CPU_DIVISOR),
 )
 threads = get_env_int(
-    "PARAKEET_WAITRESS_THREADS",
+    "POLYSNACK_WAITRESS_THREADS",
     default_waitress_threads,
 )
 
@@ -581,9 +581,9 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/parakeet.png")
+@app.route("/polyschnack.png")
 def serve_logo():
-    return flask.send_file("parakeet.png", mimetype="image/png")
+    return flask.send_file("polyschnack.png", mimetype="image/png")
 
 
 @app.route("/health")
@@ -613,7 +613,7 @@ def openapi_spec():
         {
             "openapi": "3.0.0",
             "info": {
-                "title": "Parakeet Transcription API",
+                "title": "PolySchnack Transcription API",
                 "description": "High-performance ONNX-optimized speech transcription API compatible with OpenAI.",
                 "version": "1.0.0",
             },

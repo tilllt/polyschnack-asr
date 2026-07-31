@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class PkPythonClient(AsrClient):
-    """Connects to the Python/ONNX parakeet backend (the current pk-asr)."""
+    """Connects to the Python/ONNX parakeet backend (the current PolySchnack pk-python backend)."""
 
     capabilities = BackendCapabilities(
         streaming=True,

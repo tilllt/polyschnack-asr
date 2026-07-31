@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Parakeet TDT 0.6B v3 (optimized)",
+        title="PolySchnack ASR (Parakeet TDT 0.6B v3)",
         version="1.0.0",
         description="High-throughput OpenAI-compatible ASR service for Parakeet TDT 0.6B v3.",
         lifespan=lifespan,

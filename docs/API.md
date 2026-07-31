@@ -306,5 +306,5 @@ print(r["status"], r.get("text", r.get("error")))
 - On CPU the server caps chunk length and serializes inference for low memory —
   see [`../approach-a/POC_NOTES.md`](../approach-a/POC_NOTES.md). Relax these on a
   bigger host or GPU.
-- GPU: run the `parakeet-gpu` image (NVIDIA Container Toolkit). Verify the model
+- GPU: run the `polyschnack-gpu` image (NVIDIA Container Toolkit). Verify the model
   fits your VRAM (FP32 default; `grikdotnet/...-fp16` or INT8 for ~4 GB cards).

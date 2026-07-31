@@ -1,9 +1,9 @@
-"""Generate synthetic speech fixtures for benchmarking the Parakeet ASR server.
+"""Generate synthetic speech fixtures for benchmarking the PolySchnack ASR server.
 
 Usage:
     uv run python scripts/gen_test_audio.py [--force]
 
-Outputs (relative to repo root = parakeet-asr-server/):
+Outputs (relative to repo root = polyschnack-asr/):
     tests/audio/short_10s.wav    ~10 s, 16 kHz mono PCM s16le
     tests/audio/short_10s.txt    reference transcript
     tests/audio/medium_60s.wav   ~60 s, 16 kHz mono PCM s16le
@@ -244,7 +244,7 @@ def generate_long(force: bool = False) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate synthetic WAV fixtures for Parakeet ASR benchmarks."
+        description="Generate synthetic WAV fixtures for PolySchnack ASR benchmarks."
     )
     parser.add_argument(
         "--force",

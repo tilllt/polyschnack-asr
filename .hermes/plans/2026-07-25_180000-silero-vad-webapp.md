@@ -4,7 +4,7 @@
 
 **Goal:** Add configurable Silero VAD-based silence trimming to the WebApp backend, and expose VAD results in the UI alongside ASR segments.
 
-**Architecture:** The ASR service (`approach-a/parakeet_service/chunker.py`) already uses Silero VAD internally for intelligent audio chunking before transcription. This plan adds a *separate* lightweight VAD pass in the WebApp backend (`webapp/`) so users can optionally trim leading/trailing silence from uploaded audio *before* sending to ASR, saving processing time on silent sections. Additionally, VAD speech/non-speech regions are merged into the segment data so the UI can optionally highlight them.
+**Architecture:** The ASR service (`approach-a/polyschnack_service/chunker.py`) already uses Silero VAD internally for intelligent audio chunking before transcription. This plan adds a *separate* lightweight VAD pass in the WebApp backend (`webapp/`) so users can optionally trim leading/trailing silence from uploaded audio *before* sending to ASR, saving processing time on silent sections. Additionally, VAD speech/non-speech regions are merged into the segment data so the UI can optionally highlight them.
 
 **Tech Stack:** Python 3.12+, `silero-vad>=6.0.0` (already in ASR deps, adding to webapp), FastAPI (webapp backend), React/TypeScript (frontend). Silero VAD ONNX mode does NOT need a full PyTorch install — it uses onnxruntime which is already available.
 
@@ -340,7 +340,7 @@ After all tasks:
 3. Test with a file that has 5s leading silence:
    - With `VAD_TRIM_SILENCE=false`: transcription time includes the silence
    - With `VAD_TRIM_SILENCE=true`: silence is trimmed, faster transcription
-4. Check logs: `docker logs parakeet-webapp` should show `VAD trim applied to rec_id=N`
+4. Check logs: `docker logs polyschnack-webapp` should show `VAD trim applied to rec_id=N`
 
 ---
 ## Risks & Tradeoffs
