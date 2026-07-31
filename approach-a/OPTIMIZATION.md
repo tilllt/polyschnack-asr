@@ -81,11 +81,12 @@ changing code" and "identify bottlenecks with evidence":
   `ffmpeg -i pipe:0 -ac 1 -ar 16000 -f s16le pipe:1` for non-WAV inputs,
   and stdlib `wave`+`audioop` for WAVs. Removes per-chunk subprocess
   fork/exec.
-- **Silero-VAD auto-chunking** (`polyschnack_service/chunker.py`): pack speech
-  segments into 60 s targets, cutting on pause midpoints, with min/max
-  guards. Falls back to energy-RMS when silero-vad is unavailable.
-  - Bypasses chunking entirely for clips ≤ `CHUNK_MAX_SEC` (75 s by
-    default), so 10 s and 60 s files are processed in a single ORT call.
+- **Overlapping sliding-window chunking** (`polyschnack_service/chunker.py`):
+  long audio is split into 300 s windows with 15 s overlap (achetronic-style).
+  The shared overlap gives the encoder context; its ownership is split at a
+  silence boundary chosen by a VAD → mel-energy → midpoint cascade, and
+  seam words are deduplicated in `core.dedup_seam`. Clips ≤ `CHUNK_SECONDS`
+  (300 s by default) are processed in a single ORT call.
 - **Parallel `InferencePool`** (`polyschnack_service/batchworker.py`):
   4 worker threads, each calling `model.recognize(single_wav)`. Used for
   both concurrent requests *and* fan-out of multiple chunks from one long
@@ -164,9 +165,8 @@ All optional. Defaults are tuned for an 8-core CPU.
 | `POLYSNACK_BATCHED`         | `1`          | `1` → use GPU-friendly `BatchWorker`; set `0` for CPU INT8 |
 | `POLYSNACK_USE_GPU`         | `true`       | `true` / `auto` / `false`                                |
 | `POLYSNACK_GPU_DEVICE_ID`   | `0`          | CUDA device for ORT                                      |
-| `POLYSNACK_CHUNK_TARGET_SEC`| `60`         | preferred chunk length                                   |
-| `POLYSNACK_CHUNK_MAX_SEC`   | `75`         | hard cap before force-cut; ≤ this skips chunking         |
-| `POLYSNACK_CHUNK_MIN_SEC`   | `20`         | min chunk length before merge                            |
+| `POLYSNACK_CHUNK_SECONDS`    | `300`        | sliding-window size for long audio                       |
+| `POLYSNACK_CHUNK_OVERLAP_SECONDS` | `15`   | overlap between windows (encoder context + seam dedup)   |
 | `POLYSNACK_VAD_THRESHOLD`   | `0.5`        | Silero-VAD speech probability                            |
 | `POLYSNACK_VAD_MIN_SILENCE_MS` | `400`     | min silence between chunks                               |
 | `POLYSNACK_VAD_SPEECH_PAD_MS` | `120`      | pad around speech segments                               |

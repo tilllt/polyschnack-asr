@@ -53,8 +53,8 @@ The process gets **OOM-killed (silent, no traceback)** when peak inference memor
 is too high. Two independent causes, both fixed via env in `docker-compose.yml`:
 
 1. **Long single chunk** — a 60s+ audio = one ORT `recognize()` over a long
-   sequence → large activation memory. Fixed by capping chunk length:
-   `POLYSNACK_CHUNK_MAX_SEC=25`, `POLYSNACK_CHUNK_TARGET_SEC=20`.
+   sequence → large activation memory. Fixed by capping the sliding window:
+   `POLYSNACK_CHUNK_SECONDS=120`, `POLYSNACK_CHUNK_OVERLAP_SECONDS=15`.
 2. **Parallel chunk inference** — `InferencePool` fans chunks across
    `POLYSNACK_INFER_WORKERS` threads → N× model working set. Fixed by serializing:
    `POLYSNACK_INFER_WORKERS=1`.

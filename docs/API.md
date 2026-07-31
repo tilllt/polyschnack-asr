@@ -251,7 +251,7 @@ agent.print_response("Transcribe ./standup.ogg and list the blockers mentioned."
 
 ## Streaming (SSE)
 
-Incremental results, one event per VAD chunk — useful for long audio / live UX.
+Incremental results, one event per window — useful for long audio / live UX.
 Each line: `data: {"text", "chunk_index", "total_chunks", "start", "end", "final"}`.
 
 ```python

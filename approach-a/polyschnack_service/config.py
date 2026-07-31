@@ -104,10 +104,12 @@ else:
 # ---------------------------------------------------------------------------
 TARGET_SR = 16_000
 
-# Auto-chunking targets (seconds)
-CHUNK_TARGET_SEC = float(_getenv("CHUNK_TARGET_SEC", "60"))
-CHUNK_MAX_SEC = float(_getenv("CHUNK_MAX_SEC", "75"))
-CHUNK_MIN_SEC = float(_getenv("CHUNK_MIN_SEC", "20"))
+# Long-audio chunking: sliding window with overlap (achetronic-style).
+# Each window covers CHUNK_SECONDS and shares CHUNK_OVERLAP_SECONDS with its
+# neighbours; the shared overlap gives the encoder context and is split at a
+# silence boundary (VAD -> mel-energy -> midpoint cascade), see chunker.py.
+CHUNK_SECONDS = float(_getenv("CHUNK_SECONDS", "300"))
+CHUNK_OVERLAP_SECONDS = float(_getenv("CHUNK_OVERLAP_SECONDS", "15"))
 
 # VAD parameters (Silero)
 VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", "0.5"))

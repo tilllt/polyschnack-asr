@@ -12,8 +12,50 @@ from typing import Any, AsyncIterator, Dict, List, Tuple
 
 import numpy as np
 
-from .chunker import auto_chunk, slice_chunks
+from .chunker import ChunkWindow, plan_chunks, slice_chunks
 from .config import TARGET_SR, logger
+
+# Seam-dedup constants (achetronic seam.go: 3 frames x 80 ms = 240 ms tolerance,
+# keep at most 3 tail words for comparison).
+SEAM_TOLERANCE_S = 0.24
+SEAM_MAX_WORDS = 3
+
+
+def dedup_seam(prev_words: List[Dict[str, Any]], head_words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop head words that collide with the previous window's tail at a seam.
+
+    A word is dropped when its start time is within SEAM_TOLERANCE_S of the
+    start or end of any of the last SEAM_MAX_WORDS previous words. That single
+    rule covers both failure modes from achetronic issue #18:
+    - same text at (nearly) the same time: a duplicate ("to to") → drop it;
+    - different text at (nearly) the same time: a collision → the previous
+      window wins (its decoder is fully warmed up at the seam).
+    """
+    if not prev_words or not head_words:
+        return list(head_words)
+    tail = prev_words[-SEAM_MAX_WORDS:]
+    survivors: List[Dict[str, Any]] = []
+    for h in head_words:
+        if any(
+            abs(h.get("start", 0.0) - p.get("end", 0.0)) <= SEAM_TOLERANCE_S
+            or abs(h.get("start", 0.0) - p.get("start", 0.0)) <= SEAM_TOLERANCE_S
+            for p in tail
+        ):
+            continue
+        survivors.append(h)
+    return survivors
+
+
+def _to_windows(windows_or_ranges) -> List[ChunkWindow]:
+    """Normalize (start, end) tuples to full-coverage ChunkWindows (backwards compat)."""
+    out: List[ChunkWindow] = []
+    for w in windows_or_ranges:
+        if isinstance(w, ChunkWindow):
+            out.append(w)
+        else:
+            s, e = int(w[0]), int(w[1])
+            out.append(ChunkWindow(s, e, s, e))
+    return out
 
 
 def clean_text(text: str) -> str:
@@ -197,16 +239,51 @@ def _segment_by_timestamp_gap(
     return words
 
 
-def stitch(ranges: List[Tuple[int, int]], results: List[Any]) -> Dict[str, Any]:
-    """Stitch per-chunk results into absolute-timestamped segments + full text."""
+def stitch(windows_or_ranges, results: List[Any]) -> Dict[str, Any]:
+    """Stitch per-window results into absolute-timestamped segments + full text.
+
+    Accepts ChunkWindow objects (emit-filtered + seam-deduped, the achetronic
+    long-audio path) or plain (start, end) sample tuples (legacy behaviour:
+    every chunk is emitted fully).
+    """
+    windows = _to_windows(windows_or_ranges)
     all_segments: List[Dict[str, Any]] = []
     all_words: List[Dict[str, Any]] = []
-    for (start_s, _end_s), res in zip(ranges, results):
-        offset = start_s / TARGET_SR
+    prev_words: List[Dict[str, Any]] = []
+    for w, res in zip(windows, results):
         info = extract(res)
         if not info["text"]:
             continue
+        offset = w.emit_start / TARGET_SR
         seg, words = _segment_from(info, offset)
+
+        emit_start_s = w.emit_start / TARGET_SR
+        emit_end_s = w.emit_end / TARGET_SR
+        is_overlap_window = (w.start, w.end) != (w.emit_start, w.emit_end)
+        if is_overlap_window:
+            # Keep only words that start inside this window's owned region;
+            # neighbours own the overlap on their side of the boundary.
+            words = [wd for wd in words if emit_start_s <= wd["start"] < emit_end_s]
+            # Clamp the last word's end to the seam: _segment_from sets a word's
+            # end from the NEXT token's start, which may sit in the overlap and
+            # would otherwise make the seam-dedup below drop a legit neighbour.
+            if words and words[-1]["end"] > emit_end_s:
+                words[-1]["end"] = emit_end_s
+            # Safety net: drop words colliding with the previous window's tail.
+            words = dedup_seam(prev_words, words)
+
+        if not words:
+            continue
+        prev_words = words
+
+        if is_overlap_window:
+            seg_text = " ".join(wd["word"] for wd in words)
+            seg = {
+                "start": words[0]["start"],
+                "end": words[-1]["end"],
+                "segment": seg_text,
+                "words": words,
+            }
         all_segments.append(seg)
         all_words.extend(words)
     full_text = " ".join(s["segment"] for s in all_segments)
@@ -218,12 +295,12 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
     """Full transcription of an already-decoded waveform. Returns stitched dict
     with an added `duration` (seconds) and `chunks` count.
 
-    If *progress_callback* is given, it is called after each chunk finishes
-    as `progress_callback(done: int, total: int)`.
+    Long audio is processed in overlapping windows (achetronic-style); each
+    window's emit region is stitched gap-free and seams are deduplicated.
     """
     duration = wav.size / TARGET_SR
-    ranges = auto_chunk(wav)
-    pieces = slice_chunks(wav, ranges)
+    windows = plan_chunks(wav)
+    pieces = slice_chunks(wav, windows)
     t1 = time.perf_counter()
     total = len(pieces)
 
@@ -240,7 +317,7 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
         f.add_done_callback(lambda _: asyncio.ensure_future(_track()))
     results = await asyncio.gather(*futures)
     infer_ms = (time.perf_counter() - t1) * 1000
-    out = stitch(ranges, results)
+    out = stitch(windows, results)
     out["duration"] = duration
     out["chunks"] = total
     logger.info("transcribe_wav model=%s dur=%.2fs chunks=%d infer=%.0fms",
@@ -249,20 +326,29 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
 
 
 async def stream_wav(worker, wav: np.ndarray, model_name: str) -> AsyncIterator[Dict[str, Any]]:
-    """Yield one partial-result dict per VAD chunk, in order, as each finishes.
+    """Yield one partial-result dict per window, in order, as each finishes.
 
     Each yielded dict: {text, chunk_index, total_chunks, start, end, final}.
-    Chunks are submitted sequentially so partials arrive incrementally (the point
-    of streaming) rather than all at once after a batched gather.
+    Windows are submitted sequentially so partials arrive incrementally (the
+    point of streaming) rather than all at once after a batched gather.
     """
-    ranges = auto_chunk(wav)
-    pieces = slice_chunks(wav, ranges)
+    windows = plan_chunks(wav)
+    pieces = slice_chunks(wav, windows)
     total = len(pieces)
-    for idx, ((start_s, _end_s), piece) in enumerate(zip(ranges, pieces)):
-        offset = start_s / TARGET_SR
+    for idx, (w, piece) in enumerate(zip(windows, pieces)):
         res = await worker.submit(piece, model_name)
         info = extract(res)
-        seg, _words = _segment_from(info, offset)
+        if not info["text"]:
+            yield {
+                "text": "",
+                "chunk_index": idx,
+                "total_chunks": total,
+                "start": w.emit_start / TARGET_SR,
+                "end": w.emit_end / TARGET_SR,
+                "final": idx == total - 1,
+            }
+            continue
+        seg, _words = _segment_from(info, w.emit_start / TARGET_SR)
         yield {
             "text": info["text"],
             "chunk_index": idx,

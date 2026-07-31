@@ -13,11 +13,11 @@ services:
       POLYSNACK_USE_GPU: "false"
       POLYSNACK_DEFAULT_MODEL: parakeet-tdt-0.6b-v3
       POLYSNACK_BATCHED: "0"
-      # Memory caps for small hosts (see approach-a/POC_NOTES.md)
+      # Memory caps for small hosts (see approach-a/POC_NOTES.md); 120s windows
+      # keep the encoder activation footprint bounded on ~3GB VMs.
+      POLYSNACK_CHUNK_SECONDS: "120"
+      POLYSNACK_CHUNK_OVERLAP_SECONDS: "15"
       POLYSNACK_INFER_WORKERS: "1"
-      POLYSNACK_CHUNK_TARGET_SEC: "20"
-      POLYSNACK_CHUNK_MAX_SEC: "25"
-      POLYSNACK_CHUNK_MIN_SEC: "10"
     ports:
       - "5092:5092"
     volumes:

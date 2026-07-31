@@ -40,6 +40,8 @@ entstanden und wurde **massiv erweitert**:
 - **Word-Timestamps** — echte Word-Level-Timestamps via ForcedAligner (Qwen3-ASR)
 - **Web UI** — Upload, Playback, Zoom, Crop, Segment-Edit, Export
 - **Live Preview** — SSE Streaming zeigt Text chunkweise an
+- **Long Audio** — überlappende Sliding-Windows (300 s + 15 s Overlap) mit
+  VAD→Mel-Energy→Midpoint-Seam-Kaskade und Wort-Deduplizierung an Nähten
 - **VAD** — Silero-VAD für Stille-Erkennung und Trimmung
 - **Diarization** — pyannote-basierte Sprechererkennung
 - **Noise Reduction** — spektrale Rauschunterdrückung
@@ -154,9 +156,6 @@ services:
       POLYSNACK_USE_GPU: "true"
       POLYSNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
       POLYSNACK_INFER_WORKERS: "1"
-      POLYSNACK_CHUNK_TARGET_SEC: "20"
-      POLYSNACK_CHUNK_MAX_SEC: "25"
-      POLYSNACK_CHUNK_MIN_SEC: "10"
     ports:
       - "5092:5092"
     volumes:

@@ -1,23 +1,34 @@
-"""Auto-chunking based on speech-pause / sentence-boundary detection.
+"""Long-audio chunking: overlapping sliding windows with silence-aware seams.
 
-Uses Silero VAD (ONNX backend, no torch needed) to find low-energy speech
-boundaries and produces chunks of ~CHUNK_TARGET_SEC seconds that always cut
-on a silence boundary. This is the *intelligent* chunker the baseline tries
-to do with `ffmpeg silencedetect`, but ~10x faster and without subprocesses.
+Ported from achetronic/parakeet (v0.8.0, MIT/Apache-2.0) — see
+`.hermes/plans/2026-07-31_220000-achetronic-long-audio-port.md`.
+
+Instead of cutting hard at VAD silence (which splits words when no silence
+exists — music, continuous speech), we slide a window of CHUNK_SECONDS with
+CHUNK_OVERLAP_SECONDS of shared context between neighbours. The overlap gives
+the encoder acoustic context and the decoder time to warm up. Ownership of the
+overlap is split at a single boundary chosen by a cascade:
+
+    1. Silero VAD  — centre of the longest silence run in the overlap
+    2. Mel energy  — quietest smoothed frame (robust fallback, no model)
+    3. Midpoint    — arithmetic midpoint (always decides)
+
+Every mel/sample frame belongs to exactly one window's *emit* range, so the
+tiling is gap-free: emit_end[i] == emit_start[i+1]. Words landing on a seam are
+additionally deduplicated in core.dedup_seam.
 """
 from __future__ import annotations
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
 from .config import (
     TARGET_SR,
-    CHUNK_TARGET_SEC,
-    CHUNK_MAX_SEC,
-    CHUNK_MIN_SEC,
+    CHUNK_SECONDS,
+    CHUNK_OVERLAP_SECONDS,
     VAD_THRESHOLD,
     VAD_MIN_SILENCE_MS,
-    VAD_SPEECH_PAD_MS,
     logger,
 )
 
@@ -30,7 +41,7 @@ def _get_vad():
         try:
             from silero_vad import load_silero_vad  # type: ignore
             _vad_model = load_silero_vad(onnx=True)
-            logger.info("PolySchnack chunker: loaded Silero VAD for speech-pause detection (not silence trimming)")
+            logger.info("PolySchnack chunker: loaded Silero VAD for seam detection")
         except Exception as exc:
             logger.warning("Silero VAD unavailable (%s); falling back to energy VAD", exc)
             _vad_model = "energy"
@@ -38,148 +49,222 @@ def _get_vad():
 
 
 # ---------------------------------------------------------------------------
-# Pause detection
+# Window planning (achetronic planChunksWithBoundaries)
 # ---------------------------------------------------------------------------
-def _silero_speech_segments(wav: np.ndarray) -> List[Tuple[int, int]]:
-    """Return list of (start_sample, end_sample) speech spans."""
+@dataclass
+class ChunkWindow:
+    """One sliding window over the waveform.
+
+    start/end: acoustic context handed to the encoder (the whole window is
+    transcribed). emit_start/emit_end: the owned region — only tokens/words
+    inside are kept. Adjacent emit ranges tile the timeline with no gap.
+    """
+
+    start: int      # context start (sample, inclusive)
+    end: int        # context end (sample, exclusive)
+    emit_start: int  # owned region start (sample, inclusive)
+    emit_end: int    # owned region end (sample, exclusive)
+
+
+# Oracle signature: (wav, overlap_start, overlap_end, midpoint) -> (frame, ok)
+Oracle = Callable[[Optional[np.ndarray], int, int, int], Tuple[int, bool]]
+
+
+def plan_chunks_with_boundaries(
+    total: int,
+    chunk_samples: int,
+    overlap_samples: int,
+    wav: Optional[np.ndarray],
+    oracle: Optional[Oracle] = None,
+) -> List[ChunkWindow]:
+    """Plan overlapping windows with gap-free emit tiling.
+
+    chunk_samples > overlap_samples >= 0 and total > 0 required. A nil oracle
+    (or one that declines) falls back to the arithmetic midpoint, which
+    reproduces the pre-issue-#18 behaviour. Whatever the oracle returns, the
+    boundary is clamped so the emit ranges still tile [0, total).
+    """
+    if total <= chunk_samples:
+        return [ChunkWindow(0, total, 0, total)]
+
+    stride = chunk_samples - overlap_samples
+    windows: List[ChunkWindow] = []
+    start = 0
+    while start < total:
+        end = min(start + chunk_samples, total)
+        windows.append(ChunkWindow(start, end, 0, 0))
+        if end == total:
+            break
+        start += stride
+
+    prev_emit_end = 0
+    for i, w in enumerate(windows):
+        w.emit_start = prev_emit_end
+        if i == len(windows) - 1:
+            w.emit_end = total
+            prev_emit_end = total
+            continue
+
+        overlap_start = windows[i + 1].start
+        overlap_end = w.end
+        midpoint = (overlap_start + overlap_end) // 2
+
+        boundary = midpoint
+        if oracle is not None:
+            frame, ok = oracle(wav, overlap_start, overlap_end, midpoint)
+            if ok:
+                # Clamp into the legal overlap so tiling always holds.
+                boundary = max(overlap_start, min(int(frame), overlap_end - 1))
+
+        w.emit_end = boundary
+        prev_emit_end = boundary
+    return windows
+
+
+# ---------------------------------------------------------------------------
+# Boundary oracles (achetronic boundary.go)
+# ---------------------------------------------------------------------------
+def _midpoint_boundary(start: int, end: int, midpoint: int) -> Tuple[int, bool]:
+    """Always decides — the terminal layer of the cascade."""
+    return midpoint, True
+
+
+def _frame_energies(wav: np.ndarray, frame_samples: int) -> np.ndarray:
+    """RMS energy per frame (loudness proxy for the mel-energy oracle)."""
+    n = wav.size // frame_samples
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
+    framed = wav[: n * frame_samples].reshape(n, frame_samples).astype(np.float64)
+    return np.sqrt((framed * framed).mean(axis=1) + 1e-12)
+
+
+def _smooth(values: np.ndarray, window: int) -> np.ndarray:
+    """Centred moving average (prefix-sum); width <= 1 returns input unchanged."""
+    if window <= 1 or values.size == 0:
+        return values
+    half = window // 2
+    out = np.empty_like(values)
+    for i in range(values.size):
+        lo, hi = max(0, i - half), min(values.size, i + half + 1)
+        out[i] = values[lo:hi].mean()
+    return out
+
+
+def _mel_energy_boundary(wav: np.ndarray, start: int, end: int, midpoint: int) -> Tuple[int, bool]:
+    """Split at the quietest smoothed 10 ms frame inside the overlap."""
+    frame_samples = int(0.01 * TARGET_SR)  # 10 ms
+    seg = wav[start:end]
+    if seg.size < frame_samples:
+        return midpoint, False
+    energies = _frame_energies(seg, frame_samples)
+    smoothed = _smooth(energies, 15)
+    if smoothed.size == 0:
+        return midpoint, False
+    idx = int(np.argmin(smoothed))
+    return start + idx * frame_samples, True
+
+
+def _vad_boundary(wav: np.ndarray, start: int, end: int, midpoint: int) -> Tuple[int, bool]:
+    """Split at the centre of the longest Silero-detected silence in the overlap.
+
+    Falls back to an energy-based silence detector when Silero is unavailable.
+    Returns (_, False) to fall through when no usable silence is found.
+    """
+    if wav is None or end <= start:
+        return midpoint, False
     model = _get_vad()
     if model == "energy":
-        return _energy_speech_segments(wav)
-    from silero_vad import get_speech_timestamps  # type: ignore
-    import torch  # silero-vad pulls torch even for onnx mode; lightweight here
+        return _vad_energy_boundary(wav, start, end, midpoint)
+    try:
+        from silero_vad import get_speech_timestamps  # type: ignore
+        import torch  # silero-vad pulls torch even for onnx mode; lightweight here
 
-    # Silero VAD wants a torch tensor
-    t = torch.from_numpy(wav)
-    ts = get_speech_timestamps(
-        t,
-        model,
-        sampling_rate=TARGET_SR,
-        threshold=VAD_THRESHOLD,
-        min_silence_duration_ms=VAD_MIN_SILENCE_MS,
-        speech_pad_ms=VAD_SPEECH_PAD_MS,
-        return_seconds=False,
-    )
-    return [(int(t["start"]), int(t["end"])) for t in ts]
+        t = torch.from_numpy(np.ascontiguousarray(wav[start:end]))
+        ts = get_speech_timestamps(
+            t,
+            model,
+            sampling_rate=TARGET_SR,
+            threshold=VAD_THRESHOLD,
+            min_silence_duration_ms=max(200, int(VAD_MIN_SILENCE_MS / 2)),
+            return_seconds=False,
+        )
+    except Exception:
+        return _vad_energy_boundary(wav, start, end, midpoint)
+
+    # Longest gap between speech spans (including leading/trailing silence).
+    gaps: List[Tuple[int, int]] = []
+    prev_end = 0
+    for sp in ts:
+        gaps.append((prev_end, int(sp["start"])))
+        prev_end = int(sp["end"])
+    gaps.append((prev_end, end - start))
+
+    longest = max(gaps, key=lambda g: g[1] - g[0])
+    if longest[1] - longest[0] < int(0.3 * TARGET_SR):  # < 300 ms silence
+        return midpoint, False
+    center = start + (longest[0] + longest[1]) // 2
+    return int(center), True
 
 
-def _energy_speech_segments(wav: np.ndarray) -> List[Tuple[int, int]]:
-    """Cheap RMS-based fallback if Silero isn't installed."""
-    frame = int(0.02 * TARGET_SR)  # 20 ms frames
-    if frame <= 0 or wav.size < frame:
-        return [(0, wav.size)]
-    n = wav.size // frame
-    framed = wav[: n * frame].reshape(n, frame)
-    rms = np.sqrt((framed * framed).mean(axis=1) + 1e-12)
-    thr = max(1e-3, rms.mean() * 0.4)
-    voiced = rms > thr
-    segs: List[Tuple[int, int]] = []
-    i = 0
-    min_sil = max(1, int(VAD_MIN_SILENCE_MS / 20))
-    while i < n:
-        if voiced[i]:
-            start = i
-            j = i
-            sil = 0
-            while j < n:
-                if voiced[j]:
-                    sil = 0
-                else:
-                    sil += 1
-                    if sil >= min_sil:
-                        break
-                j += 1
-            end = min(j - sil, n)
-            segs.append((start * frame, end * frame))
-            i = j
+def _vad_energy_boundary(wav: np.ndarray, start: int, end: int, midpoint: int) -> Tuple[int, bool]:
+    """Energy fallback: centre of the longest below-threshold 20 ms run."""
+    frame_samples = int(0.02 * TARGET_SR)  # 20 ms
+    seg = wav[start:end]
+    if seg.size < frame_samples:
+        return midpoint, False
+    energies = _frame_energies(seg, frame_samples)
+    thr = max(1e-3, float(energies.mean()) * 0.4)
+    below = energies < thr
+    best_start, best_len = -1, 0
+    run = -1
+    for i, b in enumerate(below):
+        if b:
+            if run < 0:
+                run = i
+            if i - run + 1 > best_len:
+                best_len, best_start = i - run + 1, run
         else:
-            i += 1
-    return segs or [(0, wav.size)]
+            run = -1
+    if best_start < 0 or best_len < 15:  # < 300 ms
+        return midpoint, False
+    center = best_start + (best_len - 1) // 2
+    return start + center * frame_samples, True
+
+
+def chain_boundary(wav: Optional[np.ndarray], start: int, end: int, midpoint: int) -> Tuple[int, bool]:
+    """VAD -> mel-energy -> midpoint cascade. Always decides."""
+    if wav is None:
+        return midpoint, True
+    for oracle in (_vad_boundary, _mel_energy_boundary, _midpoint_boundary):
+        frame, ok = oracle(wav, start, end, midpoint)
+        if ok:
+            return frame, True
+    return midpoint, True
 
 
 # ---------------------------------------------------------------------------
-# Chunk packer
+# Public API
 # ---------------------------------------------------------------------------
-def auto_chunk(wav: np.ndarray) -> List[Tuple[int, int]]:
-    """Pack speech segments into ~target-length chunks aligned on pauses.
+def plan_chunks(wav: np.ndarray) -> List[ChunkWindow]:
+    """Plan overlapping windows for a waveform, splitting seams on silence.
 
-    Returns list of (start_sample, end_sample) ranges in the original
-    waveform. If `wav` is shorter than CHUNK_MAX_SEC, returns a single chunk.
+    Windows shorter than the chunk size keep their context; a short audio gets
+    a single full-coverage window (no chunking overhead).
     """
     total = wav.size
-    if total <= int(CHUNK_MAX_SEC * TARGET_SR):
-        return [(0, total)]
-
-    # Dynamic chunk sizing: for long audio, scale target to keep ~20 chunks
-    total_sec = total / TARGET_SR
-    base_target = int(CHUNK_TARGET_SEC * TARGET_SR)
-    if total_sec > 30 * 60:
-        # Aim for 20-25 chunks regardless of file length
-        dynamic_sec = max(total_sec / 22, CHUNK_TARGET_SEC)
-        dynamic_sec = min(dynamic_sec, CHUNK_MAX_SEC * 2)  # cap at 150s
-        target = int(dynamic_sec * TARGET_SR)
-        max_len = int(min(dynamic_sec * 1.5, CHUNK_MAX_SEC * 2) * TARGET_SR)
-        min_len = int(base_target * 0.5)
-        logger.info("Dynamic chunk: total=%.1fs target=%.0fs max=%.0fs", total_sec, dynamic_sec, max_len / TARGET_SR)
-    else:
-        target = base_target
-        max_len = int(CHUNK_MAX_SEC * TARGET_SR)
-        min_len = int(CHUNK_MIN_SEC * TARGET_SR)
-
-    segs = _silero_speech_segments(wav)
-    if not segs:
-        # Pure silence — emit a single chunk; ASR will just produce empty text.
-        return [(0, total)]
-
-    chunks: List[Tuple[int, int]] = []
-    cur_start = segs[0][0]
-    cur_end = segs[0][1]
-    for s, e in segs[1:]:
-        # If adding this segment keeps us under target, extend
-        if e - cur_start <= target:
-            cur_end = e
-            continue
-        # If we're already past min and the next segment would push us beyond
-        # max, cut here on the trailing silence (between cur_end and s).
-        if (cur_end - cur_start) >= min_len:
-            mid = (cur_end + s) // 2  # middle of the pause
-            chunks.append((cur_start, mid))
-            cur_start = mid
-            cur_end = e
-        else:
-            cur_end = e
-            # If we've blown past max_len without finding a pause, force-cut
-            if (cur_end - cur_start) >= max_len:
-                chunks.append((cur_start, cur_end))
-                cur_start = e
-                cur_end = e
-    # Tail
-    chunks.append((cur_start, max(cur_end, cur_start + 1)))
-
-    # Guard: very long final chunk → split on time
-    out: List[Tuple[int, int]] = []
-    for cs, ce in chunks:
-        if ce - cs <= max_len:
-            out.append((cs, ce))
-            continue
-        # Force time-based split for the overflow
-        cursor = cs
-        while ce - cursor > max_len:
-            out.append((cursor, cursor + target))
-            cursor += target
-        out.append((cursor, ce))
-    return out
+    chunk_samples = int(CHUNK_SECONDS * TARGET_SR)
+    overlap_samples = int(CHUNK_OVERLAP_SECONDS * TARGET_SR)
+    if total <= chunk_samples:
+        return [ChunkWindow(0, total, 0, total)]
+    oracle: Oracle = lambda _w, s, e, m: chain_boundary(wav, s, e, m)
+    return plan_chunks_with_boundaries(total, chunk_samples, overlap_samples, wav, oracle)
 
 
-def slice_chunks(wav: np.ndarray, ranges: List[Tuple[int, int]]) -> List[np.ndarray]:
-    """Slice wav by ranges, skipping near-silent chunks."""
-    out: List[np.ndarray] = []
-    skipped = 0
-    for s, e in ranges:
-        piece = wav[s:e]
-        if piece.size > 0 and np.sqrt((piece * piece).mean()) < 1e-4:
-            skipped += 1
-            continue
-        out.append(piece.copy())
-    if skipped:
-        logger.info("slice_chunks: skipped %d silent chunk(s)", skipped)
-    return out
+def slice_chunks(wav: np.ndarray, windows: List[ChunkWindow]) -> List[np.ndarray]:
+    """Slice wav by window context ranges.
+
+    Keeps a strict 1:1 correspondence with the input windows (silent windows
+    are NOT skipped — stitch() skips empty results by text), because the
+    emit-tiling invariant requires every window's result to line up.
+    """
+    return [wav[w.start:w.end].copy() for w in windows]
