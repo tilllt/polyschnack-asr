@@ -27,7 +27,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     grep -v '^onnxruntime-gpu' requirements.txt > /tmp/requirements.cpu.txt && \
     pip install --no-cache-dir -r /tmp/requirements.cpu.txt && \
-    pip install --no-cache-dir onnxruntime==1.23.2
+    pip install --no-cache-dir onnxruntime==1.28.0
 
 # Copy application code
 COPY server.py .
