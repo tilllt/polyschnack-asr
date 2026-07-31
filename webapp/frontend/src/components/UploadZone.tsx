@@ -106,7 +106,7 @@ export function UploadZone() {
   async function handleForceUpload(file: File, batchId: string) {
     setIsUploading(true);
     try {
-      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, true, true);
+      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, true);
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -192,7 +192,7 @@ export function UploadZone() {
           qc={qc}
           t={t}
           vadOn={vadOn} diarizeOn={diarizeOn}
-          livePreview={livePreview} noiseReduce={noiseReduce}
+          livePreview={livePreview} noiseReduce={noiseReduce} enhanceLevel={enhanceLevel}
         />
       )}
       {inputMode === "url" && (
@@ -402,7 +402,7 @@ function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKey
 
 // ── Record tab ──
 
-function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce }: any) {
+function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel }: any) {
   const [recording, setRecording] = useState(false);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
