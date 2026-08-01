@@ -114,7 +114,7 @@ def _validate_gpu_binding(name: str, model: Any) -> None:
     )
     if not gpu_bound:
         raise RuntimeError(
-            f"POLYSNACK_USE_GPU=true but {name} did not bind all sessions to GPU: {report}"
+            f"POLYSCHNACK_USE_GPU=true but {name} did not bind all sessions to GPU: {report}"
         )
 
 

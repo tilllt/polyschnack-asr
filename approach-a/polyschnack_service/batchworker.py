@@ -1,7 +1,7 @@
 """Inference pool for the optimized PolySchnack v3 service.
 
 The default deployment is GPU-backed and uses cross-request micro-batching.
-For CPU INT8 deployments, set `POLYSNACK_BATCHED=0`; batched `recognize([N])`
+For CPU INT8 deployments, set `POLYSCHNACK_BATCHED=0`; batched `recognize([N])`
 scales close to linear in time on CPU and is counter-productive there.
 """
 from __future__ import annotations

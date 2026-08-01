@@ -153,9 +153,9 @@ services:
     container_name: polyschnack-asr
     runtime: nvidia
     environment:
-      POLYSNACK_USE_GPU: "true"
-      POLYSNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      POLYSNACK_INFER_WORKERS: "1"
+      POLYSCHNACK_USE_GPU: "true"
+      POLYSCHNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
+      POLYSCHNACK_INFER_WORKERS: "1"
     ports:
       - "5092:5092"
     volumes:

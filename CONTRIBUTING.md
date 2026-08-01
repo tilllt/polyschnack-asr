@@ -104,7 +104,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 feat(approach-a): add SSE streaming endpoint
 fix(webapp): handle empty transcript segments gracefully
 bench: update approach-a results after GPU run
-docs: document POLYSNACK_INFER_WORKERS memory behaviour
+docs: document POLYSCHNACK_INFER_WORKERS memory behaviour
 ```
 
 Types: `feat`, `fix`, `refactor`, `test`, `bench`, `docs`, `chore`, `ci`.

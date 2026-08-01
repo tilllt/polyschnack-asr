@@ -16,18 +16,24 @@ logger = logging.getLogger("polyschnack_v3")
 
 
 def _getenv(name: str, default: str = "") -> str:
-    """Read POLYSNACK_<name>, falling back to legacy PARAKEET_<name>.
+    """Read POLYSCHNACK_<name>, falling back to legacy POLYSNACK_<name> and PARAKEET_<name>.
 
-    The PARAKEET_* prefix is deprecated since the PolySchnack rename but kept
-    so existing deployments (compose files, systemd units) keep working.
+    The app is called PolySchnack — the environment prefix is POLYSCHNACK_*.
+    The legacy POLYSNACK_* and PARAKEET_* prefixes are deprecated (spelling
+    aligned with the app name) but kept so existing deployments (compose
+    files, systemd units) keep working.
     """
-    val = os.getenv(f"POLYSNACK_{name}")
+    val = os.getenv(f"POLYSCHNACK_{name}")
     if val is not None:
         return val
-    legacy = os.getenv(f"PARAKEET_{name}")
+    legacy = os.getenv(f"POLYSNACK_{name}")
     if legacy is not None:
-        logger.warning("PARAKEET_%s is deprecated — use POLYSNACK_%s", name, name)
+        logger.warning("POLYSNACK_%s is deprecated — use POLYSCHNACK_%s", name, name)
         return legacy
+    legacy2 = os.getenv(f"PARAKEET_{name}")
+    if legacy2 is not None:
+        logger.warning("PARAKEET_%s is deprecated — use POLYSCHNACK_%s", name, name)
+        return legacy2
     return default
 
 # Point HF cache at local models dir
@@ -121,7 +127,7 @@ USE_GPU = _getenv("USE_GPU", "true").lower()  # auto|true|false
 GPU_DEVICE_ID = int(_getenv("GPU_DEVICE_ID", "0"))
 
 # Micro-batch worker. The default is the validated RTX 3090 GPU profile;
-# CPU deployments should set POLYSNACK_BATCHED=0 and POLYSNACK_USE_GPU=false.
+# CPU deployments should set POLYSCHNACK_BATCHED=0 and POLYSCHNACK_USE_GPU=false.
 MAX_BATCH_SIZE = int(_getenv("MAX_BATCH_SIZE", "4"))
 BATCH_WINDOW_MS = float(_getenv("BATCH_WINDOW_MS", "4"))
 
