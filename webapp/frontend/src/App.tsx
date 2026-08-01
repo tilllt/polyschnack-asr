@@ -5,6 +5,8 @@ import { LocaleProvider, useT, type Lang } from "./useLocale";
 import { fetchMe, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
+import { QueueWatcher } from "./components/QueueWatcher";
+import { AdminPanel } from "./components/AdminPanel";
 import { SearchBar } from "./components/SearchBar";
 import { RecordingList } from "./components/RecordingList";
 
@@ -81,6 +83,10 @@ function AppContent() {
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
         <UploadZone />
+
+        <QueueWatcher />
+
+        {user?.is_admin && <AdminPanel />}
 
         <SearchBar
           value={query}

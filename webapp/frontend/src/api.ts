@@ -2,7 +2,7 @@
    TYPES
    ============================================================ */
 
-export type RecordingStatus = "uploaded" | "processing" | "done" | "failed";
+export type RecordingStatus = "uploaded" | "queued" | "processing" | "done" | "failed";
 
 export interface Segment {
   start: number;
@@ -38,6 +38,7 @@ export interface Recording {
   enable_enhance: string;
   progress_pct: number;
   waveform_peaks: number[] | null;
+  backend?: string;
 }
 
 export interface Stats {
@@ -65,6 +66,65 @@ export interface UserInfo {
   sub?: string;
   name?: string;
   preferred_username?: string;
+  is_admin?: boolean;
+}
+
+export interface QueueJob {
+  job_id: number;
+  position: number;
+  status: string;
+  backend: string;
+  eta_s: number | null;
+  is_mine: boolean;
+}
+
+export interface QueueStatus {
+  jobs: QueueJob[];
+  concurrency: number;
+}
+
+export interface AdminService {
+  name: string;
+  container: string;
+  profile: string;
+  model: string;
+  status: string;
+  health: string | null;
+  resources: {
+    ok: boolean;
+    available: Record<string, number | string>;
+    missing: Record<string, number>;
+    unknown: string[];
+    message: string;
+  };
+  active_jobs: number;
+  concurrency: number;
+}
+
+export interface AdminConfig {
+  default_backend: string;
+  effective_backend: string;
+  concurrency: number;
+  max_queue_len: number;
+}
+
+export interface ModelMatrixEntry {
+  name: string;
+  backend: string;
+  model: string;
+  type: string;
+  status: string;
+  concurrency: number;
+  device: string[];
+  languages: string[];
+  word_timestamps: boolean | string;
+  streaming: boolean;
+  async_jobs: boolean;
+  noise_reduce: boolean;
+  vad: string;
+  diarization: string;
+  enhance: boolean;
+  requires: Record<string, number>;
 }
 
 /* ============================================================
@@ -110,13 +170,14 @@ export async function transcribeRange(id: string, startSec: number, endSec: numb
   return res.json() as Promise<Recording>;
 }
 
-export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true, enableEnhance = "off"): Promise<Recording> {
+export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true, enableEnhance = "off", backend = ""): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  fd.append("backend", backend);
   const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -227,6 +288,7 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_streaming?: boolean;
   enable_noise_reduce?: boolean;
   enable_enhance?: string;
+  backend?: string;
 }): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",
@@ -234,4 +296,64 @@ export async function retranscribeRecording(id: string, opts?: {
     body: JSON.stringify(opts ?? {}),
   }).then(checkOk);
   return res.json() as Promise<Recording>;
+}
+
+/* ============================================================
+   QUEUE (Task 7)
+   ============================================================ */
+
+export async function fetchQueue(): Promise<QueueStatus> {
+  const res = await fetch("/api/queue").then(checkOk);
+  return res.json() as Promise<QueueStatus>;
+}
+
+export async function cancelQueueJob(jobId: number): Promise<void> {
+  await fetch(`/api/queue/${jobId}`, { method: "DELETE" }).then(checkOk);
+}
+
+/* ============================================================
+   ADMIN (Task 8)
+   ============================================================ */
+
+export async function fetchAdminServices(): Promise<AdminService[]> {
+  const res = await fetch("/api/admin/services").then(checkOk);
+  return res.json() as Promise<AdminService[]>;
+}
+
+export async function adminServiceAction(name: string, action: "start" | "stop" | "restart"): Promise<{ status: string }> {
+  const res = await fetch(`/api/admin/services/${name}/${action}`, { method: "POST" });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.detail?.message) detail = j.detail.message;
+      else if (typeof j?.detail === "string") detail = j.detail;
+    } catch { /* keep HTTP status */ }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<{ status: string }>;
+}
+
+export async function fetchAdminConfig(): Promise<AdminConfig> {
+  const res = await fetch("/api/admin/config").then(checkOk);
+  return res.json() as Promise<AdminConfig>;
+}
+
+export async function putAdminConfig(defaultBackend: string): Promise<{ default_backend: string }> {
+  const res = await fetch("/api/admin/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ default_backend: defaultBackend }),
+  }).then(checkOk);
+  return res.json() as Promise<{ default_backend: string }>;
+}
+
+export async function resetAdminConfig(): Promise<{ default_backend: string }> {
+  const res = await fetch("/api/admin/config/backend", { method: "DELETE" }).then(checkOk);
+  return res.json() as Promise<{ default_backend: string }>;
+}
+
+export async function fetchModelsMatrix(): Promise<ModelMatrixEntry[]> {
+  const res = await fetch("/api/models/matrix").then(checkOk);
+  return res.json() as Promise<ModelMatrixEntry[]>;
 }

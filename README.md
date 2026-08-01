@@ -329,11 +329,12 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 ### Upload & Transcribe
 
 1. **Datei hochladen** — Drag & Drop oder Klick (MP3, WAV, OGG, OPUS, M4A, FLAC, WEBM)
-2. **Toggles setzen** — VAD, Diarization, Noise Reduction, Live Preview vor dem Start
-3. **Wellenform + Zoom** — WaveSurfer mit Zoom (1×–50×)
-4. **Bereich wählen** — blauen Griff ziehen, um nur einen Ausschnitt zu transkribieren
-5. **▶ Transkribieren** — Button startet die Verarbeitung
-6. **Playback** — Klick auf Segment zum Abspielen
+2. **▶ Transkribieren** — die Feature-Toggles (VAD, Diarization, Noise Reduction, Live, Enhance) und das Backend docken direkt an der Zeile an, auf der du transkribierst
+3. **Transcribe-Queue** — mehrere Transkriptionen werden pro Backend serialisiert (Kapazität je Endpunkt = 1); Position und ETA zeigt der Queue-Watcher
+4. **Wellenform + Zoom** — WaveSurfer mit Zoom (1×–50×)
+5. **Bereich wählen** — blauen Griff ziehen, um nur einen Ausschnitt zu transkribieren
+6. **Re-transkribieren** — Klick auf „Re-transcribe" klappt die Feature-Auswahl an der Zeile auf und wird zum ▶-Button (ohne Bestätigungsdialog)
+7. **Playback** — Klick auf Segment zum Abspielen
 
 ### Weitere Features
 
@@ -350,8 +351,9 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr` | `pk-python` |
+| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `voxtral` | `pk-python` |
 | `ASR_URL` | URL des ASR-Dienstes | `http://asr:5092` |
+| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `pk-python` |
 
 ### Webapp-Umgebungsvariablen
 
@@ -366,6 +368,47 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 | `OIDC_ISSUER` | `""` | OIDC-Issuer-URL |
 | `SESSION_SECRET` | auto | Session-Key |
 | `BASE_URL` | `http://localhost:8088` | Externe URL für OIDC-Redirects |
+| `POLYSCHNACK_ADMINS` | `""` | Komma-Liste (OIDC-sub oder E-Mail) mit Admin-Rechten (Service-Start/Stop, Backend-Wechsel) |
+| `POLYSCHNACK_ADMIN_GROUPS` | `""` | Komma-Liste von OIDC-Gruppen mit Admin-Rechten |
+| `DOCKER_PROXY_URL` | `http://docker-proxy:2375` | Restriktiver Docker-Socket-Proxy (Services on demand starten/stoppen) |
+| `POLYSCHNACK_MAX_QUEUE_LEN` | `20` | Maximale Jobs in der Transcribe-Queue |
+
+---
+
+## Admin-Bereich
+
+Der Admin-Bereich (`🛠 Admin` in der GUI, nur sichtbar für Admins) steuert die
+ASR-Services on demand — die Webapp spricht dafür **niemals direkt** den
+Docker-Socket an, sondern den restriktiven Proxy-Container
+[`tecriser/docker-socket-proxy`](https://github.com/Tecnicality/docker-socket-proxy)
+(es sind nur die Container-/Info-Routen + POST freigeschaltet; Exec/Create/Events
+bleiben deaktiviert).
+
+- **Services** — Liste aller Backends mit Live-Status, Modell, Ressourcen-Report
+  (VRAM/RAM/Disk), aktiven Jobs und Start/Stop/Neustart. Ein Stop ist **nur
+  ohne laufende Jobs** auf dem Backend möglich (sonst 409 mit Anzahl).
+- **Ressourcen-Check vor Start** — bevor ein Container startet, wird geprüft,
+  ob genug RAM/Disk frei sind (VRAM exakt nur bei eigenen Servern über deren
+  `/health`; bei Fremd-Images eine Warnung statt Blockade). Bei Mangel: 409 mit
+  Report — kein Startversuch.
+- **Config** — Default-Backend für neue Transkriptionen. Ein Wechsel auf ein
+  nicht-laufendes Backend startet es automatisch (nach Ressourcen-Check),
+  persistiert in `DATA_DIR/config.json`. Bereits laufende/gewartete
+  Transkriptionen behalten ihr Backend bis zum Ende.
+- **Modell-Matrix** — Feature-Übersicht aller Backends (Word-Timestamps,
+  Streaming, Sprachen, Ressourcenbedarf …), auch als `GET /api/models/matrix`.
+
+**Concurrency** ist bewusst **nicht** konfigurierbar: Jeder Endpunkt hat eine
+Kapazität (selbstgehostete Services = 1), die Gesamt-Kapazität ist die Summe
+der verfügbaren Endpunkte. Die Queue (`GET /api/queue`) zeigt eigene Jobs mit
+Position/ETA, fremde Jobs anonymisiert (nur `#id`).
+
+**Einmaliger Setup-Befehl** (erstellt alle Container, startet aber nichts —
+die GUI startet dann on demand):
+
+```
+docker compose --profile cpp --profile qwen3 --profile ark --profile voxtral up -d --no-start
+```
 
 ---
 

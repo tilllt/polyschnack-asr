@@ -107,6 +107,13 @@ services:
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
       DATA_DIR: /data
       DOCKER_PROXY_URL: http://docker-proxy:2375
+      # Admin-Bereich (Task 1/8): wer darf Services starten/stoppen und das
+      # Default-Backend wechseln? Leer = Admin-Bereich deaktiviert.
+      # POLYSCHNACK_ADMINS: "sub-oder-email,weiterer-user"
+      # POLYSCHNACK_ADMIN_GROUPS: "admins"   # OIDC-Gruppen
+      # Default-Backend für neue Transkriptionen (Task 6; Concurrency ist
+      # abgeleitet aus den Endpunkt-Kapazitäten, nicht konfigurierbar):
+      POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-pk-python}"
       HF_TOKEN: ""                       # ← Setzen für Speaker Diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
       PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)

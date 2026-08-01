@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchModelStatus, triggerDownload, uploadRecording, importFromUrl, recordFromMic, type ModelStatus } from "../api";
+import { fetchModelStatus, importFromUrl, recordFromMic, uploadRecording, type ModelStatus } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import WaveSurfer from "wavesurfer.js";
@@ -18,13 +18,13 @@ export function UploadZone() {
   const { t } = useT();
   const qc = useQueryClient();
 
-  // — Model toggles (shared by all tabs) —
-  const [vadOn, setVadOn] = useState(false);
-  const [diarizeOn, setDiarizeOn] = useState(false);
-  const [livePreview, setLivePreview] = useState(false);
-  const [noiseReduce, setNoiseReduce] = useState(true);
-  const [enhanceLevel, setEnhanceLevel] = useState("off");
-  const [showEnhanceHelp, setShowEnhanceHelp] = useState(false);
+  // — Task 9: keine globalen Toggles mehr — Upload nutzt Defaults,
+  //   die Feature-Auswahl dockt an der Transcribe-Zeile (RecordingCard) an.
+  const vadOn = false;
+  const diarizeOn = false;
+  const livePreview = false;
+  const noiseReduce = true;
+  const enhanceLevel = "off";
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
@@ -33,27 +33,6 @@ export function UploadZone() {
       .then(setModelStatus)
       .catch(() => {});
   }, []);
-
-  function toggleVad() {
-    setVadOn((v) => {
-      const next = !v;
-      if (next && !modelStatus?.vad_available) {
-        triggerDownload("vad").catch(() => {});
-      }
-      return next;
-    });
-  }
-
-  function toggleDiarize() {
-    if (!modelStatus?.hf_token) return;
-    setDiarizeOn((d) => {
-      const next = !d;
-      if (next && !modelStatus?.diarize_available) {
-        triggerDownload("diarize").catch(() => {});
-      }
-      return next;
-    });
-  }
 
   // — Upload logic (same as before) —
   async function handleFiles(files: FileList | File[]) {
@@ -230,76 +209,10 @@ export function UploadZone() {
         </div>
       )}
 
-      {/* Toggle switches (shared by all tabs) — mini on mobile */}
-      <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-        <ToggleSwitch
-          label="VAD"
-          title="VAD (Silence trim)"
-          enabled={vadOn}
-          available={modelStatus?.vad_available ?? false}
-          disabled={recording}
-          onChange={toggleVad}
-        />
-        <ToggleSwitch
-          label="Diarize"
-          title="Speaker Diarization"
-          enabled={diarizeOn}
-          available={modelStatus?.diarize_available ?? false}
-          noToken={modelStatus !== null && !modelStatus.hf_token}
-          disabled={recording || (modelStatus !== null && !modelStatus.hf_token)}
-          onChange={toggleDiarize}
-        />
-        <ToggleSwitch
-          label="Live"
-          title="Live Preview"
-          enabled={livePreview}
-          available={true}
-          disabled={recording}
-          onChange={() => setLivePreview((v) => !v)}
-        />
-        <ToggleSwitch
-          label="NR"
-          title="Noise Reduction"
-          enabled={noiseReduce}
-          available={true}
-          disabled={recording}
-          onChange={() => setNoiseReduce((v) => !v)}
-        />
-        <select
-          value={enhanceLevel}
-          onChange={(e) => setEnhanceLevel(e.target.value)}
-          disabled={recording}
-          className="bg-panel border border-border2 rounded-sm text-[12px] text-txt px-1.5 py-1 outline-none cursor-pointer focus:border-accent"
-          title="Audio enhancement pre-processing"
-        >
-          <option value="off">Enh: Off</option>
-          <option value="light">Enh: Light</option>
-          <option value="medium">Enh: Medium</option>
-          <option value="aggressive">Enh: Aggr.</option>
-        </select>
-        <span className="relative inline-flex">
-          <button
-            type="button"
-            onClick={() => setShowEnhanceHelp((v) => !v)}
-            className="text-muted2 hover:text-txt text-[13px] leading-none px-0.5 cursor-pointer"
-            title="What do these mean?"
-          >❓</button>
-          {showEnhanceHelp && (
-            <div className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 z-50 w-[240px] bg-panel3 border border-border2 rounded-sm shadow-[0_8px_24px_rgba(0,0,0,.4)] px-3 py-2.5 text-[12px] text-txt leading-[1.5]">
-              <div className="font-semibold mb-1.5 text-[12px]">Enhance levels</div>
-              <div className="space-y-1.5">
-                <div><span className="font-semibold text-muted2">Off</span> — no pre-processing</div>
-                <div><span className="font-semibold text-muted2">Light</span> — bandpass-filter 80–4000Hz (remove rumble + hiss)</div>
-                <div><span className="font-semibold text-muted2">Medium</span> — bandpass + adaptive denoising + loudness normalization</div>
-                <div><span className="font-semibold text-muted2">Aggressive</span> — bandpass + strong denoising + normalization + compression</div>
-              </div>
-              <div className="text-[11px] text-muted2 mt-1.5 pt-1.5 border-t border-border">
-                Runs locally via ffmpeg before ASR. Higher levels change the audio more aggressively — try Light first.
-              </div>
-            </div>
-          )}
-        </span>
-        {modelStatus && (
+      {/* Task 9: globale Feature-Toggles entfernt — Toggles docken jetzt an die
+          Transcribe-Zeile der jeweiligen Aufnahme (RecordingCard) an. */}
+
+      {modelStatus && (
           <span
             className={[
               "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
@@ -315,7 +228,6 @@ export function UploadZone() {
              modelStatus.asr_device === "cpu" ? "💻 CPU" : "❓"}
           </span>
         )}
-      </div>
     </div>
   );
 }
@@ -710,55 +622,5 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enha
 
 /* ─────────────────────────────────────────────── */
 
-function ToggleSwitch({
-  label,
-  title,
-  enabled,
-  available,
-  noToken,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  title?: string;
-  enabled: boolean;
-  available: boolean;
-  noToken?: boolean;
-  disabled?: boolean;
-  onChange: () => void;
-}) {
-  const badge = available
-    ? null
-    : noToken
-    ? "⚠ no token"
-    : "⏳";
-
-  return (
-    <button
-      onClick={onChange}
-      disabled={disabled}
-      title={title ?? label}
-      className={`
-        flex items-center gap-1.5 px-2 py-1 rounded-sm text-[12px] transition-colors
-        ${enabled ? "bg-[rgba(63,185,80,.12)] text-ok" : "bg-panel border border-border2 text-muted"}
-        ${noToken ? "opacity-60" : "hover:bg-panel2"}
-      `}
-    >
-      <div
-        className={`
-          w-[24px] h-[14px] rounded-full relative transition-colors flex-shrink-0
-          ${enabled ? "bg-ok" : "bg-border2"}
-        `}
-      >
-        <div
-          className={`
-            absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-transform
-            ${enabled ? "translate-x-[12px]" : "translate-x-[2px]"}
-          `}
-        />
-      </div>
-      <span>{label}</span>
-      {badge && <span className="text-[10px] text-muted2">{badge}</span>}
-    </button>
-  );
-}
+// Task 9: ToggleSwitch entfernt — die Feature-Toggles leben jetzt in
+// FeatureToggles.tsx an der Transcribe-Zeile der RecordingCard.

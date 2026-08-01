@@ -18,10 +18,25 @@ from . import asr_client, crud
 from .asr_client import get_client
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
-from .diarize import diarize as run_diarization
-from .peaks import compute_peaks
-from .vad import trim_silence as _trim_silence
 import os
+
+# Heavy optional deps (onnxruntime/pyannote/torch) are imported lazily inside
+# the functions so the module imports fast and the CI test job stays light.
+
+
+def _trim_silence(audio_bytes: bytes) -> bytes:
+    from .vad import trim_silence
+    return trim_silence(audio_bytes)
+
+
+def _run_diarization(audio_path: str) -> list:
+    from .diarize import diarize
+    return diarize(audio_path)
+
+
+def _compute_peaks(audio_bytes: bytes) -> list:
+    from .peaks import compute_peaks
+    return compute_peaks(audio_bytes)
 
 _VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false").lower() in ("true", "1", "yes")
 _ENHANCE_LEVEL = os.getenv("ENHANCE_LEVEL", "off")  # off, light, medium, aggressive
@@ -218,7 +233,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         if enable_diarize:
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
             try:
-                diar = run_diarization(str(audio_path))
+                diar = _run_diarization(str(audio_path))
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
             except Exception as exc_d:
                 log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
@@ -245,7 +260,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         # Compute waveform peaks for fast WaveSurfer render
         try:
             audio_bytes_for_peaks = audio_path.read_bytes()
-            peaks = compute_peaks(audio_bytes_for_peaks)
+            peaks = _compute_peaks(audio_bytes_for_peaks)
         except Exception:
             log.exception("peaks: compute failed for rec_id=%s", rec_id)
             peaks = None

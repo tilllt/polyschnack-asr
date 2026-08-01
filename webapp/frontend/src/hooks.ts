@@ -74,7 +74,7 @@ export function useDelete() {
 export function useRetranscribe() {
   const qc = useQueryClient();
 
-  return useMutation<Recording, Error, { id: string; opts?: { enable_vad?: boolean; enable_diarize?: boolean; enable_streaming?: boolean; enable_noise_reduce?: boolean; enable_enhance?: string } }>({
+  return useMutation<Recording, Error, { id: string; opts?: { enable_vad?: boolean; enable_diarize?: boolean; enable_streaming?: boolean; enable_noise_reduce?: boolean; enable_enhance?: string; backend?: string } }>({
     mutationFn: ({ id, opts }) => retranscribeRecording(id, opts),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });

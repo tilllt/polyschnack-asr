@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
-import type { Recording } from "../api";
-import { transcribeRange, startTranscription } from "../api";
+import type { ModelMatrixEntry, Recording } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, transcribeRange, startTranscription } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -10,6 +10,7 @@ import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
+import { FeatureToggles, type FeatureValues } from "./FeatureToggles";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
   if (pct <= 0 || !duration_s) return "…";
@@ -49,9 +50,33 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
   const isOld = r.created_at && (Date.now() - new Date(r.created_at).getTime()) > 7 * 24 * 3600 * 1000;
   const [collapsed, setCollapsed] = useState(isOld);
 
+  // ──── Task 9: inline feature toggles + backend, armed re-transcribe ────
+  const [feat, setFeat] = useState<FeatureValues>({
+    vad: r.enable_vad,
+    diarize: r.enable_diarize,
+    streaming: r.enable_streaming,
+    noise: r.enable_noise_reduce,
+    enhance: r.enable_enhance,
+    backend: r.backend ?? "",
+  });
+  const [reArmed, setReArmed] = useState(false);
+  const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
+  const [flags, setFlags] = useState<{ vad: boolean; diarize: boolean }>({ vad: true, diarize: true });
+
+  useEffect(() => {
+    fetchModelsMatrix().then(setMatrix).catch(() => {});
+    fetchModelStatus()
+      .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
+      .catch(() => {});
+  }, []);
+  // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird
+  useEffect(() => { if (r.status !== "done") setReArmed(false); }, [r.status]);
+
+  const availableBackends = matrix.filter((m) => m.status === "active").map((m) => m.name);
+
   async function handleStartTranscription(id: string) {
     try {
-      await startTranscription(id, r.enable_vad, r.enable_diarize, r.enable_streaming, r.enable_noise_reduce, r.enable_enhance);
+      await startTranscription(id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend);
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Failed: ${(e as Error).message}`, "err");
@@ -123,20 +148,27 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
     });
   }
 
-  async function handleRetranscribe() {
-    if (!confirm(t("confirm_retranscribe"))) return;
+  function handleRetranscribe() {
+    // Task 9: kein confirm()-Dialog — klappt die Feature-Auswahl an die Zeile
+    // und ersetzt den Button durch „▶ Transcribe".
+    setReArmed((v) => !v);
+  }
+
+  function handleArmedTranscribe() {
     retranscribeMut.mutate({
       id: r.uid,
       opts: {
-        enable_vad: r.enable_vad,
-        enable_diarize: r.enable_diarize,
-        enable_streaming: r.enable_streaming,
-        enable_noise_reduce: r.enable_noise_reduce,
-        enable_enhance: r.enable_enhance,
+        enable_vad: feat.vad,
+        enable_diarize: feat.diarize,
+        enable_streaming: feat.streaming,
+        enable_noise_reduce: feat.noise,
+        enable_enhance: feat.enhance,
+        backend: feat.backend,
       },
     }, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),
     });
+    setReArmed(false);
   }
 
   // Reset waveform error when audio URL changes
@@ -247,9 +279,42 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
           </div>
         )}
         {r.status === "uploaded" && (
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex flex-col items-center gap-2">
+            <FeatureToggles
+              values={feat}
+              backends={availableBackends}
+              flags={flags}
+              onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
+            />
             <button
               onClick={() => handleStartTranscription(r.uid)}
+              className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              ▶ {t("transcribe")}
+            </button>
+          </div>
+        )}
+        {r.status === "queued" && (
+          <div className="mt-2 flex justify-center">
+            <button
+              disabled
+              className="bg-panel2 border border-border text-muted text-[13px] px-5 py-[7px] rounded-sm font-semibold opacity-70 cursor-not-allowed"
+            >
+              ⏳ {t("in_queue")}
+            </button>
+          </div>
+        )}
+        {r.status === "done" && reArmed && (
+          <div className="mt-2 flex flex-col items-center gap-2 border border-border rounded-sm p-2 bg-panel2/50">
+            <FeatureToggles
+              values={feat}
+              backends={availableBackends}
+              flags={flags}
+              onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
+            />
+            <button
+              onClick={handleArmedTranscribe}
+              disabled={retranscribeMut.isPending}
               className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
             >
               ▶ {t("transcribe")}
@@ -388,7 +453,7 @@ export function RecordingCard({ recording: r, compact = false }: Props) {
         <button
           onClick={handleRetranscribe}
           disabled={retranscribeMut.isPending}
-          className="btn-ghost-sm flex items-center gap-1"
+          className={`btn-ghost-sm flex items-center gap-1 ${reArmed ? "text-accent" : ""}`}
         >
           <RotateCcw size={12} className={retranscribeMut.isPending ? "animate-spin" : ""} />
           {t("retranscribe")}
@@ -424,6 +489,14 @@ function StatusBadge({ status, t }: { status: Recording["status"]; t: (key: stri
       <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(248,81,73,.15)] text-err">
         <XCircle size={11} />
         {t("failed")}
+      </span>
+    );
+  }
+  if (status === "queued") {
+    return (
+      <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(240,160,60,.15)] text-[#f0a03c]">
+        <Loader2 size={11} className="animate-spin" />
+        {t("queued")}
       </span>
     );
   }
