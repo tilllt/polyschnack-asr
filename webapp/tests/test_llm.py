@@ -35,18 +35,18 @@ def test_chat_sends_openai_compatible_request(monkeypatch):
     assert captured["json"]["messages"][0]["content"] == "System"
     assert captured["json"]["messages"][1]["content"] == "User text"
 
-
 def test_chat_without_key_raises(monkeypatch):
-    monkeypatch.setattr(settings, "POLYSCHNACK_LLM_API_KEY", "")
-    with pytest.raises(RuntimeError, match="API_KEY"):
-        llm.chat("S", "U")
+    monkeypatch.setattr(llm.settings, "POLYSCHNACK_LLM_URL", "https://llm.example.com/v1")
+    monkeypatch.setattr(llm.settings, "POLYSCHNACK_LLM_API_KEY", "")
+    with pytest.raises(RuntimeError, match="nicht konfiguriert"):
+        llm.chat("System", "User")
 
 
 def test_chat_without_url_raises(monkeypatch):
-    monkeypatch.setattr(settings, "POLYSCHNACK_LLM_URL", "")
-    with pytest.raises(RuntimeError, match="URL"):
-        llm.chat("S", "U")
-
+    monkeypatch.setattr(llm.settings, "POLYSCHNACK_LLM_URL", "")
+    monkeypatch.setattr(llm.settings, "POLYSCHNACK_LLM_API_KEY", "sk-x")
+    with pytest.raises(RuntimeError, match="nicht konfiguriert"):
+        llm.chat("System", "User")
 
 def test_chat_error_raises_with_message(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
