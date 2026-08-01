@@ -51,8 +51,16 @@ def qm(monkeypatch):
 
 @pytest.fixture()
 def qm_no_worker(monkeypatch):
-    """QueueManager OHNE Worker — für reine Queue-Logik-Tests (kein Race)."""
-    return _make_manager(monkeypatch, start=False)
+    """QueueManager OHNE Worker — für reine Queue-Logik-Tests (kein Race).
+
+    Wichtig: enqueue() ruft _ensure_workers() auf und startet damit IMMER
+    Worker (auch ohne start()). Wenn available_services() Services liefert
+    (CI-Env), verarbeiten die Jobs sofort -> position()==0. Deshalb hier
+    _ensure_workers deaktivieren.
+    """
+    m = _make_manager(monkeypatch, start=False)
+    monkeypatch.setattr(m, "_ensure_workers", lambda: None)
+    return m
 
 
 def test_enqueue_returns_position_one(qm):
