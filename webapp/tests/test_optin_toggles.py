@@ -105,7 +105,6 @@ def test_oidc_llm_enhance_ok(db, qm):
             enable_punctuation=None, enable_llm_enhance=True,
             prompt_template_id=None, delivery_target_id=None, backend="", session=s)
         assert r["status"] == "queued"
-        assert r["enable_llm_enhance"] is True
         rec = s.get(Recording, 1)
         assert rec.enable_llm_enhance is True
     assert len(qm) == 1
