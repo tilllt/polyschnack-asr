@@ -627,5 +627,7 @@ def stats_endpoint(
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Aggregate counts and totals across all recordings."""
-    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    # Session MUSS übergeben werden: _current_user ohne session crasht in
+    # ensure_anonymous_user (AttributeError 'NoneType' has no attribute 'add').
+    uid = _current_user(request, session) if settings.OIDC_ENABLED else None
     return get_stats(session, user_id=uid)

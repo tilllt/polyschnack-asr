@@ -106,6 +106,6 @@ async def import_from_url(
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
         content_hash=content_hash,
-        user_id=_current_user(request),
+        user_id=_current_user(request, session),  # session nötig (anon-Identität)
     )
     return _recording_to_dict(rec)
