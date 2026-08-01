@@ -60,7 +60,7 @@ def test_webdav_puts_file(monkeypatch):
         captured["url"] = url
         captured["auth"] = auth
         captured["content"] = content
-        return httpx.Response(201)
+        return httpx.Response(201, request=httpx.Request("PUT", url))
 
     monkeypatch.setattr(deliver.httpx, "put", fake_put)
     from app.crypto import encrypt
@@ -76,7 +76,7 @@ def test_webdav_puts_file(monkeypatch):
 
 def test_webdav_failure_raises(monkeypatch):
     def fake_put(url, auth=None, content=None, timeout=None):
-        return httpx.Response(403)
+        return httpx.Response(403, request=httpx.Request("PUT", url))
 
     monkeypatch.setattr(deliver.httpx, "put", fake_put)
     from app.crypto import encrypt

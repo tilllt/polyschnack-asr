@@ -115,6 +115,18 @@ class _FakeClient:
                 "segments": [{"start": 0.0, "end": 1.0, "text": "Rohtext"}]}
 
 
+def _fake_update_result(session, rec_id, **kw):
+    """Wie der echte update_result: schreibt das Ergebnis in die DB-Zeile."""
+    r = session.get(Recording, rec_id)
+    if r is not None:
+        r.status = kw.get("status", "done")
+        r.text = kw.get("text") or r.text
+        r.language = kw.get("language")
+        r.duration_s = kw.get("duration_s")
+        session.add(r)
+        session.commit()
+
+
 def test_service_runs_template_and_delivers(db, monkeypatch):
     """process_recording: Template → llm.chat ersetzt Text + postprocess-Version;
     Target → deliver() mit Status done."""
@@ -127,8 +139,7 @@ def test_service_runs_template_and_delivers(db, monkeypatch):
     from app import crud
 
     monkeypatch.setattr(service_mod, "get_client", lambda backend: _FakeClient())
-    monkeypatch.setattr(service_mod.crud, "update_result",
-                        lambda session, rec_id, **kw: None)
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
     monkeypatch.setattr(service_mod.crud, "set_progress",
                         lambda session, rec_id, pct: None)
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
@@ -167,8 +178,7 @@ def test_service_delivery_failure_marks_failed(db, monkeypatch):
     monkeypatch.setattr(queue_mod.crud, "get_recording",
                         lambda s, rid: s.get(Recording, rid))
     monkeypatch.setattr(service_mod, "get_client", lambda backend: _FakeClient())
-    monkeypatch.setattr(service_mod.crud, "update_result",
-                        lambda session, rec_id, **kw: None)
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
     monkeypatch.setattr(service_mod.crud, "set_progress",
                         lambda session, rec_id, pct: None)
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
