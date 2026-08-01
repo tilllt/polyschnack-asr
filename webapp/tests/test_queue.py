@@ -67,7 +67,12 @@ def test_queue_full_raises(qm, monkeypatch):
         qm.enqueue(4, None, "pk-python")
 
 
-def test_position_counts_same_backend_only(qm):
+def test_position_counts_same_backend_only(qm, monkeypatch):
+    # Worker blockieren, sonst holt er die Jobs vor den Assertions ab (CI-Timing-Race)
+    def slow_process(rec_id, backend=None):
+        time.sleep(5)
+
+    monkeypatch.setattr(queue_mod, "process_recording", slow_process)
     qm.enqueue(1, None, "pk-python")
     qm.enqueue(2, None, "pk-cpp")
     qm.enqueue(3, None, "pk-python")
