@@ -50,7 +50,7 @@ uv run python benchmark.py --runs 3 --concurrency 3   # -> ../results/approach-a
 ## CPU / low-RAM gotchas (found during validation on Apple M1, 2.8GB Docker VM)
 
 The process gets **OOM-killed (silent, no traceback)** when peak inference memory
-is too high. Two independent causes, both fixed via env in `docker-compose.yml`:
+is too high. Two independent causes, both fixed via env in `compose.poc-approach-a.yml`:
 
 1. **Long single chunk** — a 60s+ audio = one ORT `recognize()` over a long
    sequence → large activation memory. Fixed by capping the sliding window:

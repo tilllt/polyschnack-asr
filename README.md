@@ -115,7 +115,7 @@ Keine Konfiguration nötig. Läuft auf CPU oder GPU.
 
 ```bash
 ASR_URL=http://asr-cpp:8080 ASR_BACKEND=pk-cpp \
-  docker compose --profile cpp up -d
+  docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
 ```
 
 Das GGUF-Modell (~700 MB) muss einmalig geladen werden:
@@ -128,7 +128,7 @@ docker run --rm -v cpp-models:/models alpine wget -O /models/parakeet-tdt-0.6b-v
 
 ```bash
 ASR_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
-  docker compose --profile qwen3 up -d
+  docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 ```
 
 Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16) müssen geladen werden:
@@ -145,7 +145,7 @@ docker run --rm -v qwen3-models:/models alpine sh -c '
 
 ```bash
 ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
-  docker compose --profile ark up -d
+  docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
 ```
 
 Das GGUF-Modell (~4 GB, Q8_0) muss einmalig geladen werden:
@@ -156,12 +156,36 @@ docker run --rm -v ark-models:/models alpine wget -O /models/ark-asr-3b-q8_0.ggu
 
 ---
 
-## compose.yml Referenz
+## Compose-Referenz (Datei-Split)
 
-Die `compose.yml` definiert vier Dienste. Die Backends sind über **Docker-Profile**
-wählbar — nur das jeweils aktive Backend wird gestartet.
+Seit dem Split gibt es **zwei Compose-Dateien**:
 
-### Dienste im Überblick
+- **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
+  Admin-Steuerung), `asr` (Parakeet Python/ONNX) und `webapp` (GUI).
+- **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `qwen3-asr`,
+  `ark-asr` (Voxtral: geplant), jeweils über **Docker-Profile** aktivierbar.
+
+**Warum Profile statt `docker-compose.override.yml`?** Eine Override-Datei wird
+von Compose **immer automatisch gemergt** — die Backends wären dauerhaft Teil
+des Stacks. Profile halten sie optional: definiert, aber nur gestartet, wenn
+`--profile <name>` gesetzt wird. Die Admin-GUI kann die (per `--no-start`
+erzeugten) Container trotzdem on demand starten/stoppen.
+
+```bash
+# Nur Kern (GUI + ONNX):
+docker compose up -d
+
+# Kern + Backends (Container erzeugen, GUI startet on demand):
+docker compose -f compose.yml -f compose.backends.yml \
+  --profile cpp --profile qwen3 --profile ark up -d --no-start
+
+# Kern + einzelnes Backend direkt mitstarten:
+docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
+```
+
+Die folgenden YAML-Ausschnitte zeigen die Services im Überblick
+(`asr`, `webapp`, `docker-proxy` in `compose.yml`; die Backends in
+`compose.backends.yml`):
 
 ```yaml
 services:
@@ -286,9 +310,9 @@ volumes:
 | Profil | Befehl | Startet | Nutzt GPU |
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | asr + webapp | ✅ |
-| `--profile cpp` | `docker compose --profile cpp up -d` | asr-cpp + webapp | ✅ |
-| `--profile qwen3` | `docker compose --profile qwen3 up -d` | qwen3-asr + webapp | ✅ |
-| `--profile ark` | `docker compose --profile ark up -d` | ark-asr + webapp | ✅ |
+| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | asr-cpp + webapp | ✅ |
+| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | qwen3-asr + webapp | ✅ |
+| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | ark-asr + webapp | ✅ |
 
 Das Backend wird über zwei Umgebungsvariablen gesteuert:
 
@@ -299,10 +323,10 @@ Das Backend wird über zwei Umgebungsvariablen gesteuert:
 
 ```bash
 # Kurzform: nur ASR_URL setzen (Adapter wird automatisch erkannt)
-ASR_URL=http://qwen3-asr:8080 docker compose --profile qwen3 up -d
+ASR_URL=http://qwen3-asr:8080 docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
 # Explizit: beide Variablen
-ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr docker compose --profile ark up -d
+ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
 ```
 
 ---
@@ -477,7 +501,7 @@ Position/ETA, fremde Jobs anonymisiert (nur `#id`).
 die GUI startet dann on demand):
 
 ```
-docker compose --profile cpp --profile qwen3 --profile ark --profile voxtral up -d --no-start
+docker compose -f compose.yml -f compose.backends.yml --profile cpp --profile qwen3 --profile ark --profile voxtral up -d --no-start
 ```
 
 ---

@@ -1,0 +1,108 @@
+# PolySchnack — optionale ASR-Backends (NICHT Teil der Main-Compose).
+#
+# Mechanismus: Docker-Profile. Backends sind definiert, starten aber NUR,
+# wenn ihr Profil aktiviert wird. Die Admin-GUI der Webapp kann die Container
+# trotzdem on demand starten/stoppen (über den Docker-Socket-Proxy).
+#
+# Aktivieren (Container erzeugen, ohne zu starten — die GUI startet on demand):
+#   docker compose -f compose.yml -f compose.backends.yml \
+#     --profile cpp --profile qwen3 --profile ark up -d --no-start
+#
+# Oder direkt mitstarten:
+#   docker compose -f compose.yml -f compose.backends.yml \
+#     --profile cpp --profile qwen3 --profile ark up -d
+#
+# Warum keine docker-compose.override.yml? Overrides werden IMMER automatisch
+# gemergt — die Backends wären dann dauerhaft Teil des Stacks. Profile halten
+# sie optional, ohne die Datei-Struktur zu verkomplizieren.
+#
+# Alle Backends erwarten ein NVIDIA-Runtime (RTX 3090, KI Box).
+services:
+  asr-cpp:
+    profiles: ["cpp"]
+    image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
+    container_name: polyschnack-cpp
+    runtime: nvidia
+    environment:
+      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+    volumes:
+      - cpp-models:/models:ro
+    ports:
+      - "5093:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  qwen3-asr:
+    profiles: ["qwen3"]
+    image: registry.example.com/public/qwen3-asr-cpp:latest
+    container_name: qwen3-asr
+    runtime: nvidia
+    environment:
+      QWEN_USE_VRAM: "1"
+      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
+      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+    volumes:
+      - qwen3-models:/models:ro
+    ports:
+      - "5094:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  ark-asr:
+    profiles: ["ark"]
+    image: registry.example.com/public/ark-asr-cpp:latest
+    container_name: ark-asr
+    runtime: nvidia
+    environment:
+      CRISPASR_CLI: /usr/local/bin/crispasr
+      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+    volumes:
+      - ark-models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  # Voxtral (Profil "voxtral") — GEPLANT, noch kein Image gebaut.
+  # Dockerfile nach dem qwen3-asr-cpp/ark-asr-cpp-Muster bauen
+  # (voxtral.cpp, andrijdavid/voxtral.cpp), Modell
+  # Voxtral-Mini-4B-Realtime-2602 als GGUF Q4_K_M (~2,7 GB) in
+  # voxtral-models-Volume. Erst dann diesen Block einkommentieren.
+  #
+  # voxtral:
+  #   profiles: ["voxtral"]
+  #   image: registry.example.com/public/voxtral-asr-cpp:latest
+  #   container_name: voxtral
+  #   runtime: nvidia
+  #   environment:
+  #     VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf
+  #   volumes:
+  #     - voxtral-models:/models:ro
+  #   ports:
+  #     - "5095:8080"
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 6G
+
+volumes:
+  cpp-models:
+  qwen3-models:
+  ark-models:
+  # voxtral-models:

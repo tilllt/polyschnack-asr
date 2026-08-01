@@ -1,3 +1,13 @@
+# PolySchnack — Main-Compose: GUI + ONNX-ASR (Kern-Stack).
+#   docker compose up -d          # Kern: docker-proxy + asr (ONNX) + webapp
+#   UI:  http://localhost:8088
+#   ASR: http://localhost:5092  (direct, for debugging)
+#
+# Optionale Backends (parakeet.cpp, Qwen3, ARK, Voxtral) liegen in
+# compose.backends.yml und werden über Docker-Profile aktiviert:
+#   docker compose -f compose.yml -f compose.backends.yml \
+#     --profile cpp --profile qwen3 --profile ark up -d --no-start
+# (Erzeugt die Container, damit die Admin-GUI sie on demand starten kann.)
 services:
   docker-proxy:
     image: tecriser/docker-socket-proxy:latest
@@ -35,67 +45,6 @@ services:
       retries: 3
       start_period: 90s
 
-  asr-cpp:
-    profiles: ["cpp"]
-    image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
-    container_name: polyschnack-cpp
-    runtime: nvidia
-    environment:
-      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
-    volumes:
-      - cpp-models:/models:ro
-    ports:
-      - "5093:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  qwen3-asr:
-    profiles: ["qwen3"]
-    image: registry.example.com/public/qwen3-asr-cpp:latest
-    container_name: qwen3-asr
-    runtime: nvidia
-    environment:
-      QWEN_USE_VRAM: "1"
-      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
-      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
-    volumes:
-      - qwen3-models:/models:ro
-    ports:
-      - "5094:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  ark-asr:
-    profiles: ["ark"]
-    image: registry.example.com/public/ark-asr-cpp:latest
-    container_name: ark-asr
-    runtime: nvidia
-    environment:
-      CRISPASR_CLI: /usr/local/bin/crispasr
-      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
-    volumes:
-      - ark-models:/models:ro
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-
   webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
     container_name: polyschnack-webapp
@@ -107,12 +56,10 @@ services:
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
       DATA_DIR: /data
       DOCKER_PROXY_URL: http://docker-proxy:2375
-      # Admin-Bereich (Task 1/8): wer darf Services starten/stoppen und das
+      # Admin-Bereich: wer darf Services starten/stoppen und das
       # Default-Backend wechseln? Leer = Admin-Bereich deaktiviert.
       # POLYSCHNACK_ADMINS: "sub-oder-email,weiterer-user"
       # POLYSCHNACK_ADMIN_GROUPS: "admins"   # OIDC-Gruppen
-      # Default-Backend für neue Transkriptionen (Task 6; Concurrency ist
-      # abgeleitet aus den Endpunkt-Kapazitäten, nicht konfigurierbar):
       POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-pk-python}"
       HF_TOKEN: ""                       # ← Setzen für Speaker Diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
@@ -143,7 +90,4 @@ services:
 
 volumes:
   polyschnack-models:
-  cpp-models:
-  qwen3-models:
-  ark-models:
   poc-data:

@@ -70,7 +70,7 @@ docker volume rm polyschnack-models
 |------|-------------|
 | `Dockerfile.cpu` | CPU-only image (Python 3.10 slim) |
 | `Dockerfile.gpu` | NVIDIA CUDA 12.1 image with GPU support |
-| `docker-compose.yml` | Orchestration for both variants |
+| `compose.poc-approach-a.yml` | Orchestration for both variants (historic PoC; use `compose.yml` + `compose.backends.yml` for the production stack) |
 | `.dockerignore` | Excludes unnecessary files from build |
 
 ## Testing
