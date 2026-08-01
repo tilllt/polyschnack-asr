@@ -81,8 +81,7 @@ class Recording(SQLModel, table=True):
     # --- Post-Processing & Delivery (Teil D) ---
     prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
     delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
-    #: pending | done | failed (gesetzt, sobald ein Target gewählt war)
-    delivery_status: Optional[str] = None
+    delivery_status: Optional[str] = None          # pending | done | failed
     delivery_error: Optional[str] = None
 
     # --- content hash (for duplicate detection) ---
@@ -174,14 +173,27 @@ def hash_token(token: str) -> str:
 
 
 class PromptTemplate(SQLModel, table=True):
-    """Per-User Prompt-Template für LLM-Post-Processing (Task D2)."""
+    """Per-User Prompt-Template für LLM-Post-Processing (Teil D)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     name: str = "default"
     prompt: str = ""
-    created_at: dt.datetime = Field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
-    )
+    created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+
+
+class UserLlmEndpoint(SQLModel, table=True):
+    """BYOK (Teil E) — eigener OpenAI-kompatibler LLM-Endpunkt eines Users.
+
+    api_key wird per Fernet verschlüsselt gespeichert (crypto.encrypt) und
+    nie in API-Antworten/Logs ausgegeben.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = "default"
+    base_url: str = ""            # z. B. https://api.mistral.ai/v1
+    api_key: str = ""             # Fernet-verschlüsselt
+    model: str = "deepseek-chat"
+    created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
 
 
 class DeliveryTarget(SQLModel, table=True):
