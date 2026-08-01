@@ -85,7 +85,17 @@ def _auto_migrate() -> None:
                     nullable = "NULL"
                     dfl = ""
                 else:
-                    dfl = f"DEFAULT {default.arg}" if default is not None else ""
+                    arg = default.arg if default is not None else None
+                    if isinstance(arg, str):
+                        # String-Defaults MÜSSEN quotiert werden, sonst crasht SQLite
+                        # bei Sonderzeichen ("pk-python", "application/octet-stream").
+                        dfl = f"DEFAULT '{arg.replace(chr(39), chr(39)*2)}'"
+                    elif arg is None:
+                        dfl = "DEFAULT NULL"
+                    elif isinstance(arg, bool):
+                        dfl = f"DEFAULT {1 if arg else 0}"
+                    else:
+                        dfl = f"DEFAULT {arg}"
                 sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type} {nullable} {dfl}"
                 log.info("Auto-migrate: %s", sql.strip())
                 session.exec(sa_text(sql))  # type: ignore[arg-type]
