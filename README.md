@@ -539,6 +539,14 @@ der Transcribe-Zeile). Priorität: **User-Endpunkt > Server-Env**.
 
 ## Entwicklung
 
+### Spezifikation (OpenSpec)
+
+Die App ist retroaktiv in [OpenSpec-Format](openspec/) spezifiziert:
+`openspec/project.md` (Überblick + External Systems), `openspec/specs/*/spec.md`
+(7 Capabilities mit Requirements/Scenarios) und `openspec/changes/*/proposal.md`
+(5 Change-Proposals der Feature-Epochen). **Pflege:** Neue Features → neues
+Change-Proposal + Spec-Abschnitt aktualisieren (gleicher Commit).
+
 ### Voraussetzungen
 
 - [uv](https://docs.astral.sh/uv/) (Python Package Manager)
