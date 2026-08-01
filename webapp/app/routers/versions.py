@@ -15,10 +15,10 @@ from ..versions import get_diff, list_versions, snapshot
 router = APIRouter(prefix="/api")
 
 
-def _current_user(request: Request) -> Optional[int]:
-    if not settings.OIDC_ENABLED:
-        return None
-    return request.session.get("user_id")
+def _current_user(request, session=None) -> Optional[int]:
+    from ..anon_session import current_uid
+
+    return current_uid(request, session)
 
 
 def _get_version(session: Session, rec_id: int, v_no: int):
@@ -34,7 +34,7 @@ def list_versions_endpoint(rid: str, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request), "read")
+    ensure_access(session, rec, _current_user(request, session), "read")
     return [
         {
             "version_no": v.version_no,
@@ -56,7 +56,7 @@ def diff_endpoint(rid: str, v_no: int, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request), "read")
+    ensure_access(session, rec, _current_user(request, session), "read")
     versions = list_versions(session, rec.id)
     b = next((v for v in versions if v.version_no == v_no), None)
     if b is None:
@@ -79,7 +79,7 @@ def restore_endpoint(rid: str, v_no: int, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "write")
     v = _get_version(session, rec.id, v_no)
     rec.text = v.text

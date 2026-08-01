@@ -92,8 +92,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         log.info("pyannote (diarize): skipped (no HF_TOKEN)")
 
+    # --- Task B4: Retention-Sweep für anonyme Sessions (alle 5 min) ---
+    import threading
+    from .retention import sweep
+
+    _sweep_stop = threading.Event()
+
+    def _sweep_loop():
+        interval_s = max(60, settings.POLYSCHNACK_ANON_RETENTION_MINUTES * 60 // 3)
+        while not _sweep_stop.wait(interval_s):
+            try:
+                with Session(engine) as session:
+                    n = sweep(session)
+                    if n:
+                        log.info("retention sweep: %d anon user(s) deleted", n)
+            except Exception:
+                log.exception("retention sweep failed")
+
+    threading.Thread(target=_sweep_loop, daemon=True, name="retention-sweep").start()
+
     yield
 
+    _sweep_stop.set()
     queue_manager.stop()
 
 

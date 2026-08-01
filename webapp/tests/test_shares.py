@@ -34,7 +34,7 @@ def db(tmp_path):
 def _patch_current_user(monkeypatch):
     """Direkte User-Auflösung aus dem Fake-Request (unabhängig von Env)."""
     monkeypatch.setattr(shares, "_current_user",
-                        lambda request: request.session.get("user_id"))
+                        lambda request, session=None: request.session.get("user_id"))
 
 
 def _owner_req():

@@ -37,7 +37,7 @@ def qm(monkeypatch):
 
 
 def _patch_user(monkeypatch, uid, is_admin=False):
-    monkeypatch.setattr(queue_api, "_current_user", lambda request: uid)
+    monkeypatch.setattr(queue_api, "_current_user", lambda request, session=None: uid)
     monkeypatch.setattr(queue_api, "_is_admin", lambda request: is_admin)
 
 

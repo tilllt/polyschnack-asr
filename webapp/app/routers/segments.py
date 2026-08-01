@@ -33,6 +33,9 @@ def update_segment(
         raise HTTPException(status_code=404, detail="not found")
 
     uid = request.session.get("user_id") if settings.OIDC_ENABLED else None
+    from ..anon_session import current_uid
+
+    uid = current_uid(request, session)
     ensure_access(session, rec, uid, "write")
 
     # Tiefe Kopie: neue dicts → SQLAlchemy erkennt die Zuweisung als Änderung

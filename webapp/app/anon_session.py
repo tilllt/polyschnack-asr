@@ -19,6 +19,19 @@ from .config import settings
 from .models import User
 
 
+def current_uid(request, session=None):
+    """User-ID für den aktuellen Request — erzeugt anonyme Sessions.
+
+    Mit ``session`` (DB-Session) ist die ID immer gesetzt: OIDC-User bei
+    eingeloggter Session, sonst Cookie-gebundener anon-User (Teil B).
+    """
+    if session is not None:
+        return ensure_anonymous_user(session, request).id
+    if not settings.OIDC_ENABLED:
+        return None
+    return request.session.get("user_id")
+
+
 def ensure_anonymous_user(session: Session, request) -> User:
     """Return the current user; creates an anonymous one on first visit."""
     if settings.OIDC_ENABLED and request.session.get("user_id"):

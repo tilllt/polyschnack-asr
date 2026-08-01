@@ -19,7 +19,7 @@ class _FakeRequest:
 def _patch_user(monkeypatch):
     monkeypatch.setattr(versions_router.settings, "OIDC_ENABLED", True)
     monkeypatch.setattr(versions_router, "_current_user",
-                        lambda request: request.session.get("user_id"))
+                        lambda request, session=None: request.session.get("user_id"))
 
 
 @pytest.fixture()

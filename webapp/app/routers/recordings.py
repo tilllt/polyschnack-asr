@@ -42,14 +42,11 @@ log = __import__("logging").getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _current_user(request: Request) -> int | None:
-    """Return current user_id from session, or None if anonymous or OIDC disabled.
+def _current_user(request: Request, session=None) -> int | None:
+    """Current user_id — OIDC-Session oder Cookie-gebundene anon-Session (B3)."""
+    from ..anon_session import current_uid
 
-    A ``None`` return means the recording is public (shared space).
-    """
-    if not settings.OIDC_ENABLED:
-        return None
-    return request.session.get("user_id")  # None = anonymous → shared space
+    return current_uid(request, session)
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +230,7 @@ async def upload_recording(
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
         content_hash=content_hash,
-        user_id=_current_user(request),
+        user_id=_current_user(request, session),
     )
     return _recording_to_dict(rec)
 
@@ -250,7 +247,7 @@ def list_recordings_endpoint(
     session: Session = Depends(get_session),
 ) -> List[Dict[str, Any]]:
     """Return all recordings (newest first), optionally filtered by *q*."""
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
     return [
         _recording_to_dict(r, access_level=get_access_level(session, r, uid))
@@ -268,7 +265,7 @@ def get_recording_endpoint(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "read")
     d = _recording_to_dict(rec, access_level=get_access_level(session, rec, uid))
     # Debug: include word presence info without changing data
@@ -296,7 +293,7 @@ def get_audio(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "read")
 
     path = Path(rec.stored_path)
@@ -377,7 +374,7 @@ def transcribe_ep(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request) if settings.OIDC_ENABLED else None
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
 
     from ..pricing import ensure_free_only
@@ -440,7 +437,7 @@ def retranscribe(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
 
     from ..pricing import ensure_free_only
@@ -490,7 +487,7 @@ def delete_recording_endpoint(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
     rec = delete_recording(session, rec.id)
     if rec is None:
@@ -518,7 +515,7 @@ def transcribe_range(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
 
     audio_bytes = Path(rec.stored_path).read_bytes()

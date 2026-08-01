@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models import Recording, TranscriptVersion
+from app.models import Recording, TranscriptVersion, User
 from app.versions import get_diff, list_versions, snapshot
 
 
@@ -13,6 +13,7 @@ def db(tmp_path):
     eng = create_engine(f"sqlite:///{tmp_path}/t.db")
     SQLModel.metadata.create_all(eng)
     with Session(eng) as s:
+        s.add(User(id=1, sub="u1"))
         s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path="p",
                         user_id=1, status="done", text="Hallo Welt",
                         segments=[{"start": 0.0, "end": 1.0, "text": "Hallo Welt"}]))

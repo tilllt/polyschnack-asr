@@ -20,10 +20,10 @@ from ..permissions import ensure_access, get_access_level
 router = APIRouter(prefix="/api")
 
 
-def _current_user(request: Request) -> Optional[int]:
-    if not settings.OIDC_ENABLED:
-        return None
-    return request.session.get("user_id")
+def _current_user(request, session=None) -> Optional[int]:
+    from ..anon_session import current_uid
+
+    return current_uid(request, session)
 
 
 class ShareCreate(BaseModel):
@@ -55,7 +55,7 @@ def list_shares(rid: str, request: Request, session: Session = Depends(get_sessi
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
     shares = session.exec(
         select(RecordingShare).where(RecordingShare.rec_id == rec.id)
@@ -82,7 +82,7 @@ def create_share(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
     target = _resolve_user(session, body.user)
     if target is None:
@@ -115,7 +115,7 @@ def update_share(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
     share = _get_share(session, rec, share_id)
     share.level = body.level
@@ -131,7 +131,7 @@ def delete_share(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
-    uid = _current_user(request)
+    uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full")
     share = _get_share(session, rec, share_id)
     session.delete(share)
