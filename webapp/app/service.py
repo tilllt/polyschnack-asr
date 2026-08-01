@@ -284,6 +284,16 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             error=error,
             waveform_peaks=peaks,
         )
+        if status == "done":
+            rec = crud.get_recording(session, rec_id)
+            if rec:
+                from .versions import list_versions, snapshot
+
+                prior = list_versions(session, rec_id)
+                snapshot(
+                    session, rec, "retranscribe" if prior else "transcribe",
+                    user_id=None,
+                )
 
 
 # ---------------------------------------------------------------------------

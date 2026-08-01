@@ -35,7 +35,12 @@ def update_segment(
     uid = request.session.get("user_id") if settings.OIDC_ENABLED else None
     ensure_access(session, rec, uid, "write")
 
-    segments = rec.segments or []
+    # Tiefe Kopie: neue dicts → SQLAlchemy erkennt die Zuweisung als Änderung
+    # (In-Place-Mutation der JSON-Liste würde auch die "alte" Liste verändern,
+    # sodass alte == neue und der Commit stillschweigend übersprungen wird).
+    import json as _json
+
+    segments = _json.loads(_json.dumps(rec.segments or []))
     if idx < 0 or idx >= len(segments):
         raise HTTPException(status_code=404, detail="segment not found")
 
@@ -59,5 +64,9 @@ def update_segment(
     session.add(rec)
     session.commit()
     session.refresh(rec)
+
+    from ..versions import snapshot
+
+    snapshot(session, rec, "edit", user_id=uid)
 
     return {"segments": rec.segments, "text": rec.text}

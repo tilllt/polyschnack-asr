@@ -109,3 +109,22 @@ class RecordingShare(SQLModel, table=True):
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
     __table_args__ = (UniqueConstraint("rec_id", "user_id"),)
+
+
+class TranscriptVersion(SQLModel, table=True):
+    """Voll-Snapshot einer Transkription (text + segments) je Änderung.
+
+    kind ∈ {transcribe, retranscribe, edit, restore, postprocess}.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rec_id: int = Field(foreign_key="recording.id", index=True)
+    version_no: int = 0
+    kind: str = "transcribe"
+    text: Optional[str] = None
+    segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
+    backend: str = ""
+    language: Optional[str] = None
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    created_by_user_id: Optional[int] = None

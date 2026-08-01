@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from .models import Recording, User
+from .models import Recording, RecordingShare, User
 
 
 # ---------------------------------------------------------------------------

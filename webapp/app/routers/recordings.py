@@ -27,8 +27,8 @@ from ..crud import (
     list_recordings,
 )
 from ..db import get_session
-from ..models import Recording
-from ..permissions import ensure_access
+from ..models import Recording, RecordingShare
+from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
 from ..service import to_srt, to_txt, to_vtt, trim_audio
 from ..whatsapp import parse_whatsapp
@@ -250,8 +250,12 @@ def list_recordings_endpoint(
     session: Session = Depends(get_session),
 ) -> List[Dict[str, Any]]:
     """Return all recordings (newest first), optionally filtered by *q*."""
-    rows = list_recordings(session, q=q, user_id=_current_user(request))
-    return [_recording_to_dict(r) for r in rows]
+    uid = _current_user(request)
+    rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
+    return [
+        _recording_to_dict(r, access_level=get_access_level(session, r, uid))
+        for r in rows
+    ]
 
 
 @router.get("/recordings/{rid}")
@@ -266,7 +270,7 @@ def get_recording_endpoint(
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
     ensure_access(session, rec, uid, "read")
-    d = _recording_to_dict(rec)
+    d = _recording_to_dict(rec, access_level=get_access_level(session, rec, uid))
     # Debug: include word presence info without changing data
     segs = d.get("segments") or []
     d["_words_debug"] = {
