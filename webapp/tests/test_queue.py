@@ -30,17 +30,29 @@ class _FakeCrud:
         return 0.0
 
 
-@pytest.fixture()
-def qm(monkeypatch):
+def _make_manager(monkeypatch, *, start: bool):
     fake = _FakeCrud()
     monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
     monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
     monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
     monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
     m = QueueManager(max_queue_len=3)
-    m.start()
+    if start:
+        m.start()
+    return m
+
+
+@pytest.fixture()
+def qm(monkeypatch):
+    m = _make_manager(monkeypatch, start=True)
     yield m
     m.stop()
+
+
+@pytest.fixture()
+def qm_no_worker(monkeypatch):
+    """QueueManager OHNE Worker — für reine Queue-Logik-Tests (kein Race)."""
+    return _make_manager(monkeypatch, start=False)
 
 
 def test_enqueue_returns_position_one(qm):
@@ -67,18 +79,15 @@ def test_queue_full_raises(qm, monkeypatch):
         qm.enqueue(4, None, "pk-python")
 
 
-def test_position_counts_same_backend_only(qm, monkeypatch):
-    # Worker blockieren, sonst holt er die Jobs vor den Assertions ab (CI-Timing-Race)
-    def slow_process(rec_id, backend=None):
-        time.sleep(5)
-
-    monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "pk-python")
-    qm.enqueue(2, None, "pk-cpp")
-    qm.enqueue(3, None, "pk-python")
-    assert qm.position(1) == 1
-    assert qm.position(2) == 1  # anderer Endpunkt, andere Reihe
-    assert qm.position(3) == 2
+def test_position_counts_same_backend_only(qm_no_worker):
+    # Ohne Worker: position() ist reine Queue-Logik. Mit Worker setzt der
+    # Worker den Job sofort auf 'processing' -> position 0 (CI-Timing-Race).
+    qm_no_worker.enqueue(1, None, "pk-python")
+    qm_no_worker.enqueue(2, None, "pk-cpp")
+    qm_no_worker.enqueue(3, None, "pk-python")
+    assert qm_no_worker.position(1) == 1
+    assert qm_no_worker.position(2) == 1  # anderer Endpunkt, andere Reihe
+    assert qm_no_worker.position(3) == 2
 
 
 def test_active_jobs_for(qm, monkeypatch):
