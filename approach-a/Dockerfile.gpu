@@ -28,9 +28,9 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies with GPU support via requirements.txt
-# --break-system-packages: Ubuntu 24.04 (PEP 668) blockt system-pip sonst
-RUN pip install --no-cache-dir --break-system-packages --upgrade pip && \
-    pip install --no-cache-dir --break-system-packages -r requirements.txt
+# --break-system-packages: Ubuntu 24.04 (PEP 668) blockt system-pip sonst.
+# Kein "pip --upgrade pip": Debian-pip (24.0) hat keine RECORD-Datei -> Uninstall-Fehler.
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Copy application code
 COPY server.py .
