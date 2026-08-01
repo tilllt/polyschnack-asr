@@ -120,7 +120,7 @@ ASR_URL=http://asr-cpp:8080 ASR_BACKEND=pk-cpp \
 
 Das GGUF-Modell (~700 MB) muss einmalig geladen werden:
 ```bash
-docker run --rm -v cpp-models:/models alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
+docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
   https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
 
@@ -133,7 +133,7 @@ ASR_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
 
 Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16) müssen geladen werden:
 ```bash
-docker run --rm -v qwen3-models:/models alpine sh -c '
+docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
   wget -qO /models/qwen3-asr-0.6b-q8_0.gguf \
     https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/qwen3-asr-0.6b-q8_0.gguf &&
   wget -qO /models/qwen3-forced-aligner-0.6b-f16.gguf \
@@ -150,7 +150,7 @@ ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
 
 Das GGUF-Modell (~4 GB, Q8_0) muss einmalig geladen werden:
 ```bash
-docker run --rm -v ark-models:/models alpine wget -O /models/ark-asr-3b-q8_0.gguf \
+docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
   https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
 ```
 

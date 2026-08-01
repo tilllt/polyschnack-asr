@@ -26,7 +26,7 @@ services:
     environment:
       MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
     volumes:
-      - cpp-models:/models:ro
+      - ./DATA/cpp-models:/models:ro
     ports:
       - "5093:8080"
     deploy:
@@ -50,7 +50,7 @@ services:
       QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
       QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
     volumes:
-      - qwen3-models:/models:ro
+      - ./DATA/qwen3-models:/models:ro
     ports:
       - "5094:8080"
     deploy:
@@ -73,7 +73,7 @@ services:
       CRISPASR_CLI: /usr/local/bin/crispasr
       ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
     volumes:
-      - ark-models:/models:ro
+      - ./DATA/ark-models:/models:ro
     deploy:
       resources:
         limits:
@@ -90,19 +90,13 @@ services:
   #   image: registry.example.com/public/voxtral-asr-cpp:latest
   #   container_name: voxtral
   #   runtime: nvidia
-  #   environment:
-  #     VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf
-  #   volumes:
-  #     - voxtral-models:/models:ro
-  #   ports:
-  #     - "5095:8080"
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 6G
-
-volumes:
-  cpp-models:
-  qwen3-models:
-  ark-models:
-  # voxtral-models:
+  #     environment:
+  #       VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf
+  #     volumes:
+  #       - ./DATA/voxtral-models:/models:ro
+  #     ports:
+  #       - "5095:8080"
+  #     deploy:
+  #       resources:
+  #         limits:
+  #           memory: 6G
