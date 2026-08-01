@@ -375,6 +375,51 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 
 ---
 
+## OIDC-Auth (optional)
+
+Ohne OIDC läuft PolySchnack als **Shared Space**: jede\*r kann hochladen und
+transkribieren, alles ist öffentlich und wird nach `PUBLIC_RETENTION_MINUTES`
+automatisch gelöscht.
+
+Mit OIDC bekommt jede\*r eingeloggte User einen **privaten Workspace** (eigene
+Aufnahmen, fremde unsichtbar). Der Admin-Bereich (Service-Start/Stop,
+Backend-Wechsel) setzt OIDC zwingend voraus — ohne Login gibt es keine Admins.
+
+Aktivierung in der Webapp-Umgebung:
+
+| Variable | Beispiel | Bedeutung |
+|----------|----------|-----------|
+| `OIDC_CLIENT_ID` | `polyschnack` | Client-ID beim Identity Provider |
+| `OIDC_CLIENT_SECRET` | `…` | Client-Secret beim IdP (Confidential Client) |
+| `OIDC_ISSUER` | `https://auth.example.com` | Issuer-URL (Keycloak, Authentik, …) — **OIDC ist aktiv, sobald Client-ID + Issuer gesetzt sind** |
+| `OIDC_SCOPE` | `openid profile email` | Standard; `email` wird benötigt, wenn Admins per E-Mail matchen sollen |
+| `SESSION_SECRET` | zufälliger langer String | Signiert die Session-Cookies — **unbedingt setzen**, sonst ist die Session-Auth wertlos |
+| `BASE_URL` | `https://polyschnack.example.com` | Externe URL der App; **der OIDC-Redirect läuft immer hierhin** |
+
+**Einmalig beim IdP registrieren:**
+- Redirect-URI: `https://<BASE_URL>/auth/callback` (exakt, ohne Trailing-Slash)
+- Flow: Authorization Code + PKCE (Confidential Client)
+- Damit `is_admin` per Gruppe matchen kann, muss der IdP die Gruppen als
+  `groups`-Claim im Userinfo liefern (Keycloak: Gruppen-Mapper am Client;
+  Authentik: `groups` ist im Userinfo enthalten)
+
+**Login-Ablauf:** `GET /auth/login` → Redirect zum IdP → `GET /auth/callback`
+(setzt Session, speichert `is_admin`) → zurück zur App. `GET /auth/logout`
+löscht die Session.
+
+**Eigene User-ID finden:** eingeloggt `GET /auth/me` aufrufen → Antwort zeigt
+`sub`, `email`, `name` und ob `is_admin` bereits greift.
+
+**Admins designieren** (für den Admin-Bereich):
+- `POLYSCHNACK_ADMINS` — Komma-Liste von `sub`-IDs **oder** E-Mails
+- `POLYSCHNACK_ADMIN_GROUPS` — Komma-Liste von OIDC-Gruppennamen
+
+`is_admin` wird **beim Login** berechnet und in der Session gecacht — nach
+einer Änderung von `POLYSCHNACK_ADMINS`/`POLYSCHNACK_ADMIN_GROUPS` einmal
+ab-/wieder einloggen (ein Webapp-Neustart allein reicht nicht).
+
+---
+
 ## Admin-Bereich
 
 Der Admin-Bereich (`🛠 Admin` in der GUI, nur sichtbar für Admins) steuert die
