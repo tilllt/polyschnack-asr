@@ -41,6 +41,11 @@ class _Settings:
     #: Max upload file size in MB (default 1024 = 1 GB)
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "1024"))
 
+    #: Comma-separated sub|email list of admin users (admin area).
+    POLYSCHNACK_ADMINS: str = os.getenv("POLYSCHNACK_ADMINS", "")
+    #: Comma-separated OIDC group names that grant admin rights.
+    POLYSCHNACK_ADMIN_GROUPS: str = os.getenv("POLYSCHNACK_ADMIN_GROUPS", "")
+
 
     #: Which ASR backend adapter to use: ``pk-python`` or ``pk-cpp``
     ASR_BACKEND: str = os.getenv("ASR_BACKEND", "pk-python")

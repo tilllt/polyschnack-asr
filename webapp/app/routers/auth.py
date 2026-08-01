@@ -31,6 +31,22 @@ router = APIRouter(prefix="/auth")
 _nonce_store: Dict[str, str] = {}
 
 
+def _is_admin(userinfo: dict, user) -> bool:
+    """Env-based admin check: sub/email in POLYSCHNACK_ADMINS or OIDC group intersection.
+
+    No DB field — derived per login, cached in the session.
+    """
+    admins = {a.strip() for a in settings.POLYSCHNACK_ADMINS.split(",") if a.strip()}
+    if user.sub in admins or (user.email and user.email in admins):
+        return True
+    groups = {g.strip() for g in settings.POLYSCHNACK_ADMIN_GROUPS.split(",") if g.strip()}
+    if groups:
+        user_groups = set(userinfo.get("groups") or [])
+        if user_groups & groups:
+            return True
+    return False
+
+
 def _discover(issuer: str) -> dict:
     resp = httpx.get(f"{issuer}/.well-known/openid-configuration")
     resp.raise_for_status()
@@ -138,6 +154,7 @@ async def callback(request: Request, code: str, state: str):
         )
         session.commit()
         request.session["user_id"] = user.id
+        request.session["is_admin"] = _is_admin(userinfo, user)
     return RedirectResponse("/")
 
 
@@ -166,4 +183,5 @@ def me(request: Request) -> Dict[str, Any]:
             "sub": user.sub,
             "name": user.name or user.preferred_username or user.email,
             "preferred_username": user.preferred_username,
+            "is_admin": bool(request.session.get("is_admin")),
         }
