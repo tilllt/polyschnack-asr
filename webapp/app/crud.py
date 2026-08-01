@@ -77,15 +77,26 @@ def get_recording_by_uid(session: Session, uid: str) -> Optional[Recording]:
     return session.exec(select(Recording).where(Recording.uid == uid)).first()
 
 
-def list_recordings(session: Session, q: Optional[str] = None, user_id: Optional[int] = None) -> List[Recording]:
+def list_recordings(
+    session: Session, q: Optional[str] = None, user_id: Optional[int] = None,
+    include_shares: bool = True,
+) -> List[Recording]:
     """Return recordings ordered by newest first.
 
     - *user_id* = ``None`` → only recordings with no owner (public/shared space)
-    - *user_id* = ``int`` → only recordings belonging to that user (private space)
+    - *user_id* = ``int`` → recordings belonging to that user **plus** recordings
+      shared with them (when *include_shares*).
     """
     stmt = select(Recording)
     if user_id is not None:
-        stmt = stmt.where(Recording.user_id == user_id)
+        owned = Recording.user_id == user_id
+        if include_shares:
+            shared = Recording.id.in_(
+                select(RecordingShare.rec_id).where(RecordingShare.user_id == user_id)
+            )
+            stmt = stmt.where(owned | shared)
+        else:
+            stmt = stmt.where(owned)
     else:
         stmt = stmt.where(Recording.user_id.is_(None))
     if q:

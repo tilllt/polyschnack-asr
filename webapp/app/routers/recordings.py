@@ -28,6 +28,7 @@ from ..crud import (
 )
 from ..db import get_session
 from ..models import Recording
+from ..permissions import ensure_access
 from ..queue import QueueError, QueueFullError, queue_manager
 from ..service import to_srt, to_txt, to_vtt, trim_audio
 from ..whatsapp import parse_whatsapp
@@ -61,7 +62,7 @@ _AUDIO_MIME_FALLBACK = "audio/mpeg"
 _BROWSER_AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".webm", ".opus", ".aac"}
 
 
-def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
+def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Dict[str, Any]:
     """Serialise a Recording row to the canonical API response shape."""
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
     return {
@@ -92,6 +93,7 @@ def _recording_to_dict(rec: Recording) -> Dict[str, Any]:
         "enable_enhance": rec.enable_enhance,
         "waveform_peaks": rec.waveform_peaks,
         "user_id": rec.user_id,
+        "access_level": access_level,
     }
 
 
@@ -263,8 +265,7 @@ def get_recording_endpoint(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "read")
     d = _recording_to_dict(rec)
     # Debug: include word presence info without changing data
     segs = d.get("segments") or []
@@ -292,8 +293,7 @@ def get_audio(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "read")
 
     path = Path(rec.stored_path)
     if not path.exists():
@@ -372,8 +372,7 @@ def transcribe_ep(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request) if settings.OIDC_ENABLED else None
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "full")
 
     # Update toggle values from the transcribe request (they may have changed since upload)
     rec.enable_vad = enable_vad
@@ -420,8 +419,7 @@ def retranscribe(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "full")
     rec.enable_vad = params.enable_vad
     rec.enable_diarize = params.enable_diarize
     rec.enable_streaming = params.enable_streaming
@@ -456,8 +454,7 @@ def delete_recording_endpoint(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "full")
     rec = delete_recording(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -485,8 +482,7 @@ def transcribe_range(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
+    ensure_access(session, rec, uid, "full")
 
     audio_bytes = Path(rec.stored_path).read_bytes()
     trimmed = trim_audio(audio_bytes, start_sec, end_sec)

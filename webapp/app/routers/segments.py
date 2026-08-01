@@ -10,6 +10,7 @@ from sqlmodel import Session
 from ..config import settings
 from ..crud import get_recording_by_uid
 from ..db import get_session
+from ..permissions import ensure_access
 
 router = APIRouter(prefix="/api")
 
@@ -32,12 +33,7 @@ def update_segment(
         raise HTTPException(status_code=404, detail="not found")
 
     uid = request.session.get("user_id") if settings.OIDC_ENABLED else None
-    if uid is not None and rec.user_id != uid:
-        raise HTTPException(status_code=403, detail="not your recording")
-
-    # Anonymous users may only edit public (shared-space) recordings
-    if uid is None and rec.user_id is not None:
-        raise HTTPException(status_code=403, detail="cannot edit another user's recording")
+    ensure_access(session, rec, uid, "write")
 
     segments = rec.segments or []
     if idx < 0 or idx >= len(segments):
@@ -58,7 +54,7 @@ def update_segment(
         {"word": w, "start": seg_start + i * w_duration, "end": seg_start + (i + 1) * w_duration}
         for i, w in enumerate(text_words)
     ]
-    rec.segments = segments
+    rec.segments = list(segments)  # neue Referenz → SQLAlchemy erkennt die Änderung
     rec.text = " ".join(s["text"] for s in segments)
     session.add(rec)
     session.commit()
