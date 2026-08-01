@@ -188,6 +188,7 @@ export async function startTranscription(
   enableLlmEnhance = false,
   promptTemplateId?: number,
   deliveryTargetId?: number,
+  llmEndpointId?: number,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
@@ -200,6 +201,7 @@ export async function startTranscription(
   fd.append("enable_llm_enhance", String(enableLlmEnhance));
   if (promptTemplateId !== undefined) fd.append("prompt_template_id", String(promptTemplateId));
   if (deliveryTargetId !== undefined) fd.append("delivery_target_id", String(deliveryTargetId));
+  if (llmEndpointId !== undefined) fd.append("llm_endpoint_id", String(llmEndpointId));
   const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -457,4 +459,33 @@ export async function createTarget(name: string, kind: "email" | "webdav", confi
 
 export async function deleteTarget(targetId: number): Promise<void> {
   await fetch(`/api/targets/${targetId}`, { method: "DELETE" }).then(checkOk);
+}
+
+/* ============================================================
+   BYOK (Teil E): eigene LLM-Endpunkte
+   ============================================================ */
+
+export interface LlmEndpoint {
+  endpoint_id: number;
+  name: string;
+  base_url: string;
+  model: string;
+}
+
+export async function fetchLlmEndpoints(): Promise<LlmEndpoint[]> {
+  const res = await fetch("/api/llm-endpoints").then(checkOk);
+  return res.json() as Promise<LlmEndpoint[]>;
+}
+
+export async function createLlmEndpoint(body: { name: string; base_url: string; api_key: string; model?: string }): Promise<LlmEndpoint> {
+  const res = await fetch("/api/llm-endpoints", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(checkOk);
+  return res.json() as Promise<LlmEndpoint>;
+}
+
+export async function deleteLlmEndpoint(endpointId: number): Promise<void> {
+  await fetch(`/api/llm-endpoints/${endpointId}`, { method: "DELETE" }).then(checkOk);
 }

@@ -15,11 +15,13 @@ export interface FeatureValues {
   llmEnhance: boolean;
   templateId: number | undefined;
   targetId: number | undefined;
+  endpointId: number | undefined;
 }
 
 export interface PostProcessOptions {
   templates: { template_id: number; name: string }[];
   targets: { target_id: number; name: string; kind: string }[];
+  endpoints: { endpoint_id: number; name: string }[];
   isOidc: boolean;
 }
 
@@ -59,6 +61,7 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
   const oidc = pp?.isOidc ?? false;
   const templates = pp?.templates ?? [];
   const targets = pp?.targets ?? [];
+  const endpoints = pp?.endpoints ?? [];
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-2">
       <MiniToggle label="VAD" on={values.vad} disabled={!vadOk} onChange={(v) => onChange({ vad: v })} />
@@ -113,6 +116,20 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
         {templates.map((tp) => (
           <option key={tp.template_id} value={tp.template_id}>
             {t("template")}: {tp.name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={values.endpointId ?? ""}
+        disabled={!oidc || endpoints.length === 0}
+        onChange={(e) => onChange({ endpointId: e.target.value ? Number(e.target.value) : undefined })}
+        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted disabled:opacity-40"
+        title={t("llm_endpoint")}
+      >
+        <option value="">{t("llm_endpoint")}: {t("server_default")}</option>
+        {endpoints.map((ep) => (
+          <option key={ep.endpoint_id} value={ep.endpoint_id}>
+            {t("llm_endpoint")}: {ep.name}
           </option>
         ))}
       </select>

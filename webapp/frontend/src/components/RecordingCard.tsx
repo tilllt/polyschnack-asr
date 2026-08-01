@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
 import type { ModelMatrixEntry, Recording } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, transcribeRange, startTranscription } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -63,12 +63,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
     llmEnhance: r.enable_llm_enhance ?? false,
     templateId: r.prompt_template_id ?? undefined,
     targetId: r.delivery_target_id ?? undefined,
+    endpointId: undefined,
   });
   const [reArmed, setReArmed] = useState(false);
   const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
   const [flags, setFlags] = useState<{ vad: boolean; diarize: boolean }>({ vad: true, diarize: true });
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
   const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
+  const [endpoints, setEndpoints] = useState<{ endpoint_id: number; name: string }[]>([]);
 
   useEffect(() => {
     fetchModelsMatrix().then(setMatrix).catch(() => {});
@@ -77,6 +79,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
       .catch(() => {});
     fetchTemplates().then(setTemplates).catch(() => {});
     fetchTargets().then(setTargets).catch(() => {});
+    fetchLlmEndpoints().then(setEndpoints).catch(() => {});
   }, []);
   // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird
   useEffect(() => { if (r.status !== "done") setReArmed(false); }, [r.status]);
@@ -85,7 +88,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
 
   async function handleStartTranscription(id: string) {
     try {
-      await startTranscription(id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend, feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId);
+      await startTranscription(id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend, feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId, feat.endpointId);
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Failed: ${(e as Error).message}`, "err");
@@ -293,7 +296,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
               values={feat}
               backends={availableBackends}
               flags={flags}
-              pp={{ templates, targets, isOidc }}
+              pp={{ templates, targets, endpoints, isOidc }}
               onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
             />
             <button
@@ -320,7 +323,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
               values={feat}
               backends={availableBackends}
               flags={flags}
-              pp={{ templates, targets, isOidc }}
+              pp={{ templates, targets, endpoints, isOidc }}
               onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
             />
             <button

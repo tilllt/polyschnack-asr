@@ -133,8 +133,11 @@ def test_service_passes_user_credentials(db, monkeypatch):
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
 
     calls = {}
-    monkeypatch.setattr(llm_mod, "chat",
-                        lambda system, text, endpoint=None: calls.setdefault("ep", endpoint) or "OK")
+    def fake_chat(system, text, endpoint=None):
+        calls["ep"] = endpoint
+        return "OK"
+
+    monkeypatch.setattr(llm_mod, "chat", fake_chat)
 
     def fake_update(session, rec_id, **kw):
         r = session.get(Recording, rec_id)

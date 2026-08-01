@@ -8,12 +8,16 @@ import {
   deleteTemplate,
   createTarget,
   deleteTarget,
+  fetchLlmEndpoints,
+  createLlmEndpoint,
+  deleteLlmEndpoint,
   type PromptTemplate,
   type DeliveryTargetItem,
+  type LlmEndpoint,
 } from "../api";
 
 /* ============================================================
-   PostProcessPanel (Teil D) — Prompt-Templates + Delivery-Targets
+   PostProcessPanel (Teil D/E) — Templates, Targets, BYOK-Endpunkte
    ============================================================ */
 
 interface Props {
@@ -22,10 +26,11 @@ interface Props {
 
 export function PostProcessPanel({ isOidc }: Props) {
   const { t } = useT();
-  const [tab, setTab] = useState<"templates" | "targets">("templates");
+  const [tab, setTab] = useState<"templates" | "targets" | "endpoints">("templates");
 
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [targets, setTargets] = useState<DeliveryTargetItem[]>([]);
+  const [endpoints, setEndpoints] = useState<LlmEndpoint[]>([]);
   const [err, setErr] = useState("");
 
   // Template-Formular
@@ -41,10 +46,17 @@ export function PostProcessPanel({ isOidc }: Props) {
   const [tgPass, setTgPass] = useState("");
   const [tgPath, setTgPath] = useState("");
 
+  // BYOK-Formular
+  const [epName, setEpName] = useState("");
+  const [epUrl, setEpUrl] = useState("");
+  const [epKey, setEpKey] = useState("");
+  const [epModel, setEpModel] = useState("");
+
   async function reload() {
     setErr("");
     if (isOidc) {
       fetchTemplates().then(setTemplates).catch((e) => setErr(String((e as Error).message)));
+      fetchLlmEndpoints().then(setEndpoints).catch((e) => setErr(String((e as Error).message)));
     }
     fetchTargets().then(setTargets).catch((e) => setErr(String((e as Error).message)));
   }
@@ -83,6 +95,25 @@ export function PostProcessPanel({ isOidc }: Props) {
     }
   }
 
+  async function saveEndpoint() {
+    try {
+      if (!epName.trim() || !epUrl.trim() || !epKey.trim()) return;
+      await createLlmEndpoint({
+        name: epName.trim(),
+        base_url: epUrl.trim(),
+        api_key: epKey,
+        model: epModel.trim() || undefined,
+      });
+      setEpName("");
+      setEpUrl("");
+      setEpKey("");
+      setEpModel("");
+      await reload();
+    } catch (e) {
+      setErr(String((e as Error).message));
+    }
+  }
+
   return (
     <div className="bg-panel border border-border rounded-card px-3 py-3 mb-3 text-[12px]">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -100,6 +131,14 @@ export function PostProcessPanel({ isOidc }: Props) {
           >
             {t("targets")}
           </button>
+          {isOidc && (
+            <button
+              onClick={() => setTab("endpoints")}
+              className={`text-[12px] px-2 py-[3px] rounded-sm font-semibold ${tab === "endpoints" ? "bg-accent text-white" : "bg-panel2 text-muted hover:text-txt"}`}
+            >
+              {t("llm_endpoints")}
+            </button>
+          )}
         </div>
         <button onClick={() => void reload()} className="ml-auto text-muted2 hover:text-txt">
           ↻
@@ -236,6 +275,60 @@ export function PostProcessPanel({ isOidc }: Props) {
               </>
             )}
             <button onClick={() => void saveTarget()} className="self-start bg-accent text-white text-[12px] px-3 py-[4px] rounded-sm font-semibold hover:opacity-90">
+              {t("save")}
+            </button>
+          </div>
+        </div>
+      )}
+      {tab === "endpoints" && isOidc && (
+        <div className="space-y-2">
+          <p className="text-muted2 text-[11px]">🔑 {t("endpoint_key_hint")}</p>
+          <div className="space-y-1.5">
+            {endpoints.length === 0 && <p className="text-muted2 text-[11px]">{t("no_endpoints")}</p>}
+            {endpoints.map((ep) => (
+              <div key={ep.endpoint_id} className="flex items-center gap-2 bg-panel2 border border-border rounded-sm px-2 py-1.5">
+                <span className="font-semibold text-txt w-[120px] truncate">{ep.name}</span>
+                <span className="text-muted flex-1 truncate">{ep.base_url}</span>
+                <span className="text-muted2 text-[11px] font-mono truncate">{ep.model}</span>
+                <button
+                  onClick={() => { void deleteLlmEndpoint(ep.endpoint_id).then(reload); }}
+                  className="text-err hover:opacity-80"
+                  title={t("delete")}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-1.5 pt-1 border-t border-border">
+            <div className="flex gap-1.5">
+              <input
+                value={epName}
+                onChange={(e) => setEpName(e.target.value)}
+                placeholder={t("endpoint_name")}
+                className="flex-1 bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt"
+              />
+              <input
+                value={epModel}
+                onChange={(e) => setEpModel(e.target.value)}
+                placeholder={t("endpoint_model")}
+                className="flex-1 bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt"
+              />
+            </div>
+            <input
+              value={epUrl}
+              onChange={(e) => setEpUrl(e.target.value)}
+              placeholder={t("endpoint_url_placeholder")}
+              className="bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt"
+            />
+            <input
+              value={epKey}
+              onChange={(e) => setEpKey(e.target.value)}
+              placeholder={t("endpoint_key")}
+              type="password"
+              className="bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt"
+            />
+            <button onClick={() => void saveEndpoint()} className="self-start bg-accent text-white text-[12px] px-3 py-[4px] rounded-sm font-semibold hover:opacity-90">
               {t("save")}
             </button>
           </div>

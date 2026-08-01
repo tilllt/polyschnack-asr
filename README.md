@@ -516,6 +516,25 @@ du pro Aufnahme, was nach der Transkription passieren soll.
 | `POLYSCHNACK_SMTP_USER` / `_PASS` | *(leer)* | SMTP-Login |
 | `POLYSCHNACK_SMTP_FROM` | *(leer)* | Absender-Adresse |
 
+### BYOK — eigene LLM-Endpunkte (registrierte User)
+
+Registrierte User (OIDC) können eigene OpenAI-kompatible Endpunkte hinterlegen
+und sie pro Transkription für LLM-Optimierung/Vorlagen auswählen (Tab
+„LLM-Endpunkte (BYOK)" im Panel `🧩 Post-Processing`, Select „LLM-Endpunkt" an
+der Transcribe-Zeile). Priorität: **User-Endpunkt > Server-Env**.
+
+- **Anlegen:** Name, Base-URL (z. B. `https://api.mistral.ai/v1`), API-Key, Modell.
+  Der **API-Key wird Fernet-verschlüsselt** gespeichert (Schlüssel aus
+  `SESSION_SECRET`) und **nie** in der GUI/API/Logs ausgegeben — er ist nur
+  beim Speichern sichtbar; ohne neuen Key bleibt der alte erhalten (PUT).
+- **Sicherheit (SSRF):** Beim Speichern wird die URL geprüft — nur http(s) und
+  **öffentliche** Adressen. `localhost`, private Netze (10/8, 172.16/12,
+  192.168/16, 127.0.0.0/8, ::1, Link-Local) und die Cloud-Metadata-IP
+  (169.254.169.254) werden mit 422 abgelehnt.
+- **Zugriff:** Nur der Ersteller sieht/ändert/löscht seine Endpunkte (owner-only).
+  BYOK ist ein kostenpflichtiger Pfad → **anonyme User gesperrt** (403, Select
+  ausgegraut). Endpunkte sind strikt User-privat (keine Admin-Einsicht).
+
 ---
 
 ## Entwicklung
