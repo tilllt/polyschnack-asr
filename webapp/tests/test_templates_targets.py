@@ -80,9 +80,13 @@ def test_webdav_password_encrypted_in_db(db):
             _req(1), s)
         row = s.get(DeliveryTarget, r["target_id"])
         stored = row.config
-        assert "pw" not in stored          # nicht im Klartext
+        # Kein Substring-Check auf "pw": Fernet-Tokens sind Base64 und können
+        # zufällig "pw" enthalten (Schlüssel-abhängig -> CI-flaky). Robust:
+        stored_cfg = __import__("json").loads(stored)
+        assert stored_cfg["password"] != "pw"                  # nicht Klartext
+        assert stored_cfg["password"].startswith("gAAAAA")     # Fernet-Token
         assert "password" not in r["config"] or r["config"]["password"] == "********"
-        assert decrypt(__import__("json").loads(stored)["password"]) == "pw"
+        assert decrypt(stored_cfg["password"]) == "pw"
 
 
 def test_email_target_roundtrip(db):
