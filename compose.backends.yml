@@ -42,7 +42,7 @@ services:
 
   qwen3-asr:
     profiles: ["qwen3"]
-    image: registry.example.com/public/qwen3-asr-cpp:latest
+    image: registry.example.com/public/polyschnack-asr-qwen3:4a3fd146
     container_name: qwen3-asr
     runtime: nvidia
     environment:
@@ -66,7 +66,7 @@ services:
 
   ark-asr:
     profiles: ["ark"]
-    image: registry.example.com/public/ark-asr-cpp:latest
+    image: registry.example.com/public/polyschnack-asr-ark:4a3fd146
     container_name: ark-asr
     runtime: nvidia
     environment:
