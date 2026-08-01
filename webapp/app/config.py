@@ -38,6 +38,13 @@ class _Settings:
     #: Public-space retention in minutes; 0 = off
     PUBLIC_RETENTION_MINUTES: int = int(os.getenv("PUBLIC_RETENTION_MINUTES", "60"))
 
+    #: Retention für anonyme Sessions (Task B1): 15 min nach der letzten Aktivität.
+    POLYSCHNACK_ANON_RETENTION_MINUTES: int = int(os.getenv("POLYSCHNACK_ANON_RETENTION_MINUTES", "15"))
+    #: Harte Limits für anonyme User (Task B5).
+    POLYSCHNACK_ANON_MAX_DURATION_S: int = int(os.getenv("POLYSCHNACK_ANON_MAX_DURATION_S", "300"))
+    POLYSCHNACK_ANON_MAX_DISK_MB: int = int(os.getenv("POLYSCHNACK_ANON_MAX_DISK_MB", "500"))
+    POLYSCHNACK_ANON_MAX_UPLOAD_MB: int = int(os.getenv("POLYSCHNACK_ANON_MAX_UPLOAD_MB", "100"))
+
     #: Max upload file size in MB (default 1024 = 1 GB)
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "1024"))
 

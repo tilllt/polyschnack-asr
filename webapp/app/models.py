@@ -94,9 +94,16 @@ class Recording(SQLModel, table=True):
 
 
 class User(SQLModel, table=True):
-    """OIDC-authenticated user — linked to recordings via user_id."""
+    """User — OIDC-authentifiziert (kind="oidc") oder anonyme Session (kind="anonymous").
+
+    Anonyme User (Task B1): Identität per Session-Cookie, zufälliger Anzeigename,
+    last_seen_at für die Retention-Löschung (Default 15 min nach letzter Aktivität).
+    """
     id: Optional[int] = Field(default=None, primary_key=True)
     sub: str = Field(unique=True, index=True)
+    kind: str = "oidc"  # oidc | anonymous
+    display_name: Optional[str] = None
+    last_seen_at: Optional[dt.datetime] = None
     preferred_username: Optional[str] = None
     email: Optional[str] = None
     name: Optional[str] = None

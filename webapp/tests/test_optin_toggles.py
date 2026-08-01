@@ -58,6 +58,8 @@ def test_stubs_pass_through():
 
 def test_anon_llm_enhance_403(db, qm, monkeypatch):
     monkeypatch.setattr(recordings.settings, "POLYSCHNACK_DEFAULT_LLM_ENHANCE", False)
+    # Zugriff isolieren: hier zählt nur der paid-Check (ensure_access ist in A4 getestet)
+    monkeypatch.setattr(recordings, "ensure_access", lambda *a, **k: None)
     with Session(db) as s:
         with pytest.raises(HTTPException) as ei:
             recordings.transcribe_ep(
@@ -70,6 +72,7 @@ def test_anon_llm_enhance_403(db, qm, monkeypatch):
 
 def test_anon_llm_punctuation_mode_403(db, qm, monkeypatch):
     monkeypatch.setattr(recordings.settings, "POLYSCHNACK_PUNCTUATION_MODE", "llm")
+    monkeypatch.setattr(recordings, "ensure_access", lambda *a, **k: None)
     with Session(db) as s:
         with pytest.raises(HTTPException) as ei:
             recordings.transcribe_ep(
@@ -82,6 +85,7 @@ def test_anon_llm_punctuation_mode_403(db, qm, monkeypatch):
 
 def test_anon_local_punctuation_ok(db, qm, monkeypatch):
     monkeypatch.setattr(recordings.settings, "POLYSCHNACK_PUNCTUATION_MODE", "off")
+    monkeypatch.setattr(recordings, "ensure_access", lambda *a, **k: None)
     with Session(db) as s:
         r = recordings.transcribe_ep(
             "r2", _req(None), enable_vad=False, enable_diarize=False,
