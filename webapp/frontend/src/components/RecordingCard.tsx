@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
 import type { ModelMatrixEntry, Recording } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, type ShareItem, type VersionItem } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -33,6 +33,21 @@ interface Props {
   compact?: boolean;
   isOidc?: boolean;
 }
+
+/* Diff-Array [{type: same|add|del, text}] → Text-Darstellung */
+function renderDiff(diff: unknown[]): string {
+  return (diff as { type: string; text: string }[])
+    .map((l) => (l.type === "add" ? `+ ${l.text}` : l.type === "del" ? `- ${l.text}` : `  ${l.text}`))
+    .join("\n");
+}
+
+const KIND_LABEL: Record<string, string> = {
+  transcribe: "Transcribe",
+  retranscribe: "Re-Transcribe",
+  edit: "Edit",
+  restore: "Restore",
+  postprocess: "Post-Process",
+};
 
 export function RecordingCard({ recording: r, compact = false, isOidc = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
@@ -71,6 +86,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
   const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
   const [endpoints, setEndpoints] = useState<{ endpoint_id: number; name: string }[]>([]);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shares, setShares] = useState<ShareItem[]>([]);
+  const [shareUser, setShareUser] = useState("");
+  const [shareLevel, setShareLevel] = useState<"read" | "write" | "full">("read");
+  const [versOpen, setVersOpen] = useState(false);
+  const [versions, setVersions] = useState<VersionItem[]>([]);
+  const [diffText, setDiffText] = useState("");
+  const [diffInfo, setDiffInfo] = useState("");
 
   useEffect(() => {
     fetchModelsMatrix().then(setMatrix).catch(() => {});
@@ -92,6 +115,75 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Failed: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function loadShares() {
+    try {
+      setShares(await fetchShares(r.uid));
+    } catch (e) {
+      toast(`Shares: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function doShare() {
+    try {
+      if (!shareUser.trim()) return;
+      await createShare(r.uid, shareUser.trim(), shareLevel);
+      setShareUser("");
+      await loadShares();
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`Share: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function removeShare(shareId: number) {
+    try {
+      await deleteShare(r.uid, shareId);
+      await loadShares();
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`Share: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function loadVersions() {
+    try {
+      const vs = await fetchVersions(r.uid);
+      setVersions(vs);
+      setDiffText("");
+      setDiffInfo("");
+      if (vs.length >= 2) {
+        const last = vs[vs.length - 1];
+        const prev = vs[vs.length - 2];
+        const d = await fetchVersionDiff(r.uid, last.version_no, prev.version_no);
+        setDiffInfo(`V${d.from ?? "—"} → V${d.to}`);
+        setDiffText(renderDiff(d.diff));
+      }
+    } catch (e) {
+      toast(`Versionen: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function showDiff(v: VersionItem) {
+    try {
+      setDiffInfo(`V${v.version_no}`);
+      const d = await fetchVersionDiff(r.uid, v.version_no);
+      setDiffText(renderDiff(d.diff));
+    } catch (e) {
+      toast(`Diff: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function doRestore(v: VersionItem) {
+    try {
+      await restoreVersion(r.uid, v.version_no);
+      toast(`V${v.version_no} wiederhergestellt`, "ok");
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+      await loadVersions();
+    } catch (e) {
+      toast(`Restore: ${(e as Error).message}`, "err");
     }
   }
 
@@ -459,6 +551,97 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
                     </span>
                   </a>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Share dropdown (nur Owner) */}
+        {r.status === "done" && r.access_level === "owner" && (
+          <div className="relative inline-flex">
+            <button
+              onClick={() => { setShareOpen((o) => !o); if (!shareOpen) void loadShares(); }}
+              className="btn-ghost-sm flex items-center gap-1"
+            >
+              🔗 {t("share")}
+            </button>
+            {shareOpen && (
+              <div className="dl-menu-enter absolute top-[calc(100%+6px)] right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]">
+                <div className="space-y-1 max-h-[150px] overflow-y-auto mb-1.5">
+                  {shares.length === 0 && <p className="text-muted2 text-[11px]">{t("no_shares")}</p>}
+                  {shares.map((sh) => (
+                    <div key={sh.share_id} className="flex items-center gap-2 text-[12px]">
+                      <span className="font-semibold text-txt flex-1 truncate">{sh.user_name ?? `#${sh.user}`}</span>
+                      <span className="text-muted2 text-[10px] uppercase">{sh.level}</span>
+                      <button onClick={() => void removeShare(sh.share_id)} className="text-err hover:opacity-80" title={t("delete")}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    value={shareUser}
+                    onChange={(e) => setShareUser(e.target.value)}
+                    placeholder={t("share_with_placeholder")}
+                    className="flex-1 bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt min-w-0"
+                  />
+                  <select
+                    value={shareLevel}
+                    onChange={(e) => setShareLevel(e.target.value as "read" | "write" | "full")}
+                    className="bg-panel2 border border-border rounded-sm px-1 py-1 text-[11px] text-muted"
+                  >
+                    <option value="read">read</option>
+                    <option value="write">write</option>
+                    <option value="full">full</option>
+                  </select>
+                  <button onClick={() => void doShare()} className="bg-accent text-white text-[11px] px-2 py-1 rounded-sm font-semibold hover:opacity-90">
+                    {t("share")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Versionen dropdown */}
+        {r.status === "done" && (
+          <div className="relative inline-flex">
+            <button
+              onClick={() => { setVersOpen((o) => !o); if (!versOpen) void loadVersions(); }}
+              className="btn-ghost-sm flex items-center gap-1"
+            >
+              🕘 {t("versions")}
+            </button>
+            {versOpen && (
+              <div className="dl-menu-enter absolute top-[calc(100%+6px)] right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]">
+                <div className="space-y-1 max-h-[140px] overflow-y-auto mb-1.5">
+                  {versions.length === 0 && <p className="text-muted2 text-[11px]">{t("no_versions")}</p>}
+                  {[...versions].reverse().map((v) => (
+                    <div key={v.version_no} className="flex items-center gap-2 text-[12px]">
+                      <button
+                        onClick={() => void showDiff(v)}
+                        className="font-mono font-semibold text-accent hover:underline"
+                        title={t("show_diff")}
+                      >
+                        V{v.version_no}
+                      </button>
+                      <span className="text-muted2 text-[10px] uppercase w-[80px] truncate">{KIND_LABEL[v.kind] ?? v.kind}</span>
+                      <span className="text-muted2 text-[10px] flex-1 truncate">{new Date(v.created_at).toLocaleString()}</span>
+                      <button
+                        onClick={() => void doRestore(v)}
+                        className="text-muted hover:text-txt text-[10px] underline"
+                        title={t("restore")}
+                      >
+                        {t("restore")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {diffText && (
+                  <pre className="bg-panel2 border border-border rounded-sm p-1.5 text-[10px] leading-[1.4] text-txt max-h-[160px] overflow-y-auto whitespace-pre-wrap">
+                    <span className="text-muted2 block mb-0.5">{diffInfo}</span>
+                    {diffText}
+                  </pre>
+                )}
               </div>
             )}
           </div>

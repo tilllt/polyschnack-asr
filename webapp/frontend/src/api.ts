@@ -42,6 +42,7 @@ export interface Recording {
   delivery_target_id?: number | null;
   delivery_status?: string | null;
   delivery_error?: string | null;
+  access_level?: "owner" | "read" | "write" | "full" | "public" | "none";
   progress_pct: number;
   waveform_peaks: number[] | null;
   backend?: string;
@@ -488,4 +489,62 @@ export async function createLlmEndpoint(body: { name: string; base_url: string; 
 
 export async function deleteLlmEndpoint(endpointId: number): Promise<void> {
   await fetch(`/api/llm-endpoints/${endpointId}`, { method: "DELETE" }).then(checkOk);
+}
+
+/* ============================================================
+   Shares (Teil A)
+   ============================================================ */
+
+export interface ShareItem {
+  share_id: number;
+  user: number;
+  user_name: string | null;
+  level: "read" | "write" | "full";
+  created_at: string;
+}
+
+export async function fetchShares(recUid: string): Promise<ShareItem[]> {
+  const res = await fetch(`/api/recordings/${recUid}/shares`).then(checkOk);
+  return res.json() as Promise<ShareItem[]>;
+}
+
+export async function createShare(recUid: string, user: string, level: "read" | "write" | "full"): Promise<{ share_id: number }> {
+  const res = await fetch(`/api/recordings/${recUid}/shares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, level }),
+  }).then(checkOk);
+  return res.json() as Promise<{ share_id: number }>;
+}
+
+export async function deleteShare(recUid: string, shareId: number): Promise<void> {
+  await fetch(`/api/recordings/${recUid}/shares/${shareId}`, { method: "DELETE" }).then(checkOk);
+}
+
+/* ============================================================
+   Versionen (Teil A)
+   ============================================================ */
+
+export interface VersionItem {
+  version_no: number;
+  kind: string;
+  backend: string | null;
+  language: string | null;
+  created_at: string;
+}
+
+export async function fetchVersions(recUid: string): Promise<VersionItem[]> {
+  const res = await fetch(`/api/recordings/${recUid}/versions`).then(checkOk);
+  return res.json() as Promise<VersionItem[]>;
+}
+
+export async function fetchVersionDiff(recUid: string, vNo: number, from?: number): Promise<{ from: number | null; to: number; diff: unknown[] }> {
+  const q = from !== undefined ? `?frm=${from}` : "";
+  const res = await fetch(`/api/recordings/${recUid}/versions/${vNo}/diff${q}`).then(checkOk);
+  return res.json() as Promise<{ from: number | null; to: number; diff: unknown[] }>;
+}
+
+export async function restoreVersion(recUid: string, vNo: number): Promise<{ restored: number }> {
+  const res = await fetch(`/api/recordings/${recUid}/versions/${vNo}/restore`, { method: "POST" }).then(checkOk);
+  return res.json() as Promise<{ restored: number }>;
 }
