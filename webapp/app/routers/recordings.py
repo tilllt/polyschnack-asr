@@ -391,6 +391,7 @@ def transcribe_ep(
     enable_llm_enhance: Optional[bool] = Form(None),
     prompt_template_id: Optional[int] = Form(None),
     delivery_target_id: Optional[int] = Form(None),
+    llm_endpoint_id: Optional[int] = Form(None),
     backend: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
@@ -407,7 +408,8 @@ def transcribe_ep(
     ensure_free_only(
         user,
         backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
-        want_llm=bool(enable_llm_enhance) or prompt_template_id is not None,
+        want_llm=bool(enable_llm_enhance) or prompt_template_id is not None
+        or llm_endpoint_id is not None,
         llm_mode=bool(enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -423,7 +425,7 @@ def transcribe_ep(
     if enable_llm_enhance is not None:
         rec.enable_llm_enhance = enable_llm_enhance
 
-    from ..models import DeliveryTarget, PromptTemplate
+    from ..models import DeliveryTarget, PromptTemplate, UserLlmEndpoint
 
     if prompt_template_id is not None:
         tpl = session.get(PromptTemplate, prompt_template_id)
@@ -436,6 +438,11 @@ def transcribe_ep(
             raise HTTPException(status_code=403, detail="target not found or not yours")
         rec.delivery_target_id = delivery_target_id
         rec.delivery_status = "pending"
+    if llm_endpoint_id is not None:
+        ep = session.get(UserLlmEndpoint, llm_endpoint_id)
+        if ep is None or ep.user_id != uid:
+            raise HTTPException(status_code=403, detail="endpoint not found or not yours")
+        rec.llm_endpoint_id = llm_endpoint_id
     session.add(rec)
     session.commit()
 
@@ -467,6 +474,7 @@ class RetranscribeParams(BaseModel):
     enable_llm_enhance: Optional[bool] = None
     prompt_template_id: Optional[int] = None
     delivery_target_id: Optional[int] = None
+    llm_endpoint_id: Optional[int] = None
     backend: str = ""
 
 
@@ -490,7 +498,8 @@ def retranscribe(
     ensure_free_only(
         user,
         params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
-        want_llm=bool(params.enable_llm_enhance) or params.prompt_template_id is not None,
+        want_llm=bool(params.enable_llm_enhance) or params.prompt_template_id is not None
+        or params.llm_endpoint_id is not None,
         llm_mode=bool(params.enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -505,7 +514,7 @@ def retranscribe(
     if params.enable_llm_enhance is not None:
         rec.enable_llm_enhance = params.enable_llm_enhance
 
-    from ..models import DeliveryTarget, PromptTemplate
+    from ..models import DeliveryTarget, PromptTemplate, UserLlmEndpoint
 
     if params.prompt_template_id is not None:
         tpl = session.get(PromptTemplate, params.prompt_template_id)
@@ -518,6 +527,11 @@ def retranscribe(
             raise HTTPException(status_code=403, detail="target not found or not yours")
         rec.delivery_target_id = params.delivery_target_id
         rec.delivery_status = "pending"
+    if params.llm_endpoint_id is not None:
+        ep = session.get(UserLlmEndpoint, params.llm_endpoint_id)
+        if ep is None or ep.user_id != uid:
+            raise HTTPException(status_code=403, detail="endpoint not found or not yours")
+        rec.llm_endpoint_id = params.llm_endpoint_id
     session.add(rec)
     session.commit()
 

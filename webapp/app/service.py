@@ -166,6 +166,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         enable_llm_enhance = rec.enable_llm_enhance
         prompt_template_id = rec.prompt_template_id
         delivery_target_id = rec.delivery_target_id
+        llm_endpoint_id = rec.llm_endpoint_id
         owner_id = rec.user_id
         if backend is None:
             backend = rec.backend or "pk-python"
@@ -290,15 +291,30 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             text, segments = run_llm_enhance(text, segments)
 
         # Post-Processing mit Prompt-Template (Task D4) — LLM, nur bei Auswahl
-        if prompt_template_id:
+        if prompt_template_id or enable_llm_enhance or llm_endpoint_id:
             with Session(engine) as s:
-                from .llm import chat as llm_chat
-                from .models import PromptTemplate
+                from . import llm as llm_mod
+                from .crypto import decrypt
+                from .models import PromptTemplate, UserLlmEndpoint
 
-                tpl = s.get(PromptTemplate, prompt_template_id)
-                if tpl is None:
-                    raise RuntimeError("prompt template not found")
-                text = llm_chat(tpl.prompt, text or "")
+                endpoint = None
+                if llm_endpoint_id:
+                    ep = s.get(UserLlmEndpoint, llm_endpoint_id)
+                    if ep is None:
+                        raise RuntimeError("llm endpoint not found")
+                    endpoint = {"base_url": ep.base_url,
+                                "api_key": decrypt(ep.api_key), "model": ep.model}
+                if prompt_template_id:
+                    tpl = s.get(PromptTemplate, prompt_template_id)
+                    if tpl is None:
+                        raise RuntimeError("prompt template not found")
+                    text = llm_mod.chat(tpl.prompt, text or "", endpoint=endpoint)
+                elif enable_llm_enhance:
+                    text, segments = run_llm_enhance(text, segments)
+                    if endpoint:
+                        text = llm_mod.chat(
+                            "Verbessere folgenden Transkript-Text (keine Einleitung):",
+                            text or "", endpoint=endpoint)
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"

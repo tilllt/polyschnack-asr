@@ -5,21 +5,30 @@ Prompt-Templates (D2) und den A13-Enhance-Pass.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import httpx
 
 from .config import settings
 
 
-def chat(system: str, user_text: str, max_tokens: int = 2000) -> str:
-    if not settings.POLYSCHNACK_LLM_API_KEY:
-        raise RuntimeError("POLYSCHNACK_LLM_API_KEY nicht konfiguriert")
-    if not settings.POLYSCHNACK_LLM_URL:
-        raise RuntimeError("POLYSCHNACK_LLM_URL nicht konfiguriert")
+def chat(system: str, user_text: str, max_tokens: int = 2000,
+         endpoint: Optional[dict] = None) -> str:
+    """Chat über einen OpenAI-kompatiblen Endpunkt.
+
+    ``endpoint`` = BYOK-Override (Task E3): {"base_url", "api_key", "model"} —
+    gewinnt vor den Server-Env-Einstellungen. Ohne beides: RuntimeError.
+    """
+    url = (endpoint or {}).get("base_url") or settings.POLYSCHNACK_LLM_URL
+    key = (endpoint or {}).get("api_key") or settings.POLYSCHNACK_LLM_API_KEY
+    model = (endpoint or {}).get("model") or settings.POLYSCHNACK_LLM_MODEL
+    if not url or not key:
+        raise RuntimeError("LLM-Endpunkt nicht konfiguriert (Server-Env oder BYOK nötig)")
     r = httpx.post(
-        f"{settings.POLYSCHNACK_LLM_URL.rstrip('/')}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.POLYSCHNACK_LLM_API_KEY}"},
+        f"{url.rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {key}"},
         json={
-            "model": settings.POLYSCHNACK_LLM_MODEL,
+            "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_text},

@@ -83,6 +83,8 @@ class Recording(SQLModel, table=True):
     delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
     delivery_status: Optional[str] = None          # pending | done | failed
     delivery_error: Optional[str] = None
+    # --- BYOK (Teil E): eigener LLM-Endpunkt des Users ---
+    llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
 
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)
