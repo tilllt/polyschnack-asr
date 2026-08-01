@@ -77,9 +77,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     queue_manager.start()
     with Session(engine) as session:
+        from .models import User
+
         for rec_id, backend, user_id in crud.list_queued(session):
             try:
-                queue_manager.enqueue(rec_id, user_id, backend)
+                user = session.get(User, user_id) if user_id is not None else None
+                queue_manager.enqueue(
+                    rec_id, user_id, backend,
+                    priority=1 if (user is not None and user.kind == "anonymous") else 0,
+                )
             except QueueError:
                 log.warning("re-enqueue skipped for rec_id=%s", rec_id)
 

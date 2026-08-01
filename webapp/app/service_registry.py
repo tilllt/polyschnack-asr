@@ -21,6 +21,7 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "pk-python",
         "compose_profile": "default",
         "type": "local",
+        "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "parakeet-tdt-0.6b-v3-onnx",
         "health_url": "",  # "" -> settings.ASR_URL; only our own servers report VRAM
@@ -43,6 +44,7 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "pk-cpp",
         "compose_profile": "cpp",
         "type": "local",
+        "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "parakeet-tdt-0.6b-v3-q8_0.gguf",
         "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
@@ -64,6 +66,7 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "qwen3-asr",
         "compose_profile": "qwen3",
         "type": "local",
+        "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "qwen3-asr-0.6b-q8_0.gguf + forced-aligner",
         "requires": {"vram_gb": 3, "ram_gb": 6, "disk_gb": 4},
@@ -85,6 +88,7 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "ark-asr",
         "compose_profile": "ark",
         "type": "local",
+        "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "ark-asr-3b-q8_0.gguf",
         "requires": {"vram_gb": 5, "ram_gb": 6, "disk_gb": 4},
@@ -106,6 +110,7 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "voxtral",
         "compose_profile": "voxtral",
         "type": "local",
+        "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)",
         "url": "http://polyschnack-voxtral:8000",  # voxtral.cpp / vLLM-compatible server
@@ -155,6 +160,7 @@ if __name__ == "__main__":
     for s in SERVICES:
         assert s["name"] and s["backend"] and s["compose_profile"]
         assert s["type"] in {"local", "remote"}
+        assert isinstance(s.get("cost_per_minute_eur", 0), (int, float)) and s.get("cost_per_minute_eur", 0) >= 0
         assert isinstance(s["concurrency"], int) and s["concurrency"] >= 1
         assert s["requires"]["vram_gb"] >= 0 and s["requires"]["ram_gb"] >= 0 and s["requires"]["disk_gb"] >= 0
         assert s["compose_profile"] in _VALID_PROFILES or s["type"] == "remote"

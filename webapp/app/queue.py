@@ -45,16 +45,17 @@ class Job:
     backend: str
     status: str = "queued"  # queued | processing
     seq: int = 0            # FIFO order
+    priority: int = 0       # 0 = registriert, 1 = anonym (Task B6)
 
 
 class QueueManager:
-    """FIFO queue with one semaphore per endpoint."""
+    """FIFO queue with one semaphore per endpoint (Task B6: Prioritäten)."""
 
     def __init__(self, max_queue_len: int = 20):
         self._max_queue_len = max_queue_len
         self._lock = threading.Lock()
         self._jobs: Dict[int, Job] = {}
-        self._fifo: "queue.Queue[int]" = queue.Queue()
+        self._fifo: "queue.PriorityQueue" = queue.PriorityQueue()
         self._semaphores: Dict[str, threading.Semaphore] = {}
         self._threads: List[threading.Thread] = []
         self._stop = threading.Event()
@@ -98,7 +99,8 @@ class QueueManager:
 
     # ---------------------------------------------------------------- api
 
-    def enqueue(self, rec_id: int, user_id: Optional[int], backend: str) -> int:
+    def enqueue(self, rec_id: int, user_id: Optional[int], backend: str,
+                priority: int = 0) -> int:
         """Queue a job; returns its position on the endpoint. Raises QueueError."""
         with self._lock:
             if rec_id in self._jobs:
@@ -108,12 +110,12 @@ class QueueManager:
             self._seq += 1
             self._jobs[rec_id] = Job(
                 rec_id=rec_id, user_id=user_id, backend=backend,
-                status="queued", seq=self._seq,
+                status="queued", seq=self._seq, priority=priority,
             )
         with Session(engine) as session:
             crud.set_queued(session, rec_id, backend)
         self._ensure_workers()
-        self._fifo.put(rec_id)
+        self._fifo.put((priority, self._seq, rec_id))
         return self.position(rec_id)
 
     def cancel(self, rec_id: int, user_id: Optional[int], is_admin: bool = False) -> bool:
@@ -135,14 +137,19 @@ class QueueManager:
         return True
 
     def position(self, rec_id: int) -> int:
-        """1-based position among queued jobs on the same endpoint."""
+        """1-based position among queued jobs on the same endpoint.
+
+        Anonyme Jobs (priority 1) zählen nur Jobs gleicher oder höherer
+        Priorität vor sich — ein wartender registrierter Job (0) springt vor.
+        """
         with self._lock:
             mine = self._jobs.get(rec_id)
             if mine is None or mine.status != "queued":
                 return 0
             return 1 + sum(
                 1 for j in self._jobs.values()
-                if j.backend == mine.backend and j.status == "queued" and j.seq < mine.seq
+                if j.backend == mine.backend and j.status == "queued"
+                and j.seq < mine.seq and j.priority >= mine.priority
             )
 
     def active_jobs_for(self, backend: str) -> int:
@@ -184,7 +191,7 @@ class QueueManager:
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                rec_id = self._fifo.get(timeout=1.0)
+                _, _, rec_id = self._fifo.get(timeout=1.0)
             except queue.Empty:
                 continue
             with self._lock:

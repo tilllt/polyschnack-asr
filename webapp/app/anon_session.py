@@ -46,7 +46,10 @@ def ensure_anonymous_user(session: Session, request) -> User:
         session.refresh(user)
         request.session["anon_user_id"] = user.id
     now = datetime.now(timezone.utc)
-    if user.last_seen_at is None or (now - user.last_seen_at).total_seconds() > 60:
+    last = user.last_seen_at
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)  # SQLite liefert naive datetimes
+    if last is None or (now - last).total_seconds() > 60:
         user.last_seen_at = now
         session.add(user)
         session.commit()

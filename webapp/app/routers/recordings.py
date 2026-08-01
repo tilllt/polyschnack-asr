@@ -209,6 +209,17 @@ async def upload_recording(
     # so this is a conservative overestimate.
     est_duration_s = len(audio_data) / 16000 if new_ext == ".wav" else len(raw) / 8000
 
+    # Task B5: harte Limits für anonyme User (Dauer, Upload-Größe, Disk-Quota)
+    uid = _current_user(request, session)
+    from ..anon_limits import enforce_anon_limits
+
+    enforce_anon_limits(
+        session,
+        session.get(User, uid) if uid is not None else None,
+        len(audio_data),
+        est_duration_s,
+    )
+
     # Append conversion note to original name so the user knows
     display_name = file.filename
     if conv_note:
@@ -230,7 +241,7 @@ async def upload_recording(
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
         content_hash=content_hash,
-        user_id=_current_user(request, session),
+        user_id=uid,
     )
     return _recording_to_dict(rec)
 
@@ -379,8 +390,9 @@ def transcribe_ep(
 
     from ..pricing import ensure_free_only
 
+    user = session.get(User, uid) if uid is not None else None
     ensure_free_only(
-        session.get(User, uid) if uid is not None else None,
+        user,
         backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
         want_llm=bool(enable_llm_enhance),
         llm_mode=bool(enable_punctuation)
@@ -402,7 +414,10 @@ def transcribe_ep(
 
     backend = backend or settings.POLYSCHNACK_DEFAULT_BACKEND
     try:
-        position = queue_manager.enqueue(int(rec.id), uid, backend)
+        position = queue_manager.enqueue(
+            int(rec.id), uid, backend,
+            priority=1 if (user is not None and user.kind == "anonymous") else 0,
+        )
     except QueueFullError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
@@ -442,8 +457,9 @@ def retranscribe(
 
     from ..pricing import ensure_free_only
 
+    user = session.get(User, uid) if uid is not None else None
     ensure_free_only(
-        session.get(User, uid) if uid is not None else None,
+        user,
         params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
         want_llm=bool(params.enable_llm_enhance),
         llm_mode=bool(params.enable_punctuation)
@@ -464,7 +480,10 @@ def retranscribe(
 
     backend = params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND
     try:
-        position = queue_manager.enqueue(int(rec.id), uid, backend)
+        position = queue_manager.enqueue(
+            int(rec.id), uid, backend,
+            priority=1 if (user is not None and user.kind == "anonymous") else 0,
+        )
     except QueueFullError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
