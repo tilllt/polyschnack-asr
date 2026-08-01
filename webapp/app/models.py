@@ -10,7 +10,7 @@ import datetime as dt
 import uuid
 from typing import Any, List, Optional
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -97,3 +97,15 @@ class User(SQLModel, table=True):
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
+
+
+class RecordingShare(SQLModel, table=True):
+    """Gewährt einem User Zugriff auf ein fremdes Recording (read|write|full)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rec_id: int = Field(foreign_key="recording.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    level: str = "read"  # read | write | full
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    __table_args__ = (UniqueConstraint("rec_id", "user_id"),)
