@@ -107,3 +107,11 @@ def test_target_foreign_forbidden(db):
 def test_invalid_kind_422():
     with pytest.raises(Exception):
         targets.TargetCreate(name="x", kind="ftp", config={})
+
+
+def test_anonymous_cannot_create_template(db):
+    with Session(db) as s:
+        with pytest.raises(HTTPException) as ei:
+            templates.create_template(
+                templates.TemplateCreate(name="a", prompt="x"), _req(None), s)
+        assert ei.value.status_code == 403

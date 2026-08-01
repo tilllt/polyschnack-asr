@@ -2,15 +2,15 @@ import type { Recording } from "../api";
 import { buildRenderItems } from "../grouping";
 import { RecordingCard } from "./RecordingCard";
 import { WhatsappGroup } from "./WhatsappGroup";
+import { useT } from "../useLocale";
 
 interface Props {
   recordings: Recording[];
   query: string;
+  isOidc?: boolean;
 }
 
-import { useT } from "../useLocale";
-
-export function RecordingList({ recordings, query }: Props) {
+export function RecordingList({ recordings, query, isOidc = false }: Props) {
   const { t } = useT();
   if (!recordings.length) {
     return (
@@ -44,6 +44,7 @@ export function RecordingList({ recordings, query }: Props) {
           <RecordingCard
             key={item.recording.id}
             recording={item.recording}
+            isOidc={isOidc}
           />
         );
       })}

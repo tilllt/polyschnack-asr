@@ -482,6 +482,42 @@ docker compose --profile cpp --profile qwen3 --profile ark --profile voxtral up 
 
 ---
 
+## Post-Processing & Delivery (nach der Transkription)
+
+Alles ist **opt-in** (nichts läuft automatisch): an der Transcribe-Zeile wählst
+du pro Aufnahme, was nach der Transkription passieren soll.
+
+- **Satzzeichen (`✍️ Punct`)** — Interpunktion nach der Erkennung. Modus per
+  `POLYSCHNACK_PUNCTUATION_MODE` (Default `off`; `local` = offline, `llm` =
+  kostenpflichtig über den LLM-Endpunkt).
+- **LLM-Optimierung (`✨ LLM`)** — KI-Nachbearbeitung des Textes. **Nur für
+  registrierte User** (kostenpflichtig), anonyme sehen den Schalter ausgegraut.
+- **Vorlage (Template)** — eigene Prompt-Vorlagen im Panel `🧩 Post-Processing`
+  verwalten (z. B. „Meeting-Zusammenfassung + ToDos"). Der Text ersetzt
+  `{text}` im Prompt; das Ergebnis wird als **neue Version**
+  (`kind="postprocess"`) abgelegt. Ebenfalls nur für registrierte User.
+- **Senden an (Delivery-Target)** — fertige Transkription automatisch
+  zustellen: **E-Mail** (SMTP) oder **WebDAV** (z. B. Nextcloud). Ziele werden
+  im Panel angelegt; Passwörter werden **verschlüsselt** (Fernet, abgeleitet
+  aus `SESSION_SECRET`) gespeichert und nie wieder ausgegeben. Auch für
+  anonyme User nutzbar. Status (`pending`/`done`/`failed`) steht am Recording.
+
+**Neue Umgebungsvariablen:**
+
+| Variable | Default | Bedeutung |
+|---|---|---|
+| `POLYSCHNACK_PUNCTUATION_MODE` | `off` | `off` \| `local` \| `llm` |
+| `POLYSCHNACK_DEFAULT_LLM_ENHANCE` | `false` | LLM-Optimierung default an |
+| `POLYSCHNACK_LLM_URL` | *(leer)* | OpenAI-kompatibler Endpunkt (z. B. eigener LiteLLM-Proxy) |
+| `POLYSCHNACK_LLM_API_KEY` | *(leer)* | API-Key für obigen Endpunkt |
+| `POLYSCHNACK_LLM_MODEL` | `deepseek-chat` | Modellname |
+| `POLYSCHNACK_SMTP_HOST` | *(leer)* | SMTP-Server (leer = Mail-Targets deaktiviert) |
+| `POLYSCHNACK_SMTP_PORT` | `587` | SMTP-Port |
+| `POLYSCHNACK_SMTP_USER` / `_PASS` | *(leer)* | SMTP-Login |
+| `POLYSCHNACK_SMTP_FROM` | *(leer)* | Absender-Adresse |
+
+---
+
 ## Entwicklung
 
 ### Voraussetzungen

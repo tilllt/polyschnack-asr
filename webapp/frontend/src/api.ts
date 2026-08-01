@@ -36,6 +36,12 @@ export interface Recording {
   enable_streaming: boolean;
   enable_noise_reduce: boolean;
   enable_enhance: string;
+  enable_punctuation?: boolean;
+  enable_llm_enhance?: boolean;
+  prompt_template_id?: number | null;
+  delivery_target_id?: number | null;
+  delivery_status?: string | null;
+  delivery_error?: string | null;
   progress_pct: number;
   waveform_peaks: number[] | null;
   backend?: string;
@@ -170,7 +176,19 @@ export async function transcribeRange(id: string, startSec: number, endSec: numb
   return res.json() as Promise<Recording>;
 }
 
-export async function startTranscription(id: string, enableVad = false, enableDiarize = false, enableStreaming = false, enableNoiseReduce = true, enableEnhance = "off", backend = ""): Promise<Recording> {
+export async function startTranscription(
+  id: string,
+  enableVad = false,
+  enableDiarize = false,
+  enableStreaming = false,
+  enableNoiseReduce = true,
+  enableEnhance = "off",
+  backend = "",
+  enablePunctuation = false,
+  enableLlmEnhance = false,
+  promptTemplateId?: number,
+  deliveryTargetId?: number,
+): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
   fd.append("enable_diarize", String(enableDiarize));
@@ -178,6 +196,10 @@ export async function startTranscription(id: string, enableVad = false, enableDi
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
   fd.append("backend", backend);
+  fd.append("enable_punctuation", String(enablePunctuation));
+  fd.append("enable_llm_enhance", String(enableLlmEnhance));
+  if (promptTemplateId !== undefined) fd.append("prompt_template_id", String(promptTemplateId));
+  if (deliveryTargetId !== undefined) fd.append("delivery_target_id", String(deliveryTargetId));
   const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -289,6 +311,10 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_noise_reduce?: boolean;
   enable_enhance?: string;
   backend?: string;
+  enable_punctuation?: boolean;
+  enable_llm_enhance?: boolean;
+  prompt_template_id?: number;
+  delivery_target_id?: number;
 }): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",
@@ -356,4 +382,66 @@ export async function resetAdminConfig(): Promise<{ default_backend: string }> {
 export async function fetchModelsMatrix(): Promise<ModelMatrixEntry[]> {
   const res = await fetch("/api/models/matrix").then(checkOk);
   return res.json() as Promise<ModelMatrixEntry[]>;
+}
+
+/* ============================================================
+   Post-Processing (Teil D): Prompt-Templates + Delivery-Targets
+   ============================================================ */
+
+export interface PromptTemplate {
+  template_id: number;
+  name: string;
+  prompt: string;
+}
+
+export interface DeliveryTargetItem {
+  target_id: number;
+  name: string;
+  kind: "email" | "webdav";
+  config: Record<string, string>;
+}
+
+export async function fetchTemplates(): Promise<PromptTemplate[]> {
+  const res = await fetch("/api/templates").then(checkOk);
+  return res.json() as Promise<PromptTemplate[]>;
+}
+
+export async function createTemplate(name: string, prompt: string): Promise<PromptTemplate> {
+  const res = await fetch("/api/templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, prompt }),
+  }).then(checkOk);
+  return res.json() as Promise<PromptTemplate>;
+}
+
+export async function updateTemplate(templateId: number, patch: { name?: string; prompt?: string }): Promise<PromptTemplate> {
+  const res = await fetch(`/api/templates/${templateId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(checkOk);
+  return res.json() as Promise<PromptTemplate>;
+}
+
+export async function deleteTemplate(templateId: number): Promise<void> {
+  await fetch(`/api/templates/${templateId}`, { method: "DELETE" }).then(checkOk);
+}
+
+export async function fetchTargets(): Promise<DeliveryTargetItem[]> {
+  const res = await fetch("/api/targets").then(checkOk);
+  return res.json() as Promise<DeliveryTargetItem[]>;
+}
+
+export async function createTarget(name: string, kind: "email" | "webdav", config: Record<string, string>): Promise<DeliveryTargetItem> {
+  const res = await fetch("/api/targets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, kind, config }),
+  }).then(checkOk);
+  return res.json() as Promise<DeliveryTargetItem>;
+}
+
+export async function deleteTarget(targetId: number): Promise<void> {
+  await fetch(`/api/targets/${targetId}`, { method: "DELETE" }).then(checkOk);
 }

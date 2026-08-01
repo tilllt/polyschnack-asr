@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import PromptTemplate
+from ..models import PromptTemplate, User
 
 router = APIRouter(prefix="/api")
 
@@ -29,6 +29,13 @@ def _current_user(request, session=None) -> Optional[int]:
     return current_identity(request, session).user.id
 
 
+def _require_oidc(session: Session, uid: Optional[int]) -> None:
+    """Prompt-Templates sind ein LLM/paid-Pfad → nur registrierte User."""
+    user = session.get(User, uid) if uid is not None else None
+    if user is None or user.kind != "oidc":
+        raise HTTPException(status_code=403, detail="login required (paid path)")
+
+
 def _get_own(session: Session, tpl_id: int, user_id: int) -> PromptTemplate:
     tpl = session.get(PromptTemplate, tpl_id)
     if tpl is None or tpl.user_id != user_id:
@@ -40,6 +47,7 @@ def _get_own(session: Session, tpl_id: int, user_id: int) -> PromptTemplate:
 def create_template(body: TemplateCreate, request: Request,
                     session: Session = Depends(get_session)) -> dict:
     uid = _current_user(request, session)
+    _require_oidc(session, uid)
     tpl = PromptTemplate(user_id=uid, name=body.name, prompt=body.prompt)
     session.add(tpl)
     session.commit()

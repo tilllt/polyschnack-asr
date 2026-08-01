@@ -7,6 +7,7 @@ import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
 import { AdminPanel } from "./components/AdminPanel";
+import { PostProcessPanel } from "./components/PostProcessPanel";
 import { SearchBar } from "./components/SearchBar";
 import { RecordingList } from "./components/RecordingList";
 
@@ -87,6 +88,7 @@ function AppContent() {
         <QueueWatcher />
 
         {user?.is_admin && <AdminPanel />}
+        <PostProcessPanel isOidc={!!user?.authenticated} />
 
         <SearchBar
           value={query}
@@ -101,7 +103,7 @@ function AppContent() {
           </div>
         )}
 
-        <RecordingList recordings={recordings} query={query} />
+        <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} />
       </main>
     </div>
   );
