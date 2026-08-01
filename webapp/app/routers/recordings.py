@@ -27,7 +27,7 @@ from ..crud import (
     list_recordings,
 )
 from ..db import get_session
-from ..models import Recording, RecordingShare
+from ..models import Recording, RecordingShare, User
 from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
 from ..service import to_srt, to_txt, to_vtt, trim_audio
@@ -368,6 +368,8 @@ def transcribe_ep(
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    enable_punctuation: Optional[bool] = Form(None),
+    enable_llm_enhance: Optional[bool] = Form(None),
     backend: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
@@ -378,12 +380,26 @@ def transcribe_ep(
     uid = _current_user(request) if settings.OIDC_ENABLED else None
     ensure_access(session, rec, uid, "full")
 
+    from ..pricing import ensure_free_only
+
+    ensure_free_only(
+        session.get(User, uid) if uid is not None else None,
+        backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
+        want_llm=bool(enable_llm_enhance),
+        llm_mode=bool(enable_punctuation)
+        and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
+    )
+
     # Update toggle values from the transcribe request (they may have changed since upload)
     rec.enable_vad = enable_vad
     rec.enable_diarize = enable_diarize
     rec.enable_streaming = enable_streaming
     rec.enable_noise_reduce = enable_noise_reduce
     rec.enable_enhance = enable_enhance
+    if enable_punctuation is not None:
+        rec.enable_punctuation = enable_punctuation
+    if enable_llm_enhance is not None:
+        rec.enable_llm_enhance = enable_llm_enhance
     session.add(rec)
     session.commit()
 
@@ -408,6 +424,8 @@ class RetranscribeParams(BaseModel):
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"
+    enable_punctuation: Optional[bool] = None
+    enable_llm_enhance: Optional[bool] = None
     backend: str = ""
 
 
@@ -424,11 +442,26 @@ def retranscribe(
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request)
     ensure_access(session, rec, uid, "full")
+
+    from ..pricing import ensure_free_only
+
+    ensure_free_only(
+        session.get(User, uid) if uid is not None else None,
+        params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
+        want_llm=bool(params.enable_llm_enhance),
+        llm_mode=bool(params.enable_punctuation)
+        and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
+    )
+
     rec.enable_vad = params.enable_vad
     rec.enable_diarize = params.enable_diarize
     rec.enable_streaming = params.enable_streaming
     rec.enable_noise_reduce = params.enable_noise_reduce
     rec.enable_enhance = params.enable_enhance
+    if params.enable_punctuation is not None:
+        rec.enable_punctuation = params.enable_punctuation
+    if params.enable_llm_enhance is not None:
+        rec.enable_llm_enhance = params.enable_llm_enhance
     session.add(rec)
     session.commit()
 

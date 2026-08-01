@@ -53,6 +53,12 @@ class _Settings:
 
     #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
     POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "pk-python")
+
+    #: Opt-in processing (Task A12/A13) — Defaults aus, nichts läuft automatisch.
+    POLYSCHNACK_DEFAULT_PUNCTUATION: bool = os.getenv("POLYSCHNACK_DEFAULT_PUNCTUATION", "").lower() in ("1", "true", "yes", "on")
+    #: Punctuation-Modus: off | local (offline fullstop) | llm (DeepSeek/LiteLLM, paid).
+    POLYSCHNACK_PUNCTUATION_MODE: str = os.getenv("POLYSCHNACK_PUNCTUATION_MODE", "off")
+    POLYSCHNACK_DEFAULT_LLM_ENHANCE: bool = os.getenv("POLYSCHNACK_DEFAULT_LLM_ENHANCE", "").lower() in ("1", "true", "yes", "on")
     #: Max jobs waiting in the queue (per process).
     POLYSCHNACK_MAX_QUEUE_LEN: int = int(os.getenv("POLYSCHNACK_MAX_QUEUE_LEN", "20"))
     #: Optional API key for the Voxtral endpoint (empty = no auth header).

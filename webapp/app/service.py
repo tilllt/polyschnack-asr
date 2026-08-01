@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 from . import asr_client, crud
 from .asr_client import get_client
+from .config import settings
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 import os
@@ -128,6 +129,17 @@ def enhance_audio(audio_bytes: bytes, level: str = "light") -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def run_punctuation(text: str, mode: str) -> str:
+    """Interpunktion (Task A12) — Phase 1–2: offline fullstop (local) oder
+    LLM (llm, paid). Stub: unverändert zurückgeben."""
+    return text
+
+
+def run_llm_enhance(text: str, segments: List[Dict[str, Any]]):
+    """LLM-Optimierung (Task A13) — Phase 1–2. Stub: unverändert zurückgeben."""
+    return text, segments
+
+
 def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
     """Load row → read audio → call ASR → persist result.
 
@@ -150,6 +162,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         enable_streaming = rec.enable_streaming
         enable_noise_reduce = rec.enable_noise_reduce
         enable_enhance = rec.enable_enhance
+        enable_punctuation = rec.enable_punctuation
+        enable_llm_enhance = rec.enable_llm_enhance
         if backend is None:
             backend = rec.backend or "pk-python"
 
@@ -264,6 +278,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         except Exception:
             log.exception("peaks: compute failed for rec_id=%s", rec_id)
             peaks = None
+
+        # Optional post-processing (A12/A13) — nur wenn per Toggle aktiviert,
+        # niemals automatisch. Stubs: Implementierung in Phase 1–2.
+        if enable_punctuation and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
+            text = run_punctuation(text, settings.POLYSCHNACK_PUNCTUATION_MODE)
+        if enable_llm_enhance:
+            text, segments = run_llm_enhance(text, segments)
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"

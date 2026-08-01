@@ -120,6 +120,8 @@ app.include_router(matrix_router)
 app.include_router(queue_api_router)
 app.include_router(admin_router)
 app.include_router(segments_router)
+app.include_router(shares_router)
+app.include_router(versions_router)
 app.include_router(url_import_router)
 app.include_router(auth_router)
 

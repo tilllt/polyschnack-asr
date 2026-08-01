@@ -72,6 +72,12 @@ class Recording(SQLModel, table=True):
     #: ffmpeg pre-processing level — "off", "light", "medium", "aggressive".
     enable_enhance: str = "off"
 
+    # --- opt-in processing (Task A12/A13): nichts läuft automatisch ---
+    #: Interpunktion nach der Transkription (Modus via POLYSCHNACK_PUNCTUATION_MODE).
+    enable_punctuation: bool = False
+    #: LLM-Optimierung nach der Transkription (kostenpflichtig → nur OIDC).
+    enable_llm_enhance: bool = False
+
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)
 
