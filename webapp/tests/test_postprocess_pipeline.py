@@ -63,7 +63,7 @@ def test_transcribe_with_own_template_sets_flag(db, qm):
             "r1", _req(1), enable_vad=False, enable_diarize=False,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=None,
-            prompt_template_id=1, delivery_target_id=None, backend="", session=s)
+            prompt_template_id=1, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         rec = s.get(Recording, 1)
         assert rec.prompt_template_id == 1
 
@@ -75,7 +75,7 @@ def test_transcribe_foreign_template_403(db, qm):
                 "r1", _req(1), enable_vad=False, enable_diarize=False,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=None,
-                prompt_template_id=2, delivery_target_id=None, backend="", session=s)
+                prompt_template_id=2, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert ei.value.status_code == 403
 
 
@@ -87,7 +87,7 @@ def test_anon_with_template_403(db, qm, monkeypatch):
                 "r1", _req(None), enable_vad=False, enable_diarize=False,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=None,
-                prompt_template_id=1, delivery_target_id=None, backend="", session=s)
+                prompt_template_id=1, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert ei.value.status_code == 403
 
 
@@ -97,7 +97,7 @@ def test_transcribe_with_target_sets_pending(db, qm):
             "r1", _req(1), enable_vad=False, enable_diarize=False,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=None,
-            prompt_template_id=None, delivery_target_id=1, backend="", session=s)
+            prompt_template_id=None, delivery_target_id=1, llm_endpoint_id=None, backend="", session=s)
         rec = s.get(Recording, 1)
         assert rec.delivery_target_id == 1
         assert rec.delivery_status == "pending"
@@ -144,7 +144,8 @@ def test_service_runs_template_and_delivers(db, monkeypatch):
                         lambda session, rec_id, pct: None)
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
     calls = {}
-    monkeypatch.setattr(llm, "chat", lambda system, text: "Zusammenfassung: ...")
+    monkeypatch.setattr(llm, "chat",
+                        lambda system, text, endpoint=None: "Zusammenfassung: ...")
     from app import deliver as deliver_mod
 
     delivered = []

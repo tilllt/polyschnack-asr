@@ -66,7 +66,7 @@ def test_anon_llm_enhance_403(db, qm, monkeypatch):
                 "r2", _req(None), enable_vad=False, enable_diarize=False,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=True,
-                prompt_template_id=None, delivery_target_id=None, backend="", session=s)
+                prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert ei.value.status_code == 403
     assert not qm
 
@@ -80,7 +80,7 @@ def test_anon_llm_punctuation_mode_403(db, qm, monkeypatch):
                 "r2", _req(None), enable_vad=False, enable_diarize=False,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=True, enable_llm_enhance=None,
-                prompt_template_id=None, delivery_target_id=None, backend="", session=s)
+                prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert ei.value.status_code == 403
     assert not qm
 
@@ -93,7 +93,7 @@ def test_anon_local_punctuation_ok(db, qm, monkeypatch):
             "r2", _req(None), enable_vad=False, enable_diarize=False,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=True, enable_llm_enhance=None,
-            prompt_template_id=None, delivery_target_id=None, backend="", session=s)
+            prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert r["status"] == "queued"
     assert len(qm) == 1
 
@@ -104,7 +104,7 @@ def test_oidc_llm_enhance_ok(db, qm):
             "r1", _req(1), enable_vad=False, enable_diarize=False,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=True,
-            prompt_template_id=None, delivery_target_id=None, backend="", session=s)
+            prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert r["status"] == "queued"
         rec = s.get(Recording, 1)
         assert rec.enable_llm_enhance is True
