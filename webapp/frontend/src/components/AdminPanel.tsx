@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import type { AdminConfig, AdminService, ModelMatrixEntry } from "../api";
+import type { AdminConfig, AdminService, EnvSetting, ModelMatrixEntry } from "../api";
 import {
   adminServiceAction,
   fetchAdminConfig,
   fetchAdminServices,
+  fetchEnvSettings,
   fetchModelsMatrix,
   putAdminConfig,
   resetAdminConfig,
@@ -33,6 +34,7 @@ export function AdminPanel() {
   const [services, setServices] = useState<AdminService[] | null>(null);
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
+  const [envSettings, setEnvSettings] = useState<EnvSetting[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -46,6 +48,7 @@ export function AdminPanel() {
       setServices(s);
       setConfig(c);
       setMatrix(m);
+      fetchEnvSettings().then(setEnvSettings).catch(() => {});
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
@@ -198,6 +201,33 @@ export function AdminPanel() {
           <span className="ml-auto text-muted2">
             {t("capacity")}: {config.concurrency} · Queue: {config.max_queue_len}
           </span>
+        </div>
+      )}
+
+      {tab === "config" && (
+        <div className="mt-2 border-t border-border pt-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="font-bold text-txt text-[12px]">🌐 {t("env_settings")}</span>
+            <span className="text-muted2 text-[10px]">🔒 {t("env_hardcoded")}</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-[3px] max-h-[200px] overflow-y-auto">
+            {envSettings.map((s) => (
+              <div key={s.key} className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-muted2 truncate w-[150px]" title={s.key}>
+                  {s.name}
+                </span>
+                <span className="text-txt truncate flex-1 text-right font-mono" title={s.value}>
+                  {s.value}
+                </span>
+                <span
+                  className="text-[9px] font-bold uppercase px-[4px] py-[1px] rounded-sm bg-panel2 text-muted2 border border-border cursor-help"
+                  title={t("env_hardcoded")}
+                >
+                  ENV
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

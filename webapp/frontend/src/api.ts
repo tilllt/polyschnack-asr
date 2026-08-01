@@ -379,6 +379,19 @@ export async function resetAdminConfig(): Promise<{ default_backend: string }> {
   return res.json() as Promise<{ default_backend: string }>;
 }
 
+export interface EnvSetting {
+  name: string;
+  key: string;
+  value: string;
+  source: "env";
+}
+
+export async function fetchEnvSettings(): Promise<EnvSetting[]> {
+  const res = await fetch("/api/admin/env-settings").then(checkOk);
+  const data = (await res.json()) as { settings: EnvSetting[] };
+  return data.settings;
+}
+
 export async function fetchModelsMatrix(): Promise<ModelMatrixEntry[]> {
   const res = await fetch("/api/models/matrix").then(checkOk);
   return res.json() as Promise<ModelMatrixEntry[]>;

@@ -76,7 +76,12 @@ def test_position_counts_same_backend_only(qm):
     assert qm.position(3) == 2
 
 
-def test_active_jobs_for(qm):
+def test_active_jobs_for(qm, monkeypatch):
+    # Worker blockieren → Jobs bleiben in der Queue (deterministisch)
+    def slow_process(rec_id, backend=None):
+        time.sleep(5)
+
+    monkeypatch.setattr(queue_mod, "process_recording", slow_process)
     qm.enqueue(1, None, "pk-python")
     qm.enqueue(2, None, "pk-cpp")
     assert qm.active_jobs_for("pk-python") == 1

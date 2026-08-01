@@ -92,7 +92,8 @@ def test_anon_local_punctuation_ok(db, qm, monkeypatch):
         r = recordings.transcribe_ep(
             "r2", _req(None), enable_vad=False, enable_diarize=False,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
-            enable_punctuation=True, enable_llm_enhance=None, backend="", session=s)
+            enable_punctuation=True, enable_llm_enhance=None,
+            prompt_template_id=None, delivery_target_id=None, backend="", session=s)
         assert r["status"] == "queued"
     assert len(qm) == 1
 

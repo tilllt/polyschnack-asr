@@ -239,6 +239,41 @@ def admin_config() -> Dict[str, Any]:
     }
 
 
+#: Env-konfigurierte Optionen — in der Admin-GUI sichtbar, aber nicht änderbar
+#: (nur über die Environment des Containers). Secrets werden maskiert.
+_ENV_SETTINGS = [
+    ("POLYSCHNACK_DEFAULT_BACKEND", "default_backend"),
+    ("POLYSCHNACK_PUNCTUATION_MODE", "punctuation_mode"),
+    ("POLYSCHNACK_DEFAULT_PUNCTUATION", "default_punctuation"),
+    ("POLYSCHNACK_DEFAULT_LLM_ENHANCE", "default_llm_enhance"),
+    ("POLYSCHNACK_ANON_RETENTION_MINUTES", "anon_retention_minutes"),
+    ("POLYSCHNACK_ANON_MAX_DURATION_S", "anon_max_duration_s"),
+    ("POLYSCHNACK_ANON_MAX_DISK_MB", "anon_max_disk_mb"),
+    ("POLYSCHNACK_ANON_MAX_UPLOAD_MB", "anon_max_upload_mb"),
+    ("POLYSCHNACK_MAX_QUEUE_LEN", "max_queue_len"),
+    ("POLYSCHNACK_LLM_URL", "llm_url"),
+    ("POLYSCHNACK_LLM_API_KEY", "llm_api_key"),
+    ("POLYSCHNACK_LLM_MODEL", "llm_model"),
+    ("POLYSCHNACK_SMTP_HOST", "smtp_host"),
+    ("POLYSCHNACK_SMTP_PORT", "smtp_port"),
+    ("POLYSCHNACK_SMTP_FROM", "smtp_from"),
+]
+
+_MASKED = ("API_KEY", "PASS", "SECRET", "TOKEN")
+
+
+@router.get("/env-settings")
+def env_settings() -> Dict[str, Any]:
+    """Env-konfigurierte Optionen (read-only) für die Admin-GUI."""
+    out: List[Dict[str, Any]] = []
+    for key, label in _ENV_SETTINGS:
+        val = getattr(settings, key, "")
+        if any(tok in key for tok in _MASKED) and val:
+            val = "••••••"  # Secrets nie ausgeben
+        out.append({"name": label, "key": key, "value": str(val), "source": "env"})
+    return {"settings": out}
+
+
 @router.put("/config")
 def put_config(payload: ConfigPut, request: Request) -> Dict[str, Any]:
     svc = get_service(payload.default_backend)
