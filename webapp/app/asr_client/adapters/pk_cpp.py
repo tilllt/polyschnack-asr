@@ -7,7 +7,7 @@ from typing import Any, Dict
 import httpx
 
 from .. import AsrClient, BackendCapabilities, _parse_result
-from ..config import settings
+from ...config import settings
 
 log = logging.getLogger(__name__)
 

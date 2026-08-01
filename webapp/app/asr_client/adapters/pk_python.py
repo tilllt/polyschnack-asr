@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from .. import AsrClient, BackendCapabilities, _parse_result
-from ..config import settings
+from ...config import settings
 
 log = logging.getLogger(__name__)
 
