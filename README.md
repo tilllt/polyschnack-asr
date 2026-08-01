@@ -414,9 +414,34 @@ löscht die Session.
 - `POLYSCHNACK_ADMINS` — Komma-Liste von `sub`-IDs **oder** E-Mails
 - `POLYSCHNACK_ADMIN_GROUPS` — Komma-Liste von OIDC-Gruppennamen
 
-`is_admin` wird **beim Login** berechnet und in der Session gecacht — nach
-einer Änderung von `POLYSCHNACK_ADMINS`/`POLYSCHNACK_ADMIN_GROUPS` einmal
-ab-/wieder einloggen (ein Webapp-Neustart allein reicht nicht).
+### Admin-Rechte im Detail
+
+Beide Env-Variablen wirken **unabhängig voneinander** (ODER-Verknüpfung) — wer
+über einen der beiden Wege matcht, ist Admin:
+
+1. **`POLYSCHNACK_ADMINS` (sub/email-Liste):** Beim Login wird der User in der
+   DB angelegt bzw. aktualisiert (`sub`, `email`, `name`). Der Check vergleicht
+   `user.sub` und `user.email` exakt gegen die Komma-Liste.
+2. **`POLYSCHNACK_ADMIN_GROUPS` (Gruppen):** Beim Login holt die App die
+   Userinfo vom IdP (`GET {issuer}/userinfo` mit dem Access-Token). Der Check
+   bildet die Schnittmenge aus `userinfo["groups"]` (Liste von Strings) und der
+   Komma-Liste. Ist sie nicht leer → Admin.
+
+Wichtig für den Gruppen-Weg:
+- Die Gruppen müssen im **Userinfo** unter dem Schlüssel `groups` liegen.
+  Keycloak: Gruppen-Mapper am Client/Client-Scope einrichten (oft als Pfade
+  wie `/admins` — exakt so eintragen). Authentik: `groups` ist standardmäßig
+  im Userinfo enthalten.
+- Liefert der Provider die Gruppen unter einem anderen Schlüssel
+  (z. B. `realm_access.roles`), matchen sie nicht — dann den Mapper anpassen
+  statt einen anderen Env-Namen zu erfinden.
+
+**Zeitpunkt & Gültigkeit:** `is_admin` wird einmalig beim Login berechnet und
+in der Session gecacht. Nach einer Änderung von `POLYSCHNACK_ADMINS` /
+`POLYSCHNACK_ADMIN_GROUPS` muss sich der User daher **neu einloggen**
+(Logout → Login; ein Webapp-Neustart allein reicht nicht). Ohne aktives OIDC
+liefert `require_admin` immer 403 — der Admin-Bereich existiert nur mit
+OIDC-Login, nie im Shared Space.
 
 ---
 
