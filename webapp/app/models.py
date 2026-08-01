@@ -36,8 +36,10 @@ class Recording(SQLModel, table=True):
     # --- transcription results ---
     duration_s: Optional[float] = None
     language: Optional[str] = None
-    status: str = "uploaded"  # uploaded | processing | done | failed
+    status: str = "uploaded"  # uploaded | queued | processing | done | failed
     text: Optional[str] = None
+    #: ASR endpoint this recording is transcribed with (queue binding, Task 6).
+    backend: str = "pk-python"
     #: JSON list of {start, end, text} dicts; stored as SQLite JSON column.
     segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
     error: Optional[str] = None

@@ -10,7 +10,7 @@ import subprocess as sp
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session
 
@@ -113,12 +113,14 @@ def enhance_audio(audio_bytes: bytes, level: str = "light") -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def process_recording(rec_id: int) -> None:
+def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
     """Load row → read audio → call ASR → persist result.
 
-    Designed to run in a background thread (FastAPI BackgroundTasks).
-    All exceptions are caught so a transient failure cannot crash the worker;
-    the row is updated to status='failed' with the error message.
+    Designed to run in a background thread (queue worker, Task 6). The
+    backend comes from the bound job; falls back to the recording's own
+    ``backend`` field. All exceptions are caught so a transient failure
+    cannot crash the worker; the row is updated to status='failed' with the
+    error message.
     """
     with Session(engine) as session:
         rec = crud.get_recording(session, rec_id)
@@ -133,6 +135,8 @@ def process_recording(rec_id: int) -> None:
         enable_streaming = rec.enable_streaming
         enable_noise_reduce = rec.enable_noise_reduce
         enable_enhance = rec.enable_enhance
+        if backend is None:
+            backend = rec.backend or "pk-python"
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
@@ -172,7 +176,7 @@ def process_recording(rec_id: int) -> None:
             set_progress(session, rec_id, 20)
 
         # Run ASR (batched sync or SSE streaming)
-        client = get_client()
+        client = get_client(backend)
         if enable_streaming and client.capabilities.streaming:
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):

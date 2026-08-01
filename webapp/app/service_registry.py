@@ -108,6 +108,7 @@ SERVICES: List[Dict[str, Any]] = [
         "type": "local",
         "concurrency": 1,
         "model": "Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)",
+        "url": "http://polyschnack-voxtral:8000",  # voxtral.cpp / vLLM-compatible server
         "requires": {"vram_gb": 5, "ram_gb": 6, "disk_gb": 4},
         "capabilities": {
             "word_timestamps": "verify",  # Mistral: not trained for timestamps (likely False)

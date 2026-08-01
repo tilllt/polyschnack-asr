@@ -12,7 +12,7 @@ import hashlib
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
@@ -25,11 +25,11 @@ from ..crud import (
     get_recording_by_uid,
     get_stats,
     list_recordings,
-    set_processing,
 )
 from ..db import get_session
 from ..models import Recording
-from ..service import process_recording, to_srt, to_txt, to_vtt, trim_audio
+from ..queue import QueueError, QueueFullError, queue_manager
+from ..service import to_srt, to_txt, to_vtt, trim_audio
 from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
@@ -160,7 +160,6 @@ def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, st
 
 @router.post("/recordings", status_code=201)
 async def upload_recording(
-    background: BackgroundTasks,
     request: Request,
     file: UploadFile = File(...),
     batch_id: Optional[str] = Form(None),
@@ -360,15 +359,15 @@ def download_transcript(
 def transcribe_ep(
     rid: str,
     request: Request,
-    background: BackgroundTasks,
     enable_vad: bool = Form(False),
     enable_diarize: bool = Form(False),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    backend: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
-    """Start transcription for an uploaded recording."""
+    """Queue a transcription for an uploaded recording (Task 6)."""
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -385,11 +384,14 @@ def transcribe_ep(
     session.add(rec)
     session.commit()
 
-    rec = set_processing(session, rec.id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="not found")
-    background.add_task(process_recording, rec.id)
-    return _recording_to_dict(rec)
+    backend = backend or settings.POLYSCHNACK_DEFAULT_BACKEND
+    try:
+        position = queue_manager.enqueue(int(rec.id), uid, backend)
+    except QueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except QueueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": rid, "status": "queued", "position": position, "backend": backend}
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +405,7 @@ class RetranscribeParams(BaseModel):
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"
+    backend: str = ""
 
 
 @router.post("/recordings/{rid}/retranscribe")
@@ -410,7 +413,6 @@ def retranscribe(
     rid: str,
     params: RetranscribeParams = RetranscribeParams(),
     request: Request = None,
-    background: BackgroundTasks = None,
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Reset transcription state, update settings, and re-queue for processing."""
@@ -427,11 +429,15 @@ def retranscribe(
     rec.enable_enhance = params.enable_enhance
     session.add(rec)
     session.commit()
-    rec = set_processing(session, rec.id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="not found")
-    background.add_task(process_recording, rec.id)
-    return _recording_to_dict(rec)
+
+    backend = params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND
+    try:
+        position = queue_manager.enqueue(int(rec.id), uid, backend)
+    except QueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except QueueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": rid, "status": "queued", "position": position, "backend": backend}
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +478,6 @@ def transcribe_range(
     start_sec: float,
     end_sec: float,
     request: Request = None,
-    background: BackgroundTasks = BackgroundTasks(),
     session: Session = Depends(get_session),
 ):
     """Crop audio to [start_sec, end_sec] and transcribe the segment as a new recording."""

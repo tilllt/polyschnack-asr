@@ -81,31 +81,51 @@ class AsrClient(ABC):
 _client_instance: Optional[AsrClient] = None
 
 
-def get_client() -> AsrClient:
-    """Return the singleton adapter — selected by ``ASR_BACKEND`` env var."""
+def get_client(backend: Optional[str] = None) -> AsrClient:
+    """Return the adapter for *backend*.
+
+    With ``backend=None`` the singleton selected by ``ASR_BACKEND`` env var is
+    returned (legacy behaviour). An explicit backend builds a fresh client —
+    this is the queue path (each job is bound to its endpoint, Task 6).
+    """
     global _client_instance
-    if _client_instance is not None:
+    explicit = backend is not None
+    backend = backend or os.getenv("ASR_BACKEND", "pk-python") or "pk-python"
+
+    if not explicit and _client_instance is not None:
         return _client_instance
 
-    backend = os.getenv("ASR_BACKEND", "pk-python") or "pk-python"
     if backend == "pk-cpp":
         from .adapters.pk_cpp import PkCppClient
-        _client_instance = PkCppClient()
-        log.info("ASR backend: pk-cpp (parakeet.cpp)")
+        client = PkCppClient()
     elif backend == "qwen3-asr":
         from .adapters.qwen3_asr_cpp import Qwen3AsrCppClient
-        _client_instance = Qwen3AsrCppClient()
-        log.info("ASR backend: qwen3-asr (qwen3-asr.cpp)")
+        client = Qwen3AsrCppClient()
     elif backend in ("ark-asr", "crispasr", "crisp-asr"):
         from .adapters.crisp_asr import CrispAsrClient
-        _client_instance = CrispAsrClient()
-        log.info("ASR backend: ark-asr (CrispASR)")
+        client = CrispAsrClient()
+    elif backend == "voxtral":
+        # Voxtral runs on the local voxtral.cpp server (OpenAI-compatible API).
+        from ..service_registry import get_service
+        svc = get_service("voxtral") or {}
+        from .adapters.pk_python import PkPythonClient
+        client = PkPythonClient(
+            url=svc.get("url"),
+            api_key=os.getenv("POLYSCHNACK_VOXTRAL_API_KEY", ""),
+        )
+        client.capabilities = BackendCapabilities(
+            streaming=True, async_jobs=False, noise_reduce=False,
+            word_timestamps=False, languages=["de", "en"], device=["gpu"],
+            label="voxtral",
+        )
     else:
         from .adapters.pk_python import PkPythonClient
-        _client_instance = PkPythonClient()
-        log.info("ASR backend: pk-python (Python/ONNX)")
+        client = PkPythonClient()
+    log.info("ASR backend: %s", backend)
 
-    return _client_instance
+    if not explicit or _client_instance is None:
+        _client_instance = client
+    return client
 
 
 # ============================================================

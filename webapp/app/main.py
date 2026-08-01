@@ -64,6 +64,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Ensure the static directory exists so the StaticFiles mount never errors.
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
+    # --- Task 6: start the queue and re-enqueue jobs that were still queued
+    # --- when the previous process exited.
+    from . import crud
+    from .db import engine
+    from .queue import QueueError, queue_manager
+    from sqlmodel import Session
+
+    queue_manager.start()
+    with Session(engine) as session:
+        for rec_id, backend, user_id in crud.list_queued(session):
+            try:
+                queue_manager.enqueue(rec_id, user_id, backend)
+            except QueueError:
+                log.warning("re-enqueue skipped for rec_id=%s", rec_id)
+
     # Startup diagnostics: model availability
     hf_token_ok = bool(os.getenv("HF_TOKEN"))
     log.info("HF_TOKEN: %s", "✓ set" if hf_token_ok else "✗ NOT SET — diarization disabled")
@@ -74,6 +89,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log.info("pyannote (diarize): skipped (no HF_TOKEN)")
 
     yield
+
+    queue_manager.stop()
 
 
 app = FastAPI(title="PolySchnack Web UI", lifespan=lifespan)

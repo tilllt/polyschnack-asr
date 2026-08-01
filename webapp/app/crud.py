@@ -127,6 +127,41 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     return rec
 
 
+def set_queued(session: Session, rec_id: int, backend: str) -> Optional[Recording]:
+    """Mark a recording as queued for transcription on *backend* (Task 6)."""
+    rec = session.get(Recording, rec_id)
+    if rec is None:
+        return None
+    rec.status = "queued"
+    rec.backend = backend
+    rec.text = None
+    rec.segments = None
+    rec.error = None
+    rec.progress_pct = 1  # keep the frontend ETA visible
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+    return rec
+
+
+def list_queued(session: Session) -> List[tuple]:
+    """(rec_id, backend, user_id) for all queued recordings (re-enqueue on boot)."""
+    stmt = select(Recording).where(Recording.status == "queued")
+    return [(r.id, r.backend, r.user_id) for r in session.exec(stmt)]
+
+
+def avg_recent_processing_ms(session: Session, limit: int = 20) -> float:
+    """Mean processing_ms of the last *limit* completed recordings (ETA estimate)."""
+    stmt = (
+        select(Recording.processing_ms)
+        .where(Recording.status == "done", Recording.processing_ms.is_not(None))
+        .order_by(Recording.id.desc())
+        .limit(limit)
+    )
+    vals = [r for r in session.exec(stmt) if r]
+    return (sum(vals) / len(vals)) if vals else 0.0
+
+
 def update_result(
     session: Session,
     rec_id: int,

@@ -27,6 +27,18 @@ class PkPythonClient(AsrClient):
         label="pk-python",
     )
 
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None) -> None:
+        """OpenAI-compatible ASR client.
+
+        ``url`` defaults to ``settings.ASR_URL``; ``api_key`` adds an
+        Authorization header (used for the Voxtral/vLLM endpoint, Task 6).
+        """
+        self.url = (url or settings.ASR_URL).rstrip("/")
+        self.api_key = api_key
+
+    def _headers(self) -> Optional[Dict[str, str]]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else None
+
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
@@ -34,7 +46,8 @@ class PkPythonClient(AsrClient):
         """Send audio via sync (batched) endpoint."""
         with httpx.Client(timeout=3600) as client:
             resp = client.post(
-                f"{settings.ASR_URL}/v1/audio/transcriptions",
+                f"{self.url}/v1/audio/transcriptions",
+                headers=self._headers(),
                 files={"file": (filename, audio_bytes, mime)},
                 data={
                     "model": settings.ASR_MODEL,
@@ -67,7 +80,8 @@ class PkPythonClient(AsrClient):
         with httpx.Client(timeout=3600) as client:
             with client.stream(
                 "POST",
-                f"{settings.ASR_URL}/v1/audio/transcriptions/stream",
+                f"{self.url}/v1/audio/transcriptions/stream",
+                headers=self._headers(),
                 files={"file": (filename, audio_bytes, mime)},
                 data=data,
             ) as resp:

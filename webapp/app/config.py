@@ -51,6 +51,13 @@ class _Settings:
     #: Optional token the proxy requires (empty = no auth header).
     DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
 
+    #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
+    POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "pk-python")
+    #: Max jobs waiting in the queue (per process).
+    POLYSCHNACK_MAX_QUEUE_LEN: int = int(os.getenv("POLYSCHNACK_MAX_QUEUE_LEN", "20"))
+    #: Optional API key for the Voxtral endpoint (empty = no auth header).
+    POLYSCHNACK_VOXTRAL_API_KEY: str = os.getenv("POLYSCHNACK_VOXTRAL_API_KEY", "")
+
 
     #: Which ASR backend adapter to use: ``pk-python`` or ``pk-cpp``
     ASR_BACKEND: str = os.getenv("ASR_BACKEND", "pk-python")
