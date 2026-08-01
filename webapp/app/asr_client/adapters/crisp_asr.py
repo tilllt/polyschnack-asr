@@ -25,6 +25,9 @@ class CrispAsrClient(AsrClient):
         streaming=False,
         async_jobs=False,
         noise_reduce=False,
+        word_timestamps=False,  # unverified — registry carries "verify" until tested
+        languages=["de", "en"],
+        device=["gpu"],
         label="ark-asr",
     )
 

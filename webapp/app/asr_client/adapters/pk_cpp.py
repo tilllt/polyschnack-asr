@@ -19,6 +19,9 @@ class PkCppClient(AsrClient):
         streaming=False,
         async_jobs=False,
         noise_reduce=False,
+        word_timestamps=True,  # same parakeet model, timestamps model-inherent
+        languages=["de", "en"],
+        device=["gpu"],
         label="pk-cpp",
     )
 

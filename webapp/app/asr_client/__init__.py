@@ -32,6 +32,9 @@ class BackendCapabilities:
     streaming: bool = False
     async_jobs: bool = False
     noise_reduce: bool = False
+    word_timestamps: bool = False
+    languages: List[str] = field(default_factory=list)
+    device: List[str] = field(default_factory=lambda: ["cpu"])
     label: str = "pk-python"
 
 

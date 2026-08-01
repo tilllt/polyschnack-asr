@@ -21,6 +21,9 @@ class PkPythonClient(AsrClient):
         streaming=True,
         async_jobs=True,
         noise_reduce=True,
+        word_timestamps=True,  # parakeet TDT emits word timestamps model-inherently
+        languages=["de", "en"],
+        device=["gpu", "cpu"],
         label="pk-python",
     )
 

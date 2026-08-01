@@ -80,7 +80,27 @@ Env-Variable — kein Code nötig.
 | **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). |
 | **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
 | **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
-| **Voxtral** | *(kommt)* | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming. |
+| **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
+
+### Feature-Matrix der Backends
+
+| Feature | pk-python | pk-cpp | qwen3-asr | ark-asr | voxtral |
+|---------|-----------|--------|-----------|---------|---------|
+| Word-Timestamps | ✅ | ✅ | ✅ | ⚠️ *prüfen* | ❌ *nicht trainiert* |
+| Live-Streaming (Preview) | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Async-Jobs (Hintergrund) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Noise-Reduction (Service) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| VAD-Trimmung (Silero, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Diarization (pyannote, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Gerät | GPU + CPU | GPU | GPU | GPU | GPU |
+| Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~2,7 GB |
+
+*⚠️ „prüfen" = Wert wird beim Implementieren gegen die echte API-Antwort verifiziert.
+❌ „nicht trainiert" = Voxtral liefert laut Mistral keine Word-Timestamps (Modell ist ein
+LLM mit Audio-Encoder, kein reines ASR). Die Matrix ist auch live in der GUI
+(Admin-Bereich → „Modell-Matrix") und via `GET /api/models/matrix` abrufbar.*
 
 ### Parakeet (Python/ONNX) — Standard, einfach loslegen
 

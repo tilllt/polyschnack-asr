@@ -27,6 +27,7 @@ from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
 from .routers.models import router as models_router, _hf_token, _check_vad, _check_diarize
+from .routers.matrix import router as matrix_router
 from .routers.auth import router as auth_router
 from .routers.segments import router as segments_router
 from .routers.url_import import router as url_import_router
@@ -94,6 +95,7 @@ app.add_middleware(
 
 app.include_router(recordings_router)
 app.include_router(models_router)
+app.include_router(matrix_router)
 app.include_router(segments_router)
 app.include_router(url_import_router)
 app.include_router(auth_router)

@@ -30,6 +30,9 @@ class Qwen3AsrCppClient(AsrClient):
         streaming=False,
         async_jobs=False,
         noise_reduce=False,
+        word_timestamps=True,  # via the forced aligner model
+        languages=["de", "en"],
+        device=["gpu"],
         label="qwen3-asr",
     )
 
