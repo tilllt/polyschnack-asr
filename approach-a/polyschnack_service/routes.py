@@ -115,6 +115,29 @@ def _decode(raw: bytes):
 # ---------------------------------------------------------------------------
 # Health / metrics
 # ---------------------------------------------------------------------------
+
+
+def _vram_free_gb():
+    """Free VRAM in GB via nvidia-smi inside the CUDA container, or None."""
+    import shutil
+    import subprocess
+
+    if shutil.which("nvidia-smi") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            return None
+        free_mb = float(out.stdout.strip().split(",")[0])
+        return round(free_mb / 1024, 1)
+    except Exception:
+        return None
+
+
 @router.get("/health")
 def health():
     return {
@@ -124,6 +147,7 @@ def health():
         "models": list(MODEL_CONFIGS.keys()),
         "loaded": loaded_models(),
         "cpu": CPU_INFO,
+        "resources": {"vram_free_gb": _vram_free_gb()},
     }
 
 

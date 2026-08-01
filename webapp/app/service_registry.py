@@ -23,6 +23,7 @@ SERVICES: List[Dict[str, Any]] = [
         "type": "local",
         "concurrency": 1,
         "model": "parakeet-tdt-0.6b-v3-onnx",
+        "health_url": "",  # "" -> settings.ASR_URL; only our own servers report VRAM
         "requires": {"vram_gb": 6, "ram_gb": 8, "disk_gb": 5},
         "capabilities": {
             "word_timestamps": True,
