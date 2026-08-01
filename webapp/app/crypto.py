@@ -5,13 +5,16 @@ Secret-Management-Aufwand, aber die DB-Werte sind ohne das Secret wertlos.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 
 from cryptography.fernet import Fernet
 
 from .config import settings
 
-_KEY = Fernet(hashlib.sha256((settings.SESSION_SECRET or "dev").encode()).digest())
+_KEY = Fernet(base64.urlsafe_b64encode(
+    hashlib.sha256((settings.SESSION_SECRET or "dev").encode()).digest()
+))
 
 
 def encrypt(plain: str) -> str:
