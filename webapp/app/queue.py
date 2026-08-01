@@ -139,8 +139,9 @@ class QueueManager:
     def position(self, rec_id: int) -> int:
         """1-based position among queued jobs on the same endpoint.
 
-        Anonyme Jobs (priority 1) zählen nur Jobs gleicher oder höherer
-        Priorität vor sich — ein wartender registrierter Job (0) springt vor.
+        Bearbeitungsreihenfolge (Task B6): Jobs mit niedrigerer Priorität
+        kommen immer zuerst (auch wenn sie später enqueued wurden), danach
+        FIFO innerhalb derselben Priorität.
         """
         with self._lock:
             mine = self._jobs.get(rec_id)
@@ -149,7 +150,8 @@ class QueueManager:
             return 1 + sum(
                 1 for j in self._jobs.values()
                 if j.backend == mine.backend and j.status == "queued"
-                and j.seq < mine.seq and j.priority >= mine.priority
+                and (j.priority < mine.priority
+                     or (j.priority == mine.priority and j.seq < mine.seq))
             )
 
     def active_jobs_for(self, backend: str) -> int:

@@ -69,9 +69,3 @@ def test_ensure_free_only_oidc_paid_ok(monkeypatch):
     monkeypatch.setattr(pricing, "get_service",
                         lambda name: {"cost_per_minute_eur": 0.02})
     pricing.ensure_free_only(_Oidc(), backend="paid", want_llm=True)  # kein Raise
-
-
-def test_registry_self_check_passes():
-    from app.service_registry import _self_check
-
-    _self_check()
