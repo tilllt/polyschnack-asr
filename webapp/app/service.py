@@ -164,6 +164,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         enable_enhance = rec.enable_enhance
         enable_punctuation = rec.enable_punctuation
         enable_llm_enhance = rec.enable_llm_enhance
+        prompt_template_id = rec.prompt_template_id
+        delivery_target_id = rec.delivery_target_id
+        owner_id = rec.user_id
         if backend is None:
             backend = rec.backend or "pk-python"
 
@@ -285,6 +288,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             text = run_punctuation(text, settings.POLYSCHNACK_PUNCTUATION_MODE)
         if enable_llm_enhance:
             text, segments = run_llm_enhance(text, segments)
+
+        # Post-Processing mit Prompt-Template (Task D4) — LLM, nur bei Auswahl
+        if prompt_template_id:
+            with Session(engine) as s:
+                from .llm import chat as llm_chat
+                from .models import PromptTemplate
+
+                tpl = s.get(PromptTemplate, prompt_template_id)
+                if tpl is None:
+                    raise RuntimeError("prompt template not found")
+                text = llm_chat(tpl.prompt, text or "")
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
@@ -313,8 +327,26 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 prior = list_versions(session, rec_id)
                 snapshot(
                     session, rec, "retranscribe" if prior else "transcribe",
-                    user_id=None,
+                    user_id=owner_id,
                 )
+                if prompt_template_id and rec.text is not None:
+                    snapshot(session, rec, "postprocess", user_id=owner_id)
+                if rec.delivery_target_id:
+                    from .deliver import deliver
+                    from .models import DeliveryTarget
+
+                    target = session.get(DeliveryTarget, rec.delivery_target_id)
+                    if target is None:
+                        rec.delivery_status, rec.delivery_error = "failed", "target not found"
+                    else:
+                        try:
+                            deliver(rec, target)
+                            rec.delivery_status, rec.delivery_error = "done", None
+                        except Exception as exc:
+                            rec.delivery_status = "failed"
+                            rec.delivery_error = f"{type(exc).__name__}: {exc}"[:500]
+                    session.add(rec)
+                    session.commit()
 
 
 # ---------------------------------------------------------------------------

@@ -98,6 +98,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "waveform_peaks": rec.waveform_peaks,
         "user_id": rec.user_id,
         "access_level": access_level,
+        "delivery_status": rec.delivery_status,
+        "delivery_error": rec.delivery_error,
     }
 
 
@@ -387,6 +389,8 @@ def transcribe_ep(
     enable_enhance: str = Form("off"),
     enable_punctuation: Optional[bool] = Form(None),
     enable_llm_enhance: Optional[bool] = Form(None),
+    prompt_template_id: Optional[int] = Form(None),
+    delivery_target_id: Optional[int] = Form(None),
     backend: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
@@ -403,7 +407,7 @@ def transcribe_ep(
     ensure_free_only(
         user,
         backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
-        want_llm=bool(enable_llm_enhance),
+        want_llm=bool(enable_llm_enhance) or prompt_template_id is not None,
         llm_mode=bool(enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -418,6 +422,20 @@ def transcribe_ep(
         rec.enable_punctuation = enable_punctuation
     if enable_llm_enhance is not None:
         rec.enable_llm_enhance = enable_llm_enhance
+
+    from ..models import DeliveryTarget, PromptTemplate
+
+    if prompt_template_id is not None:
+        tpl = session.get(PromptTemplate, prompt_template_id)
+        if tpl is None or tpl.user_id != uid:
+            raise HTTPException(status_code=403, detail="template not found or not yours")
+        rec.prompt_template_id = prompt_template_id
+    if delivery_target_id is not None:
+        tgt = session.get(DeliveryTarget, delivery_target_id)
+        if tgt is None or tgt.user_id != uid:
+            raise HTTPException(status_code=403, detail="target not found or not yours")
+        rec.delivery_target_id = delivery_target_id
+        rec.delivery_status = "pending"
     session.add(rec)
     session.commit()
 
@@ -447,6 +465,8 @@ class RetranscribeParams(BaseModel):
     enable_enhance: str = "off"
     enable_punctuation: Optional[bool] = None
     enable_llm_enhance: Optional[bool] = None
+    prompt_template_id: Optional[int] = None
+    delivery_target_id: Optional[int] = None
     backend: str = ""
 
 
@@ -470,7 +490,7 @@ def retranscribe(
     ensure_free_only(
         user,
         params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
-        want_llm=bool(params.enable_llm_enhance),
+        want_llm=bool(params.enable_llm_enhance) or params.prompt_template_id is not None,
         llm_mode=bool(params.enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -484,6 +504,20 @@ def retranscribe(
         rec.enable_punctuation = params.enable_punctuation
     if params.enable_llm_enhance is not None:
         rec.enable_llm_enhance = params.enable_llm_enhance
+
+    from ..models import DeliveryTarget, PromptTemplate
+
+    if params.prompt_template_id is not None:
+        tpl = session.get(PromptTemplate, params.prompt_template_id)
+        if tpl is None or tpl.user_id != uid:
+            raise HTTPException(status_code=403, detail="template not found or not yours")
+        rec.prompt_template_id = params.prompt_template_id
+    if params.delivery_target_id is not None:
+        tgt = session.get(DeliveryTarget, params.delivery_target_id)
+        if tgt is None or tgt.user_id != uid:
+            raise HTTPException(status_code=403, detail="target not found or not yours")
+        rec.delivery_target_id = params.delivery_target_id
+        rec.delivery_status = "pending"
     session.add(rec)
     session.commit()
 

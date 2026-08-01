@@ -54,7 +54,12 @@ def test_duplicate_enqueue_raises(qm):
         qm.enqueue(1, None, "pk-python")
 
 
-def test_queue_full_raises(qm):
+def test_queue_full_raises(qm, monkeypatch):
+    # Worker blockieren → Jobs bleiben in der Queue (deterministisch, kein Race)
+    def slow_process(rec_id, backend=None):
+        time.sleep(5)
+
+    monkeypatch.setattr(queue_mod, "process_recording", slow_process)
     qm.enqueue(1, None, "pk-python")
     qm.enqueue(2, None, "pk-python")
     qm.enqueue(3, None, "pk-python")

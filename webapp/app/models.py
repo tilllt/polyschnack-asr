@@ -78,6 +78,13 @@ class Recording(SQLModel, table=True):
     #: LLM-Optimierung nach der Transkription (kostenpflichtig → nur OIDC).
     enable_llm_enhance: bool = False
 
+    # --- Post-Processing & Delivery (Teil D) ---
+    prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
+    delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
+    #: pending | done | failed (gesetzt, sobald ein Target gewählt war)
+    delivery_status: Optional[str] = None
+    delivery_error: Optional[str] = None
+
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)
 
@@ -164,3 +171,30 @@ def hash_token(token: str) -> str:
     import hashlib
 
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+class PromptTemplate(SQLModel, table=True):
+    """Per-User Prompt-Template für LLM-Post-Processing (Task D2)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = "default"
+    prompt: str = ""
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class DeliveryTarget(SQLModel, table=True):
+    """Ziel für die fertige Transkription (Task D3): email | webdav.
+
+    ``config`` ist JSON; Passwörter darin sind per Fernet verschlüsselt
+    (siehe ``crypto.py``) — nie im Klartext in der DB.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = "default"
+    kind: str = "email"  # email | webdav
+    config: Optional[str] = None  # JSON-String (Creds verschlüsselt)
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )

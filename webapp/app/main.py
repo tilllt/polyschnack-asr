@@ -35,6 +35,8 @@ from .routers.segments import router as segments_router
 from .routers.shares import router as shares_router
 from .routers.versions import router as versions_router
 from .routers.keys import router as keys_router
+from .routers.templates import router as templates_router
+from .routers.targets import router as targets_router
 from .routers.url_import import router as url_import_router
 
 log = logging.getLogger(__name__)
@@ -150,6 +152,8 @@ app.include_router(segments_router)
 app.include_router(shares_router)
 app.include_router(versions_router)
 app.include_router(keys_router)
+app.include_router(templates_router)
+app.include_router(targets_router)
 app.include_router(url_import_router)
 app.include_router(auth_router)
 

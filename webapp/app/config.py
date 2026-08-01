@@ -66,6 +66,19 @@ class _Settings:
     #: Punctuation-Modus: off | local (offline fullstop) | llm (DeepSeek/LiteLLM, paid).
     POLYSCHNACK_PUNCTUATION_MODE: str = os.getenv("POLYSCHNACK_PUNCTUATION_MODE", "off")
     POLYSCHNACK_DEFAULT_LLM_ENHANCE: bool = os.getenv("POLYSCHNACK_DEFAULT_LLM_ENHANCE", "").lower() in ("1", "true", "yes", "on")
+
+    #: LLM-Post-Processing (Teil D) — OpenAI-kompatibler Endpunkt, Defaults leer
+    #: (URL/Key müssen per Env gesetzt werden; Model mit sinnvollem Default).
+    POLYSCHNACK_LLM_URL: str = os.getenv("POLYSCHNACK_LLM_URL", "")
+    POLYSCHNACK_LLM_API_KEY: str = os.getenv("POLYSCHNACK_LLM_API_KEY", "")
+    POLYSCHNACK_LLM_MODEL: str = os.getenv("POLYSCHNACK_LLM_MODEL", "deepseek-chat")
+
+    #: SMTP für Delivery-Targets (Task D5) — leer = Mail-Targets deaktiviert.
+    POLYSCHNACK_SMTP_HOST: str = os.getenv("POLYSCHNACK_SMTP_HOST", "")
+    POLYSCHNACK_SMTP_PORT: int = int(os.getenv("POLYSCHNACK_SMTP_PORT", "587"))
+    POLYSCHNACK_SMTP_USER: str = os.getenv("POLYSCHNACK_SMTP_USER", "")
+    POLYSCHNACK_SMTP_PASS: str = os.getenv("POLYSCHNACK_SMTP_PASS", "")
+    POLYSCHNACK_SMTP_FROM: str = os.getenv("POLYSCHNACK_SMTP_FROM", "")
     #: Max jobs waiting in the queue (per process).
     POLYSCHNACK_MAX_QUEUE_LEN: int = int(os.getenv("POLYSCHNACK_MAX_QUEUE_LEN", "20"))
     #: Optional API key for the Voxtral endpoint (empty = no auth header).
