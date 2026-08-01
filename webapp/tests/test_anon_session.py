@@ -43,11 +43,12 @@ def test_second_visit_reuses_user(db):
     with Session(db) as s:
         req = _FakeRequest()
         u1 = ensure_anonymous_user(s, req)
+        uid1, name1 = u1.id, u1.display_name
     with Session(db) as s:
-        req2 = _FakeRequest(session={"anon_user_id": u1.id})
+        req2 = _FakeRequest(session={"anon_user_id": uid1})
         u2 = ensure_anonymous_user(s, req2)
-        assert u2.id == u1.id
-        assert u2.display_name == u1.display_name
+        assert u2.id == uid1
+        assert u2.display_name == name1
 
 
 def test_stale_anon_id_creates_new_user(db):
