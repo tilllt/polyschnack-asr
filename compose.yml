@@ -1,4 +1,16 @@
 services:
+  docker-proxy:
+    image: tecriser/docker-socket-proxy:latest
+    container_name: docker-proxy
+    environment:
+      CONTAINERS: "1"   # GET/POST /containers/* (start/stop/restart/json/logs)
+      INFO: "1"         # GET /info (host RAM/CPU for the resource check)
+      POST: "1"         # allow POST actions
+      # Events/Exec/Create bewusst NICHT freigeschaltet (restriktiv)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
   asr:
     image: registry.example.com/public/polyschnack-asr:latest
     container_name: polyschnack-asr
@@ -94,6 +106,7 @@ services:
       ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
       DATA_DIR: /data
+      DOCKER_PROXY_URL: http://docker-proxy:2375
       HF_TOKEN: ""                       # ← Setzen für Speaker Diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
       PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)

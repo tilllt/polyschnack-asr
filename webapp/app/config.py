@@ -46,6 +46,11 @@ class _Settings:
     #: Comma-separated OIDC group names that grant admin rights.
     POLYSCHNACK_ADMIN_GROUPS: str = os.getenv("POLYSCHNACK_ADMIN_GROUPS", "")
 
+    #: Base URL of the restrictive docker-socket-proxy (Task 4).
+    DOCKER_PROXY_URL: str = os.getenv("DOCKER_PROXY_URL", "http://docker-proxy:2375")
+    #: Optional token the proxy requires (empty = no auth header).
+    DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
+
 
     #: Which ASR backend adapter to use: ``pk-python`` or ``pk-cpp``
     ASR_BACKEND: str = os.getenv("ASR_BACKEND", "pk-python")
