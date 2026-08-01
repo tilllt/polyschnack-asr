@@ -24,7 +24,7 @@ def test_chat_sends_openai_compatible_request(monkeypatch):
         captured["json"] = json
         return httpx.Response(200, json={
             "choices": [{"message": {"content": "Antwort"}}]
-        })
+        }, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     out = llm.chat("System", "User text")
@@ -50,7 +50,8 @@ def test_chat_without_url_raises(monkeypatch):
 
 def test_chat_error_raises_with_message(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
-        return httpx.Response(500, text="server error")
+        return httpx.Response(500, text="server error",
+                              request=httpx.Request("POST", url))
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     with pytest.raises(httpx.HTTPStatusError):
