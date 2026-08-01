@@ -141,3 +141,26 @@ class TranscriptVersion(SQLModel, table=True):
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
     created_by_user_id: Optional[int] = None
+
+
+class ApiKey(SQLModel, table=True):
+    """API-Key für externe Anwendungen (Teil C) — wie ein Share mit Rechte-Deckel.
+
+    Der Klartext-Token wird genau einmal angezeigt; in der DB liegt nur der
+    SHA-256-Hash. ``level`` ∈ read|write|full (gleiche Ebenen wie Shares).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str = "default"
+    level: str = "read"
+    token_hash: str = Field(index=True, unique=True)
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    last_used_at: Optional[dt.datetime] = None
+
+
+def hash_token(token: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(token.encode()).hexdigest()

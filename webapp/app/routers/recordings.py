@@ -44,9 +44,16 @@ log = __import__("logging").getLogger(__name__)
 
 def _current_user(request: Request, session=None) -> int | None:
     """Current user_id — OIDC-Session oder Cookie-gebundene anon-Session (B3)."""
-    from ..anon_session import current_uid
+    from ..identity import current_identity
 
-    return current_uid(request, session)
+    return current_identity(request, session).user.id
+
+
+def _key_cap(request, session=None) -> Optional[str]:
+    """Rechte-Deckel aus einem API-Key (Task C3); None ohne Bearer."""
+    from ..identity import current_identity
+
+    return current_identity(request, session).key_level
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +268,8 @@ def list_recordings_endpoint(
     uid = _current_user(request, session)
     rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
     return [
-        _recording_to_dict(r, access_level=get_access_level(session, r, uid))
+        _recording_to_dict(r, access_level=get_access_level(
+            session, r, uid, cap=_key_cap(request, session)))
         for r in rows
     ]
 
@@ -277,8 +285,9 @@ def get_recording_endpoint(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "read")
-    d = _recording_to_dict(rec, access_level=get_access_level(session, rec, uid))
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+    d = _recording_to_dict(rec, access_level=get_access_level(
+        session, rec, uid, cap=_key_cap(request, session)))
     # Debug: include word presence info without changing data
     segs = d.get("segments") or []
     d["_words_debug"] = {
@@ -305,7 +314,7 @@ def get_audio(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "read")
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
 
     path = Path(rec.stored_path)
     if not path.exists():
@@ -386,7 +395,7 @@ def transcribe_ep(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
 
     from ..pricing import ensure_free_only
 
@@ -453,7 +462,7 @@ def retranscribe(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
 
     from ..pricing import ensure_free_only
 
@@ -507,7 +516,7 @@ def delete_recording_endpoint(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
     rec = delete_recording(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -535,7 +544,7 @@ def transcribe_range(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
 
     audio_bytes = Path(rec.stored_path).read_bytes()
     trimmed = trim_audio(audio_bytes, start_sec, end_sec)

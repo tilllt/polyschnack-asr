@@ -21,9 +21,15 @@ router = APIRouter(prefix="/api")
 
 
 def _current_user(request, session=None) -> Optional[int]:
-    from ..anon_session import current_uid
+    from ..identity import current_identity
 
-    return current_uid(request, session)
+    return current_identity(request, session).user.id
+
+
+def _key_cap(request, session=None) -> Optional[str]:
+    from ..identity import current_identity
+
+    return current_identity(request, session).key_level
 
 
 class ShareCreate(BaseModel):
@@ -56,7 +62,7 @@ def list_shares(rid: str, request: Request, session: Session = Depends(get_sessi
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
     shares = session.exec(
         select(RecordingShare).where(RecordingShare.rec_id == rec.id)
     ).all()
@@ -83,7 +89,7 @@ def create_share(
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
     target = _resolve_user(session, body.user)
     if target is None:
         raise HTTPException(status_code=404, detail="user not found")
@@ -116,7 +122,7 @@ def update_share(
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
     share = _get_share(session, rec, share_id)
     share.level = body.level
     session.add(share)
@@ -132,7 +138,7 @@ def delete_share(
     if rec is None:
         raise HTTPException(status_code=404, detail="recording not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full")
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
     share = _get_share(session, rec, share_id)
     session.delete(share)
     session.commit()

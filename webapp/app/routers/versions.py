@@ -16,9 +16,15 @@ router = APIRouter(prefix="/api")
 
 
 def _current_user(request, session=None) -> Optional[int]:
-    from ..anon_session import current_uid
+    from ..identity import current_identity
 
-    return current_uid(request, session)
+    return current_identity(request, session).user.id
+
+
+def _key_cap(request, session=None) -> Optional[str]:
+    from ..identity import current_identity
+
+    return current_identity(request, session).key_level
 
 
 def _get_version(session: Session, rec_id: int, v_no: int):
@@ -34,7 +40,8 @@ def list_versions_endpoint(rid: str, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request, session), "read")
+    ensure_access(session, rec, _current_user(request, session), "read",
+                  cap=_key_cap(request, session))
     return [
         {
             "version_no": v.version_no,
@@ -56,7 +63,8 @@ def diff_endpoint(rid: str, v_no: int, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request, session), "read")
+    ensure_access(session, rec, _current_user(request, session), "read",
+                  cap=_key_cap(request, session))
     versions = list_versions(session, rec.id)
     b = next((v for v in versions if v.version_no == v_no), None)
     if b is None:
@@ -80,7 +88,7 @@ def restore_endpoint(rid: str, v_no: int, request: Request,
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "write")
+    ensure_access(session, rec, uid, "write", cap=_key_cap(request, session))
     v = _get_version(session, rec.id, v_no)
     rec.text = v.text
     rec.segments = list(v.segments) if v.segments else None

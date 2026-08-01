@@ -32,11 +32,11 @@ def update_segment(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
 
-    uid = request.session.get("user_id") if settings.OIDC_ENABLED else None
-    from ..anon_session import current_uid
+    from ..identity import current_identity
 
-    uid = current_uid(request, session)
-    ensure_access(session, rec, uid, "write")
+    identity = current_identity(request, session)
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
 
     # Tiefe Kopie: neue dicts → SQLAlchemy erkennt die Zuweisung als Änderung
     # (In-Place-Mutation der JSON-Liste würde auch die "alte" Liste verändern,
