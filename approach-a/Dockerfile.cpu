@@ -24,10 +24,10 @@ COPY requirements.txt .
 
 # Install Python dependencies. requirements.txt is GPU-first, so the CPU image
 # swaps onnxruntime-gpu for onnxruntime.
-RUN pip install --no-cache-dir --upgrade pip && \
-    RUN pip install --no-cache-dir --break-system-packages --upgrade pip && \
-        pip install --no-cache-dir --break-system-packages -r /tmp/requirements.cpu.txt && \
-        pip install --no-cache-dir --break-system-packages onnxruntime==1.28.0
+RUN pip install --no-cache-dir --break-system-packages --upgrade pip && \
+    grep -v '^onnxruntime-gpu' requirements.txt > /tmp/requirements.cpu.txt && \
+    pip install --no-cache-dir --break-system-packages -r /tmp/requirements.cpu.txt && \
+    pip install --no-cache-dir --break-system-packages onnxruntime==1.28.0
 
 # Copy application code
 COPY server.py .
