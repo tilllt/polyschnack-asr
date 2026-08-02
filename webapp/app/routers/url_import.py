@@ -16,7 +16,7 @@ from ..config import settings
 from ..crud import create_recording
 from ..db import get_session
 from ..models import Recording
-from .recordings import _current_user, _recording_to_dict
+from .recordings import _convert_to_wav_if_needed, _current_user, _recording_to_dict
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,11 @@ async def import_from_url(
 
     if not audio_data:
         raise HTTPException(status_code=400, detail="empty audio downloaded")
+
+    # yt-dlp liefert je nach Quelle 44.1/48 kHz (Stereo). ASR-Service,
+    # Peak-Berechnung und WaveSurfer erwarten 16 kHz mono → wie beim
+    # Upload-Pfad konvertieren.
+    audio_data, _, conv_note = _convert_to_wav_if_needed(audio_data, "audio.wav")
 
     content_hash = hashlib.blake2b(audio_data, digest_size=16).hexdigest()
     existing = session.exec(
