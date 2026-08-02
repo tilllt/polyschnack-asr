@@ -35,6 +35,8 @@ def update_segment(
     from ..identity import current_identity
 
     identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
     uid = identity.user.id
     ensure_access(session, rec, uid, "write", cap=identity.key_level)
 
