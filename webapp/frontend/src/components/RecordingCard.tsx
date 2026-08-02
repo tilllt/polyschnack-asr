@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
 import type { ModelMatrixEntry, Recording } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, type ShareItem, type VersionItem } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, type ShareItem, type VersionItem } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -11,6 +11,7 @@ import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { activeSegmentIndex } from "../karaoke";
+import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, type FeatureValues } from "./FeatureToggles";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
@@ -110,6 +111,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
   const [shares, setShares] = useState<ShareItem[]>([]);
   const [shareUser, setShareUser] = useState("");
   const [shareLevel, setShareLevel] = useState<"read" | "write" | "full">("read");
+  const [anonLink, setAnonLink] = useState<{
+    active: boolean;
+    url: string;
+    retentionMinutes: number;
+    expiresAt: string | null;
+  } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
   const [versions, setVersions] = useState<VersionItem[]>([]);
   const [diffText, setDiffText] = useState("");
@@ -171,9 +179,35 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
     try {
       await deleteShare(r.uid, shareId);
       await loadShares();
-      await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Share: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function toggleAnonLinkState(enabled: boolean) {
+    try {
+      const res = await toggleAnonLink(r.uid, enabled);
+      setAnonLink({
+        active: res.share_token,
+        url: buildShareUrl(r.uid),
+        retentionMinutes: res.retention_minutes,
+        expiresAt: res.expires_at,
+      });
+      setLinkCopied(false);
+      if (!enabled) toast(t("anon_link_off"), "ok");
+    } catch (e) {
+      toast(`Anon-Link: ${(e as Error).message}`, "err");
+    }
+  }
+
+  async function copyAnonLink() {
+    if (!anonLink) return;
+    try {
+      await navigator.clipboard.writeText(anonLink.url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toast(anonLink.url, "ok");
     }
   }
 
@@ -323,7 +357,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
   return (
     <div
       className={`
-        bg-panel border border-border rounded-card
+        ${r.shared_with_me ? "bg-amber-500/5 border-amber-400/40" : "bg-panel border-border"}
+        border rounded-card
         transition-colors duration-200 hover:border-border2
         ${statusBorderClass}
       `}
@@ -347,6 +382,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
           {r.original_name}
         </span>
         <StatusBadge status={r.status} t={t} />
+        {r.shared_with_me && (
+          <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-sm px-1.5 py-[2px]" title={t("shared_badge")}>
+            🔗 {t("shared_badge")}
+          </span>
+        )}
         {r.status === "done" && (
           <button
             onClick={() => setSearchOpen((v) => !v)}
@@ -579,11 +619,32 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
           </div>
         )}
 
-        {/* Share dropdown (nur Owner) */}
-        {r.status === "done" && r.access_level === "owner" && (
+        {/* Share dropdown (nur Owner — Backend liefert access_level "full") */}
+        {r.status === "done" && (r.access_level === "full" || r.access_level === "owner") && (
           <div className="relative inline-flex">
             <button
-              onClick={() => { setShareOpen((o) => !o); if (!shareOpen) void loadShares(); }}
+              onClick={() => {
+                setShareOpen((o) => !o);
+                if (!shareOpen) {
+                  void loadShares();
+                  // Initialer Anon-Link-Zustand aus der Recording
+                  const retMin = r.retention_minutes ?? 60;
+                  const exp =
+                    r.shared_at && r.is_anon_shared
+                      ? new Date(new Date(r.shared_at).getTime() + retMin * 60000).toISOString()
+                      : null;
+                  setAnonLink(
+                    r.is_anon_shared
+                      ? {
+                          active: true,
+                          url: buildShareUrl(r.uid),
+                          retentionMinutes: retMin,
+                          expiresAt: exp,
+                        }
+                      : null,
+                  );
+                }
+              }}
               className="btn-ghost-sm flex items-center gap-1"
             >
               🔗 {t("share")}
@@ -619,6 +680,48 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
                   <button onClick={() => void doShare()} className="bg-accent text-white text-[11px] px-2 py-1 rounded-sm font-semibold hover:opacity-90">
                     {t("share")}
                   </button>
+                </div>
+
+                {/* ── Anon-Share-Link (read-only) + Retention-Warnung ── */}
+                <div className="mt-2 pt-2 border-t border-border">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[11px] font-semibold text-txt">{t("anon_link")}</span>
+                    <button
+                      onClick={() => void toggleAnonLinkState(!(anonLink?.active ?? false))}
+                      className={`text-[10px] px-2 py-0.5 rounded-sm font-semibold ${
+                        anonLink?.active
+                          ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                          : "bg-panel2 border border-border text-muted hover:bg-panel3"
+                      }`}
+                    >
+                      {anonLink?.active ? t("anon_link_on") : t("share")}
+                    </button>
+                  </div>
+                  {anonLink?.active ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <code className="flex-1 min-w-0 truncate text-[10px] text-muted bg-panel2 border border-border rounded-sm px-1.5 py-1">
+                          {anonLink.url}
+                        </code>
+                        <button
+                          onClick={() => void copyAnonLink()}
+                          className="btn-ghost-sm text-[10px] px-1.5 py-1 flex-shrink-0"
+                          title={t("copy_link")}
+                        >
+                          {linkCopied ? "✓" : "⧉"}
+                        </button>
+                      </div>
+                      {linkCopied && <p className="text-[10px] text-emerald-400">{t("link_copied")}</p>}
+                      <p className="text-[10px] text-amber-300/90 leading-snug">
+                        ⚠️{" "}
+                        {t("anon_link_expiry")
+                          .replace("{expiry}", formatExpiry(anonLink.expiresAt, anonLink.retentionMinutes))
+                          .replace("{minutes}", String(anonLink.retentionMinutes))}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted2 leading-snug">{t("anon_link_hint")}</p>
+                  )}
                 </div>
               </div>
             )}

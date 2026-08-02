@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { importFromUrl, recordFromMic, uploadRecording } from "../api";
+import { importFromUrl, recordFromMic, uploadRecording, type UserInfo } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 
-export function UploadZone() {
+interface Props {
+  user?: UserInfo | null;
+}
+
+export function UploadZone({ user }: Props) {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
   const [recording, setRecording] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -126,6 +130,16 @@ export function UploadZone() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Anon-Retention-Hinweis: anonyme User werden gewarnt */}
+      {user?.anonymous && (
+        <div className="border border-amber-500/40 bg-amber-500/10 rounded-sm px-3 py-2 text-[12px] text-amber-200 leading-snug">
+          ⚠️{" "}
+          {t("anon_retention_warning").replace(
+            "{minutes}",
+            String(user.retention_minutes ?? 15),
+          )}
+        </div>
+      )}
       {/* Tab bar */}
       <div className="flex gap-0 border-b border-border">
         <TabButton active={inputMode === "upload"} disabled={recording} onClick={() => setInputMode("upload")}>

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useRecordings, useStats, useModelStatus } from "./hooks";
 import { ToastProvider } from "./components/Toasts";
-import { LocaleProvider, useT, type Lang } from "./useLocale";
+import { useT, type Lang, LocaleProvider } from "./useLocale";
+import { parseSharePath } from "./share";
+import { SharedRecordingView } from "./components/SharedRecordingView";
 import { fetchMe, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
@@ -16,6 +18,9 @@ function AppContent() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [view, setView] = useState<"main" | "settings">("main");
   const { t, lang, setLang } = useT();
+
+  // Anon-Share-Link: /r/:uid → read-only-Ansicht ohne Login
+  const shareUid = parseSharePath(window.location.pathname)?.uid ?? null;
 
   useEffect(() => {
     fetchMe().then(setUser).catch(() => setUser({ anonymous: true }));
@@ -72,6 +77,11 @@ function AppContent() {
                 </a>
               </div>
             )}
+            {user?.anonymous && user.name && (
+              <span className="text-[12px] text-muted" title={t("anon_link_hint")}>
+                🐇 {user.name}
+              </span>
+            )}
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value as Lang)}
@@ -95,9 +105,11 @@ function AppContent() {
 
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
-        {view === "main" ? (
+        {shareUid ? (
+          <SharedRecordingView uid={shareUid} />
+        ) : view === "main" ? (
           <>
-            <UploadZone />
+            <UploadZone user={user} />
 
             <QueueWatcher />
 
