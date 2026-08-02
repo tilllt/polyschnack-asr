@@ -83,7 +83,7 @@ def _download_diarize():
         token = os.getenv("HF_TOKEN")
         Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=token,
+            token=token,
             cache_dir=str(_MODEL_CACHE),
         )
         _download_progress["diarize"] = "done"

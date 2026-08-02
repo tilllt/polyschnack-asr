@@ -28,7 +28,7 @@ def _load_pipeline():
     from pyannote.audio import Pipeline
     _pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=token,
+        token=token,
     )
     log.info("pyannote diarization pipeline loaded")
     return _pipeline
