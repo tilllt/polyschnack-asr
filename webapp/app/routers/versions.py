@@ -18,13 +18,33 @@ router = APIRouter(prefix="/api")
 def _current_user(request, session=None) -> Optional[int]:
     from ..identity import current_identity
 
-    return current_identity(request, session).user.id
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        return None
+    return identity.user.id
 
 
 def _key_cap(request, session=None) -> Optional[str]:
     from ..identity import current_identity
 
-    return current_identity(request, session).key_level
+    identity = current_identity(request, session)
+    if identity is None:
+        return None
+    return identity.key_level
+
+
+def _anon_since(rec, uid: Optional[int]) -> Optional[object]:
+    """Versions-Gating für Anon-Share-Link-Zugriffe.
+
+    Nur wenn der Zugriff NICHT vom Owner kommt (uid fehlt oder != rec.user_id)
+    UND die Recording einen Anon-Link hat, werden Versionen vor ``shared_at``
+    ausgeblendet („discarded"). Der Owner sieht immer alle Versionen.
+    """
+    if not getattr(rec, "share_token", False):
+        return None
+    if rec.user_id is not None and uid == rec.user_id:
+        return None  # Owner → alle Versionen
+    return getattr(rec, "shared_at", None)
 
 
 def _get_version(session: Session, rec_id: int, v_no: int):
@@ -40,8 +60,10 @@ def list_versions_endpoint(rid: str, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request, session), "read",
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read",
                   cap=_key_cap(request, session))
+    since = _anon_since(rec, uid)
     return [
         {
             "version_no": v.version_no,
@@ -51,7 +73,7 @@ def list_versions_endpoint(rid: str, request: Request,
             "created_at": v.created_at.isoformat(),
             "created_by_user_id": v.created_by_user_id,
         }
-        for v in list_versions(session, rec.id)
+        for v in list_versions(session, rec.id, since=since)
     ]
 
 
@@ -63,9 +85,10 @@ def diff_endpoint(rid: str, v_no: int, request: Request,
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
-    ensure_access(session, rec, _current_user(request, session), "read",
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read",
                   cap=_key_cap(request, session))
-    versions = list_versions(session, rec.id)
+    versions = list_versions(session, rec.id, since=_anon_since(rec, uid))
     b = next((v for v in versions if v.version_no == v_no), None)
     if b is None:
         raise HTTPException(status_code=404, detail="version not found")

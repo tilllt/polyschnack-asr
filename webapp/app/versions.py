@@ -1,6 +1,7 @@
 """Versions-Snapshots: anlegen, auflisten, diffen (Task A6/A7)."""
 from __future__ import annotations
 
+import datetime as dt
 import difflib
 from typing import Any, List, Optional
 
@@ -36,12 +37,21 @@ def snapshot(
     return v
 
 
-def list_versions(session: Session, rec_id: int) -> List[TranscriptVersion]:
+def list_versions(
+    session: Session, rec_id: int, since: Optional[dt.datetime] = None
+) -> List[TranscriptVersion]:
+    """Versionen einer Aufnahme auflisten.
+
+    ``since`` (Anon-Share-Link): Versionen VOR dem Share-Zeitpunkt sind für
+    den Link-Empfänger unsichtbar („discarded") — nur neuere werden geliefert.
+    """
     stmt = (
         select(TranscriptVersion)
         .where(TranscriptVersion.rec_id == rec_id)
-        .order_by(TranscriptVersion.version_no.asc())
     )
+    if since is not None:
+        stmt = stmt.where(TranscriptVersion.created_at >= since)
+    stmt = stmt.order_by(TranscriptVersion.version_no.asc())
     return list(session.exec(stmt).all())
 
 

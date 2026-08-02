@@ -92,6 +92,12 @@ class Recording(SQLModel, table=True):
     # --- user (optional) ---
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
 
+    # --- anonymous share link (read-only, 32-char uid = token) ---
+    #: True → jeder mit dem UID-Link kann lesen (kein Login, NIE write/full).
+    share_token: bool = False
+    #: Zeitpunkt der Link-Erstellung — Versionen davor sind für Anon unsichtbar.
+    shared_at: Optional[dt.datetime] = None
+
     # --- WhatsApp / batch metadata ---
     #: Opaque identifier grouping files uploaded together.
     batch_id: Optional[str] = None

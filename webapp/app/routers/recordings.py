@@ -5,6 +5,7 @@ Each endpoint is thin: parse the incoming request, delegate to ``crud`` or
 """
 from __future__ import annotations
 
+import datetime as dt
 import mimetypes
 import uuid
 from pathlib import Path
@@ -98,6 +99,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "waveform_peaks": rec.waveform_peaks,
         "user_id": rec.user_id,
         "access_level": access_level,
+        "is_anon_shared": bool(getattr(rec, "share_token", False)),
         "delivery_status": rec.delivery_status,
         "delivery_error": rec.delivery_error,
     }
@@ -298,6 +300,39 @@ def get_recording_endpoint(
         "total_words": sum(len(s.get("words") or []) for s in segs),
     }
     return d
+
+
+class AnonLinkUpdate(BaseModel):
+    enabled: bool
+
+
+@router.post("/recordings/{rid}/anon-link")
+def toggle_anon_link(
+    rid: str,
+    body: AnonLinkUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Anon-Share-Link an/aus (read-only). Nur der Owner (full) darf.
+
+    ``shared_at`` wird beim ERSTEN Aktivieren gesetzt und bleibt auch bei
+    Deaktivieren/Reaktivieren erhalten — die Versions-Gating-Basis.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+    rec.share_token = body.enabled
+    if body.enabled and rec.shared_at is None:
+        rec.shared_at = dt.datetime.now(dt.timezone.utc)
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+    return {
+        "share_token": rec.share_token,
+        "shared_at": rec.shared_at.isoformat() if rec.shared_at else None,
+    }
 
 
 # ---------------------------------------------------------------------------

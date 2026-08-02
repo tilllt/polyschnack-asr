@@ -20,9 +20,14 @@ def get_access_level(session, rec, uid: Optional[int], cap: Optional[str] = None
     ``cap`` (Task C3): Rechte-Deckel eines API-Keys — der Level wird nie
     höher als ``cap``, selbst wenn Owner/Share mehr erlauben würden.
     """
-    if rec.user_id is None:
+    # Anon-Share-Link: jeder AUSSER dem Owner (auch ohne Login) bekommt
+    # NUR read — nie write/full. Der Owner behält full (kann Link deaktivieren).
+    is_owner = uid is not None and rec.user_id == uid
+    if getattr(rec, "share_token", False) and not is_owner:
+        level = "read"
+    elif rec.user_id is None:
         level = "read"  # Legacy-public: für alle lesbar
-    elif uid is not None and rec.user_id == uid:
+    elif is_owner:
         level = "full"
     else:
         share = _find_share(session, rec.id, uid) if uid is not None else None
