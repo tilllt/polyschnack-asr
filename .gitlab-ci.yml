@@ -25,6 +25,18 @@ test-webapp:
   only:
     - main
 
+test-frontend:
+  stage: test
+  image: node:20-slim
+  tags:
+    - shared
+  script:
+    - cd webapp/frontend
+    - npm install --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+    - npm test
+  only:
+    - main
+
 build-qwen3:
   timeout: 60 minutes
   stage: build
