@@ -1,0 +1,87 @@
+/* ============================================================
+   KARAOKE-Tests: Wort-Hervorhebung nach Diarization-Merge & Edit
+   ============================================================ */
+import { describe, it, expect } from "vitest";
+import {
+  isWordActive,
+  activeSegmentIndex,
+  isKaraokeReady,
+  type KaraokeSegment,
+} from "./karaoke.ts";
+
+describe("isWordActive (Karaoke-Highlight-Regel)", () => {
+  it("highlightet Wörter während ihres Zeitfensters", () => {
+    const w = { word: "hallo", start: 1.0, end: 2.0 };
+    expect(isWordActive(w, 0.5)).toBe(false); // vor dem Wort
+    expect(isWordActive(w, 1.0)).toBe(true); // start inklusive
+    expect(isWordActive(w, 1.5)).toBe(true); // mitten im Wort
+    expect(isWordActive(w, 2.0)).toBe(false); // end exklusive
+    expect(isWordActive(w, 3.0)).toBe(false); // nach dem Wort
+  });
+
+  it("funktioniert mit Merge/Edit-Wörtern (float-Timestamps)", () => {
+    const w = { word: "weiblich", start: 4.32, end: 6.24 };
+    expect(isWordActive(w, 4.319)).toBe(false);
+    expect(isWordActive(w, 4.32)).toBe(true);
+    expect(isWordActive(w, 6.239)).toBe(true);
+    expect(isWordActive(w, 6.24)).toBe(false);
+  });
+
+  it("behandelt 0-Dauer-Wörter (defekt) als nie aktiv", () => {
+    const w = { word: "x", start: 2.0, end: 2.0 };
+    expect(isWordActive(w, 2.0)).toBe(false);
+  });
+});
+
+describe("activeSegmentIndex (Auto-Scroll + Karaoke-Basis)", () => {
+  const segments: KaraokeSegment[] = [
+    { start: 0.0, end: 4.32, text: "A" },
+    { start: 4.32, end: 6.24, text: "B" },
+    { start: 6.24, end: 21.44, text: "C" },
+  ];
+
+  it("findet das Segment zur aktuellen Zeit", () => {
+    expect(activeSegmentIndex(segments, 0.0)).toBe(0);
+    expect(activeSegmentIndex(segments, 4.319)).toBe(0);
+    expect(activeSegmentIndex(segments, 4.32)).toBe(1);
+    expect(activeSegmentIndex(segments, 10.0)).toBe(2);
+  });
+
+  it("liefert -1 vor dem ersten Segment", () => {
+    expect(activeSegmentIndex(segments, -1)).toBe(-1);
+  });
+
+  it("bleibt nach dem Ende am letzten Segment", () => {
+    expect(activeSegmentIndex(segments, 25.0)).toBe(2);
+  });
+
+  it("leere Liste → -1", () => {
+    expect(activeSegmentIndex([], 1.0)).toBe(-1);
+  });
+});
+
+describe("isKaraokeReady (nach Merge/Edit)", () => {
+  it("true wenn alle Wörter gültige Timestamps haben", () => {
+    const seg: KaraokeSegment = {
+      start: 0, end: 2, text: "a b",
+      words: [
+        { word: "a", start: 0.0, end: 1.0 },
+        { word: "b", start: 1.0, end: 2.0 },
+      ],
+    };
+    expect(isKaraokeReady(seg)).toBe(true);
+  });
+
+  it("false wenn Wörter ohne Timestamps (z.B. proportionaler Fallback)", () => {
+    const seg: KaraokeSegment = {
+      start: 0, end: 2, text: "a b",
+      words: [{ word: "a" }, { word: "b" }] as unknown as KaraokeSegment["words"],
+    };
+    expect(isKaraokeReady(seg)).toBe(false);
+  });
+
+  it("false bei leerer Wortliste oder fehlendem words-Feld", () => {
+    expect(isKaraokeReady({ start: 0, end: 2, text: "x" })).toBe(false);
+    expect(isKaraokeReady({ start: 0, end: 2, text: "x", words: [] })).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
 import { updateSegment } from "../api";
 import { fmtTimecode } from "../format";
+import { isWordActive } from "../karaoke";
 
 interface Props {
   segments: Segment[];
@@ -126,7 +127,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             <span className="text-txt flex-1 min-w-0">
               {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
                 ? seg.words.map((w, wi) => {
-                    const isActive = currentTime >= w.start && currentTime < w.end;
+                    const isActive = isWordActive(w, currentTime);
                     return (
                       <span
                         key={wi}

@@ -10,6 +10,7 @@ import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
+import { activeSegmentIndex } from "../karaoke";
 import { FeatureToggles, type FeatureValues } from "./FeatureToggles";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
@@ -233,14 +234,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
-    if (!hasSegments || !segments) return;
-    let idx = -1;
-    for (let i = 0; i < segments.length; i++) {
-      if (t >= segments[i].start && t < segments[i].end) { idx = i; break; }
-    }
-    if (idx === -1 && t >= (segments[segments.length - 1]?.start ?? 0)) {
-      idx = segments.length - 1;
-    }
+    const idx = activeSegmentIndex(segments ?? [], t);
     setActiveSegIdx((prev) => (prev === idx ? prev : idx));
   }, [hasSegments, segments]);
 
