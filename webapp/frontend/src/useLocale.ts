@@ -118,6 +118,7 @@ const dict: Record<Lang, Record<string, string>> = {
     rec_wakelock: "Tela permanece ligada",
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Baixar & transcrever",
+    url_downloading: "Baixando…",
     original_audio: "Áudio original (WAV)",
   },
   de: {
@@ -235,6 +236,7 @@ const dict: Record<Lang, Record<string, string>> = {
     rec_wakelock: "Bildschirm bleibt an",
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Herunterladen & transkribieren",
+    url_downloading: "Lädt herunter…",
     original_audio: "Original (WAV)",
   },
   en: {
@@ -352,6 +354,7 @@ const dict: Record<Lang, Record<string, string>> = {
     rec_wakelock: "Screen stays on",
     url_placeholder: "https://youtube.com/watch?v=…",
     url_download: "Download & transcribe",
+    url_downloading: "Downloading…",
     original_audio: "Original Audio (WAV)",
   },
 };

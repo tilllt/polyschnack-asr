@@ -605,7 +605,7 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enha
           disabled={isDownloading || !url.trim()}
           className="btn-accent text-[13px] px-4 py-2 rounded-sm whitespace-nowrap"
         >
-          {isDownloading ? "⏳" : "🔗"} {t("url_download")}
+          {isDownloading ? "⏳ " + t("url_downloading") : "🔗 " + t("url_download")}
         </button>
       </div>
     </div>

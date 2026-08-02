@@ -145,7 +145,17 @@ export interface ModelMatrixEntry {
    ============================================================ */
 
 async function checkOk(res: Response): Promise<Response> {
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // Server-Detail-Message durchreichen (z.B. "yt-dlp failed: … 429")
+    let detail = "";
+    try {
+      const body = await res.clone().json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // kein JSON-Body — ignoriere
+    }
+    throw new Error(detail ? `${res.status}: ${detail}` : `HTTP ${res.status}`);
+  }
   return res;
 }
 
