@@ -6,11 +6,13 @@ import {
 import {
   fetchRecordings,
   fetchStats,
+  fetchModelStatus,
   uploadRecording,
   deleteRecording,
   retranscribeRecording,
   type Recording,
   type Stats,
+  type ModelStatus,
 } from "./api";
 
 /* ============================================================
@@ -40,6 +42,16 @@ export function useStats() {
       return data.processing > 0 ? 2000 : false;
     },
     staleTime: 0,
+  });
+}
+
+/** ASR-Geräte-Status (cuda/cpu) — für das Badge in der Stats-Leiste. */
+export function useModelStatus() {
+  return useQuery<ModelStatus, Error>({
+    queryKey: ["model-status"] as const,
+    queryFn: fetchModelStatus,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 }
 

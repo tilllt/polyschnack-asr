@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchModelStatus, importFromUrl, recordFromMic, uploadRecording, type ModelStatus } from "../api";
+import { importFromUrl, recordFromMic, uploadRecording } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import WaveSurfer from "wavesurfer.js";
@@ -26,13 +26,6 @@ export function UploadZone() {
   const noiseReduce = true;
   const enhanceLevel = "off";
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
-  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-
-  useEffect(() => {
-    fetchModelStatus()
-      .then(setModelStatus)
-      .catch(() => {});
-  }, []);
 
   // — Upload logic (same as before) —
   async function handleFiles(files: FileList | File[]) {
@@ -212,22 +205,7 @@ export function UploadZone() {
       {/* Task 9: globale Feature-Toggles entfernt — Toggles docken jetzt an die
           Transcribe-Zeile der jeweiligen Aufnahme (RecordingCard) an. */}
 
-      {modelStatus && (
-          <span
-            className={[
-              "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
-              modelStatus.asr_device === "cuda"
-                ? "bg-[rgba(59,130,246,.12)] text-accent"
-                : modelStatus.asr_device === "cpu"
-                ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
-                : "bg-[rgba(248,81,73,.1)] text-err",
-            ].join(" ")}
-            title={`ASR inference: ${modelStatus.asr_device}`}
-          >
-            {modelStatus.asr_device === "cuda" ? "⚡ GPU" :
-             modelStatus.asr_device === "cpu" ? "💻 CPU" : "❓"}
-          </span>
-        )}
+      {/* CPU/GPU-Badge ist in die Stats-Leiste (Header) gewandert (Settings-UI-Task). */}
     </div>
   );
 }

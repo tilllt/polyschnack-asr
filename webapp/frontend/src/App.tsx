@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useRecordings, useStats } from "./hooks";
+import { useRecordings, useStats, useModelStatus } from "./hooks";
 import { ToastProvider } from "./components/Toasts";
 import { LocaleProvider, useT, type Lang } from "./useLocale";
 import { fetchMe, type UserInfo } from "./api";
@@ -23,6 +23,7 @@ function AppContent() {
 
   const recordingsQuery = useRecordings(query);
   const statsQuery = useStats();
+  const modelStatusQuery = useModelStatus();
 
   const recordings = recordingsQuery.data ?? [];
   const stats = statsQuery.data;
@@ -85,7 +86,7 @@ function AppContent() {
         </div>
 
         {/* Row 2: Stats — full width on mobile, inline on desktop */}
-        <StatsBar stats={stats} />
+        <StatsBar stats={stats} device={modelStatusQuery.data?.asr_device} />
       </header>
 
       {/* ── Main content ── */}
