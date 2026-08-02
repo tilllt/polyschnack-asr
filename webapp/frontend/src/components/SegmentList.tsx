@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
 import { updateSegment } from "../api";
 import { fmtTimecode } from "../format";
-import { isWordActive } from "../karaoke";
+import { activeWordIndex } from "../karaoke";
 
 interface Props {
   segments: Segment[];
@@ -126,33 +126,36 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
           ) : (
             <span className="text-txt flex-1 min-w-0">
               {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
-                ? seg.words.map((w, wi) => {
-                    const isActive = isWordActive(w, currentTime);
-                    return (
-                      <span
-                        key={wi}
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleWordClick(i, w.start);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
+                ? (() => {
+                    const activeW = activeWordIndex(seg.words, currentTime);
+                    return seg.words!.map((w, wi) => {
+                      const isActive = wi === activeW;
+                      return (
+                        <span
+                          key={wi}
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
                             handleWordClick(i, w.start);
-                          }
-                        }}
-                        className={`cursor-pointer transition-colors duration-[100ms] ${
-                          isActive
-                            ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
-                            : "hover:text-accent/70"
-                        }`}
-                      >
-                        {w.word}{wi < seg.words!.length - 1 ? " " : ""}
-                      </span>
-                    );
-                  })
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleWordClick(i, w.start);
+                            }
+                          }}
+                          className={`cursor-pointer transition-colors duration-[100ms] ${
+                            isActive
+                              ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
+                              : "hover:text-accent/70"
+                          }`}
+                        >
+                          {w.word}{wi < seg.words!.length - 1 ? " " : ""}
+                        </span>
+                      );
+                    });
+                  })()
                 : seg.text}
             </span>
           )}

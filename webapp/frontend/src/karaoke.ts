@@ -21,9 +21,41 @@ export interface KaraokeSegment {
  *
  * Regel (identisch mit der alten Inline-Logik in SegmentList):
  *   currentTime >= w.start && currentTime < w.end
+ *
+ * Hinweis: Für die *Anzeige* nutze `activeWordIndex` — die liefert auch bei
+ * Timestamp-Lücken/Überlappungen immer genau ein aktives Wort (kein Glitch).
  */
 export function isWordActive(w: KaraokeWord, currentTime: number): boolean {
   return currentTime >= w.start && currentTime < w.end;
+}
+
+/**
+ * Lückenloser aktiver Wort-Index für die Karaoke-Anzeige.
+ *
+ * Das aktive Wort ist das letzte, dessen `start <= currentTime` — d.h. die
+ * Markierung wandert nahtlos von Wort zu Wort, auch wenn die ASR-Timestamps
+ * Lücken (w[i].end < w[i+1].start) oder Überlappungen (w[i+1].start < w[i].end)
+ * enthalten. Vor dem ersten Wort → -1 (nichts aktiv).
+ *
+ * Beispiele:
+ *   words = [{start:0,end:1},{start:1.2,end:2}]  (Lücke 1.0–1.2)
+ *     t=0.9 → 0, t=1.1 → 0 (kein Glitch!), t=1.2 → 1
+ *   words = [{start:0,end:1.5},{start:1.2,end:2}] (Überlappung)
+ *     t=1.3 → 1 (das neuere Wort gewinnt, kein Doppel-Highlight)
+ */
+export function activeWordIndex(
+  words: KaraokeWord[] | undefined,
+  currentTime: number,
+): number {
+  if (!words || words.length === 0) return -1;
+  const t = currentTime;
+  if (t < words[0].start) return -1;
+  let idx = 0;
+  for (let i = 0; i < words.length; i++) {
+    if (t >= words[i].start) idx = i;
+    else break;
+  }
+  return idx;
 }
 
 /**
