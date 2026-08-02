@@ -247,3 +247,80 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
         assert rec.status == "failed"
         assert "Administrator" in (rec.error or "")
         assert "lizenzgeschützt" in (rec.error or "")
+
+
+# ---------------------------------------------------------------------------
+# _merge_diarization: Diarization-Segmente bestimmen die Segmentierung
+# ---------------------------------------------------------------------------
+
+def test_merge_diarization_replaces_segments_with_speaker_text():
+    """Bei aktiver Diarization bestimmen die Diarization-Segmente die
+    Anzeige-Segmente; der Text pro Segment kommt aus den Wort-Zeitstempeln."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 21.44, "text": "Hallo hier",
+        "words": [
+            {"word": "Hallo", "start": 0.0, "end": 0.5},
+            {"word": "hier", "start": 0.5, "end": 1.0},
+            {"word": "weiblich", "start": 5.0, "end": 5.5},
+            {"word": "stimme", "start": 5.5, "end": 6.0},
+        ],
+    }]
+    diar = [
+        {"start": 0.0, "end": 4.0, "speaker": "SPEAKER_00"},
+        {"start": 4.5, "end": 8.0, "speaker": "SPEAKER_01"},
+    ]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    assert len(merged) == 2
+    assert merged[0]["speaker"] == "SPEAKER_00"
+    assert merged[0]["text"] == "Hallo hier"
+    assert merged[0]["start"] == 0.0 and merged[0]["end"] == 4.0
+    assert merged[1]["speaker"] == "SPEAKER_01"
+    assert merged[1]["text"] == "weiblich stimme"
+    assert len(merged[1]["words"]) == 2
+
+
+def test_merge_diarization_skips_segments_without_words():
+    """Diarization-Segmente ohne zugehörige Wörter (Pausen) werden
+    übersprungen — kein leeres Segment in der Anzeige."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 10.0, "text": "Hallo",
+        "words": [{"word": "Hallo", "start": 0.0, "end": 1.0}],
+    }]
+    diar = [
+        {"start": 0.0, "end": 1.5, "speaker": "SPEAKER_00"},
+        {"start": 6.0, "end": 8.0, "speaker": "SPEAKER_01"},  # Pause, keine Wörter
+    ]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    assert len(merged) == 1
+    assert merged[0]["speaker"] == "SPEAKER_00"
+
+
+def test_merge_diarization_keeps_speaker_per_turn():
+    """Mehrere Turns desselben Sprechers bleiben getrennte Segmente
+    (kein Zusammenführen über Pausen hinweg)."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 20.0, "text": "",
+        "words": [
+            {"word": "A", "start": 0.0, "end": 1.0},
+            {"word": "B", "start": 10.0, "end": 11.0},
+        ],
+    }]
+    diar = [
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+        {"start": 9.0, "end": 12.0, "speaker": "SPEAKER_00"},
+    ]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    assert len(merged) == 2
+    assert [m["speaker"] for m in merged] == ["SPEAKER_00", "SPEAKER_00"]

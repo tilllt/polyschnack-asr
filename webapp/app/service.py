@@ -36,6 +36,42 @@ def _run_diarization(audio_path: str) -> list:
     return diarize(audio_path)
 
 
+def _merge_diarization(segments: list, diar: list) -> list:
+    """Ersetzt die ASR-Segmentierung durch die Diarization-Segmentierung.
+
+    Jedes Diarization-Segment (start/end/speaker) wird ein Anzeige-Segment;
+    der Text pro Segment wird aus den Wort-Zeitstempeln der ASR-Segmente
+    zusammengesetzt. Segmente ohne zugehörige Wörter (Pausen) entfallen.
+    """
+    # Alle Wörter mit Zeitstempeln flach sammeln
+    words = []
+    for seg in segments:
+        for w in seg.get("words") or []:
+            words.append(w)
+    words.sort(key=lambda w: w.get("start") or 0)
+
+    merged: List[Dict[str, Any]] = []
+    for d in diar:
+        d_start = d.get("start", 0)
+        d_end = d.get("end", d_start)
+        seg_words = [
+            w for w in words
+            if (w.get("start") if w.get("start") is not None else -1) >= d_start
+            and (w.get("start") if w.get("start") is not None else -1) < d_end
+        ]
+        if not seg_words:
+            continue  # Pause ohne Sprache — kein leeres Segment
+        text = " ".join(w.get("word", "") for w in seg_words).strip()
+        merged.append({
+            "start": round(d_start, 2),
+            "end": round(d_end, 2),
+            "text": text,
+            "words": seg_words,
+            "speaker": d.get("speaker", "SPEAKER_00"),
+        })
+    return merged
+
+
 def _compute_peaks(audio_bytes: bytes) -> list:
     from .peaks import compute_peaks
     return compute_peaks(audio_bytes)
@@ -264,22 +300,14 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         else:
             diar = None
         if diar:
-            sd_idx = 0
-            for seg in segments:
-                s_start = seg.get("start", 0)
-                s_end = seg.get("end", 0)
-                speakers = set()
-                while sd_idx < len(diar) and diar[sd_idx]["end"] <= s_start:
-                    sd_idx += 1
-                for d in diar[sd_idx:]:
-                    if d["start"] >= s_end:
-                        break
-                    if d["start"] < s_end and d["end"] > s_start:
-                        speakers.add(d["speaker"])
-                if speakers:
-                    seg["speaker"] = "/".join(sorted(speakers))
-            labeled = sum(1 for s in segments if s.get("speaker"))
-            log.info("Speaker merge: %d/%d segments labeled for rec_id=%s", labeled, len(segments), rec_id)
+            merged = _merge_diarization(segments or [], diar)
+            if merged:
+                segments = merged
+                log.info("Speaker merge: %d/%d segments labeled for rec_id=%s",
+                         len(merged), len(merged), rec_id)
+            else:
+                log.warning("Diarization returned no text-mapped segments "
+                            "for rec_id=%s (falling back to ASR segments)", rec_id)
         # Compute waveform peaks for fast WaveSurfer render
         try:
             audio_bytes_for_peaks = audio_path.read_bytes()
