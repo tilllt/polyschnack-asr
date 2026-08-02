@@ -34,10 +34,14 @@ export function RecordingList({ recordings, query, isOidc = false }: Props) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      {items.map((item) => {
+      {items.map((item, idx) => {
         if (item.type === "whatsapp-group") {
           return (
-            <WhatsappGroup key={`group-${item.batch_id}`} group={item} />
+            <WhatsappGroup
+              key={`group-${item.batch_id}`}
+              group={item}
+              defaultCollapsed={idx > 0}
+            />
           );
         }
         return (
@@ -45,6 +49,7 @@ export function RecordingList({ recordings, query, isOidc = false }: Props) {
             key={item.recording.id}
             recording={item.recording}
             isOidc={isOidc}
+            defaultCollapsed={idx > 0}
           />
         );
       })}

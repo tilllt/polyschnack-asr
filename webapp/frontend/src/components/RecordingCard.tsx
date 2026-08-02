@@ -32,6 +32,7 @@ interface Props {
   recording: Recording;
   compact?: boolean;
   isOidc?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 /* Diff-Array [{type: same|add|del, text}] → Text-Darstellung */
@@ -49,7 +50,7 @@ const KIND_LABEL: Record<string, string> = {
   postprocess: "Post-Process",
 };
 
-export function RecordingCard({ recording: r, compact = false, isOidc = false }: Props) {
+export function RecordingCard({ recording: r, compact = false, isOidc = false, defaultCollapsed = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -62,9 +63,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
   const { t } = useT();
   const qc = useQueryClient();
 
-  // Default collapse: recordings older than 7 days start collapsed
-  const isOld = r.created_at && (Date.now() - new Date(r.created_at).getTime()) > 7 * 24 * 3600 * 1000;
-  const [collapsed, setCollapsed] = useState(isOld);
+  // Collapse-Default steuert die Liste (nur erste Transkription offen);
+  // Toggle bleibt pro Karte möglich.
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   // ──── Task 9: inline feature toggles + backend, armed re-transcribe ────
   const [feat, setFeat] = useState<FeatureValues>({

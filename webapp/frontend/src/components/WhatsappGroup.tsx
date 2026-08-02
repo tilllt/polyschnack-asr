@@ -7,12 +7,13 @@ import { fmtDate, fmtHHMM } from "../format";
 
 interface Props {
   group: WhatsappGroupItem;
+  defaultCollapsed?: boolean;
 }
 
 import { useT } from "../useLocale";
 
-export function WhatsappGroup({ group }: Props) {
-  const [expanded, setExpanded] = useState(true);
+export function WhatsappGroup({ group, defaultCollapsed = false }: Props) {
+  const [expanded, setExpanded] = useState(!defaultCollapsed);
   const { toast } = useToast();
 
   const { members } = group;
