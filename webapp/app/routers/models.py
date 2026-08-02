@@ -35,8 +35,8 @@ def _check_vad() -> bool:
         return False
 
 
-def _check_diarize() -> bool:
-    """Check if pyannote pipeline can load (model cached)."""
+def _pyannote_importable() -> bool:
+    """True wenn pyannote.audio installiert ist (Import-Check)."""
     try:
         import pyannote.audio  # noqa: F401
         return True
@@ -44,8 +44,101 @@ def _check_diarize() -> bool:
         return False
 
 
+def _check_diarize() -> bool:
+    """Check if pyannote pipeline can load (model cached)."""
+    return _pyannote_importable()
+
+
 def _hf_token() -> bool:
     return bool(os.getenv("HF_TOKEN"))
+
+
+# Komponenten der pyannote speaker-diarization-3.1 Pipeline (config.yaml):
+#   embedding:    pyannote/wespeaker-voxceleb-resnet34-LM
+#   segmentation: pyannote/segmentation-3.0
+# plus das PLDA/community-Modell, das die Pipeline intern nachlädt.
+DIARIZE_REPOS = [
+    "pyannote/speaker-diarization-3.1",
+    "pyannote/segmentation-3.0",
+    "pyannote/wespeaker-voxceleb-resnet34-LM",
+    "pyannote/speaker-diarization-community-1",
+]
+
+
+def _probe_repo(repo_id: str, token: str | None) -> Dict[str, Any]:
+    """Prüft Erreichbarkeit eines HF-Repos per API-Call (schnell, kein Download).
+
+    HTTP-Status → Ursache:
+      200 → ok
+      401 → Token fehlt/ungültig (kein Login)
+      403 → gated (Nutzungsbedingungen nicht akzeptiert)
+      404 → Repo existiert nicht
+      sonst / Exception → network-error
+    """
+    if not token:
+        return {"status": None, "code": "no-token", "repo": repo_id,
+                "message": "HF_TOKEN nicht gesetzt — Modell kann nicht authentifiziert geladen werden."}
+    enc = repo_id.replace("/", "%2F")
+    url = f"https://huggingface.co/api/models/{enc}"
+    try:
+        resp = httpx.get(url, timeout=15, headers={"Authorization": f"Bearer {token}"})
+    except Exception as exc:
+        return {"status": None, "code": "network-error", "repo": repo_id,
+                "message": f"HuggingFace nicht erreichbar: {exc.__class__.__name__}: {exc}"}
+    code = resp.status_code
+    if code == 200:
+        return {"status": 200, "code": "ok", "repo": repo_id, "message": ""}
+    if code == 401:
+        return {"status": 401, "code": "unauthorized", "repo": repo_id,
+                "message": f"Token ungültig oder kein Login (HTTP 401) für {repo_id}."}
+    if code == 403:
+        return {"status": 403, "code": "gated", "repo": repo_id,
+                "message": f"{repo_id} ist gated — Nutzungsbedingungen auf "
+                           f"huggingface.co/{repo_id} akzeptieren (Agree and access repository)."}
+    if code == 404:
+        return {"status": 404, "code": "not-found", "repo": repo_id,
+                "message": f"Repo {repo_id} existiert nicht (HTTP 404) — "
+                           "Modell-ID in der Pipeline-Konfiguration prüfen."}
+    return {"status": code, "code": "http-error", "repo": repo_id,
+            "message": f"Unerwarteter HTTP-Status {code} für {repo_id}."}
+
+
+def _diarize_diagnosis() -> Dict[str, Any]:
+    """Detaillierte Diagnose, warum die Diarization-Pipeline (nicht) lädt.
+
+    Rückgabe: {available, code, message, repo, components}
+      codes: ok | no-token | pyannote-missing | gated | not-found |
+             unauthorized | network-error | http-error
+    """
+    if not _hf_token():
+        return {"available": False, "code": "no-token", "repo": None,
+                "message": "HF_TOKEN nicht gesetzt (compose.yml environment). "
+                           "Diarization ist ohne Token nicht nutzbar.",
+                "components": []}
+    if not _pyannote_importable():
+        return {"available": False, "code": "pyannote-missing", "repo": None,
+                "message": "pyannote.audio ist nicht installiert — "
+                           "Container-Image prüfen / neu bauen.",
+                "components": []}
+
+    token = os.getenv("HF_TOKEN")
+    components: list[Dict[str, Any]] = []
+    first_fail: Dict[str, Any] | None = None
+    for repo in DIARIZE_REPOS:
+        probe = _probe_repo(repo, token)
+        components.append(probe)
+        if probe["code"] != "ok" and first_fail is None:
+            first_fail = probe
+
+    if first_fail is None:
+        return {"available": True, "code": "ok", "repo": None,
+                "message": "Alle Diarization-Komponenten erreichbar.",
+                "components": components}
+
+    return {"available": False, "code": first_fail["code"],
+            "repo": first_fail["repo"],
+            "message": first_fail["message"],
+            "components": components}
 
 
 def _download_vad():
@@ -111,9 +204,22 @@ def model_status() -> Dict[str, Any]:
         asr_device = "unreachable"
 
     client = get_client()
+
+    # Detaillierte Diagnose: warum lädt Diarization (nicht)?
+    diag = _diarize_diagnosis()
+    vad_available = _check_vad()
+    vad_diag = {
+        "available": vad_available,
+        "code": "ok" if vad_available else "vad-missing",
+        "message": "" if vad_available else (
+            "silero_vad ist nicht installiert — "
+            "Container-Image prüfen / neu bauen."
+        ),
+    }
+
     return {
-        "vad_available": _check_vad(),
-        "diarize_available": _check_diarize(),
+        "vad_available": vad_available,
+        "diarize_available": diag["available"],
         "hf_token": _hf_token(),
         "asr_device": asr_device,
         "backend": client.capabilities.label,
@@ -124,6 +230,9 @@ def model_status() -> Dict[str, Any]:
         },
         "downloading": _downloading,
         "download_progress": _download_progress,
+        # Diagnose-Felder: präzise Fehlerursache statt nur bool
+        "vad_diag": vad_diag,
+        "diarize_diag": diag,
     }
 
 
