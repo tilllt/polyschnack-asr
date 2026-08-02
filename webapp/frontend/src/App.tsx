@@ -78,7 +78,10 @@ function AppContent() {
               </div>
             )}
             {user?.anonymous && user.name && (
-              <span className="text-[12px] text-muted" title={t("anon_link_hint")}>
+              <span
+                className="text-[12px] text-muted truncate max-w-[70px] sm:max-w-[160px]"
+                title={t("anon_link_hint")}
+              >
                 🎭 {user.name}
               </span>
             )}
@@ -90,6 +93,7 @@ function AppContent() {
                 text-[12px] text-txt px-2 py-1
                 outline-none cursor-pointer
                 focus:border-accent
+                shrink-0
               "
             >
               <option value="en">🇬🇧 English</option>
