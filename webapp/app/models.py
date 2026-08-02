@@ -47,6 +47,8 @@ class Recording(SQLModel, table=True):
 
     # --- progress (0-100, updated during processing) ---
     progress_pct: int = 0
+    #: Phasen-Hinweis während der Verarbeitung ("diarization", …) — null wenn ASR
+    progress_note: Optional[str] = None
 
     # --- timestamps ---
     created_at: dt.datetime = Field(

@@ -299,10 +299,12 @@ def get_user(session: Session, user_id: int) -> Optional[User]:
     return session.get(User, user_id)
 
 
-def set_progress(session: Session, rec_id: int, pct: int) -> None:
-    """Update progress_pct for a recording (no refresh needed)."""
+def set_progress(session: Session, rec_id: int, pct: int, note: Optional[str] = None) -> None:
+    """Update progress_pct (+ optional Phasen-Hinweis) for a recording."""
     rec = session.get(Recording, rec_id)
     if rec:
         rec.progress_pct = pct
+        if note is not None:
+            rec.progress_note = note
         session.add(rec)
         session.commit()

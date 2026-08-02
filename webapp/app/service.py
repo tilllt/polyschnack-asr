@@ -44,6 +44,11 @@ def _merge_diarization(segments: list, diar: list) -> list:
     Jedes Diarization-Segment (start/end/speaker) wird ein Anzeige-Segment;
     der Text pro Segment wird aus den Wort-Zeitstempeln der ASR-Segmente
     zusammengesetzt. Segmente ohne zugehörige Wörter (Pausen) entfallen.
+
+    Flicker-Schutz: pyannote liefert oft viele winzige Segmente mit demselben
+    Sprecher (nur wenige 100 ms auseinander). Diese werden zu einem Segment
+    zusammengefasst, damit Wörter nicht einzeln in Spalten zerhauen werden
+    (Karaoke-Bug). Echte Sprecherwechsel bleiben erhalten.
     """
     # Alle Wörter mit Zeitstempeln flach sammeln
     words = []
@@ -52,8 +57,19 @@ def _merge_diarization(segments: list, diar: list) -> list:
             words.append(w)
     words.sort(key=lambda w: w.get("start") or 0)
 
+    # Flicker-Segmente desselben Sprechers zusammenfassen (Lücke < 0.5 s)
+    _FLICKER_GAP_S = 0.5
+    smoothed: List[Dict[str, Any]] = []
+    for d in sorted(diar, key=lambda x: x.get("start") or 0):
+        if smoothed and d.get("speaker") == smoothed[-1]["speaker"]:
+            gap = (d.get("start") or 0) - smoothed[-1]["end"]
+            if -0.05 <= gap < _FLICKER_GAP_S:
+                smoothed[-1]["end"] = max(smoothed[-1]["end"], d.get("end") or 0)
+                continue
+        smoothed.append(dict(d))
+
     merged: List[Dict[str, Any]] = []
-    for d in diar:
+    for d in smoothed:
         d_start = d.get("start", 0)
         d_end = d.get("end", d_start)
         seg_words = [
@@ -289,6 +305,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         # Optional speaker diarization — merge labels into segments
         if enable_diarize:
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
+            # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
+            with Session(engine) as session:
+                set_progress(session, rec_id, 96, note="diarization")
             try:
                 diar = _run_diarization(
                     str(audio_path),
@@ -303,6 +322,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             except Exception as exc_d:
                 log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
                 diar = None
+            finally:
+                # Diarization-Phase beendet — Hinweis zurücksetzen (97% = fertig)
+                from .models import Recording as _Rec
+
+                with Session(engine) as session:
+                    rec2 = session.get(_Rec, rec_id)
+                    if rec2 is not None:
+                        rec2.progress_pct = 97
+                        rec2.progress_note = None
+                        session.add(rec2)
+                        session.commit()
         else:
             diar = None
         if diar:
