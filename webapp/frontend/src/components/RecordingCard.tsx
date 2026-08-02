@@ -4,6 +4,7 @@ import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, Chev
 import type { ModelMatrixEntry, Recording } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, type ShareItem, type VersionItem } from "../api";
 import { useDelete, useRetranscribe } from "../hooks";
+import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
@@ -52,6 +53,8 @@ interface Props {
   recording: Recording;
   compact?: boolean;
   isOidc?: boolean;
+  /** Admin → alle Backends wählbar (Auto-Start im Backend); Anon → nur laufende */
+  isAdmin?: boolean;
   defaultCollapsed?: boolean;
 }
 
@@ -70,7 +73,7 @@ const KIND_LABEL: Record<string, string> = {
   postprocess: "Post-Process",
 };
 
-export function RecordingCard({ recording: r, compact = false, isOidc = false, defaultCollapsed = false }: Props) {
+export function RecordingCard({ recording: r, compact = false, isOidc = false, isAdmin = false, defaultCollapsed = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -145,10 +148,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
       fetchLlmEndpoints().then(setEndpoints).catch(() => {});
     }
   }, [isOidc]);
-  // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird
-  useEffect(() => { if (r.status !== "done") setReArmed(false); }, [r.status]);
+  // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird.
+  // Bei "failed" bleibt das Panel offen, damit der User Backend/Parameter
+  // korrigieren und erneut transkribieren kann.
+  useEffect(() => {
+    if (r.status !== "done" && r.status !== "failed") setReArmed(false);
+  }, [r.status]);
 
-  const availableBackends = matrix.filter((m) => m.status === "active").map((m) => m.name);
+  // Anon: nur laufende Backends anbieten; Admin: alle (Auto-Start im Backend).
+  // reachable === null (Proxy down) → nur Default bleibt übrig (immer true).
+  const availableBackends = filterAvailableBackends(matrix, isAdmin);
 
   async function handleStartTranscription(id: string) {
     try {
@@ -482,7 +491,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
             </button>
           </div>
         )}
-        {r.status === "done" && reArmed && (
+        {(r.status === "done" || r.status === "failed") && reArmed && (
           <div className="mt-2 flex flex-col items-center gap-2 border border-border rounded-sm p-2 bg-panel2/50">
             <FeatureToggles
               values={feat}
@@ -550,7 +559,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
         {r.status === "processing" && (
           <div className="px-4 pb-2">
             <div className="flex items-center justify-between text-[12px] mb-[6px]">
-              <span className="text-muted">{t("transcribing")}</span>
+              <span className="text-muted">
+                {r.progress_note === "diarization" ? t("diarizing") : t("transcribing")}
+              </span>
               <span className="text-muted2 tabular-nums">{r.progress_pct}% · {fmtETA(r.duration_s, r.progress_pct, r.created_at)}</span>
             </div>
             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">

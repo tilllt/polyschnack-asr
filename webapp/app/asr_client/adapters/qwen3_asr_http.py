@@ -43,14 +43,20 @@ class Qwen3AsrHttpClient(AsrClient):
         noise_reduce: bool = True,
     ) -> Dict[str, Any]:
         """Transcribe via POST /v1/audio/transcriptions (verbose_json)."""
-        with httpx.Client(timeout=3600, transport=self._transport) as client:
-            resp = client.post(
-                f"{self.url}/v1/audio/transcriptions",
-                files={"file": (filename, audio_bytes, mime)},
-                data={
-                    "response_format": "verbose_json",
-                    "timestamp_granularities": "word",
-                },
-            )
-            resp.raise_for_status()
-            return _parse_result(resp.json())
+        try:
+            with httpx.Client(timeout=3600, transport=self._transport) as client:
+                resp = client.post(
+                    f"{self.url}/v1/audio/transcriptions",
+                    files={"file": (filename, audio_bytes, mime)},
+                    data={
+                        "response_format": "verbose_json",
+                        "timestamp_granularities": "word",
+                    },
+                )
+                resp.raise_for_status()
+                return _parse_result(resp.json())
+        except httpx.ConnectError as exc:
+            raise RuntimeError(
+                f"Backend qwen3-asr nicht erreichbar ({self.url}). "
+                "Ist der Container gestartet? (Admin-Bereich → Backends)"
+            ) from exc

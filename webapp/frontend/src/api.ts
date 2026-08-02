@@ -50,6 +50,8 @@ export interface Recording {
   retention_minutes?: number;
   shared_at?: string | null;
   progress_pct: number;
+  /** Phasen-Hinweis während der Verarbeitung, z. B. "diarization" */
+  progress_note?: string | null;
   waveform_peaks: number[] | null;
   backend?: string;
 }
@@ -129,6 +131,8 @@ export interface ModelMatrixEntry {
   model: string;
   type: string;
   status: string;
+  /** true=Container läuft, false=gestoppt/nicht angelegt, null=unbekannt (Proxy down) */
+  reachable: boolean | null;
   concurrency: number;
   device: string[];
   languages: string[];

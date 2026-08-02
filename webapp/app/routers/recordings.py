@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import mimetypes
+import time
 import uuid
 from pathlib import Path
 import hashlib
@@ -38,6 +39,9 @@ router = APIRouter(prefix="/api")
 
 log = __import__("logging").getLogger(__name__)
 
+_HEALTH_WAIT_S = 120
+_HEALTH_POLL_S = 2
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -55,6 +59,93 @@ def _key_cap(request, session=None) -> Optional[str]:
     from ..identity import current_identity
 
     return current_identity(request, session).key_level
+
+
+def _is_admin_session(request: Request) -> bool:
+    """Admin-Check wie in queue_api/deps — OIDC-Session-Flag."""
+    from ..config import settings
+
+    if not settings.OIDC_ENABLED:
+        return False
+    return bool(request.session.get("is_admin"))
+
+
+def ensure_backend_available(backend: str, request: Request) -> None:
+    """Ensure a non-default backend can accept jobs.
+
+    - Default (pk-python) always runs as part of the core stack → no-op.
+    - Admin: tries to start the container when it is not running
+      (resource check + health wait), 409 when the start fails.
+    - Anonymous: 409 when the backend is not already running — anon users
+      only get offered running backends by the frontend anyway.
+    """
+    from ..config import settings
+    from ..docker_proxy import DockerProxyClient, DockerProxyError, get_docker_client
+    from ..service_registry import get_service
+
+    if not backend or backend == settings.POLYSCHNACK_DEFAULT_BACKEND:
+        return
+
+    svc = get_service(backend)
+    if svc is None:
+        raise HTTPException(status_code=404, detail=f"unknown backend {backend}")
+
+    profile = svc["compose_profile"]
+    container = f"polyschnack-{'asr' if profile == 'default' else profile}"
+
+    docker: DockerProxyClient = get_docker_client()
+    try:
+        state = docker.container_state(container)
+    except DockerProxyError as exc:
+        log.warning("transcribe: docker-proxy unreachable for %s: %s", container, exc)
+        raise HTTPException(status_code=503, detail=f"docker-proxy unreachable: {exc}")
+
+    if state and state.get("running"):
+        return
+
+    # Not running → only admins may auto-start it.
+    if not _is_admin_session(request):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Backend {backend} ist nicht gestartet. Bitte wähle ein "
+                "laufendes Backend (Admin: startet es automatisch)."
+            ),
+        )
+
+    # Admin path: resource check → start → health wait.
+    from ..resources import check_resources
+
+    try:
+        rep = check_resources(svc, docker)
+        if not rep.ok:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "insufficient_resources", "message": rep.message},
+            )
+        docker.start(container)
+    except DockerProxyError as exc:
+        raise HTTPException(status_code=503, detail=f"docker-proxy unreachable: {exc}")
+
+    log.info("transcribe: admin auto-start %s (%s)", backend, container)
+    deadline = time.monotonic() + _HEALTH_WAIT_S
+    while time.monotonic() < deadline:
+        time.sleep(_HEALTH_POLL_S)
+        try:
+            st = docker.container_state(container)
+        except DockerProxyError:
+            st = None
+        if st is None:
+            continue
+        if st.get("health") == "healthy" or (
+            st.get("health") is None and st.get("status") == "running"
+        ):
+            return
+    raise HTTPException(
+        status_code=502,
+        detail=f"Backend {backend} wurde gestartet, wurde aber nicht healthy ({_HEALTH_WAIT_S} s). "
+               "Siehe Logs im Admin-Bereich.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +173,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "error": rec.error,
         "processing_ms": rec.processing_ms,
         "progress_pct": rec.progress_pct,
+        "progress_note": rec.progress_note,
         "created_at": rec.created_at.isoformat(),
         "language": rec.language,
         "segments": rec.segments,
@@ -521,6 +613,8 @@ def transcribe_ep(
     session.commit()
 
     backend = backend or settings.POLYSCHNACK_DEFAULT_BACKEND
+    # Nicht-Default-Backends: Anon nur wenn laufend, Admin → Auto-Start (409/503 sonst)
+    ensure_backend_available(backend, request)
     try:
         position = queue_manager.enqueue(
             int(rec.id), uid, backend,
@@ -614,6 +708,8 @@ def retranscribe(
     session.commit()
 
     backend = params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND
+    # Nicht-Default-Backends: Anon nur wenn laufend, Admin → Auto-Start (409/503 sonst)
+    ensure_backend_available(backend, request)
     try:
         position = queue_manager.enqueue(
             int(rec.id), uid, backend,

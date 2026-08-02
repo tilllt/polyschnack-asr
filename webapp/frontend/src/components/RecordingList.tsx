@@ -8,9 +8,10 @@ interface Props {
   recordings: Recording[];
   query: string;
   isOidc?: boolean;
+  isAdmin?: boolean;
 }
 
-export function RecordingList({ recordings, query, isOidc = false }: Props) {
+export function RecordingList({ recordings, query, isOidc = false, isAdmin = false }: Props) {
   const { t } = useT();
   if (!recordings.length) {
     return (
@@ -49,6 +50,7 @@ export function RecordingList({ recordings, query, isOidc = false }: Props) {
             key={item.recording.id}
             recording={item.recording}
             isOidc={isOidc}
+            isAdmin={isAdmin}
             defaultCollapsed={idx > 0}
           />
         );

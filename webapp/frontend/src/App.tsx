@@ -132,7 +132,7 @@ function AppContent() {
               </div>
             )}
 
-            <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} />
+            <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} isAdmin={!!user?.is_admin} />
           </>
         ) : (
           <UserSettingsPage user={user} />

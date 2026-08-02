@@ -73,6 +73,18 @@ def test_qwen3_http_http_error_raises():
     assert "500" in str(ei.value) or "boom" in str(ei.value)
 
 
+def test_qwen3_http_connect_error_has_hint():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("name resolution failed", request=request)
+
+    transport = httpx.MockTransport(handler)
+    client = Qwen3AsrHttpClient(url="http://qwen3-asr:8080", transport=transport)
+    with pytest.raises(RuntimeError) as ei:
+        client.transcribe(b"\x00\x01", "a.wav", "audio/wav")
+    assert "qwen3-asr" in str(ei.value)
+    assert "Container" in str(ei.value)
+
+
 def test_qwen3_http_capabilities():
     c = Qwen3AsrHttpClient()
     assert c.capabilities.label == "qwen3-asr"
