@@ -66,18 +66,25 @@ services:
 
   ark-asr:
     profiles: ["ark"]
-    image: registry.example.com/public/polyschnack-asr-ark:4a3fd146
+    image: registry.example.com/public/polyschnack-asr-ark:latest
     container_name: ark-asr
     runtime: nvidia
     environment:
-      CRISPASR_CLI: /usr/local/bin/crispasr
       ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
     volumes:
       - ./DATA/ark-models:/models:ro
+    ports:
+      - "5095:8080"
     deploy:
       resources:
         limits:
           memory: 6G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
 
   # Voxtral (Profil "voxtral") — GEPLANT, noch kein Image gebaut.
   # Dockerfile nach dem qwen3-asr-cpp/ark-asr-cpp-Muster bauen

@@ -93,7 +93,7 @@ SERVICES: List[Dict[str, Any]] = [
         "model": "ark-asr-3b-q8_0.gguf",
         "requires": {"vram_gb": 5, "ram_gb": 6, "disk_gb": 4},
         "capabilities": {
-            "word_timestamps": "verify",  # checked against real API response in Task 3
+            "word_timestamps": True,  # CrispASR verbose_json liefert word-level
             "streaming": False,
             "async_jobs": False,
             "noise_reduce": False,

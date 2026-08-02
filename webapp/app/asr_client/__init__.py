@@ -99,11 +99,11 @@ def get_client(backend: Optional[str] = None) -> AsrClient:
         from .adapters.pk_cpp import PkCppClient
         client = PkCppClient()
     elif backend == "qwen3-asr":
-        from .adapters.qwen3_asr_cpp import Qwen3AsrCppClient
-        client = Qwen3AsrCppClient()
+        from .adapters.qwen3_asr_http import Qwen3AsrHttpClient
+        client = Qwen3AsrHttpClient()
     elif backend in ("ark-asr", "crispasr", "crisp-asr"):
-        from .adapters.crisp_asr import CrispAsrClient
-        client = CrispAsrClient()
+        from .adapters.crisp_asr_http import CrispAsrHttpClient
+        client = CrispAsrHttpClient()
     elif backend == "voxtral":
         # Voxtral runs on the local voxtral.cpp server (OpenAI-compatible API).
         from ..service_registry import get_service

@@ -25,5 +25,12 @@ RUN crispasr --help 2>&1 | head -5
 # Model volume — mount GGUF files here
 RUN mkdir -p /models
 
-# Default entrypoint: just keep crispasr available, use as subprocess
-CMD ["crispasr", "--help"]
+# HTTP-Server-Modus (OpenAI-kompatibel): Modell wird einmal geladen und
+# bleibt zwischen Requests im Speicher. Modell via ARK_ASR_MODEL-Env
+# (Default wie compose.backends.yml: /models/ark-asr-3b-q8_0.gguf).
+EXPOSE 8080
+
+ENV ARK_ASR_MODEL=/models/ark-asr-3b-q8_0.gguf
+
+CMD ["sh", "-c", "exec crispasr --server -m \"$ARK_ASR_MODEL\" --host 0.0.0.0 --port 8080"]
+
