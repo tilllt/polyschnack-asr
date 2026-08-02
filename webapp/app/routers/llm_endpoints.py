@@ -9,10 +9,12 @@ from sqlmodel import Session, select
 
 from .. import crypto
 from ..db import get_session
+from ..deps import require_authenticated
 from ..llm_url import validate_llm_url
 from ..models import User, UserLlmEndpoint
 
-router = APIRouter(prefix="/api/llm-endpoints")
+router = APIRouter(prefix="/api/llm-endpoints",
+                   dependencies=[Depends(require_authenticated)])
 
 
 class EndpointCreate(BaseModel):

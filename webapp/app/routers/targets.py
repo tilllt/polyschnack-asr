@@ -10,9 +10,10 @@ from sqlmodel import Session, select
 
 from ..crypto import encrypt
 from ..db import get_session
+from ..deps import require_authenticated
 from ..models import DeliveryTarget
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_authenticated)])
 
 
 class TargetCreate(BaseModel):

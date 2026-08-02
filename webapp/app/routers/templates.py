@@ -8,9 +8,10 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..deps import require_authenticated
 from ..models import PromptTemplate, User
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_authenticated)])
 
 
 class TemplateCreate(BaseModel):
