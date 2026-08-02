@@ -43,6 +43,10 @@ export interface Recording {
   delivery_status?: string | null;
   delivery_error?: string | null;
   access_level?: "owner" | "read" | "write" | "full" | "public" | "none";
+  is_anon_shared?: boolean;
+  shared_with_me?: boolean;
+  retention_minutes?: number;
+  shared_at?: string | null;
   progress_pct: number;
   waveform_peaks: number[] | null;
   backend?: string;
@@ -72,6 +76,7 @@ export interface UserInfo {
   authenticated?: boolean;
   sub?: string;
   name?: string;
+  retention_minutes?: number;
   preferred_username?: string;
   is_admin?: boolean;
 }
@@ -214,6 +219,30 @@ export async function updateSegment(recordingId: string, segmentIdx: number, tex
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   }).then(checkOk);
+  return res.json();
+}
+
+export interface AnonLinkResult {
+  share_token: boolean;
+  shared_at: string | null;
+  retention_minutes: number;
+  expires_at: string | null;
+}
+
+export async function toggleAnonLink(
+  recordingId: string,
+  enabled: boolean,
+): Promise<AnonLinkResult> {
+  const res = await fetch(`/api/recordings/${recordingId}/anon-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  }).then(checkOk);
+  return res.json();
+}
+
+export async function fetchRecording(rid: string): Promise<Recording> {
+  const res = await fetch(`/api/recordings/${rid}`).then(checkOk);
   return res.json();
 }
 
