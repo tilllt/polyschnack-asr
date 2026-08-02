@@ -71,19 +71,17 @@ def client(db, monkeypatch, tmp_path):
 def patch_ytdlp(monkeypatch):
     """Mockt subprocess.run im url_import-Modul (echte WAV im Tmpdir).
 
-    Nur yt-dlp-Aufrufe (erkennbar an `-o`) werden simuliert; ffmpeg-Aufrufe
-    (Konvertierung in _convert_to_wav_if_needed) laufen echt durch, damit
-    der volle Pfad inkl. 16-kHz-mono-Konvertierung getestet wird.
+    Nur yt-dlp-Aufrufe (erkennbar an `-o`) werden simuliert. Die
+    ffmpeg-Konvertierung (_convert_to_wav_if_needed) wird durch einen
+    pure-Python-Fake ersetzt — der CI-Test-Container hat KEIN ffmpeg.
     """
-    import subprocess as real_subprocess
     import app.routers.url_import as url_import_mod
 
     url_import_mod._last_args = []
-    real_run = real_subprocess.run  # VOR dem Patch sichern!
 
     def fake_run(args, **kwargs):
         if "-o" not in args:
-            return real_run(args, **kwargs)  # ffmpeg echt
+            raise AssertionError(f"unerwarteter subprocess-Aufruf ohne -o: {args}")
         url_import_mod._last_args = args
         out_idx = args.index("-o")
         tmpdir = Path(args[out_idx + 1]).parent
@@ -101,7 +99,26 @@ def patch_ytdlp(monkeypatch):
         return r
 
     monkeypatch.setattr(url_import_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(url_import_mod, "_convert_to_wav_if_needed", _fake_convert)
     return url_import_mod
+
+
+def _fake_convert(raw: bytes, original_name: str):
+    """Ersatz für _convert_to_wav_if_needed OHNE ffmpeg: schreibt die
+    Quelle als 16-kHz-mono-16-bit-WAV (gleiche Dauer) zurück."""
+    import io
+    import wave
+
+    with wave.open(io.BytesIO(raw), "rb") as src:
+        dur = src.getnframes() / max(1, src.getframerate())
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(16000)
+        out.writeframes(b"\x00\x00" * int(dur * 16000))
+    return buf.getvalue(), ".wav", "(konvertiert)"
 
 
 class _Result:
