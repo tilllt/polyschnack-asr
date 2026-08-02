@@ -93,59 +93,63 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
           ))}
         </select>
       )}
-      {/* ── Teil D: opt-in Post-Processing (Toggles + Template/Target) ── */}
-      <MiniToggle
-        label={t("punctuation")}
-        on={values.punctuation}
-        onChange={(v) => onChange({ punctuation: v })}
-      />
-      <MiniToggle
-        label={t("llm_enhance")}
-        on={values.llmEnhance}
-        disabled={!oidc}
-        onChange={(v) => onChange({ llmEnhance: v })}
-      />
-      <select
-        value={values.templateId ?? ""}
-        disabled={!oidc}
-        onChange={(e) => onChange({ templateId: e.target.value ? Number(e.target.value) : undefined })}
-        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted disabled:opacity-40"
-        title={t("template")}
-      >
-        <option value="">{t("template")}: —</option>
-        {templates.map((tp) => (
-          <option key={tp.template_id} value={tp.template_id}>
-            {t("template")}: {tp.name}
-          </option>
-        ))}
-      </select>
-      <select
-        value={values.endpointId ?? ""}
-        disabled={!oidc || endpoints.length === 0}
-        onChange={(e) => onChange({ endpointId: e.target.value ? Number(e.target.value) : undefined })}
-        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted disabled:opacity-40"
-        title={t("llm_endpoint")}
-      >
-        <option value="">{t("llm_endpoint")}: {t("server_default")}</option>
-        {endpoints.map((ep) => (
-          <option key={ep.endpoint_id} value={ep.endpoint_id}>
-            {t("llm_endpoint")}: {ep.name}
-          </option>
-        ))}
-      </select>
-      <select
-        value={values.targetId ?? ""}
-        onChange={(e) => onChange({ targetId: e.target.value ? Number(e.target.value) : undefined })}
-        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
-        title={t("send_to")}
-      >
-        <option value="">{t("send_to")}: —</option>
-        {targets.map((tg) => (
-          <option key={tg.target_id} value={tg.target_id}>
-            {t("send_to")}: {tg.name}
-          </option>
-        ))}
-      </select>
+      {/* ── Teil D: opt-in Post-Processing — nur für eingeloggte User ── */}
+      {oidc && (
+        <>
+          <MiniToggle
+            label={t("punctuation")}
+            on={values.punctuation}
+            onChange={(v) => onChange({ punctuation: v })}
+          />
+          <MiniToggle
+            label={t("llm_enhance")}
+            on={values.llmEnhance}
+            disabled={!oidc}
+            onChange={(v) => onChange({ llmEnhance: v })}
+          />
+          <select
+            value={values.templateId ?? ""}
+            disabled={!oidc}
+            onChange={(e) => onChange({ templateId: e.target.value ? Number(e.target.value) : undefined })}
+            className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted disabled:opacity-40"
+            title={t("template")}
+          >
+            <option value="">{t("template")}: —</option>
+            {templates.map((tp) => (
+              <option key={tp.template_id} value={tp.template_id}>
+                {t("template")}: {tp.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={values.endpointId ?? ""}
+            disabled={!oidc || endpoints.length === 0}
+            onChange={(e) => onChange({ endpointId: e.target.value ? Number(e.target.value) : undefined })}
+            className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted disabled:opacity-40"
+            title={t("llm_endpoint")}
+          >
+            <option value="">{t("llm_endpoint")}: {t("server_default")}</option>
+            {endpoints.map((ep) => (
+              <option key={ep.endpoint_id} value={ep.endpoint_id}>
+                {t("llm_endpoint")}: {ep.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={values.targetId ?? ""}
+            onChange={(e) => onChange({ targetId: e.target.value ? Number(e.target.value) : undefined })}
+            className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+            title={t("send_to")}
+          >
+            <option value="">{t("send_to")}: —</option>
+            {targets.map((tg) => (
+              <option key={tg.target_id} value={tg.target_id}>
+                {t("send_to")}: {tg.name}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
     </div>
   );
 }

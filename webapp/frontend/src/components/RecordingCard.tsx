@@ -100,10 +100,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false }:
     fetchModelStatus()
       .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
       .catch(() => {});
-    fetchTemplates().then(setTemplates).catch(() => {});
-    fetchTargets().then(setTargets).catch(() => {});
-    fetchLlmEndpoints().then(setEndpoints).catch(() => {});
-  }, []);
+    // Settings-Daten (Templates/Targets/BYOK) nur für eingeloggte User —
+    // Backend-Gate liefert sonst 403 (siehe deps.require_authenticated).
+    if (isOidc) {
+      fetchTemplates().then(setTemplates).catch(() => {});
+      fetchTargets().then(setTargets).catch(() => {});
+      fetchLlmEndpoints().then(setEndpoints).catch(() => {});
+    }
+  }, [isOidc]);
   // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird
   useEffect(() => { if (r.status !== "done") setReArmed(false); }, [r.status]);
 
