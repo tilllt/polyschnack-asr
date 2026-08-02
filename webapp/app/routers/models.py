@@ -78,8 +78,9 @@ def _probe_repo(repo_id: str, token: str | None) -> Dict[str, Any]:
     if not token:
         return {"status": None, "code": "no-token", "repo": repo_id,
                 "message": "HF_TOKEN nicht gesetzt — Modell kann nicht authentifiziert geladen werden."}
-    enc = repo_id.replace("/", "%2F")
-    url = f"https://huggingface.co/api/models/{enc}"
+    # WICHTIG: Slash NICHT zu %2F encoden — die HF-API antwortet auf %2F
+    # mit 400 (Bad Request). Nur der rohe Pfad funktioniert.
+    url = f"https://huggingface.co/api/models/{repo_id}"
     try:
         resp = httpx.get(url, timeout=15, headers={"Authorization": f"Bearer {token}"})
     except Exception as exc:

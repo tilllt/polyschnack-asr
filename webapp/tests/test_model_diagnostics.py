@@ -40,6 +40,20 @@ def test_probe_repo_ok():
         assert r["status"] == 200
 
 
+def test_probe_repo_uses_raw_slash_url():
+    """HF-API lehnt %2F-encoded Repo-Pfade mit 400 ab — der Probe-Call muss
+    den Slash unverändert lassen (https://huggingface.co/api/models/org/repo)."""
+    with patch("httpx.get") as mock_get:
+        resp = MagicMock(status_code=200)
+        resp.raise_for_status.return_value = None
+        mock_get.return_value = resp
+        _probe_repo("pyannote/speaker-diarization-3.1", "hf_x")
+        args, kwargs = mock_get.call_args
+        url = args[0]
+        assert "%2F" not in url
+        assert url.endswith("/pyannote/speaker-diarization-3.1")
+
+
 def test_probe_repo_404_not_found():
     with patch("httpx.get") as mock_get:
         resp = MagicMock(status_code=404)
