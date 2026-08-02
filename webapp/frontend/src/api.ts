@@ -74,6 +74,7 @@ export interface ModelStatus {
 export interface UserInfo {
   anonymous?: boolean;
   authenticated?: boolean;
+  oidc_enabled?: boolean;
   sub?: string;
   name?: string;
   retention_minutes?: number;

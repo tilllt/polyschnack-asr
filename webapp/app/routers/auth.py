@@ -168,6 +168,7 @@ async def logout(request: Request):
 
 @router.get("/me")
 def me(request: Request) -> Dict[str, Any]:
+    oidc_enabled = settings.OIDC_ENABLED
     user_id = request.session.get("user_id")
     if user_id:
         # Eingeloggter OIDC-User — kein anon-Fall.
@@ -175,12 +176,14 @@ def me(request: Request) -> Dict[str, Any]:
             from ..crud import get_user
             user = get_user(session, user_id)
             if not user:
-                return {"authenticated": False}
+                return {"authenticated": False, "oidc_enabled": oidc_enabled}
             return {
                 "authenticated": True,
+                "oidc_enabled": oidc_enabled,
                 "sub": user.sub,
                 "name": user.name or user.preferred_username or user.email,
                 "preferred_username": user.preferred_username,
+                "is_admin": bool(request.session.get("is_admin")),
             }
     # Anon-Pfad (auch bei OIDC_ENABLED): Dummy-Name + Retention-Hinweis.
     # ensure_anonymous_user erzeugt/liest den Cookie-gebundenen anon-User.
@@ -191,6 +194,7 @@ def me(request: Request) -> Dict[str, Any]:
         user = ensure_anonymous_user(session, request)
         return {
             "anonymous": True,
+            "oidc_enabled": oidc_enabled,
             "name": user.display_name or user.name,
             "retention_minutes": _s.POLYSCHNACK_ANON_RETENTION_MINUTES,
         }

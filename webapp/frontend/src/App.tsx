@@ -58,7 +58,7 @@ function AppContent() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            {user && !user.anonymous && !user.authenticated && (
+            {user && user.oidc_enabled && !user.authenticated && (
               <a href="/auth/login" className="btn-ghost-sm text-[12px]">
                 Login
               </a>

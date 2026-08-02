@@ -103,3 +103,69 @@ def test_me_anon_auch_bei_oidc_aktiv(client, monkeypatch):
     assert body.get("anonymous") is True
     assert body.get("name")
     assert body.get("retention_minutes") == 15
+
+
+def test_me_liefert_oidc_enabled_flag(client, monkeypatch):
+    """LOGIN-BUTTON-FIX: /auth/me muss oidc_enabled liefern (anon UND
+    OIDC-Pfad) — das Frontend zeigt den Login-Button nur, wenn ein
+    Login überhaupt möglich ist (OIDC_ENABLED), auch für anon-User."""
+    from app.config import settings
+    from app.routers.auth import me
+
+    # Anon-Pfad
+    monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+
+    class _FakeRequest:
+        session = {}
+
+    body = me(_FakeRequest())
+    assert body.get("oidc_enabled") is True
+
+    # Anon-Pfad ohne OIDC
+    monkeypatch.setattr(settings, "OIDC_ENABLED", False)
+    body = me(_FakeRequest())
+    assert body.get("oidc_enabled") is False
+
+    # OIDC-Pfad (eingeloggt)
+    from app.db import engine
+    from app.models import User
+    from sqlmodel import Session
+
+    monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+    with Session(engine) as s:
+        s.add(User(id=2, sub="oidc-2", kind="oidc", name="Max Mustermann"))
+        s.commit()
+
+    class _FakeOidcRequest:
+        session = {"user_id": 2}
+
+    body = me(_FakeOidcRequest())
+    assert body.get("authenticated") is True
+    assert body.get("oidc_enabled") is True
+
+
+def test_me_oidc_liefert_is_admin(client, monkeypatch):
+    """AdminPanel-Regression: is_admin kommt aus der Session zurück."""
+    from app.config import settings
+    from app.db import engine
+    from app.models import User
+    from sqlmodel import Session
+
+    monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+    with Session(engine) as s:
+        s.add(User(id=3, sub="oidc-3", kind="oidc", name="Admin"))
+        s.commit()
+
+    from app.routers.auth import me
+
+    class _FakeAdminRequest:
+        session = {"user_id": 3, "is_admin": True}
+
+    body = me(_FakeAdminRequest())
+    assert body.get("is_admin") is True
+
+    class _FakeNormalRequest:
+        session = {"user_id": 3}
+
+    body = me(_FakeNormalRequest())
+    assert body.get("is_admin") is False
