@@ -168,30 +168,29 @@ async def logout(request: Request):
 
 @router.get("/me")
 def me(request: Request) -> Dict[str, Any]:
-    if not settings.OIDC_ENABLED:
-        # Anon-Pfad: Dummy-Name + Retention-Hinweis fürs Frontend.
-        with next(get_session()) as session:
-            from ..anon_session import ensure_anonymous_user
-            from ..config import settings as _s
-
-            user = ensure_anonymous_user(session, request)
-            return {
-                "anonymous": True,
-                "name": user.display_name or user.name,
-                "retention_minutes": _s.POLYSCHNACK_ANON_RETENTION_MINUTES,
-            }
     user_id = request.session.get("user_id")
-    if not user_id:
-        return {"authenticated": False}
+    if user_id:
+        # Eingeloggter OIDC-User — kein anon-Fall.
+        with next(get_session()) as session:
+            from ..crud import get_user
+            user = get_user(session, user_id)
+            if not user:
+                return {"authenticated": False}
+            return {
+                "authenticated": True,
+                "sub": user.sub,
+                "name": user.name or user.preferred_username or user.email,
+                "preferred_username": user.preferred_username,
+            }
+    # Anon-Pfad (auch bei OIDC_ENABLED): Dummy-Name + Retention-Hinweis.
+    # ensure_anonymous_user erzeugt/liest den Cookie-gebundenen anon-User.
     with next(get_session()) as session:
-        from ..crud import get_user
-        user = get_user(session, user_id)
-        if not user:
-            return {"authenticated": False}
+        from ..anon_session import ensure_anonymous_user
+        from ..config import settings as _s
+
+        user = ensure_anonymous_user(session, request)
         return {
-            "authenticated": True,
-            "sub": user.sub,
-            "name": user.name or user.preferred_username or user.email,
-            "preferred_username": user.preferred_username,
-            "is_admin": bool(request.session.get("is_admin")),
+            "anonymous": True,
+            "name": user.display_name or user.name,
+            "retention_minutes": _s.POLYSCHNACK_ANON_RETENTION_MINUTES,
         }

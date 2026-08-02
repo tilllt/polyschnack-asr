@@ -85,3 +85,21 @@ def test_me_oidc_keine_retention_angabe(client, monkeypatch):
     body = me(_FakeRequest())
     assert body.get("authenticated") is True
     assert "retention_minutes" not in body
+
+
+def test_me_anon_auch_bei_oidc_aktiv(client, monkeypatch):
+    """PROD-BUG-Fix: Anon-User bekommen Name+Retention AUCH bei
+    OIDC_ENABLED (kein Login) — vorher kam nur {authenticated: False}."""
+    from app.config import settings
+    from app.routers.auth import me
+
+    monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+    monkeypatch.setattr(settings, "POLYSCHNACK_ANON_RETENTION_MINUTES", 15)
+
+    class _FakeRequest:
+        session = {}
+
+    body = me(_FakeRequest())
+    assert body.get("anonymous") is True
+    assert body.get("name")
+    assert body.get("retention_minutes") == 15
