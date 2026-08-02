@@ -79,7 +79,7 @@ function AppContent() {
             )}
             {user?.anonymous && user.name && (
               <span className="text-[12px] text-muted" title={t("anon_link_hint")}>
-                🐇 {user.name}
+                🎭 {user.name}
               </span>
             )}
             <select
