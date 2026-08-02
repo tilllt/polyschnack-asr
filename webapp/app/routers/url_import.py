@@ -46,12 +46,12 @@ async def import_from_url(
             proc = subprocess.run(
                 [
                     "yt-dlp",
+                    "-f", "ba/b",  # nur Audio-Stream laden (ba=best audio, b=Fallback)
                     "-x",
                     "--audio-format", "wav",
                     "--audio-quality", "0",
                     "-o", out_template,
                     "--no-playlist",
-                    "--print", "filename",
                     url.strip(),
                 ],
                 capture_output=True,
@@ -68,13 +68,13 @@ async def import_from_url(
             log.warning("yt-dlp failed for url=%s: %s", url[:80], err)
             raise HTTPException(status_code=400, detail=f"yt-dlp failed: {err}")
 
-        wav_path_str = proc.stdout.strip().split("\n")[0].strip()
-        wav_path = Path(wav_path_str)
-        if not wav_path.exists():
-            found = list(Path(tmpdir).glob("*.wav"))
-            if not found:
-                raise HTTPException(status_code=400, detail="yt-dlp produced no audio file")
-            wav_path = found[0]
+        # WICHTIG: NICHT auf --print filename verlassen — das druckt den
+        # Namen VOR der Audio-Extraktion (z.B. .mp4 statt .wav). Stattdessen
+        # suchen wir die erzeugte WAV-Datei im Tempdir.
+        wavs = sorted(Path(tmpdir).glob("*.wav"))
+        if not wavs:
+            raise HTTPException(status_code=400, detail="yt-dlp produced no audio file")
+        wav_path = wavs[0]
 
         audio_data = wav_path.read_bytes()
 
