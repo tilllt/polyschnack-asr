@@ -42,7 +42,11 @@ function AppContent() {
         {/* Row 1: Brand + Lang/Login */}
         <div className="flex items-center justify-between gap-2 sm:gap-4 mb-2 sm:mb-0">
           <div className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0">
-            <span className="text-[18px] sm:text-[20px] leading-none">🦜</span>
+            <img
+              src="/logo.svg"
+              alt="PolySchnack"
+              className="h-[26px] sm:h-[30px] w-auto rounded-[6px]"
+            />
             <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
               PolySchnack
             </h1>

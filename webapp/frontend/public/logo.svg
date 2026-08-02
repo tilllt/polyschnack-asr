@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="cap" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a3a6b"/>
+      <stop offset="100%" style="stop-color:#2a5298"/>
+    </linearGradient>
+    <linearGradient id="coat" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e4d8c"/>
+      <stop offset="100%" style="stop-color:#2a6cb8"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0f8ff"/>
+      <stop offset="100%" style="stop-color:#dce8f5"/>
+    </linearGradient>
+    <linearGradient id="wave1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.3"/>
+      <stop offset="50%" style="stop-color:#29b6f6;stop-opacity:0.5"/>
+      <stop offset="100%" style="stop-color:#4fc3f7;stop-opacity:0.3"/>
+    </linearGradient>
+    <linearGradient id="wave2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#81d4fa;stop-opacity:0.2"/>
+      <stop offset="50%" style="stop-color:#4fc3f7;stop-opacity:0.4"/>
+      <stop offset="100%" style="stop-color:#81d4fa;stop-opacity:0.2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+
+  <!-- Background sound waves -->
+  <g opacity="0.12" stroke="#1565c0" stroke-width="2.5" fill="none">
+    <path d="M60 256 Q90 210 120 256 Q150 302 180 256 Q210 210 240 256 Q270 302 300 256 Q330 210 360 256 Q390 302 420 256 Q450 210 480 256">
+      <animate attributeName="d" dur="3s" repeatCount="indefinite"
+        values="M60 256 Q90 210 120 256 Q150 302 180 256 Q210 210 240 256 Q270 302 300 256 Q330 210 360 256 Q390 302 420 256 Q450 210 480 256;
+                M60 256 Q90 302 120 256 Q150 210 180 256 Q210 302 240 256 Q270 210 300 256 Q330 302 360 256 Q390 210 420 256 Q450 302 480 256;
+                M60 256 Q90 210 120 256 Q150 302 180 256 Q210 210 240 256 Q270 302 300 256 Q330 210 360 256 Q390 302 420 256 Q450 210 480 256"/>
+    </path>
+    <path d="M60 276 Q90 236 120 276 Q150 316 180 276 Q210 236 240 276 Q270 316 300 276 Q330 236 360 276 Q390 316 420 276 Q450 236 480 276" opacity="0.5"/>
+  </g>
+
+  <!-- Captain's Cap -->
+  <ellipse cx="256" cy="135" rx="85" ry="22" fill="#1a1a2e"/>
+  <ellipse cx="256" cy="133" rx="83" ry="20" fill="url(#cap)"/>
+  <rect x="200" y="95" width="112" height="42" rx="6" fill="url(#cap)"/>
+  <rect x="198" y="92" width="116" height="8" rx="4" fill="#ffd700"/>
+  <!-- Cap brim -->
+  <ellipse cx="265" cy="137" rx="40" ry="10" fill="#0d1b3e"/>
+  <!-- Cap badge: anchor -->
+  <g transform="translate(256, 115)">
+    <circle cx="0" cy="-6" r="4" fill="#ffd700"/>
+    <path d="M0-2 L-8 8 L8 8 Z" fill="#ffd700"/>
+    <line x1="0" y1="-10" x2="0" y2="10" stroke="#ffd700" stroke-width="1.5"/>
+  </g>
+
+  <!-- Face -->
+  <ellipse cx="256" cy="200" rx="65" ry="72" fill="#f5cba7"/>
+
+  <!-- Cheeks -->
+  <ellipse cx="210" cy="220" rx="18" ry="12" fill="#e8a87c" opacity="0.4"/>
+  <ellipse cx="302" cy="220" rx="18" ry="12" fill="#e8a87c" opacity="0.4"/>
+
+  <!-- Eyes -->
+  <!-- Left eye (open) -->
+  <ellipse cx="232" cy="188" rx="12" ry="14" fill="white"/>
+  <circle cx="234" cy="186" r="8" fill="#3a2819"/>
+  <circle cx="236" cy="184" r="3" fill="white"/>
+
+  <!-- Right eye (winking!) -->
+  <path d="M265 182 Q280 178 295 182 Q280 186 265 182" fill="#3a2819" stroke="#3a2819" stroke-width="1.5"/>
+
+  <!-- Eyebrows -->
+  <path d="M218 172 Q226 166 240 168" stroke="#5a3a22" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M272 168 Q286 163 300 168" stroke="#5a3a22" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- Nose -->
+  <ellipse cx="258" cy="205" rx="10" ry="7" fill="#e8a87c"/>
+
+  <!-- Mouth (smiling under mustache) -->
+  <path d="M227 225 Q256 242 285 225" stroke="#8b4513" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+  <!-- Pipe -->
+  <g transform="translate(295, 210)">
+    <!-- Pipe stem -->
+    <line x1="0" y1="0" x2="28" y2="-15" stroke="#5c3a1e" stroke-width="5" stroke-linecap="round"/>
+    <!-- Pipe bowl -->
+    <rect x="24" y="-25" width="18" height="16" rx="4" fill="#8b5e3c"/>
+    <rect x="26" y="-26" width="14" height="4" rx="2" fill="#6b3a1e"/>
+    <!-- Smoke rings -->
+    <circle cx="38" cy="-36" r="3" fill="none" stroke="#b0bec5" stroke-width="1.5" opacity="0.5">
+      <animate attributeName="cy" dur="2.5s" repeatCount="indefinite" values="-36;-60"/>
+      <animate attributeName="opacity" dur="2.5s" repeatCount="indefinite" values="0.5;0"/>
+    </circle>
+    <circle cx="36" cy="-30" r="2" fill="none" stroke="#b0bec5" stroke-width="1" opacity="0.3">
+      <animate attributeName="cy" dur="2s" repeatCount="indefinite" values="-30;-50"/>
+      <animate attributeName="opacity" dur="2s" repeatCount="indefinite" values="0.3;0"/>
+    </circle>
+  </g>
+
+  <!-- Mustache (white/bushy) -->
+  <path d="M215 218 Q240 210 256 220 Q272 210 297 218" stroke="white" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M220 222 Q240 214 256 224 Q272 214 292 222" stroke="#e8e8e8" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- Beard -->
+  <path d="M200 230 Q200 275 220 292 Q240 305 256 308 Q272 305 292 292 Q312 275 312 230" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <path d="M208 245 Q256 260 304 245" stroke="#e8e8e8" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <path d="M204 260 Q256 275 308 260" stroke="#e8e8e8" stroke-width="1.5" fill="none" opacity="0.4"/>
+
+  <!-- Uniform collar -->
+  <path d="M200 298 Q210 310 230 310 L230 340 Q210 345 195 340 Z" fill="url(#coat)"/>
+  <path d="M312 298 Q302 310 282 310 L282 340 Q302 345 317 340 Z" fill="url(#coat)"/>
+  <!-- Gold buttons -->
+  <circle cx="240" cy="320" r="4" fill="#ffd700"/>
+  <circle cx="272" cy="320" r="4" fill="#ffd700"/>
+
+  <!-- Collar flaps -->
+  <path d="M200 300 L256 290 L312 300 L256 295 Z" fill="#1a3a6b"/>
+
+  <!-- Epaulettes -->
+  <ellipse cx="200" cy="302" rx="14" ry="6" fill="#ffd700" transform="rotate(-15 200 302)"/>
+  <ellipse cx="312" cy="302" rx="14" ry="6" fill="#ffd700" transform="rotate(15 312 302)"/>
+
+  <!-- Neck -->
+  <rect x="236" y="290" width="40" height="20" fill="#f5cba7"/>
+
+  <!-- Title text -->
+  <text x="256" y="390" font-family="Georgia, serif" font-size="42" font-weight="bold" fill="#1a3a6b" text-anchor="middle" letter-spacing="2">
+    PolySchnack
+  </text>
+  <text x="256" y="415" font-family="Georgia, serif" font-size="14" fill="#5c7fb3" text-anchor="middle" letter-spacing="4" font-style="italic">
+    SPEECH TO TEXT
+  </text>
+
+  <!-- Decorative waves -->
+  <path d="M100 435 Q130 425 160 435 Q190 445 220 435 Q250 425 280 435 Q310 445 340 435 Q370 425 400 435 Q430 445 460 435" fill="none" stroke="url(#wave1)" stroke-width="3">
+    <animate attributeName="d" dur="4s" repeatCount="indefinite"
+      values="M100 435 Q130 425 160 435 Q190 445 220 435 Q250 425 280 435 Q310 445 340 435 Q370 425 400 435 Q430 445 460 435;
+              M100 435 Q130 445 160 435 Q190 425 220 435 Q250 445 280 435 Q310 425 340 435 Q370 445 400 435 Q430 425 460 435;
+              M100 435 Q130 425 160 435 Q190 445 220 435 Q250 425 280 435 Q310 445 340 435 Q370 425 400 435 Q430 445 460 435"/>
+  </path>
+  <path d="M110 445 Q140 437 170 445 Q200 453 230 445 Q260 437 290 445 Q320 453 350 445 Q380 437 410 445 Q440 453 470 445" fill="none" stroke="url(#wave2)" stroke-width="2">
+    <animate attributeName="d" dur="3.5s" repeatCount="indefinite"
+      values="M110 445 Q140 437 170 445 Q200 453 230 445 Q260 437 290 445 Q320 453 350 445 Q380 437 410 445 Q440 453 470 445;
+              M110 445 Q140 453 170 445 Q200 437 230 445 Q260 453 290 445 Q320 437 350 445 Q380 453 410 445 Q440 437 470 445;
+              M110 445 Q140 437 170 445 Q200 453 230 445 Q260 437 290 445 Q320 453 350 445 Q380 437 410 445 Q440 453 470 445"/>
+  </path>
+</svg>
