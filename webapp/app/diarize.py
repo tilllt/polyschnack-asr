@@ -4,7 +4,10 @@ Requires HF_TOKEN env var (accept terms at
 https://huggingface.co/pyannote/speaker-diarization-3.1 and
 https://huggingface.co/pyannote/segmentation-3.0).
 
-Silently returns empty list when token is missing (no crash).
+Ladefehler werden NICHT mehr still verschluckt: statt einer leeren Liste
+wirft :func:`diarize` eine :class:`DiarizationError` mit präziser Ursache
+(no-token, gated, unauthorized, not-found, …), damit der Aufrufer die
+Aufnahme als fehlgeschlagen markieren und den Admin-Hinweis ausgeben kann.
 """
 from __future__ import annotations
 
@@ -17,19 +20,72 @@ log = logging.getLogger(__name__)
 _pipeline = None
 
 
+class DiarizationError(RuntimeError):
+    """Diarization nicht verfügbar — mit maschinenlesbarem ``code`` und
+    menschenlesbarer ``message`` (inkl. Admin-Hinweis)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"diarization/{code}: {message}")
+        self.code = code
+        self.message = message
+
+
+def _classify_load_error(exc: Exception) -> tuple[str, str]:
+    """Mappt eine from_pretrained-Exception auf (code, message).
+
+    codes: no-token | unauthorized | gated | not-found | load-failed
+    """
+    # huggingface_hub HTTPStatusError trägt .response.status_code
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc).lower()
+    admin_hint = (
+        " Bitte den Administrator informieren, damit er die "
+        "Nutzungsbedingungen auf HuggingFace akzeptiert."
+    )
+    if status == 401 or "401" in text or "invalid token" in text:
+        return "unauthorized", (
+            "Das HuggingFace-Token ist ungültig oder abgelaufen "
+            "(HTTP 401). Bitte den Administrator informieren."
+        )
+    if status == 403 or "gated" in text or "restricted" in text \
+            or "access" in text or "403" in text:
+        return "gated", (
+            "Das Diarization-Modell ist auf HuggingFace lizenzgeschützt "
+            "(gated) und wurde für dieses Token noch nicht freigeschaltet."
+            + admin_hint
+        )
+    if status == 404 or "404" in text or "not found" in text:
+        return "not-found", (
+            "Das Diarization-Modell existiert auf HuggingFace nicht (HTTP "
+            "404) — Modell-ID in der Pipeline-Konfiguration prüfen."
+        )
+    return "load-failed", f"Diarization-Modell konnte nicht geladen werden: {exc}"
+
+
 def _load_pipeline():
     global _pipeline
     if _pipeline is not None:
         return _pipeline
     token = os.getenv("HF_TOKEN")
     if not token:
-        log.warning("HF_TOKEN not set — diarization disabled")
-        return None
-    from pyannote.audio import Pipeline
-    _pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        token=token,
-    )
+        raise DiarizationError(
+            "no-token",
+            "HF_TOKEN ist nicht gesetzt — Diarization ist ohne Token nicht "
+            "nutzbar. Bitte den Administrator informieren.",
+        )
+    try:
+        from pyannote.audio import Pipeline
+
+        _pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            token=token,
+        )
+    except DiarizationError:
+        raise
+    except Exception as exc:
+        code, message = _classify_load_error(exc)
+        log.exception("diarize: pipeline load failed on %s: %s", exc, exc)
+        raise DiarizationError(code, message) from exc
     log.info("pyannote diarization pipeline loaded")
     return _pipeline
 
@@ -37,20 +93,21 @@ def _load_pipeline():
 def diarize(audio_path: str) -> List[Dict[str, Any]]:
     """Run speaker diarization on *audio_path*.
 
-    Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts,
-    or an empty list when diarization is unavailable.
+    Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts.
+
+    Raises :class:`DiarizationError` when the pipeline cannot be loaded
+    (missing token, gated repo, …) — no silent empty list for config errors.
     """
     pipeline = _load_pipeline()
-    if pipeline is None:
-        log.warning("diarize(%s): pipeline not loaded (HF_TOKEN missing or pyannote not installed)", audio_path)
-        return []
 
     log.info("diarize: running pyannote pipeline on %s", audio_path)
     try:
         result = pipeline(audio_path)
+    except DiarizationError:
+        raise
     except Exception as exc:
         log.exception("diarize: pipeline() threw on %s: %s", audio_path, exc)
-        return []
+        raise DiarizationError("run-failed", f"Diarization-Lauf fehlgeschlagen: {exc}") from exc
 
     segments: List[Dict[str, Any]] = []
     for turn, _, speaker in result.itertracks(yield_label=True):

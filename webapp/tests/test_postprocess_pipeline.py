@@ -123,6 +123,8 @@ def _fake_update_result(session, rec_id, **kw):
         r.text = kw.get("text") or r.text
         r.language = kw.get("language")
         r.duration_s = kw.get("duration_s")
+        if "error" in kw:
+            r.error = kw.get("error")
         session.add(r)
         session.commit()
 
@@ -203,3 +205,45 @@ def test_service_delivery_failure_marks_failed(db, monkeypatch):
         rec = s.get(Recording, 1)
         assert rec.delivery_status == "failed"
         assert "SMTP down" in (rec.delivery_error or "")
+
+
+def test_service_diarize_gated_marks_failed(db, monkeypatch):
+    """Wenn das Diarization-Modell gated ist (Lizenz fehlt), wird die
+    Aufnahme NICHT still ohne Speaker fertig — sondern failed mit einer
+    Meldung, die den Admin-Hinweis enthält."""
+    from app import service as service_mod
+    from app import queue as queue_mod
+    from app.diarize import DiarizationError
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    monkeypatch.setattr(queue_mod.crud, "get_recording",
+                        lambda s, rid: s.get(Recording, rid))
+    monkeypatch.setattr(service_mod, "get_client", lambda backend: _FakeClient())
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
+    monkeypatch.setattr(service_mod.crud, "set_progress",
+                        lambda session, rec_id, pct: None)
+    monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
+
+    def boom(audio_path):
+        raise DiarizationError(
+            "gated",
+            "Das Diarization-Modell ist lizenzgeschützt. "
+            "Bitte den Administrator informieren, damit er die "
+            "Nutzungsbedingungen auf HuggingFace akzeptiert.",
+        )
+
+    monkeypatch.setattr(service_mod, "_run_diarization", boom)
+
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        rec.enable_diarize = True
+        s.add(rec)
+        s.commit()
+
+    service_mod.process_recording(1, backend="pk-python")
+
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        assert rec.status == "failed"
+        assert "Administrator" in (rec.error or "")
+        assert "lizenzgeschützt" in (rec.error or "")

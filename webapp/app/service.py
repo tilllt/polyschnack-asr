@@ -19,6 +19,7 @@ from .asr_client import get_client
 from .config import settings
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
+from .diarize import DiarizationError
 import os
 
 # Heavy optional deps (onnxruntime/pyannote/torch) are imported lazily inside
@@ -253,6 +254,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             try:
                 diar = _run_diarization(str(audio_path))
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
+            except DiarizationError as exc_d:
+                # Kein stilles Verschlucken: gated/Token-Fehler müssen als
+                # failed mit Admin-Hinweis beim User ankommen.
+                raise
             except Exception as exc_d:
                 log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
                 diar = None
@@ -315,6 +320,12 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                         text = llm_mod.chat(
                             "Verbessere folgenden Transkript-Text (keine Einleitung):",
                             text or "", endpoint=endpoint)
+    except DiarizationError as exc_d:
+        # Präzise Diarization-Fehlermeldung (gated, no-token, …) —
+        # ohne TypeName-Prefix, damit der User den Admin-Hinweis direkt liest.
+        status = "failed"
+        error = exc_d.message
+        log.exception("process_recording rec_id=%d diarization failed (%s)", rec_id, exc_d.code)
     except Exception as exc:  # broad catch: any I/O or HTTP failure marks the row failed
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
