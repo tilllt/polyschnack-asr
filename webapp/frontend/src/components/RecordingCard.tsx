@@ -28,6 +28,24 @@ function fmtTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Dropdown-Flip: öffnet nach unten, aber wenn das Menü unter den Viewport
+ *  ragen würde (Mobile!), klappt es nach oben auf. */
+function useFlipUp(open: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setUp(r.bottom > window.innerHeight - 8);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+  return { ref, up };
+}
+
 interface Props {
   recording: Recording;
   compact?: boolean;
@@ -95,6 +113,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
   const [versions, setVersions] = useState<VersionItem[]>([]);
   const [diffText, setDiffText] = useState("");
   const [diffInfo, setDiffInfo] = useState("");
+
+  // Dropdown-Flip für Download/Share/Versionen (Mobile: nach oben klappen)
+  const dlFlip = useFlipUp(dlOpen);
+  const shareFlip = useFlipUp(shareOpen);
+  const versFlip = useFlipUp(versOpen);
 
   useEffect(() => {
     fetchModelsMatrix().then(setMatrix).catch(() => {});
@@ -528,13 +551,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
             </button>
             {dlOpen && (
               <div
-                className="
+                ref={dlFlip.ref}
+                className={`
                   dl-menu-enter
-                  absolute top-[calc(100%+6px)] right-0
+                  absolute ${dlFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0
                   bg-panel3 border border-border2 rounded-sm
-                  p-1 min-w-[110px] z-50
+                  p-1 min-w-[110px] max-w-[calc(100vw-16px)] z-50
                   shadow-[0_8px_24px_rgba(0,0,0,.4)]
-                "
+                `}
               >
                 {(["txt", "srt", "vtt"] as const).map((fmt) => (
                   <a
@@ -571,7 +595,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
               🔗 {t("share")}
             </button>
             {shareOpen && (
-              <div className="dl-menu-enter absolute top-[calc(100%+6px)] right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]">
+              <div ref={shareFlip.ref} className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
                 <div className="space-y-1 max-h-[150px] overflow-y-auto mb-1.5">
                   {shares.length === 0 && <p className="text-muted2 text-[11px]">{t("no_shares")}</p>}
                   {shares.map((sh) => (
@@ -617,7 +641,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
               🕘 {t("versions")}
             </button>
             {versOpen && (
-              <div className="dl-menu-enter absolute top-[calc(100%+6px)] right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]">
+              <div ref={versFlip.ref} className={`dl-menu-enter absolute ${versFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto mb-1.5">
                   {versions.length === 0 && <p className="text-muted2 text-[11px]">{t("no_versions")}</p>}
                   {[...versions].reverse().map((v) => (
