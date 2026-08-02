@@ -64,6 +64,7 @@ def test_anon_llm_enhance_403(db, qm, monkeypatch):
         with pytest.raises(HTTPException) as ei:
             recordings.transcribe_ep(
                 "r2", _req(None), enable_vad=False, enable_diarize=False,
+                diarize_num_speakers=None, diarize_min_duration_off=None,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=True,
                 prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -78,6 +79,7 @@ def test_anon_llm_punctuation_mode_403(db, qm, monkeypatch):
         with pytest.raises(HTTPException) as ei:
             recordings.transcribe_ep(
                 "r2", _req(None), enable_vad=False, enable_diarize=False,
+                diarize_num_speakers=None, diarize_min_duration_off=None,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=True, enable_llm_enhance=None,
                 prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -91,6 +93,7 @@ def test_anon_local_punctuation_ok(db, qm, monkeypatch):
     with Session(db) as s:
         r = recordings.transcribe_ep(
             "r2", _req(None), enable_vad=False, enable_diarize=False,
+            diarize_num_speakers=None, diarize_min_duration_off=None,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=True, enable_llm_enhance=None,
             prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -102,6 +105,7 @@ def test_oidc_llm_enhance_ok(db, qm):
     with Session(db) as s:
         r = recordings.transcribe_ep(
             "r1", _req(1), enable_vad=False, enable_diarize=False,
+            diarize_num_speakers=None, diarize_min_duration_off=None,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=True,
             prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -119,6 +123,30 @@ def test_retranscribe_sets_toggle_flags(db, qm):
         rec = s.get(Recording, 1)
         assert rec.enable_punctuation is True
         assert rec.enable_llm_enhance is False
+
+
+def test_retranscribe_speichert_diarize_params(db, qm):
+    """Diarization-Tuning (Punkte 1+2) wird am Recording gespeichert."""
+    with Session(db) as s:
+        params = recordings.RetranscribeParams(
+            enable_diarize=True,
+            diarize_num_speakers=2,
+            diarize_min_duration_off=0.4,
+        )
+        recordings.retranscribe("r1", params, _req(1), s)
+        rec = s.get(Recording, 1)
+        assert rec.enable_diarize is True
+        assert rec.diarize_num_speakers == 2
+        assert rec.diarize_min_duration_off == 0.4
+
+
+def test_retranscribe_diarize_params_default_none(db, qm):
+    """Ohne Angabe bleiben die Tuning-Werte None (Pipeline-Default)."""
+    with Session(db) as s:
+        recordings.retranscribe("r1", recordings.RetranscribeParams(enable_diarize=True), _req(1), s)
+        rec = s.get(Recording, 1)
+        assert rec.diarize_num_speakers is None
+        assert rec.diarize_min_duration_off is None
 
 
 def test_defaults_are_off():

@@ -93,6 +93,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "source": rec.source,
         "enable_vad": rec.enable_vad,
         "enable_diarize": rec.enable_diarize,
+        "diarize_num_speakers": rec.diarize_num_speakers,
+        "diarize_min_duration_off": rec.diarize_min_duration_off,
         "enable_streaming": rec.enable_streaming,
         "enable_noise_reduce": rec.enable_noise_reduce,
         "enable_enhance": rec.enable_enhance,
@@ -177,6 +179,8 @@ async def upload_recording(
     batch_id: Optional[str] = Form(None),
     enable_vad: bool = Form(False),
     enable_diarize: bool = Form(False),
+    diarize_num_speakers: Optional[int] = Form(None),
+    diarize_min_duration_off: Optional[float] = Form(None),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
@@ -250,6 +254,8 @@ async def upload_recording(
         duration_s=est_duration_s,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
+        diarize_num_speakers=diarize_num_speakers,
+        diarize_min_duration_off=diarize_min_duration_off,
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
@@ -448,6 +454,8 @@ def transcribe_ep(
     request: Request,
     enable_vad: bool = Form(False),
     enable_diarize: bool = Form(False),
+    diarize_num_speakers: Optional[int] = Form(None),
+    diarize_min_duration_off: Optional[float] = Form(None),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
@@ -481,6 +489,8 @@ def transcribe_ep(
     # Update toggle values from the transcribe request (they may have changed since upload)
     rec.enable_vad = enable_vad
     rec.enable_diarize = enable_diarize
+    rec.diarize_num_speakers = diarize_num_speakers
+    rec.diarize_min_duration_off = diarize_min_duration_off
     rec.enable_streaming = enable_streaming
     rec.enable_noise_reduce = enable_noise_reduce
     rec.enable_enhance = enable_enhance
@@ -531,6 +541,8 @@ def transcribe_ep(
 class RetranscribeParams(BaseModel):
     enable_vad: bool = False
     enable_diarize: bool = False
+    diarize_num_speakers: Optional[int] = None
+    diarize_min_duration_off: Optional[float] = None
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"
@@ -570,6 +582,8 @@ def retranscribe(
 
     rec.enable_vad = params.enable_vad
     rec.enable_diarize = params.enable_diarize
+    rec.diarize_num_speakers = params.diarize_num_speakers
+    rec.diarize_min_duration_off = params.diarize_min_duration_off
     rec.enable_streaming = params.enable_streaming
     rec.enable_noise_reduce = params.enable_noise_reduce
     rec.enable_enhance = params.enable_enhance

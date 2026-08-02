@@ -16,6 +16,17 @@ export interface FeatureValues {
   templateId: number | undefined;
   targetId: number | undefined;
   endpointId: number | undefined;
+  /** Diarization-Tuning (ausklappbar): bekannte Sprecherzahl, "" = auto */
+  numSpeakers: string;
+  /** Diarization-Tuning: Sensitivität "more" | "std" | "less" */
+  diarSens: string;
+}
+
+/** Sensitivität → min_duration_off (Sek.): less = weniger Sprecherwechsel */
+export function diarSensToMinDurationOff(sens: string): number | undefined {
+  if (sens === "less") return 0.4;
+  if (sens === "more") return 0.05;
+  return undefined; // "std" → Pipeline-Default
 }
 
 export interface PostProcessOptions {
@@ -66,6 +77,41 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-2">
       <MiniToggle label="VAD" on={values.vad} disabled={!vadOk} onChange={(v) => onChange({ vad: v })} />
       <MiniToggle label="🎙 Speaker" on={values.diarize} disabled={!diarOk} onChange={(v) => onChange({ diarize: v })} />
+      {values.diarize && (
+        <details className="relative">
+          <summary className="text-[11px] text-muted cursor-pointer select-none px-1 py-[2px] border border-border rounded-sm bg-panel2">
+            {t("diarize_tuning")}
+          </summary>
+          <div className="absolute right-0 top-full mt-1 z-20 flex flex-col gap-2 bg-panel3 border border-border2 rounded-sm px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] min-w-[200px]">
+            <label className="flex flex-col gap-1 text-[11px]">
+              {t("diarize_speakers")}
+              <select
+                value={values.numSpeakers}
+                onChange={(e) => onChange({ numSpeakers: e.target.value })}
+                className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+              >
+                <option value="">{t("diarize_auto")}</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4+</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[11px]">
+              {t("diarize_sensitivity")}
+              <select
+                value={values.diarSens}
+                onChange={(e) => onChange({ diarSens: e.target.value })}
+                className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+              >
+                <option value="less">{t("diarize_less_switches")}</option>
+                <option value="std">{t("diarize_std")}</option>
+                <option value="more">{t("diarize_more_detail")}</option>
+              </select>
+            </label>
+          </div>
+        </details>
+      )}
       <MiniToggle label="⚡ Live" on={values.streaming} onChange={(v) => onChange({ streaming: v })} />
       <MiniToggle label="🔇 NR" on={values.noise} onChange={(v) => onChange({ noise: v })} />
       <select

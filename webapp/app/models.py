@@ -58,6 +58,11 @@ class Recording(SQLModel, table=True):
     enable_vad: bool = False
     #: User opted into speaker diarization for this recording.
     enable_diarize: bool = False
+    #: Diarization-Tuning: bekannte Sprecherzahl (min=max), None = auto.
+    diarize_num_speakers: Optional[int] = Field(default=None)
+    #: Diarization-Tuning: min. Pause zwischen Sprecherwechseln (Sek.),
+    #: None = Pipeline-Default. Höher = weniger Wechsel.
+    diarize_min_duration_off: Optional[float] = Field(default=None)
     #: User opted into live streaming preview (SSE per-chunk results).
     enable_streaming: bool = False
 

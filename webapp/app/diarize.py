@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -130,8 +130,17 @@ def _extract_segments(result) -> List[Dict[str, Any]]:
     return segments
 
 
-def diarize(audio_path: str) -> List[Dict[str, Any]]:
+def diarize(
+    audio_path: str,
+    num_speakers: Optional[int] = None,
+    min_duration_off: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     """Run speaker diarization on *audio_path*.
+
+    Optional tuning (UI: „Sprecheranzahl" + „Sensitivität"):
+    - ``num_speakers``: min=max vorgeben (bekannte Sprecherzahl)
+    - ``min_duration_off``: minimale Pause zwischen Sprecherwechseln
+      (höher = weniger Wechsel/Flicker). None → Pipeline-Default.
 
     Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts.
 
@@ -140,9 +149,17 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
     """
     pipeline = _load_pipeline()
 
-    log.info("diarize: running pyannote pipeline on %s", audio_path)
+    kwargs: Dict[str, Any] = {}
+    if num_speakers is not None:
+        kwargs["min_speakers"] = num_speakers
+        kwargs["max_speakers"] = num_speakers
+    if min_duration_off is not None:
+        kwargs["min_duration_off"] = min_duration_off
+
+    log.info("diarize: running pyannote pipeline on %s %s", audio_path,
+             kwargs or "(defaults)")
     try:
-        result = pipeline(audio_path)
+        result = pipeline(audio_path, **kwargs)
     except DiarizationError:
         raise
     except Exception as exc:

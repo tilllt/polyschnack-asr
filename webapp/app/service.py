@@ -31,9 +31,11 @@ def _trim_silence(audio_bytes: bytes) -> bytes:
     return trim_silence(audio_bytes)
 
 
-def _run_diarization(audio_path: str) -> list:
+def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
+                     min_duration_off: Optional[float] = None) -> list:
     from .diarize import diarize
-    return diarize(audio_path)
+    return diarize(audio_path, num_speakers=num_speakers,
+                   min_duration_off=min_duration_off)
 
 
 def _merge_diarization(segments: list, diar: list) -> list:
@@ -288,7 +290,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         if enable_diarize:
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
             try:
-                diar = _run_diarization(str(audio_path))
+                diar = _run_diarization(
+                    str(audio_path),
+                    num_speakers=rec.diarize_num_speakers,
+                    min_duration_off=rec.diarize_min_duration_off,
+                )
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
             except DiarizationError as exc_d:
                 # Kein stilles Verschlucken: gated/Token-Fehler müssen als

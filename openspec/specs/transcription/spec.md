@@ -33,6 +33,15 @@ Formaten exportieren.
   Job geht in die Queue; Worker ruft `get_client(backend).transcribe_async`.
 - **Eingaben:** Toggles (VAD, Diarize, Streaming, Noise-Reduce, Enhance),
   Backend, Post-Processing-Auswahl (Template, Target, BYOK-Endpunkt).
+- **Diarization-Tuning:** Zusätzlich `diarize_num_speakers` (int, optional)
+  und `diarize_min_duration_off` (float, optional) bei transcribe/retranscribe/
+  upload/from-url. Werden am Recording gespeichert und bei Re-Transcribe
+  wieder verwendet; `None` → pyannote-Pipeline-Default. `service.py` reicht
+  beide an `diarize.py::diarize(num_speakers=…, min_duration_off=…)`, das
+  sie als `min_speakers/max_speakers` bzw. `min_duration_off` an die
+  Pipeline übergibt. Das UI bietet „Sprecherzahl" (Auto/1/2/3/4+) und
+  „Sensitivität" (Weniger Wechsel 0.4 s / Standard / Mehr Detail 0.05 s)
+  in einem ausklappbaren Menü an der Transcribe-Zeile.
 - **Ausgaben:** `{status, position}` — Position in der Backend-Queue.
 - **Ergebnis:** `status` durchläuft `queued → processing → done|failed`;
   Fortschritt via WebSocket/`progress_pct`; Ergebnis (text, segments,
@@ -46,6 +55,21 @@ Formaten exportieren.
 - **Eingaben:** `retranscribe` mit `backend="qwen3-asr"`.
 - **Ergebnis:** Neue Version `kind="retranscribe"`; alte Fassung bleibt
   per Diff/Restore erreichbar.
+
+#### Scenario: Bekannte Sprecherzahl vorgeben
+
+- **Akteure:** Besitzer oder Share mit `write`/`full`.
+- **Eingaben:** Re-Transkription mit `diarize_num_speakers=2` bei einer
+  2-Sprecher-Aufnahme.
+- **Ergebnis:** Diarization liefert genau 2 Sprecher (min=max=2) statt
+  frei geschätzter 3; Segmente tragen nur SPEAKER_00/SPEAKER_01.
+
+#### Scenario: Weniger Sprecherwechsel
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Re-Transkription mit `diarize_min_duration_off=0.4`.
+- **Ergebnis:** Kurze Pausen (<0.4 s) lösen keinen Sprecherwechsel aus —
+  weniger Label-Flickering bei schnellen Dialogwechseln.
 
 ### Req 3: Opt-in-Toggles (Punctuation, LLM-Enhance)
 

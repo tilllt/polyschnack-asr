@@ -12,7 +12,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { activeSegmentIndex } from "../karaoke";
 import { buildShareUrl, formatExpiry } from "../share";
-import { FeatureToggles, type FeatureValues } from "./FeatureToggles";
+import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 
 function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
   if (pct <= 0 || !duration_s) return "…";
@@ -91,6 +91,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
   const [feat, setFeat] = useState<FeatureValues>({
     vad: r.enable_vad,
     diarize: r.enable_diarize,
+    numSpeakers: r.diarize_num_speakers != null ? String(r.diarize_num_speakers) : "",
+    diarSens: r.diarize_min_duration_off != null
+      ? (r.diarize_min_duration_off >= 0.3 ? "less" : r.diarize_min_duration_off <= 0.08 ? "more" : "std")
+      : "std",
     streaming: r.enable_streaming,
     noise: r.enable_noise_reduce,
     enhance: r.enable_enhance,
@@ -148,7 +152,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
 
   async function handleStartTranscription(id: string) {
     try {
-      await startTranscription(id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend, feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId, feat.endpointId);
+      await startTranscription(
+        id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend,
+        feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId, feat.endpointId,
+        feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
+        diarSensToMinDurationOff(feat.diarSens),
+      );
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       toast(`Failed: ${(e as Error).message}`, "err");
@@ -320,6 +329,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, d
       opts: {
         enable_vad: feat.vad,
         enable_diarize: feat.diarize,
+        diarize_num_speakers: feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
+        diarize_min_duration_off: diarSensToMinDurationOff(feat.diarSens),
         enable_streaming: feat.streaming,
         enable_noise_reduce: feat.noise,
         enable_enhance: feat.enhance,
