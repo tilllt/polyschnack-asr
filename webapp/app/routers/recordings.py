@@ -100,6 +100,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "user_id": rec.user_id,
         "access_level": access_level,
         "is_anon_shared": bool(getattr(rec, "share_token", False)),
+        "retention_minutes": settings.POLYSCHNACK_ANON_RETENTION_MINUTES,
+        "shared_at": rec.shared_at.isoformat() if getattr(rec, "shared_at", None) else None,
         "delivery_status": rec.delivery_status,
         "delivery_error": rec.delivery_error,
     }
@@ -271,11 +273,21 @@ def list_recordings_endpoint(
     """Return all recordings (newest first), optionally filtered by *q*."""
     uid = _current_user(request, session)
     rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
-    return [
-        _recording_to_dict(r, access_level=get_access_level(
+    share_rec_ids = set()
+    if uid is not None:
+        share_rec_ids = {
+            s.rec_id
+            for s in session.exec(
+                select(RecordingShare).where(RecordingShare.user_id == uid)
+            ).all()
+        }
+    out = []
+    for r in rows:
+        d = _recording_to_dict(r, access_level=get_access_level(
             session, r, uid, cap=_key_cap(request, session)))
-        for r in rows
-    ]
+        d["shared_with_me"] = r.user_id != uid and r.id in share_rec_ids
+        out.append(d)
+    return out
 
 
 @router.get("/recordings/{rid}")
@@ -292,6 +304,15 @@ def get_recording_endpoint(
     ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
     d = _recording_to_dict(rec, access_level=get_access_level(
         session, rec, uid, cap=_key_cap(request, session)))
+    # Visuelle Markierung: "shared_with_me" = fremde Recording via User-Share
+    shared_with_me = False
+    if uid is not None and rec.user_id != uid:
+        shared_with_me = session.exec(
+            select(RecordingShare).where(
+                RecordingShare.rec_id == rec.id, RecordingShare.user_id == uid
+            )
+        ).first() is not None
+    d["shared_with_me"] = shared_with_me
     # Debug: include word presence info without changing data
     segs = d.get("segments") or []
     d["_words_debug"] = {

@@ -83,3 +83,20 @@ def test_get_includes_access_level(db):
     with Session(db) as s:
         d = recordings.get_recording_endpoint("shared", _req(2), s)
         assert d["access_level"] == "write"
+
+
+def test_shared_with_me_flag_list(db):
+    """Fremde Recording via Share → shared_with_me=True (visuelle Markierung)."""
+    with Session(db) as s:
+        lst = recordings.list_recordings_endpoint(q=None, request=_req(2), session=s)
+        by_uid = {d["uid"]: d for d in lst}
+        assert by_uid["shared"]["shared_with_me"] is True
+        assert by_uid["theirs"]["shared_with_me"] is False  # eigene
+
+
+def test_shared_with_me_flag_detail(db):
+    with Session(db) as s:
+        d = recordings.get_recording_endpoint("shared", _req(2), s)
+        assert d["shared_with_me"] is True
+        d_own = recordings.get_recording_endpoint("own", _req(1), s)
+        assert d_own["shared_with_me"] is False
