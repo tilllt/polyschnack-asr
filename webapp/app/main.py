@@ -19,7 +19,7 @@ from typing import Any, AsyncGenerator, Dict
 import secrets
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -128,6 +128,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="PolySchnack Web UI", lifespan=lifespan)
+
+# ------------------------------------------------------------------
+# SEO-Schutz: KEINE Seite (inkl. Anon-Share-Links unter /r/:uid) darf
+# von Suchmaschinen indiziert werden. X-Robots-Tag auf allen Responses.
+# ------------------------------------------------------------------
+
+
+@app.middleware("http")
+async def _noindex_header(request, call_next):
+    resp = await call_next(request)
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
+
+
+_ROBOTS_TXT = "User-agent: *\nDisallow: /\n"
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+def robots_txt() -> str:
+    """robots.txt — immer erreichbar, auch ohne SPA-Build (eigene Route)."""
+    return _ROBOTS_TXT
 
 # Session middleware (for OIDC auth)
 # httponly + same_site=lax are the hard-coded defaults in Starlette >=0.40;
