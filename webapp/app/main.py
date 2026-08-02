@@ -193,19 +193,31 @@ def health() -> Dict[str, Any]:
 # instead of crashing at startup.
 # ------------------------------------------------------------------
 
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    """Statische Assets servieren; unbekannte Pfade (z.B. /r/:uid
+    Share-Links) → index.html, damit der Client-Router rendert.
+    API-Pfade ohne Treffer bleiben 404."""
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    candidate = _STATIC_DIR / full_path
+    if full_path and candidate.is_file():
+        return FileResponse(candidate)
+    if _SPA_INDEX.exists():
+        return FileResponse(_SPA_INDEX)
+    if not full_path:
+        return HTMLResponse(_DEV_HINT_HTML)
+    raise HTTPException(status_code=404)
+
+
 if _SPA_INDEX.exists():
-    # The React build is present → serve it.  ``html=True`` makes StaticFiles
-    # fall back to index.html for unknown paths so the client-side router works.
-    app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="spa")
     log.info("Serving React SPA from %s", _STATIC_DIR)
 else:
-    # No build yet — serve the hint page at / so the server still starts.
     log.warning(
         "Static SPA not found at %s — serving dev hint page. "
         "Run `npm run build` or use the Docker image.",
         _SPA_INDEX,
     )
-
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    def _spa_hint() -> str:
-        return _DEV_HINT_HTML
