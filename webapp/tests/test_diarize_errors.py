@@ -95,3 +95,70 @@ def test_diarize_no_token(monkeypatch):
         diarize("/tmp/nonexistent.wav")
     assert ei.value.code == "no-token"
     assert "admin" in ei.value.message.lower() or "Admin" in ei.value.message
+
+
+# ---------------------------------------------------------------------------
+# _extract_segments: pyannote 4.x DiarizeOutput vs 3.x Annotation
+# ---------------------------------------------------------------------------
+
+def test_extract_segments_pyannote4_serialize():
+    """pyannote 4.x: Ergebnis ist DiarizeOutput mit serialize() → dict."""
+    from app.diarize import _extract_segments
+
+    class FakeOutput:
+        def serialize(self):
+            return {"diarization": [
+                {"start": 0.1, "end": 2.5, "speaker": "SPEAKER_00"},
+                {"start": 2.8, "end": 5.0, "speaker": "SPEAKER_01"},
+            ]}
+
+    segs = _extract_segments(FakeOutput())
+    assert len(segs) == 2
+    assert segs[0]["speaker"] == "SPEAKER_00"
+    assert segs[1]["end"] == 5.0
+
+
+def test_extract_segments_pyannote4_speaker_diarization_attr():
+    """pyannote 4.x ohne serialize: .speaker_diarization Annotation nutzen."""
+    from app.diarize import _extract_segments
+
+    class FakeTurn:
+        start = 1.0
+        end = 3.0
+
+    class FakeAnnotation:
+        def itertracks(self, yield_label=True):
+            yield (FakeTurn(), None, "SPEAKER_00")
+
+    class FakeOutput:
+        speaker_diarization = FakeAnnotation()
+
+    segs = _extract_segments(FakeOutput())
+    assert segs == [{"start": 1.0, "end": 3.0, "speaker": "SPEAKER_00"}]
+
+
+def test_extract_segments_pyannote3_annotation():
+    """pyannote 3.x: Ergebnis ist direkt eine Annotation mit itertracks."""
+    from app.diarize import _extract_segments
+
+    class FakeTurn:
+        start = 0.5
+        end = 1.5
+
+    class FakeAnnotation:
+        def itertracks(self, yield_label=True):
+            yield (FakeTurn(), None, "SPEAKER_00")
+            yield (FakeTurn(), None, "SPEAKER_01")
+
+    segs = _extract_segments(FakeAnnotation())
+    assert len(segs) == 2
+    assert {s["speaker"] for s in segs} == {"SPEAKER_00", "SPEAKER_01"}
+
+
+def test_extract_segments_unknown_format():
+    from app.diarize import _extract_segments
+
+    class Weird:
+        pass
+
+    assert _extract_segments(Weird()) == []

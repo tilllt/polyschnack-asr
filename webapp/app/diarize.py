@@ -90,6 +90,46 @@ def _load_pipeline():
     return _pipeline
 
 
+def _extract_segments(result) -> List[Dict[str, Any]]:
+    """Extrahiert {start, end, speaker}-Segmente aus dem Pipeline-Ergebnis.
+
+    Abwärtskompatibel:
+    - pyannote.audio 4.x: Ergebnis ist ein ``DiarizeOutput``-Dataclass mit
+      ``speaker_diarization`` (Annotation) bzw. ``serialize()``.
+    - pyannote.audio 3.x: Ergebnis ist direkt eine ``Annotation`` mit
+      ``itertracks(yield_label=True)``.
+    """
+    # Fall 1: pyannote 4.x DiarizeOutput (hat serialize())
+    serializer = getattr(result, "serialize", None)
+    if callable(serializer):
+        try:
+            data = serializer()
+            diar = data.get("diarization") or []
+            return [{"start": float(s["start"]), "end": float(s["end"]),
+                     "speaker": s["speaker"]} for s in diar]
+        except Exception:
+            log.exception("diarize: DiarizeOutput.serialize() failed")
+            return []
+
+    # Fall 2: DiarizeOutput ohne serialize — direkte Annotation-Attribute
+    annotation = getattr(result, "speaker_diarization", result)
+    itertracks = getattr(annotation, "itertracks", None)
+    if itertracks is None:
+        log.warning("diarize: unbekanntes Pipeline-Ergebnis-Format (%s)",
+                    type(result).__name__)
+        return []
+
+    segments: List[Dict[str, Any]] = []
+    for turn, _, speaker in itertracks(yield_label=True):
+        segments.append({
+            "start": round(turn.start, 2),
+            "end": round(turn.end, 2),
+            "speaker": speaker,
+        })
+    segments.sort(key=lambda s: s["start"])
+    return segments
+
+
 def diarize(audio_path: str) -> List[Dict[str, Any]]:
     """Run speaker diarization on *audio_path*.
 
@@ -109,14 +149,7 @@ def diarize(audio_path: str) -> List[Dict[str, Any]]:
         log.exception("diarize: pipeline() threw on %s: %s", audio_path, exc)
         raise DiarizationError("run-failed", f"Diarization-Lauf fehlgeschlagen: {exc}") from exc
 
-    segments: List[Dict[str, Any]] = []
-    for turn, _, speaker in result.itertracks(yield_label=True):
-        segments.append({
-            "start": round(turn.start, 2),
-            "end": round(turn.end, 2),
-            "speaker": speaker,
-        })
-    segments.sort(key=lambda s: s["start"])
+    segments = _extract_segments(result)
     speaker_set = set(s["speaker"] for s in segments)
     log.info("diarize: %d segments, %d speakers (%s)",
              len(segments), len(speaker_set),
