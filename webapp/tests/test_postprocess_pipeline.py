@@ -324,3 +324,77 @@ def test_merge_diarization_keeps_speaker_per_turn():
 
     assert len(merged) == 2
     assert [m["speaker"] for m in merged] == ["SPEAKER_00", "SPEAKER_00"]
+
+
+def test_merge_diarization_words_keep_timestamps_karaoke():
+    """Karaoke: Die gemergten Segmente müssen Wörter MIT start/end liefern,
+    damit SegmentList die Wörter beim Playback hervorheben kann."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 8.0, "text": "hallo hier",
+        "words": [
+            {"word": "hallo", "start": 0.0, "end": 1.0},
+            {"word": "hier", "start": 1.0, "end": 2.0},
+            {"word": "weiblich", "start": 4.0, "end": 5.0},
+        ],
+    }]
+    diar = [
+        {"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00"},
+        {"start": 3.5, "end": 6.0, "speaker": "SPEAKER_01"},
+    ]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    for seg in merged:
+        for w in seg["words"]:
+            assert "start" in w and "end" in w, \
+                f"Wort ohne Timestamp: {w} (Karaoke würde brechen)"
+            assert seg["start"] <= w["start"] < w["end"] <= seg["end"] or \
+                   w["start"] >= seg["start"], \
+                f"Wort {w} außerhalb des Segments {seg['start']}-{seg['end']}"
+    # Segment 0: hallo hier; Segment 1: weiblich
+    assert merged[0]["words"] == [
+        {"word": "hallo", "start": 0.0, "end": 1.0},
+        {"word": "hier", "start": 1.0, "end": 2.0},
+    ]
+    assert merged[1]["words"] == [{"word": "weiblich", "start": 4.0, "end": 5.0}]
+
+
+def test_merge_diarization_word_overlap_at_boundary():
+    """Karaoke-Kante: Ein Wort, dessen start exakt an der Segmentgrenze
+    liegt, gehört zum nächsten Segment (start < end-Regel)."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 6.0, "text": "",
+        "words": [
+            {"word": "a", "start": 0.0, "end": 1.0},
+            {"word": "b", "start": 3.0, "end": 4.0},  # start == d_end von Seg 0
+        ],
+    }]
+    diar = [
+        {"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00"},
+        {"start": 3.0, "end": 6.0, "speaker": "SPEAKER_01"},
+    ]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    assert merged[0]["words"] == [{"word": "a", "start": 0.0, "end": 1.0}]
+    assert merged[1]["words"] == [{"word": "b", "start": 3.0, "end": 4.0}]
+
+
+def test_merge_diarization_no_segments_without_speaker():
+    """Jedes gemergte Segment trägt einen Speaker (Karaoke-Badge + SRT)."""
+    from app import service as service_mod
+
+    asr_segments = [{
+        "start": 0.0, "end": 10.0, "text": "",
+        "words": [{"word": "x", "start": 0.0, "end": 1.0}],
+    }]
+    diar = [{"start": 0.0, "end": 5.0, "speaker": "SPEAKER_07"}]
+
+    merged = service_mod._merge_diarization(asr_segments, diar)
+
+    assert len(merged) == 1
+    assert merged[0]["speaker"] == "SPEAKER_07"
