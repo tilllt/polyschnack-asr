@@ -329,9 +329,17 @@ def toggle_anon_link(
     session.add(rec)
     session.commit()
     session.refresh(rec)
+    # Link-Gültigkeit für die Retention-Warnung im Frontend:
+    # expires_at = shared_at + Anon-Retention (der Sweep löscht danach alles).
+    ret_min = settings.POLYSCHNACK_ANON_RETENTION_MINUTES
+    expires = None
+    if rec.share_token and rec.shared_at is not None:
+        expires = rec.shared_at + dt.timedelta(minutes=ret_min)
     return {
         "share_token": rec.share_token,
         "shared_at": rec.shared_at.isoformat() if rec.shared_at else None,
+        "retention_minutes": ret_min,
+        "expires_at": expires.isoformat() if expires else None,
     }
 
 

@@ -103,6 +103,33 @@ def test_anon_link_toggle_on(client, db):
     assert r.json()["shared_at"] is not None
 
 
+def test_anon_link_toggle_liefert_retention_warnung(client, db, monkeypatch):
+    """Beim Aktivieren liefert der Endpoint die Link-Gültigkeit mit:
+    retention_minutes (Anon-Retention) + expires_at (shared_at + retention).
+    Das Frontend warnt den User damit, wie lange der Link lebt."""
+    from app.config import settings
+    from sqlmodel import Session
+
+    monkeypatch.setattr(settings, "POLYSCHNACK_ANON_RETENTION_MINUTES", 15)
+    with Session(db) as s:
+        s.add(User(id=1, sub="owner", kind="oidc"))
+        audio = Path(db.url.database).parent / "a.mp3"
+        audio.write_bytes(b"MP3")
+        s.add(Recording(id=4, uid="rec-uid2", original_name="a.mp3",
+                        stored_path=str(audio), user_id=1, status="done"))
+        s.commit()
+    r = client.post("/api/recordings/rec-uid2/anon-link", json={"enabled": True})
+    body = r.json()
+    assert body["retention_minutes"] == 15
+    assert body["expires_at"] is not None
+    # expires_at = shared_at + 15 Minuten
+    import datetime as _dt
+
+    shared = _dt.datetime.fromisoformat(body["shared_at"].replace("Z", "+00:00"))
+    exp = _dt.datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+    assert (exp - shared).total_seconds() == 15 * 60
+
+
 def test_anon_link_toggle_off(client, anon_rec):
     r = client.post("/api/recordings/anon-uid/anon-link", json={"enabled": False})
     assert r.status_code == 200
