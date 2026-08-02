@@ -7,13 +7,14 @@ import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
 import { AdminPanel } from "./components/AdminPanel";
-import { PostProcessPanel } from "./components/PostProcessPanel";
+import { UserSettingsPage } from "./components/UserSettingsPage";
 import { SearchBar } from "./components/SearchBar";
 import { RecordingList } from "./components/RecordingList";
 
 function AppContent() {
   const [query, setQuery] = useState("");
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [view, setView] = useState<"main" | "settings">("main");
   const { t, lang, setLang } = useT();
 
   useEffect(() => {
@@ -55,6 +56,12 @@ function AppContent() {
             {user?.authenticated && (
               <div className="flex items-center gap-2">
                 <span className="text-[12px] text-muted">{user.name}</span>
+                <button
+                  className="btn-ghost-sm text-[12px]"
+                  onClick={() => setView(view === "settings" ? "main" : "settings")}
+                >
+                  {view === "settings" ? "← " + t("back") : "⚙️ " + t("settings")}
+                </button>
                 <a href="/auth/logout" className="btn-ghost-sm text-[12px]">
                   Logout
                 </a>
@@ -83,27 +90,32 @@ function AppContent() {
 
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
-        <UploadZone />
+        {view === "main" ? (
+          <>
+            <UploadZone />
 
-        <QueueWatcher />
+            <QueueWatcher />
 
-        {user?.is_admin && <AdminPanel />}
-        <PostProcessPanel isOidc={!!user?.authenticated} />
+            {user?.is_admin && <AdminPanel />}
 
-        <SearchBar
-          value={query}
-          onChange={setQuery}
-          count={recordings.length > 0 ? recordings.length : null}
-        />
+            <SearchBar
+              value={query}
+              onChange={setQuery}
+              count={recordings.length > 0 ? recordings.length : null}
+            />
 
-        {recordingsQuery.isError && (
-          <div className="mt-4 text-err text-[13px]">
-            {t("error_loading")}{" "}
-            {recordingsQuery.error?.message ?? t("unknown")}
-          </div>
+            {recordingsQuery.isError && (
+              <div className="mt-4 text-err text-[13px]">
+                {t("error_loading")}{" "}
+                {recordingsQuery.error?.message ?? t("unknown")}
+              </div>
+            )}
+
+            <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} />
+          </>
+        ) : (
+          <UserSettingsPage user={user} />
         )}
-
-        <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} />
       </main>
     </div>
   );
