@@ -114,13 +114,20 @@ class DockerProxyClient:
         }
 
     def host_info(self) -> Dict[str, Any]:
-        """Host-level info used by the resource check."""
+        """Host-level info used by the resource check + GPU/CPU-Auto-Wahl.
+
+        ``has_nvidia`` ist True, wenn das Docker-``/info`` eine nvidia-Runtime
+        listet (NVIDIA Container Toolkit installiert) — Grundlage für die
+        automatische GPU/CPU-Container-Wahl in der Admin-API.
+        """
         resp = self._request("GET", "/info")
         data = resp.json()
+        runtimes = data.get("Runtimes") or {}
         return {
             "mem_total_gb": round((data.get("MemTotal") or 0) / (1024 ** 3), 1),
             "ncpu": data.get("NCPU"),
             "docker_root_dir": data.get("DockerRootDir"),
+            "has_nvidia": "nvidia" in runtimes,
         }
 
     # ------------------------------------------------------------ actions

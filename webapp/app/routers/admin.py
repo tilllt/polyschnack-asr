@@ -30,9 +30,30 @@ _HEALTH_POLL_S = 2
 
 
 def _container_name(svc: Dict[str, Any]) -> str:
-    """compose container_name mapping: polyschnack-<profile>, default -> -asr."""
-    profile = svc["compose_profile"]
-    return f"polyschnack-{'asr' if profile == 'default' else profile}"
+    """compose container_name — die ADMIN-GUI nutzt die Auto-Wahl stattdessen.
+
+    Bleibt als Fallback für Tests/Alt-Code: GPU-Container-Name aus der
+    Registry (``container_name``), nicht mehr ``polyschnack-<profile>``
+    konstruiert (das passte nie zu compose.backends.yml).
+    """
+    return svc["container_name"]
+
+
+def _auto_container_name(svc: Dict[str, Any], docker: DockerProxyClient) -> str:
+    """Container-Name für einen Service — GPU/CPU-Variante automatisch wählen.
+
+    NVIDIA-Host (has_nvidia=True) → GPU-Container (``container_name``).
+    CPU-Host (kein Toolkit) → CPU-Variante (``cpu_container_name``), falls
+    vorhanden; sonst GPU-Container (der dann den GPU-Fehler wirft).
+    """
+    try:
+        info = docker.host_info()
+        has_nvidia = bool(info.get("has_nvidia"))
+    except DockerProxyError as exc:
+        raise _proxy_error(exc)
+    from ..service_registry import resolve_container
+
+    return resolve_container(svc, has_nvidia)
 
 
 def _proxy_error(exc: Exception) -> HTTPException:
@@ -50,7 +71,7 @@ def admin_services() -> List[Dict[str, Any]]:
     docker = get_docker_client()
     out: List[Dict[str, Any]] = []
     for svc in list_services():
-        container = _container_name(svc)
+        container = _auto_container_name(svc, docker)
         try:
             state = docker.container_state(container)
             rep = check_resources(svc, docker)
@@ -97,7 +118,7 @@ def _start_with_check(svc: Dict[str, Any], docker: DockerProxyClient) -> Dict[st
             },
         )
 
-    container = _container_name(svc)
+    container = _auto_container_name(svc, docker)
     try:
         state = docker.container_state(container)
     except DockerProxyError as exc:
@@ -118,16 +139,6 @@ def _start_with_check(svc: Dict[str, Any], docker: DockerProxyClient) -> Dict[st
     try:
         docker.start(container)
     except DockerProxyError as exc:
-        from ..docker_proxy import classify_docker_error
-
-        gpu_msg = classify_docker_error(exc)
-        if gpu_msg is not None:
-            # Keine NVIDIA-GPU auf dem Host → verständliche Meldung statt
-            # kryptischem Docker-Error (Hybrid: CPU-Backend wählen lassen).
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "no_gpu", "message": gpu_msg},
-            )
         raise _proxy_error(exc)
 
     # Health wait: healthy, or running without a healthcheck.
@@ -182,7 +193,7 @@ def stop_service(name: str, request: Request) -> Dict[str, Any]:
                 "message": f"{active} Transkriptionen laufen noch auf Backend {svc['backend']}",
             },
         )
-    container = _container_name(svc)
+    container = _auto_container_name(svc, docker)
     try:
         state = docker.container_state(container)
     except DockerProxyError as exc:
@@ -210,7 +221,7 @@ def restart_service(name: str, request: Request) -> Dict[str, Any]:
                 "message": f"{active} Transkriptionen laufen noch auf Backend {svc['backend']}",
             },
         )
-    container = _container_name(svc)
+    container = _auto_container_name(svc, docker)
     try:
         state = docker.container_state(container)
     except DockerProxyError as exc:
@@ -227,7 +238,7 @@ def service_logs(name: str) -> Dict[str, Any]:
     if svc is None:
         raise HTTPException(status_code=404, detail=f"unknown service {name}")
     try:
-        logs = get_docker_client().logs(_container_name(svc), tail=200)
+        logs = get_docker_client().logs(_auto_container_name(svc, get_docker_client()), tail=200)
     except DockerProxyError as exc:
         raise _proxy_error(exc)
     return {"name": name, "logs": logs[-4000:]}
@@ -296,7 +307,7 @@ def put_config(payload: ConfigPut, request: Request) -> Dict[str, Any]:
     # Decision 8: switching to a NOT-running backend starts it automatically.
     docker = get_docker_client()
     try:
-        state = docker.container_state(_container_name(svc))
+        state = docker.container_state(_auto_container_name(svc, docker))
     except DockerProxyError as exc:
         raise _proxy_error(exc)
     if state is None:

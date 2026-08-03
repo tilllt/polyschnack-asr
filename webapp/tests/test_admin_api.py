@@ -10,15 +10,17 @@ from app.routers import admin
 
 
 class _FakeDocker:
-    def __init__(self, mem_total_gb=64.0, state=None, health=None):
+    def __init__(self, mem_total_gb=64.0, state=None, health=None, has_nvidia=True):
         self.mem = mem_total_gb
         self._state = state          # "running" | "stopped" | None (not created)
         self._health = health
+        self.has_nvidia = has_nvidia
         self.started: list = []
         self.stopped: list = []
 
     def host_info(self):
-        return {"mem_total_gb": self.mem, "ncpu": 16, "docker_root_dir": "/var/lib/docker"}
+        return {"mem_total_gb": self.mem, "ncpu": 16, "docker_root_dir": "/var/lib/docker",
+                "has_nvidia": self.has_nvidia}
 
     def list_containers(self):
         return []
@@ -153,7 +155,7 @@ def test_put_config_auto_starts_stopped_backend(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     r = admin.put_config(type("P", (), {"default_backend": "qwen3-asr"})(), None)
     assert r["default_backend"] == "qwen3-asr"
-    assert docker.started == ["polyschnack-qwen3"]
+    assert docker.started == ["qwen3-asr"]
 
 
 def test_put_config_insufficient_resources_keeps_default(docker, tmp_path, monkeypatch):
@@ -175,3 +177,47 @@ def test_config_roundtrip(docker, tmp_path, monkeypatch):
     admin.reset_config()
     cfg2 = admin.admin_config()
     assert cfg2["default_backend"] == admin.settings.POLYSCHNACK_DEFAULT_BACKEND
+
+
+# ------------------------------------------------------------- GPU/CPU-Auto-Wahl
+
+
+def test_start_uses_gpu_container_on_nvidia_host(docker, tmp_path, monkeypatch):
+    """NVIDIA-Host → GPU-Container (container_name), kein -cpu-Suffix."""
+    monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
+    docker.has_nvidia = True
+    admin.start_service("ark-asr", None)
+    assert docker.started == ["ark-asr"]
+
+
+def test_start_uses_cpu_container_on_cpu_host(docker, tmp_path, monkeypatch):
+    """CPU-Host (kein Toolkit) → automatisch die CPU-Variante starten."""
+    monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
+    docker.has_nvidia = False
+    admin.start_service("ark-asr", None)
+    assert docker.started == ["ark-asr-cpu"]
+
+
+def test_start_cpu_host_without_cpu_variant_keeps_gpu_name(docker, tmp_path, monkeypatch):
+    """voxtral hat keine CPU-Variante → Name bleibt, Start wirft GPU-Fehler."""
+    monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
+    docker.has_nvidia = False
+    admin.start_service("voxtral", None)
+    assert docker.started == ["polyschnack-voxtral"]
+
+
+def test_stop_uses_cpu_container_on_cpu_host(docker, qm, tmp_path, monkeypatch):
+    monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
+    docker.has_nvidia = False
+    docker._state = "running"
+    admin.stop_service("qwen3-asr", None)
+    assert docker.stopped == ["qwen3-asr-cpu"]
+
+
+def test_services_list_reports_auto_container(docker, tmp_path, monkeypatch):
+    """/services meldet die automatisch gewählte Container-Variante."""
+    monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
+    docker.has_nvidia = False
+    svcs = admin.admin_services()
+    ark = next(s for s in svcs if s["name"] == "ark-asr")
+    assert ark["container"] == "ark-asr-cpu"

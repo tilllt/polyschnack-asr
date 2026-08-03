@@ -90,6 +90,25 @@ def test_host_info_parses_memory():
     assert info["docker_root_dir"] == "/var/lib/docker"
 
 
+def test_host_info_has_nvidia_when_runtime_present():
+    """NVIDIA Container Toolkit erkannt: Docker /info → Runtimes enthält nvidia."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"MemTotal": 32 * 1024 ** 3,
+                                         "Runtimes": {"runc": {}, "nvidia": {}}})
+
+    c = _client(handler)
+    assert c.host_info()["has_nvidia"] is True
+
+
+def test_host_info_no_nvidia_without_runtime():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"MemTotal": 16 * 1024 ** 3,
+                                         "Runtimes": {"runc": {}}})
+
+    c = _client(handler)
+    assert c.host_info()["has_nvidia"] is False
+
+
 def test_list_containers_passes_label_filter():
     captured = {}
 
