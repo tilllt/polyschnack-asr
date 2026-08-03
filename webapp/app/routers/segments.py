@@ -19,6 +19,69 @@ class SegmentUpdate(BaseModel):
     text: str
 
 
+class SpeakerRename(BaseModel):
+    from_speaker: str
+    to_speaker: str
+
+
+@router.post("/recordings/{rid}/speaker-rename")
+def rename_speaker(
+    rid: str,
+    body: SpeakerRename,
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Ersetzt ``speaker`` in ALLEN Segmenten einer Aufnahme (global).
+
+    User-Anforderung: Doppelklick auf einen Speaker-Namen in der GUI →
+    umbenennen → der neue Name gilt an allen Vorkommen (Segmente, SRT/VTT,
+    Versionen ab jetzt). Auth + Zugriff wie beim Segment-Edit (write).
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    from ..identity import current_identity
+
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
+
+    from_speaker = body.from_speaker.strip()
+    to_speaker = body.to_speaker.strip()
+    if not from_speaker or not to_speaker:
+        raise HTTPException(
+            status_code=400, detail="from_speaker and to_speaker must not be empty"
+        )
+
+    # Tiefe Kopie (In-Place-Mutation würde SQLAlchemy-Change-Erkennung umgehen)
+    import json as _json
+
+    segments = _json.loads(_json.dumps(rec.segments or []))
+    renamed = 0
+    for s in segments:
+        if s.get("speaker") == from_speaker:
+            s["speaker"] = to_speaker
+            renamed += 1
+    if renamed == 0:
+        raise HTTPException(
+            status_code=400, detail=f"speaker '{from_speaker}' not found in segments"
+        )
+
+    rec.segments = list(segments)  # neue Referenz → SQLAlchemy erkennt die Änderung
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+
+    from ..versions import snapshot
+
+    snapshot(session, rec, "edit", user_id=uid)
+
+    return {"segments": rec.segments, "text": rec.text, "renamed": renamed}
+
+
 @router.patch("/recordings/{rid}/segments/{idx}")
 def update_segment(
     rid: str,
