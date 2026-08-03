@@ -36,6 +36,10 @@ class BackendCapabilities:
     languages: List[str] = field(default_factory=list)
     device: List[str] = field(default_factory=lambda: ["cpu"])
     label: str = "pk-python"
+    #: Backend liefert Interpunktion nativ (CrispASR-Server mit
+    #: --punc-model) — die Webapp darf dann KEINE LLM-Punctuation
+    #: nachschalten (sonst doppelte/konkurrierende Interpunktion).
+    native_punctuation: bool = False
 
 
 # ============================================================

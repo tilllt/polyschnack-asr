@@ -96,8 +96,8 @@ Env-Variable — kein Code nötig.
 |---------|--------|----------|-------------|
 | **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
 | **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Hybrid (CUDA-Binary mit CPU-Fallback). |
-| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). Hybrid. |
-| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. Hybrid (CrispASR-Binary). |
+| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). Hybrid. Native Interpunktion + deutsches Truecasing (Server-Flag). |
+| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. Hybrid (CrispASR-Binary). Native Interpunktion + deutsches Truecasing (Server-Flag). |
 | **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
 
 ### Feature-Matrix der Backends
@@ -431,7 +431,7 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 | `ASR_BACKEND` | `pk-python` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
 | `DIAR_URL` | `http://diar:8080` | Diarization-Service (CrispASR-diar-Container) |
-| `DIARIZE_METHOD` | `pyannote` | Diarization-Methode im CrispASR-Server (`pyannote`\|`foxnose`\|`energy`\|…) |
+| `DIARIZE_METHOD` | `pyannote` | Diarization-Methode im CrispASR-Server (`pyannote`\|`foxnose`\|`energy`\|…) — per Recording über das GUI-Dropdown „Methode" überschreibbar |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
 | `OIDC_ISSUER` | `""` | OIDC-Issuer-URL |
@@ -558,7 +558,11 @@ du pro Aufnahme, was nach der Transkription passieren soll.
 
 - **Satzzeichen (`✍️ Punct`)** — Interpunktion nach der Erkennung. Modus per
   `POLYSCHNACK_PUNCTUATION_MODE` (Default `off`; `local` = offline, `llm` =
-  kostenpflichtig über den LLM-Endpunkt).
+  kostenpflichtig über den LLM-Endpunkt). **Achtung:** Die CrispASR-Backends
+  (Qwen3-ASR, ARK-ASR) punktieren **nativ** vom Server (`--punc-model fullstop`
+  = EN/DE/FR/IT, `--truecase-model lstm` = deutsches Truecasing, 97,9 % F1) —
+  dort wird das LLM-Punctuation automatisch übersprungen (keine doppelte
+  Interpunktion).
 - **LLM-Optimierung (`✨ LLM`)** — KI-Nachbearbeitung des Textes. **Nur für
   registrierte User** (kostenpflichtig), anonyme sehen den Schalter ausgegraut.
 - **Vorlage (Template)** — eigene Prompt-Vorlagen im Panel `🧩 Post-Processing`

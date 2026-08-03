@@ -51,6 +51,11 @@ services:
     environment:
       QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
       QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+      # Residenter Post-Prozessor (Server-Flag): Interpunktion + deutsches
+      # Truecasing für JEDE Transkription (CrispASR --punc-model fullstop
+      # = EN/DE/FR/IT, --truecase-model lstm = DE, 97,9 % F1). Modelle lädt
+      # der Server automatisch (auto-download nach ~/.cache/crispasr).
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
       - ./DATA/qwen3-models:/models:ro
     ports:
@@ -72,6 +77,10 @@ services:
     container_name: ark-asr
     environment:
       ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+      # Residenter Post-Prozessor (Server-Flag): Interpunktion + deutsches
+      # Truecasing (fullstop = EN/DE/FR/IT, lstm = DE) — lädt der Server
+      # automatisch (auto-download nach ~/.cache/crispasr).
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
       - ./DATA/ark-models:/models:ro
     ports:

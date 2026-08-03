@@ -573,7 +573,12 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         # Optional post-processing (A12/A13) — nur wenn per Toggle aktiviert,
         # niemals automatisch. Stubs: Implementierung in Phase 1–2.
-        if enable_punctuation and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
+        # CrispASR-Backends (ark-asr/qwen3-asr) liefern Interpunktion +
+        # deutsches Truecasing nativ vom Server (--punc-model fullstop,
+        # --truecase-model lstm) — dort KEINE LLM-Punctuation nachschalten,
+        # sonst doppelte/konkurrierende Interpunktion.
+        native_punct = bool(getattr(client.capabilities, "native_punctuation", False))
+        if enable_punctuation and not native_punct and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
             text = run_punctuation(text, settings.POLYSCHNACK_PUNCTUATION_MODE)
         if enable_llm_enhance:
             text, segments = run_llm_enhance(text, segments)

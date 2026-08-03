@@ -31,6 +31,7 @@ class Qwen3AsrHttpClient(AsrClient):
         languages=["de", "en"],
         device=["gpu"],
         label="qwen3-asr",
+        native_punctuation=True,  # Server: --punc-model fullstop --truecase-model lstm
     )
 
     def __init__(self, url: Optional[str] = None,

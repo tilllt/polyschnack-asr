@@ -32,6 +32,7 @@ class CrispAsrHttpClient(AsrClient):
         languages=["de", "en"],
         device=["gpu"],
         label="ark-asr",
+        native_punctuation=True,  # Server: --punc-model fullstop --truecase-model lstm
     )
 
     def __init__(self, url: Optional[str] = None,

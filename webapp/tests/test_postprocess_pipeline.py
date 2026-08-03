@@ -123,6 +123,13 @@ class _FakeClient:
                 "segments": [{"start": 0.0, "end": 1.0, "text": "Rohtext"}]}
 
 
+class _FakeClientNativePunct(_FakeClient):
+    """CrispASR-Backend: Server punktiert nativ (--punc-model)."""
+
+    class _Caps(_FakeClient._Caps):
+        native_punctuation = True
+
+
 def _fake_update_result(session, rec_id, **kw):
     """Wie der echte update_result: schreibt das Ergebnis in die DB-Zeile."""
     r = session.get(Recording, rec_id)
@@ -406,3 +413,77 @@ def test_merge_diarization_no_segments_without_speaker():
 
     assert len(merged) == 1
     assert merged[0]["speaker"] == "SPEAKER_07"
+
+
+# ---------------------------------------------------------------------------
+# Native Punctuation (CrispASR): --punc-model fullstop --truecase-model lstm
+# ---------------------------------------------------------------------------
+
+def test_native_punctuation_backend_skips_llm_punct(db, monkeypatch):
+    """CrispASR-Backends (native_punctuation=True) → run_punctuation wird
+    NICHT aufgerufen, auch wenn das Toggle an ist (Server punktiert nativ,
+    sonst doppelte Interpunktion)."""
+    from app import service as service_mod
+    from app import queue as queue_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    monkeypatch.setattr(queue_mod.crud, "get_recording",
+                        lambda s, rid: s.get(Recording, rid))
+    monkeypatch.setattr(service_mod, "get_client",
+                        lambda backend: _FakeClientNativePunct())
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
+    monkeypatch.setattr(service_mod.crud, "set_progress",
+                        lambda session, rec_id, pct, note=None: None)
+    monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
+    monkeypatch.setattr(service_mod, "_run_diarization", lambda *a, **k: [])
+
+    calls = []
+    monkeypatch.setattr(service_mod, "run_punctuation",
+                        lambda text, mode: calls.append(text) or "PUNCTED")
+
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        rec.enable_punctuation = True
+        s.add(rec)
+        s.commit()
+
+    service_mod.process_recording(1, backend="ark-asr")
+
+    assert calls == [], "run_punctuation darf bei nativem Punc nicht laufen"
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        assert rec.text == "Rohtext"  # unverändert vom Server
+
+
+def test_non_native_backend_still_uses_llm_punct(db, monkeypatch):
+    """Nicht-CrispASR-Backends (pk-python) → run_punctuation läuft wie bisher."""
+    from app import service as service_mod
+    from app import queue as queue_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    monkeypatch.setattr(queue_mod.crud, "get_recording",
+                        lambda s, rid: s.get(Recording, rid))
+    monkeypatch.setattr(service_mod, "get_client", lambda backend: _FakeClient())
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
+    monkeypatch.setattr(service_mod.crud, "set_progress",
+                        lambda session, rec_id, pct, note=None: None)
+    monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
+    monkeypatch.setattr(service_mod, "_run_diarization", lambda *a, **k: [])
+    monkeypatch.setattr(service_mod.settings, "POLYSCHNACK_PUNCTUATION_MODE", "llm")
+
+    calls = []
+    monkeypatch.setattr(service_mod, "run_punctuation",
+                        lambda text, mode: calls.append(text) or "PUNCTED")
+
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        rec.enable_punctuation = True
+        s.add(rec)
+        s.commit()
+
+    service_mod.process_recording(1, backend="pk-python")
+
+    assert calls == ["Rohtext"]
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        assert rec.text == "PUNCTED"
