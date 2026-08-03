@@ -4,12 +4,21 @@
 
 export type RecordingStatus = "uploaded" | "queued" | "processing" | "done" | "failed";
 
+export interface SegmentWord {
+  word: string;
+  start: number;
+  end: number;
+  /** Per-Token-Confidence 0.0-1.0 (CrispASR `probability`) — optional, nur
+   *  wenn das Backend sie liefert. Fehlt → keine Färbung. */
+  confidence?: number;
+}
+
 export interface Segment {
   start: number;
   end: number;
   text: string;
   speaker?: string;
-  words?: { word: string; start: number; end: number }[];
+  words?: SegmentWord[];
 }
 
 export interface Recording {

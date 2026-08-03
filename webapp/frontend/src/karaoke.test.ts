@@ -8,6 +8,9 @@ import {
   activeSegmentIndex,
   isKaraokeReady,
   shouldScrollIntoView,
+  confidenceTier,
+  confidenceClass,
+  hasConfidence,
   type KaraokeSegment,
 } from "./karaoke.ts";
 
@@ -155,5 +158,53 @@ describe("shouldScrollIntoView (Autoscroll-Entscheidung)", () => {
   });
   it("scrollt nicht bei leerem/0-Container", () => {
     expect(shouldScrollIntoView(0, 0, 10, 20)).toBe(false);
+  });
+});
+
+describe("confidenceTier (Ampel pro Wort)", () => {
+  it("high ab 0.90", () => {
+    expect(confidenceTier(0.9)).toBe("high");
+    expect(confidenceTier(0.95)).toBe("high");
+    expect(confidenceTier(1.0)).toBe("high");
+  });
+  it("medium ab 0.70", () => {
+    expect(confidenceTier(0.7)).toBe("medium");
+    expect(confidenceTier(0.89)).toBe("medium");
+  });
+  it("low unter 0.70", () => {
+    expect(confidenceTier(0.69)).toBe("low");
+    expect(confidenceTier(0.0)).toBe("low");
+    expect(confidenceTier(0.42)).toBe("low");
+  });
+  it("null bei undefined/NaN (kein Fake-Wert)", () => {
+    expect(confidenceTier(undefined)).toBeNull();
+    expect(confidenceTier(NaN)).toBeNull();
+  });
+});
+
+describe("confidenceClass (CSS-Klassen)", () => {
+  it("mappt Tier auf conf-*-Klasse", () => {
+    expect(confidenceClass(0.95)).toBe("conf-high");
+    expect(confidenceClass(0.8)).toBe("conf-medium");
+    expect(confidenceClass(0.3)).toBe("conf-low");
+  });
+  it("leer ohne Confidence", () => {
+    expect(confidenceClass(undefined)).toBe("");
+  });
+});
+
+describe("hasConfidence (Färbung nur bei echten Daten)", () => {
+  it("true wenn mindestens ein Wort Confidence hat", () => {
+    expect(hasConfidence([{ word: "a", start: 0, end: 1, confidence: 0.9 }])).toBe(true);
+    expect(hasConfidence([
+      { word: "a", start: 0, end: 1 },
+      { word: "b", start: 1, end: 2, confidence: 0.5 },
+    ])).toBe(true);
+  });
+  it("false ohne Confidence-Daten", () => {
+    expect(hasConfidence(undefined)).toBe(false);
+    expect(hasConfidence([])).toBe(false);
+    expect(hasConfidence([{ word: "a", start: 0, end: 1 }])).toBe(false);
+    expect(hasConfidence([{ word: "a", start: 0, end: 1, confidence: NaN }])).toBe(false);
   });
 });

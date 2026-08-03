@@ -102,6 +102,23 @@ audio {
 }
 
 /* ============================================================
+   PER-TOKEN-CONFIDENCE (Task 3) — Wort-Färbung nach ASR-Sicherheit
+   Dezente Einfärbung; das Karaoke-Aktiv-Wort überschreibt sie
+   (text-accent steht später in der class-Liste).
+   ============================================================ */
+@layer components {
+  .conf-high {
+    @apply text-[#4ade80];
+  }
+  .conf-medium {
+    @apply text-[#fbbf24];
+  }
+  .conf-low {
+    @apply text-[#f87171];
+  }
+}
+
+/* ============================================================
    DOWNLOAD MENU ANIMATION
    ============================================================ */
 .dl-menu-enter {

@@ -6,6 +6,9 @@ export interface KaraokeWord {
   word: string;
   start: number;
   end: number;
+  /** Per-Token-Confidence 0.0-1.0 — optional, nur wenn das Backend sie
+   *  liefert (CrispASR `probability`). Fehlt → keine Färbung. */
+  confidence?: number;
 }
 
 export interface KaraokeSegment {
@@ -116,4 +119,44 @@ export function shouldScrollIntoView(
   if (clientHeight <= 0) return false;
   const viewBottom = scrollTop + clientHeight;
   return elTop < scrollTop || elBottom > viewBottom;
+}
+
+/* ============================================================
+   CONFIDENCE-FÄRBUNG (Task 3) — Per-Token-Confidence
+   ============================================================ */
+
+/**
+ * Ampel für die Confidence eines Wortes.
+ *
+ * - `>= 0.90` → "high"   (grün — sehr sicher)
+ * - `>= 0.70` → "medium" (gelb/amber — mittel)
+ * - sonst     → "low"    (rot — unsicher, prüfen)
+ *
+ * `undefined`/NaN → null (keine Färbung; Backend liefert keine Confidence).
+ */
+export type ConfidenceTier = "high" | "medium" | "low";
+
+export function confidenceTier(c?: number): ConfidenceTier | null {
+  if (typeof c !== "number" || Number.isNaN(c)) return null;
+  if (c >= 0.9) return "high";
+  if (c >= 0.7) return "medium";
+  return "low";
+}
+
+/** CSS-Klasse pro Confidence-Tier (Wort-Span im SegmentList). */
+export function confidenceClass(c?: number): string {
+  const tier = confidenceTier(c);
+  if (tier === "high") return "conf-high";
+  if (tier === "medium") return "conf-medium";
+  if (tier === "low") return "conf-low";
+  return "";
+}
+
+/**
+ * Hat das Segment überhaupt Confidence-Daten (mindestens ein Wort mit
+ * Zahl >= 0)? Nur dann wird die Färbung aktiviert — sonst sieht der Text
+ * unverändert aus (kein Fake-Wert, keine verblassten Standard-Wörter).
+ */
+export function hasConfidence(words: KaraokeWord[] | undefined): boolean {
+  return !!words && words.some((w) => typeof w.confidence === "number" && !Number.isNaN(w.confidence));
 }

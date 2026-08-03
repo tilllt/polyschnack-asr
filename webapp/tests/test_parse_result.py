@@ -134,3 +134,64 @@ def test_parse_result_segment_key_fallback():
     }
     result = _parse_result(payload)
     assert result["segments"][0]["words"][0]["word"] == "hello"
+
+
+def test_parse_result_passes_word_confidence_through():
+    """CrispASR-Server liefert pro Wort `probability` (token.p, 0.0-1.0) —
+    die Webapp reicht sie als `confidence` an die Segmente durch (Task 3:
+    Per-Token-Confidence-Färbung in der GUI)."""
+    payload = {
+        "text": "hello world",
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "text": "hello world",
+                "words": [
+                    {"word": "hello", "start": 0.0, "end": 0.5, "probability": 0.92},
+                    {"word": "world", "start": 0.5, "end": 1.0, "probability": 0.61},
+                ],
+            },
+        ],
+    }
+    result = _parse_result(payload)
+    words = result["segments"][0]["words"]
+    assert words[0]["confidence"] == 0.92
+    assert words[1]["confidence"] == 0.61
+
+
+def test_parse_result_confidence_absent_when_not_supplied():
+    """Kein `probability` im ASR-Response → kein confidence-Feld (GUI
+    blendet die Färbung dann aus; kein Fake-Wert)."""
+    payload = {
+        "text": "hello",
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "text": "hello",
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5}],
+            },
+        ],
+    }
+    result = _parse_result(payload)
+    assert "confidence" not in result["segments"][0]["words"][0]
+
+
+def test_parse_result_segment_avg_logprob_passed():
+    """Segment-Level `avg_logprob` (CrispASR) wird durchgereicht."""
+    payload = {
+        "text": "hello",
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "text": "hello",
+                "avg_logprob": -0.23,
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5,
+                           "probability": 0.9}],
+            },
+        ],
+    }
+    result = _parse_result(payload)
+    assert result["segments"][0]["avg_logprob"] == -0.23

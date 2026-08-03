@@ -560,10 +560,15 @@ du pro Aufnahme, was nach der Transkription passieren soll.
 - **Satzzeichen (`✍️ Punct`)** — Interpunktion nach der Erkennung. Modus per
   `POLYSCHNACK_PUNCTUATION_MODE` (Default `off`; `local` = offline, `llm` =
   kostenpflichtig über den LLM-Endpunkt). **Achtung:** Die CrispASR-Backends
-  (Qwen3-ASR, ARK-ASR) punktieren **nativ** vom Server (`--punc-model fullstop`
-  = EN/DE/FR/IT, `--truecase-model lstm` = deutsches Truecasing, 97,9 % F1) —
-  dort wird das LLM-Punctuation automatisch übersprungen (keine doppelte
-  Interpunktion).
+  (Qwen3-ASR, ARK-ASR, pk-cpp) punktieren **nativ** vom Server
+  (`--punc-model fullstop` = EN/DE/FR/IT, `--truecase-model lstm` =
+  deutsches Truecasing, 97,9 % F1) — dort wird das LLM-Punctuation
+  automatisch übersprungen (keine doppelte Interpunktion).
+- **Wort-Confidence (Per-Token)** — CrispASR-Backends liefern pro Wort eine
+  Sicherheit (`probability` 0–100 %). Die Webapp färbt unsichere Wörter ein:
+  **grün** ≥ 90 %, **gelb** ≥ 70 %, **rot** darunter — so findest du
+  Fehlhörer auf einen Blick (nur sichtbar, wenn das Backend Confidence
+  liefert; kein Fake-Wert).
 - **LLM-Optimierung (`✨ LLM`)** — KI-Nachbearbeitung des Textes. **Nur für
   registrierte User** (kostenpflichtig), anonyme sehen den Schalter ausgegraut.
 - **Vorlage (Template)** — eigene Prompt-Vorlagen im Panel `🧩 Post-Processing`

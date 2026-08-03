@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
-import { activeWordIndex, shouldScrollIntoView } from "../karaoke";
+import { activeWordIndex, confidenceClass, hasConfidence, shouldScrollIntoView } from "../karaoke";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
 
@@ -189,9 +189,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             />
           ) : (
             <span className="text-txt flex-1 min-w-0">
-              {seg.words && seg.words.length > 0 && currentTime != null && i === activeIdx
+              {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
-                    const activeW = activeWordIndex(seg.words, currentTime);
+                    const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime) : -1;
                     return seg.words!.map((w, wi) => {
                       const isActive = wi === activeW;
                       return (
@@ -212,7 +212,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                           className={`cursor-pointer transition-colors duration-[100ms] ${
                             isActive
                               ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
-                              : "hover:text-accent/70"
+                              : `${confidenceClass(w.confidence)} hover:text-accent/70`
                           }`}
                         >
                           {w.word}{wi < seg.words!.length - 1 ? " " : ""}

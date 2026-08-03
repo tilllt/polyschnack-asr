@@ -142,6 +142,11 @@ def _merge_token_words(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     Tokens starting with ``##`` are continuations of the previous word.
     A simple ``split()`` is the fallback when no tokens are available.
+
+    CrispASR liefert pro Token ``probability`` (token.p, 0.0-1.0) — das
+    wird als ``confidence`` an das fertige Wort durchgereicht (Task 3,
+    Per-Token-Confidence-Färbung in der GUI). Bei ##-Continuationen
+    gewinnt die Confidence des letzten Tokens (das vollständige Wort).
     """
     merged: List[Dict[str, Any]] = []
     cur: Dict[str, Any] | None = None
@@ -149,14 +154,19 @@ def _merge_token_words(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         w = t.get("word", "")
         s = t.get("start")
         e = t.get("end")
+        p = t.get("probability")
         if w.startswith("##") and cur is not None:
             cur["word"] += w[2:]
             if e is not None:
                 cur["end"] = e
+            if p is not None:
+                cur["confidence"] = p
         else:
             if cur is not None:
                 merged.append(cur)
             cur = {"word": w, "start": s, "end": e}
+            if p is not None:
+                cur["confidence"] = p
     if cur is not None:
         merged.append(cur)
     return merged
@@ -190,6 +200,10 @@ def _parse_result(payload: dict) -> Dict[str, Any]:
             "text": seg.get("text") or seg.get("segment", ""),
             "words": words,
         })
+        # CrispASR: Segment-Level-Log-Probabilität (Durchschnitt über die
+        # Token) — optional, fürs UI-Diagnose-Tooling (Task 3).
+        if "avg_logprob" in seg:
+            segments[-1]["avg_logprob"] = seg["avg_logprob"]
     return {
         "text": payload.get("text", ""),
         "duration": payload.get("duration"),
