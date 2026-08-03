@@ -40,6 +40,29 @@ services:
       retries: 3
       start_period: 30s
 
+  # CPU-Variante von parakeet.cpp — gleiche GGUF, kein NVIDIA-Toolkit nötig.
+  # Aktivieren: --profile cpp-cpu (OHNE compose.gpu.yml)
+  asr-cpp-cpu:
+    profiles: ["cpp-cpu"]
+    image: ghcr.io/mudler/parakeet.cpp-server:latest
+    container_name: polyschnack-cpp-cpu
+    environment:
+      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+    volumes:
+      - ./DATA/cpp-models:/models:ro
+    ports:
+      - "5093:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   qwen3-asr:
     profiles: ["qwen3"]
     image: registry.example.com/public/polyschnack-asr-qwen3:4a3fd146
@@ -64,6 +87,30 @@ services:
       retries: 3
       start_period: 30s
 
+  # CPU-Variante von Qwen3-ASR (ggml-CPU-Build, Dockerfile.cpu).
+  # Aktivieren: --profile qwen3-cpu (OHNE compose.gpu.yml)
+  qwen3-asr-cpu:
+    profiles: ["qwen3-cpu"]
+    image: registry.example.com/public/polyschnack-asr-qwen3:cpu
+    container_name: qwen3-asr-cpu
+    environment:
+      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
+      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+    volumes:
+      - ./DATA/qwen3-models:/models:ro
+    ports:
+      - "5097:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   ark-asr:
     profiles: ["ark"]
     image: registry.example.com/public/polyschnack-asr-ark:latest
@@ -75,6 +122,29 @@ services:
       - ./DATA/ark-models:/models:ro
     ports:
       - "5095:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # CPU-Variante von ARK-ASR (CrispASR CPU-Binary, Dockerfile.cpu).
+  # Aktivieren: --profile ark-cpu (OHNE compose.gpu.yml)
+  ark-asr-cpu:
+    profiles: ["ark-cpu"]
+    image: registry.example.com/public/polyschnack-asr-ark:cpu
+    container_name: ark-asr-cpu
+    environment:
+      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+    volumes:
+      - ./DATA/ark-models:/models:ro
+    ports:
+      - "5096:8080"
     deploy:
       resources:
         limits:

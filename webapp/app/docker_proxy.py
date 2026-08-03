@@ -21,6 +21,35 @@ class DockerProxyError(RuntimeError):
     """Raised for non-2xx responses or proxy failures."""
 
 
+#: Muster im Docker-Fehlertext, die auf fehlende NVIDIA-GPU hinweisen
+#: (Container mit runtime: nvidia auf einem Host ohne GPU/Toolkit).
+_GPU_ERROR_PATTERNS = (
+    "could not select device driver",
+    "unknown runtime",
+    "no such device",
+    "nvidia",
+)
+
+
+def classify_docker_error(exc: Exception) -> Optional[str]:
+    """Erkennt GPU-bedingte Start-Fehler und liefert eine deutsche Meldung.
+
+    Gibt eine verständliche ``detail``-Meldung zurück, wenn der Fehler auf
+    fehlende NVIDIA-GPU-Hardware bzw. fehlendes NVIDIA Container Toolkit
+    hindeutet (Backend-Container mit ``runtime: nvidia``). Sonst ``None`` —
+    der Aufrufer behandelt den Fehler dann als generischen Proxy-Fehler.
+    """
+    text = str(exc).lower()
+    if any(p in text for p in _GPU_ERROR_PATTERNS):
+        return (
+            "Dieses Backend benötigt eine NVIDIA-GPU, die auf diesem Host "
+            "nicht verfügbar ist (Container mit runtime: nvidia). Entweder "
+            "NVIDIA Container Toolkit installieren oder ein CPU-fähiges "
+            "Backend wählen."
+        )
+    return None
+
+
 class DockerProxyClient:
     def __init__(
         self,

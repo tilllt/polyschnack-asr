@@ -115,7 +115,20 @@ def _start_with_check(svc: Dict[str, Any], docker: DockerProxyClient) -> Dict[st
     if state.get("running"):
         raise HTTPException(status_code=409, detail={"reason": "already_running"})
 
-    docker.start(container)
+    try:
+        docker.start(container)
+    except DockerProxyError as exc:
+        from ..docker_proxy import classify_docker_error
+
+        gpu_msg = classify_docker_error(exc)
+        if gpu_msg is not None:
+            # Keine NVIDIA-GPU auf dem Host → verständliche Meldung statt
+            # kryptischem Docker-Error (Hybrid: CPU-Backend wählen lassen).
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "no_gpu", "message": gpu_msg},
+            )
+        raise _proxy_error(exc)
 
     # Health wait: healthy, or running without a healthcheck.
     deadline = time.monotonic() + _HEALTH_WAIT_S

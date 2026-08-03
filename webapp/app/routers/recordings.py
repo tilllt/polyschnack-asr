@@ -125,6 +125,16 @@ def ensure_backend_available(backend: str, request: Request) -> None:
             )
         docker.start(container)
     except DockerProxyError as exc:
+        from ..docker_proxy import classify_docker_error
+
+        gpu_msg = classify_docker_error(exc)
+        if gpu_msg is not None:
+            # Keine NVIDIA-GPU auf dem Host → verständliche Meldung statt
+            # kryptischem Docker-Error (Hybrid: CPU-Backend wählen lassen).
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "no_gpu", "message": gpu_msg},
+            )
         raise HTTPException(status_code=503, detail=f"docker-proxy unreachable: {exc}")
 
     log.info("transcribe: admin auto-start %s (%s)", backend, container)

@@ -90,10 +90,13 @@ Env-Variable — kein Code nötig.
 
 | Backend | Profil | CLI-Name | Beschreibung |
 |---------|--------|----------|-------------|
-| **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Läuft auf CPU oder GPU. |
+| **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Läuft auf CPU oder GPU (auto-detect). |
 | **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). |
+| **parakeet.cpp CPU** | `--profile cpp-cpu` | `pk-cpp` | Dieselbe GGUF ohne NVIDIA-Toolkit (`parakeet.cpp-server:latest`, CPU-Build). |
 | **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
+| **Qwen3-ASR CPU** | `--profile qwen3-cpu` | `qwen3-asr` | CPU-Build (`Dockerfile.cpu`, ggml ohne CUDA), gleiche Modelle. |
 | **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
+| **ARK-ASR CPU** | `--profile ark-cpu` | `ark-asr` | CrispASR-CPU-Binary (`Dockerfile.cpu`), gleiche GGUF. |
 | **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
 
 ### Feature-Matrix der Backends
