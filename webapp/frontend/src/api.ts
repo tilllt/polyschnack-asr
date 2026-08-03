@@ -243,6 +243,25 @@ export async function updateSegment(recordingId: string, segmentIdx: number, tex
   return res.json();
 }
 
+export interface SpeakerRenameResult {
+  segments: Segment[];
+  text: string;
+  renamed: number;
+}
+
+export async function renameSpeaker(
+  recordingId: string,
+  fromSpeaker: string,
+  toSpeaker: string,
+): Promise<SpeakerRenameResult> {
+  const res = await fetch(`/api/recordings/${recordingId}/speaker-rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ from_speaker: fromSpeaker, to_speaker: toSpeaker }),
+  }).then(checkOk);
+  return res.json();
+}
+
 export interface AnonLinkResult {
   share_token: boolean;
   shared_at: string | null;

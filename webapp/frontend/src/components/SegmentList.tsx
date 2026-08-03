@@ -1,8 +1,10 @@
 import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
-import { updateSegment } from "../api";
+import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
 import { activeWordIndex, shouldScrollIntoView } from "../karaoke";
+import { useT } from "../useLocale";
+import { useToast } from "./Toasts";
 
 interface Props {
   segments: Segment[];
@@ -20,6 +22,11 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const { t } = useT();
+  const { toast } = useToast();
 
   // Auto-scroll the active segment into view — nur wenn es NICHT vollständig
   // sichtbar ist (top UND bottom im Container). scrollIntoView mit
@@ -66,6 +73,30 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     }
   }
 
+  async function handleRenameSpeaker(speaker: string) {
+    if (renameSaving || !recordingId || !onEdited) return;
+    const newName = renameText.trim();
+    if (!newName || newName === speaker) {
+      setRenamingSpeaker(null);
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      const result = await renameSpeaker(recordingId, speaker, newName);
+      onEdited(result.segments, result.text);
+      setRenamingSpeaker(null);
+      toast(t("rename_speaker_saved"), "ok");
+    } catch (err) {
+      // Input offen lassen, User kann es erneut versuchen; Fehler sichtbar
+      toast(
+        err instanceof Error ? err.message : t("rename_speaker_error"),
+        "err",
+      );
+    } finally {
+      setRenameSaving(false);
+    }
+  }
+
   return (
     <div
       ref={containerRef}
@@ -75,7 +106,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
         scrollbar-thin py-1
       "
     >
-      {segments.map((seg, i) => (
+      {segments.map((seg, i) => {
+        const speaker = seg.speaker;
+        return (
         <div
           key={i}
           ref={(el) => { rowRefs.current[i] = el; }}
@@ -103,10 +136,39 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
           <span className="text-[11px] font-semibold text-accent min-w-[42px] flex-shrink-0 opacity-85 tabular-nums">
             {fmtTimecode(seg.start)}
           </span>
-          {seg.speaker && (
-            <span className="text-[11px] font-bold text-[#25d366] min-w-[48px] flex-shrink-0 uppercase tracking-[.04em]">
-              {seg.speaker.replace("SPEAKER_", "")}
-            </span>
+          {speaker && (
+            renamingSpeaker === speaker ? (
+              <input
+                className="text-[11px] font-bold text-[#25d366] min-w-[80px] max-w-[140px] flex-shrink-0 bg-panel2 border border-border rounded-sm px-1 py-0.5 uppercase tracking-[.04em]"
+                value={renameText}
+                placeholder={t("rename_speaker_placeholder")}
+                onChange={(e) => setRenameText(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onKeyDown={async (e) => {
+                  if (e.key === "Escape") { setRenamingSpeaker(null); return; }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await handleRenameSpeaker(speaker);
+                  }
+                }}
+                onBlur={() => handleRenameSpeaker(speaker)}
+                autoFocus
+              />
+            ) : (
+              <span
+                className="text-[11px] font-bold text-[#25d366] min-w-[48px] flex-shrink-0 uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
+                title={t("rename_speaker_placeholder")}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();  // nicht den Text-Edit der Zeile triggern
+                  setRenamingSpeaker(speaker);
+                  setRenameText(speaker.replace("SPEAKER_", ""));
+                }}
+              >
+                {speaker.replace("SPEAKER_", "")}
+              </span>
+            )
           )}
           {editingIdx === i ? (
             <textarea
@@ -162,7 +224,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             </span>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
