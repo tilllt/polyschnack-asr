@@ -20,6 +20,8 @@ export interface FeatureValues {
   numSpeakers: string;
   /** Diarization-Tuning: Sensitivität "more" | "std" | "less" */
   diarSens: string;
+  /** Diarization-Tuning: Methode "" (Server-Default) | pyannote | foxnose | energy */
+  diarMethod: string;
 }
 
 /** Sensitivität → min_duration_off (Sek.): less = weniger Sprecherwechsel */
@@ -107,6 +109,19 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
                 <option value="less">{t("diarize_less_switches")}</option>
                 <option value="std">{t("diarize_std")}</option>
                 <option value="more">{t("diarize_more_detail")}</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[11px]">
+              {t("diarize_method")}
+              <select
+                value={values.diarMethod}
+                onChange={(e) => onChange({ diarMethod: e.target.value })}
+                className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+              >
+                <option value="">{t("diarize_method_default")}</option>
+                <option value="pyannote">pyannote</option>
+                <option value="foxnose">foxnose</option>
+                <option value="energy">energy</option>
               </select>
             </label>
           </div>

@@ -98,6 +98,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     diarSens: r.diarize_min_duration_off != null
       ? (r.diarize_min_duration_off >= 0.3 ? "less" : r.diarize_min_duration_off <= 0.08 ? "more" : "std")
       : "std",
+    diarMethod: r.diarize_method ?? "",
     streaming: r.enable_streaming,
     noise: r.enable_noise_reduce,
     enhance: r.enable_enhance,
@@ -166,6 +167,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId, feat.endpointId,
         feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
         diarSensToMinDurationOff(feat.diarSens),
+        feat.diarMethod || undefined,
       );
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -340,6 +342,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         enable_diarize: feat.diarize,
         diarize_num_speakers: feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
         diarize_min_duration_off: diarSensToMinDurationOff(feat.diarSens),
+        diarize_method: feat.diarMethod || undefined,
         enable_streaming: feat.streaming,
         enable_noise_reduce: feat.noise,
         enable_enhance: feat.enhance,

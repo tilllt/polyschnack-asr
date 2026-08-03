@@ -65,6 +65,9 @@ class Recording(SQLModel, table=True):
     #: Diarization-Tuning: min. Pause zwischen Sprecherwechseln (Sek.),
     #: None = Pipeline-Default. Höher = weniger Wechsel.
     diarize_min_duration_off: Optional[float] = Field(default=None)
+    #: Diarization-Methode pro Recording (pyannote|foxnose|energy|xcorr|vad-turns),
+    #: None = Server-Default aus DIARIZE_METHOD.
+    diarize_method: Optional[str] = Field(default=None)
     #: User opted into live streaming preview (SSE per-chunk results).
     enable_streaming: bool = False
 

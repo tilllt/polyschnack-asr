@@ -131,6 +131,8 @@ const dict: Record<Lang, Record<string, string>> = {
     diarize_less_switches: "Menos trocas",
     diarize_std: "Padrão",
     diarize_more_detail: "Mais detalhe",
+    diarize_method: "Método",
+    diarize_method_default: "Padrão do servidor",
   },
   de: {
     recordings: "Aufnahmen",
@@ -260,6 +262,8 @@ const dict: Record<Lang, Record<string, string>> = {
     diarize_less_switches: "Weniger Wechsel",
     diarize_std: "Standard",
     diarize_more_detail: "Mehr Detail",
+    diarize_method: "Methode",
+    diarize_method_default: "Server-Standard",
   },
   en: {
     recordings: "recordings",
@@ -389,6 +393,8 @@ const dict: Record<Lang, Record<string, string>> = {
     diarize_less_switches: "Fewer switches",
     diarize_std: "Standard",
     diarize_more_detail: "More detail",
+    diarize_method: "Method",
+    diarize_method_default: "Server default",
   },
 };
 

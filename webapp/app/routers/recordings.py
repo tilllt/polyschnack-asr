@@ -197,6 +197,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "enable_diarize": rec.enable_diarize,
         "diarize_num_speakers": rec.diarize_num_speakers,
         "diarize_min_duration_off": rec.diarize_min_duration_off,
+        "diarize_method": rec.diarize_method,
         "enable_streaming": rec.enable_streaming,
         "enable_noise_reduce": rec.enable_noise_reduce,
         "enable_enhance": rec.enable_enhance,
@@ -283,6 +284,7 @@ async def upload_recording(
     enable_diarize: bool = Form(False),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
+    diarize_method: Optional[str] = Form(None),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
@@ -358,6 +360,7 @@ async def upload_recording(
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
         diarize_min_duration_off=diarize_min_duration_off,
+        diarize_method=diarize_method,
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
@@ -558,6 +561,7 @@ def transcribe_ep(
     enable_diarize: bool = Form(False),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
+    diarize_method: Optional[str] = Form(None),
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
@@ -593,6 +597,7 @@ def transcribe_ep(
     rec.enable_diarize = enable_diarize
     rec.diarize_num_speakers = diarize_num_speakers
     rec.diarize_min_duration_off = diarize_min_duration_off
+    rec.diarize_method = diarize_method
     rec.enable_streaming = enable_streaming
     rec.enable_noise_reduce = enable_noise_reduce
     rec.enable_enhance = enable_enhance
@@ -647,6 +652,7 @@ class RetranscribeParams(BaseModel):
     enable_diarize: bool = False
     diarize_num_speakers: Optional[int] = None
     diarize_min_duration_off: Optional[float] = None
+    diarize_method: Optional[str] = None
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"

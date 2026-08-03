@@ -62,6 +62,7 @@ def test_transcribe_with_own_template_sets_flag(db, qm):
         recordings.transcribe_ep(
             "r1", _req(1), enable_vad=False, enable_diarize=False,
             diarize_num_speakers=None, diarize_min_duration_off=None,
+            diarize_method=None,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=None,
             prompt_template_id=1, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -75,6 +76,7 @@ def test_transcribe_foreign_template_403(db, qm):
             recordings.transcribe_ep(
                 "r1", _req(1), enable_vad=False, enable_diarize=False,
                 diarize_num_speakers=None, diarize_min_duration_off=None,
+                diarize_method=None,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=None,
                 prompt_template_id=2, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -88,6 +90,7 @@ def test_anon_with_template_403(db, qm, monkeypatch):
             recordings.transcribe_ep(
                 "r1", _req(None), enable_vad=False, enable_diarize=False,
                 diarize_num_speakers=None, diarize_min_duration_off=None,
+                diarize_method=None,
                 enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
                 enable_punctuation=None, enable_llm_enhance=None,
                 prompt_template_id=1, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
@@ -99,6 +102,7 @@ def test_transcribe_with_target_sets_pending(db, qm):
         recordings.transcribe_ep(
             "r1", _req(1), enable_vad=False, enable_diarize=False,
             diarize_num_speakers=None, diarize_min_duration_off=None,
+            diarize_method=None,
             enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
             enable_punctuation=None, enable_llm_enhance=None,
             prompt_template_id=None, delivery_target_id=1, llm_endpoint_id=None, backend="", session=s)
@@ -228,7 +232,7 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
                         lambda session, rec_id, pct, note=None: None)
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
 
-    def boom(audio_path, num_speakers=None, min_duration_off=None):
+    def boom(audio_path, num_speakers=None, min_duration_off=None, method=None):
         raise DiarizationError(
             "gated",
             "Das Diarization-Modell ist lizenzgeschützt. "

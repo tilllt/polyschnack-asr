@@ -35,6 +35,7 @@ export interface Recording {
   enable_diarize: boolean;
   diarize_num_speakers?: number | null;
   diarize_min_duration_off?: number | null;
+  diarize_method?: string | null;
   enable_streaming: boolean;
   enable_noise_reduce: boolean;
   enable_enhance: string;
@@ -214,6 +215,7 @@ export async function startTranscription(
   llmEndpointId?: number,
   diarizeNumSpeakers?: number,
   diarizeMinDurationOff?: number,
+  diarizeMethod?: string,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
@@ -229,6 +231,7 @@ export async function startTranscription(
   if (llmEndpointId !== undefined) fd.append("llm_endpoint_id", String(llmEndpointId));
   if (diarizeNumSpeakers !== undefined) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
   if (diarizeMinDurationOff !== undefined) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
+  if (diarizeMethod !== undefined) fd.append("diarize_method", diarizeMethod);
   const res = await fetch(`/api/recordings/${id}/transcribe`, { method: "POST", body: fd }).then(checkOk);
   return res.json() as Promise<Recording>;
 }
@@ -381,6 +384,7 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_diarize?: boolean;
   diarize_num_speakers?: number;
   diarize_min_duration_off?: number;
+  diarize_method?: string;
   enable_streaming?: boolean;
   enable_noise_reduce?: boolean;
   enable_enhance?: string;

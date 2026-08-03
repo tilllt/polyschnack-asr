@@ -57,6 +57,7 @@ def _transcribe(session, uid, **kw):
     return recordings.transcribe_ep(
         "r1", _req(uid), enable_vad=False, enable_diarize=False,
         diarize_num_speakers=None, diarize_min_duration_off=None,
+        diarize_method=None,
         enable_streaming=False, enable_noise_reduce=True, enable_enhance="off",
         enable_punctuation=None, enable_llm_enhance=None,
         prompt_template_id=None, delivery_target_id=None,

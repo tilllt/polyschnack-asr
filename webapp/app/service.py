@@ -32,10 +32,11 @@ def _trim_silence(audio_bytes: bytes) -> bytes:
 
 
 def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
-                     min_duration_off: Optional[float] = None) -> list:
+                     min_duration_off: Optional[float] = None,
+                     method: Optional[str] = None) -> list:
     from .diarize import diarize
     return diarize(audio_path, num_speakers=num_speakers,
-                   min_duration_off=min_duration_off)
+                   min_duration_off=min_duration_off, method=method)
 
 
 def _word_overlap(w: Dict[str, Any], d_start: float, d_end: float) -> float:
@@ -528,6 +529,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                     str(audio_path),
                     num_speakers=rec.diarize_num_speakers,
                     min_duration_off=rec.diarize_min_duration_off,
+                    method=rec.diarize_method,
                 )
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
             except DiarizationError as exc_d:

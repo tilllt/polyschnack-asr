@@ -51,20 +51,32 @@ def _normalise_speaker(label: str) -> str:
     return "SPEAKER_00"
 
 
+#: Whitelist der CrispASR-Diarization-Methoden (Server-Feld diarize_method).
+#: Unbekannte Werte werden bewusst abgelehnt (ValueError) statt still auf
+#: den Default zu fallen — ein Tippfehler darf nicht lautlos pyannote sein.
+DIARIZE_METHODS = ("pyannote", "foxnose", "energy", "xcorr", "vad-turns")
+
+
 def diarize(
     audio_path: str,
     num_speakers: Optional[int] = None,
     min_duration_off: Optional[float] = None,
+    method: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Ruft den CrispASR-diar-Service und liefert {start, end, speaker}-Segmente.
 
     Optionales Tuning (UI: „Sprecheranzahl"): ``num_speakers`` wird als
     ``diarize_max_speakers`` übertragen. ``min_duration_off`` hat in
     CrispASR keine direkte Entsprechung und wird bewusst nicht übertragen.
+    ``method`` (pyannote|foxnose|energy|xcorr|vad-turns) überschreibt die
+    Server-Methode pro Request; unbekannte Werte → ValueError (kein stiller
+    Fallback auf den Default).
 
     Raises :class:`DiarizationError` (service-unreachable / Proxy-Fehler) —
     nie eine stille leere Liste bei Service-Problemen.
     """
+    if method is not None and method not in DIARIZE_METHODS:
+        raise ValueError(f"unbekannte diarize_method {method!r} — erlaubt: {', '.join(DIARIZE_METHODS)}")
     url = f"{settings.DIAR_URL.rstrip('/')}/v1/audio/transcriptions"
     with open(audio_path, "rb") as f:
         audio_bytes = f.read()
@@ -72,7 +84,7 @@ def diarize(
     data: Dict[str, Any] = {
         "response_format": "diarized_json",
         "diarize": "true",
-        "diarize_method": settings.DIARIZE_METHOD,
+        "diarize_method": method or settings.DIARIZE_METHOD,
     }
     if num_speakers is not None:
         data["diarize_max_speakers"] = str(num_speakers)
