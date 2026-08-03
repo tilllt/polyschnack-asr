@@ -1,75 +1,62 @@
-"""Diarization-Parameter: num_speakers + min_duration_off (Sensitivität).
+"""Diarization-Parameter (Option B): num_speakers → diarize_max_speakers.
 
-Punkte 1+2 des Parameter-Menüs:
-1. Sprecheranzahl → num_speakers (min=max)
-2. Sensitivität → min_duration_off (weniger Wechsel = höher)
+Punkt 1 des Parameter-Menüs:
+1. Sprecheranzahl → diarize_max_speakers (CrispASR-Feld, Upper Bound)
 
-Backend bekommt fertige pyannote-Werte; die Übersetzung der UI-Stufen
-macht das Frontend.
+Bewusste Abweichung seit Option B: ``min_duration_off`` (Sensitivität) hat
+in CrispASR keine direkte Entsprechung und wird NICHT übertragen —
+nächster Hebel wäre diarize_cluster_threshold (anderes Semantikfeld).
 """
-import pytest
+import httpx
 
 from app.diarize import diarize
-
-# ---------------------------------------------------------------------------
-# diarize() reicht Parameter an die Pipeline durch
-# ---------------------------------------------------------------------------
+from app.config import settings
 
 
-def test_diarize_reicht_num_speakers_durch(monkeypatch):
-    calls = {}
+class _FakeClient:
+    def __init__(self):
+        self.last_kwargs = None
 
-    class FakePipeline:
-        def __call__(self, path, **kwargs):
-            calls["kwargs"] = kwargs
-            return _fake_result()
+    def __enter__(self):
+        return self
 
-    monkeypatch.setattr("app.diarize._load_pipeline", lambda: FakePipeline())
+    def __exit__(self, *exc):
+        return False
 
-    diarize("/tmp/x.wav", num_speakers=2)
-    assert calls["kwargs"].get("min_speakers") == 2
-    assert calls["kwargs"].get("max_speakers") == 2
-
-
-def test_diarize_reicht_min_duration_off_durch(monkeypatch):
-    calls = {}
-
-    class FakePipeline:
-        def __call__(self, path, **kwargs):
-            calls["kwargs"] = kwargs
-            return _fake_result()
-
-    monkeypatch.setattr("app.diarize._load_pipeline", lambda: FakePipeline())
-
-    diarize("/tmp/x.wav", min_duration_off=0.4)
-    assert calls["kwargs"].get("min_duration_off") == 0.4
+    def post(self, url, files=None, data=None):
+        self.last_kwargs = {"url": url, "files": files, "data": data}
+        return httpx.Response(200, json={"segments": []})
 
 
-def test_diarize_ohne_param_kein_min_duration_off(monkeypatch):
-    """Default: kein min_duration_off → pyannote nutzt Pipeline-Default."""
-    calls = {}
-
-    class FakePipeline:
-        def __call__(self, path, **kwargs):
-            calls["kwargs"] = kwargs
-            return _fake_result()
-
-    monkeypatch.setattr("app.diarize._load_pipeline", lambda: FakePipeline())
-
-    diarize("/tmp/x.wav")
-    assert "min_duration_off" not in calls["kwargs"]
-    assert "min_speakers" not in calls["kwargs"]
+def _patch(monkeypatch):
+    fc = _FakeClient()
+    monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: fc)
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    return fc
 
 
-def _fake_result():
-    """Minimales pyannote-3.x-Ergebnis (Annotation mit itertracks)."""
+def test_diarize_reicht_max_speakers_durch(monkeypatch, tmp_path):
+    fc = _patch(monkeypatch)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p), num_speakers=2)
+    assert fc.last_kwargs["data"]["diarize_max_speakers"] == "2"
 
-    class _Turn:
-        start = 0.0
-        end = 1.0
 
-    class _Annotation:
-        def itertracks(self, yield_label=False):
-            return iter([(_Turn(), None, "SPEAKER_00")])
+def test_diarize_ohne_num_speakers_kein_feld(monkeypatch, tmp_path):
+    fc = _patch(monkeypatch)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p))
+    assert "diarize_max_speakers" not in fc.last_kwargs["data"]
 
-    return _Annotation()
+
+def test_diarize_min_duration_off_wird_nicht_uebertragen(monkeypatch, tmp_path):
+    """CrispASR kennt kein min_duration_off — Parameter wird ignoriert."""
+    fc = _patch(monkeypatch)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p), min_duration_off=0.4)
+    data = fc.last_kwargs["data"]
+    assert "min_duration_off" not in data
+    assert "diarize_cluster_threshold" not in data  # bewusst nicht gemappt

@@ -69,7 +69,7 @@ export interface Stats {
 export interface ModelStatus {
   vad_available: boolean;
   diarize_available: boolean;
-  hf_token: boolean;
+  diar_service: string;
   asr_device: string;
   downloading: Record<string, boolean>;
   download_progress: Record<string, string>;

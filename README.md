@@ -43,7 +43,7 @@ entstanden und wurde **massiv erweitert**:
 - **Long Audio** — überlappende Sliding-Windows (300 s + 15 s Overlap) mit
   VAD→Mel-Energy→Midpoint-Seam-Kaskade und Wort-Deduplizierung an Nähten
 - **VAD** — Silero-VAD für Stille-Erkennung und Trimmung
-- **Diarization** — pyannote-basierte Sprechererkennung
+- **Diarization** — Sprechererkennung via CrispASR-diar-Service (eigener Container, kein pyannote/CUDA-torch in der Webapp)
 - **Noise Reduction** — spektrale Rauschunterdrückung
 - **Multi-Language UI** — English · Deutsch · Português
 - **OIDC Auth** — Per-Benutzer-Workspaces via Authentik, Keycloak uvm.
@@ -76,8 +76,10 @@ docker compose -f compose.yml -f compose.gpu.yml up -d
 **Wie Hybrid funktioniert:** Der Kern-ASR-Service prüft beim Start, ob ein
 CUDA-Provider verfügbar ist (`POLYSCHNACK_USE_GPU=auto`). Mit GPU-Zugriff
 (Overlay `compose.gpu.yml` → `runtime: nvidia`) lädt er das GPU-Modell,
-ohne GPU das CPU-INT8-Modell. Die Diarization (pyannote) wählt ihr Device
-ebenfalls automatisch (`torch.cuda.is_available()` → CUDA, sonst CPU).
+ohne GPU das CPU-INT8-Modell. Die **Diarization** läuft seit „Option B" im
+eigenen CrispASR-diar-Container (`diar`, Port 5096) — mit GPU via Overlay
+auf CUDA, ohne auf CPU (ggml). Die Webapp selbst ist **CPU-only** (kein
+torch/pyannote im Image, ~2,5–3 GB schlanker).
 Das Overlay ist die einzige Stelle, an der `runtime: nvidia` gesetzt wird —
 ohne es startet der Stack auf jeder Maschine.
 
@@ -108,7 +110,7 @@ Env-Variable — kein Code nötig.
 | Async-Jobs (Hintergrund) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Noise-Reduction (Service) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | VAD-Trimmung (Silero, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Diarization (pyannote, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Diarization (CrispASR-diar, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
@@ -170,6 +172,30 @@ Das GGUF-Modell (~4 GB, Q8_0) muss einmalig geladen werden:
 docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
   https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
 ```
+
+### Diarization (Sprechererkennung) — CrispASR-diar-Service
+
+Die Diarization läuft seit „Option B" **nicht mehr in der Webapp** (kein
+pyannote, kein CUDA-torch), sondern im eigenen `diar`-Container — einem
+schlanken CrispASR-Server, der nur für die Sprechererkennung zuständig ist
+und unabhängig vom gewählten ASR-Backend funktioniert:
+
+- **Im Default-Stack enthalten** (`compose.yml` → `diar`), Healthcheck aktiv
+- **GPU** via Overlay (`compose.gpu.yml` → `runtime: nvidia`), sonst CPU (ggml)
+- Kein HF_TOKEN nötig — die Webapp ruft nur `POST /v1/audio/transcriptions`
+  mit `diarize=true&response_format=diarized_json` auf
+
+Das Modell (parakeet-GGUF, ~470 MB) muss einmalig geladen werden:
+```bash
+docker run --rm -v "$PWD/DATA/diar-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
+  https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
+```
+
+Die Methode ist per `DIARIZE_METHOD` wählbar (Webapp-Env): `pyannote`
+(Default, GGUF-Port des bekannten Modells), `foxnose` (WeSpeaker-ResNet34,
+laut CrispASR beste Accuracy, keine externen deps), `energy`/`xcorr`/
+`vad-turns` (leichtgewichtig). Die „Sprecheranzahl" aus der UI wird als
+`diarize_max_speakers` übertragen.
 
 ---
 
@@ -304,7 +330,6 @@ services:
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
       DATA_DIR: /data
       VAD_TRIM_SILENCE: "false"
-      HF_TOKEN: ""
       PUBLIC_RETENTION_MINUTES: "60"
     ports:
       - "8088:8080"
@@ -403,7 +428,8 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 | `ASR_URL` | `http://asr:5092` | ASR-Service-URL |
 | `ASR_BACKEND` | `pk-python` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `HF_TOKEN` | `""` | HuggingFace-Token für Diarization |
+| `DIAR_URL` | `http://diar:5096` | Diarization-Service (CrispASR-diar-Container) |
+| `DIARIZE_METHOD` | `pyannote` | Diarization-Methode im CrispASR-Server (`pyannote`\|`foxnose`\|`energy`\|…) |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
 | `OIDC_ISSUER` | `""` | OIDC-Issuer-URL |

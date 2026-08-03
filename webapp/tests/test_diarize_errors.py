@@ -1,164 +1,112 @@
-"""Diarization-Fehlererkennung: Lizenz/gated-Fehler müssen als präzise
-Fehlermeldung mit Admin-Hinweis ankommen statt still verschluckt zu werden."""
+"""Diarization-Fehlererkennung (Option B): CrispASR-diar-Service-Fehler.
+
+Fehlerklassen bleiben erhalten — DiarizationError mit maschinenlesbarem
+``code``. Neu seit Option B: service-unreachable (Verbindung), diar-error
+(Proxy-Fehler mit detail.code), service-error (HTTP ohne detail).
+Kein stilles [] bei Service-Problemen.
+"""
+import httpx
 import pytest
 
-from app.diarize import DiarizationError, _classify_load_error, diarize
+from app.diarize import DiarizationError, diarize
+from app.config import settings
 
 
-# ---------------------------------------------------------------------------
-# Fehlerklassifizierung
-# ---------------------------------------------------------------------------
+class _FakeClient:
+    def __init__(self, status, payload=None, detail=None):
+        self._status = status
+        self._payload = payload if payload is not None else (
+            {"detail": detail} if detail else {})
+        self.last_kwargs = None
 
-def test_classify_403_gated():
-    class FakeResp:
-        status_code = 403
-    class FakeExc(Exception):
-        def __init__(self):
-            super().__init__("Cannot access gated repo for url ...")
-            self.response = FakeResp()
-    code, msg = _classify_load_error(FakeExc())
-    assert code == "gated"
-    assert "license" in msg.lower() or "lizenz" in msg.lower()
-    assert "admin" in msg.lower()
+    def __enter__(self):
+        return self
 
+    def __exit__(self, *exc):
+        return False
 
-def test_classify_404_not_found():
-    class FakeResp:
-        status_code = 404
-    class FakeExc(Exception):
-        def __init__(self):
-            super().__init__("Entry not found")
-            self.response = FakeResp()
-    code, msg = _classify_load_error(FakeExc())
-    assert code == "not-found"
+    def post(self, url, files=None, data=None):
+        self.last_kwargs = {"url": url, "files": files, "data": data}
+        return httpx.Response(self._status, json=self._payload)
 
 
-def test_classify_401_unauthorized():
-    class FakeResp:
-        status_code = 401
-    class FakeExc(Exception):
-        def __init__(self):
-            super().__init__("Invalid token")
-            self.response = FakeResp()
-    code, msg = _classify_load_error(FakeExc())
-    assert code == "unauthorized"
-
-
-def test_classify_gated_text_without_response():
-    """Auch ohne .response-Attribut: 'gated' im Text → gated."""
-    class FakeExc(Exception):
-        pass
-    exc = FakeExc("Gated repo: you must agree to terms first")
-    code, _ = _classify_load_error(exc)
-    assert code == "gated"
-
-
-def test_classify_unknown():
-    class FakeExc(Exception):
-        pass
-    code, msg = _classify_load_error(FakeExc("some random error"))
-    assert code == "load-failed"
+def _patch(monkeypatch, status, payload=None, detail=None):
+    fc = _FakeClient(status, payload=payload, detail=detail)
+    monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: fc)
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    return fc
 
 
 # ---------------------------------------------------------------------------
 # DiarizationError Datentyp
 # ---------------------------------------------------------------------------
 
+
 def test_diarization_error_carries_code_and_message():
-    e = DiarizationError("gated", "Lizenz fehlt — Admin informieren.")
-    assert e.code == "gated"
-    assert "Admin" in e.message
-    assert "gated" in str(e)
+    e = DiarizationError("service-unreachable", "Diar-Service nicht erreichbar.")
+    assert e.code == "service-unreachable"
+    assert "erreichbar" in e.message
+    assert "service-unreachable" in str(e)
 
 
 # ---------------------------------------------------------------------------
-# diarize() propagiert Ladefehler (kein stilles [] mehr)
+# diarize() propagiert Fehler (kein stilles [] mehr)
 # ---------------------------------------------------------------------------
 
-def test_diarize_propagates_load_error(monkeypatch):
-    """Wenn _load_pipeline eine DiarizationError wirft, muss diarize() sie
-    durchreichen — der Aufrufer (service.py) markiert die Aufnahme dann
-    als failed mit präziser Meldung."""
-    def boom():
-        raise DiarizationError("gated", "Lizenz fehlt — Admin informieren.")
-    monkeypatch.setattr("app.diarize._load_pipeline", boom)
+
+def test_diarize_service_unreachable(monkeypatch, tmp_path):
+    class _Boom:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def post(self, url, files=None, data=None):
+            raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: _Boom())
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
     with pytest.raises(DiarizationError) as ei:
-        diarize("/tmp/nonexistent.wav")
-    assert ei.value.code == "gated"
+        diarize(str(p))
+    assert ei.value.code == "service-unreachable"
 
 
-def test_diarize_no_token(monkeypatch):
-    """Ohne HF_TOKEN muss _load_pipeline eine DiarizationError werfen
-    (kein stilles None → leere Liste)."""
-    monkeypatch.setattr("app.diarize.os.getenv", lambda k, d=None: None)
+def test_diarize_proxy_detail_code_passthrough(monkeypatch, tmp_path):
+    """Proxy-Fehler (z. B. load-failed) werden mit detail.code durchgereicht."""
+    _patch(monkeypatch, 502, detail={"code": "load-failed",
+                                     "message": "model load failed"})
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
     with pytest.raises(DiarizationError) as ei:
-        diarize("/tmp/nonexistent.wav")
-    assert ei.value.code == "no-token"
-    assert "admin" in ei.value.message.lower() or "Admin" in ei.value.message
+        diarize(str(p))
+    assert ei.value.code == "load-failed"
+    assert "model load failed" in ei.value.message
+
+
+def test_diarize_http_error_without_detail(monkeypatch, tmp_path):
+    """HTTP-Fehler ohne detail → service-error mit Statuscode."""
+    _patch(monkeypatch, 500)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    with pytest.raises(DiarizationError) as ei:
+        diarize(str(p))
+    assert ei.value.code == "service-error"
+    assert "500" in ei.value.message
 
 
 # ---------------------------------------------------------------------------
-# _extract_segments: pyannote 4.x DiarizeOutput vs 3.x Annotation
+# _normalise_speaker: A/B/C → SPEAKER_00/01
 # ---------------------------------------------------------------------------
 
-def test_extract_segments_pyannote4_serialize():
-    """pyannote 4.x: Ergebnis ist DiarizeOutput mit serialize() → dict."""
-    from app.diarize import _extract_segments
 
-    class FakeOutput:
-        def serialize(self):
-            return {"diarization": [
-                {"start": 0.1, "end": 2.5, "speaker": "SPEAKER_00"},
-                {"start": 2.8, "end": 5.0, "speaker": "SPEAKER_01"},
-            ]}
+def test_normalise_speaker_labels():
+    from app.diarize import _normalise_speaker
 
-    segs = _extract_segments(FakeOutput())
-    assert len(segs) == 2
-    assert segs[0]["speaker"] == "SPEAKER_00"
-    assert segs[1]["end"] == 5.0
-
-
-def test_extract_segments_pyannote4_speaker_diarization_attr():
-    """pyannote 4.x ohne serialize: .speaker_diarization Annotation nutzen."""
-    from app.diarize import _extract_segments
-
-    class FakeTurn:
-        start = 1.0
-        end = 3.0
-
-    class FakeAnnotation:
-        def itertracks(self, yield_label=True):
-            yield (FakeTurn(), None, "SPEAKER_00")
-
-    class FakeOutput:
-        speaker_diarization = FakeAnnotation()
-
-    segs = _extract_segments(FakeOutput())
-    assert segs == [{"start": 1.0, "end": 3.0, "speaker": "SPEAKER_00"}]
-
-
-def test_extract_segments_pyannote3_annotation():
-    """pyannote 3.x: Ergebnis ist direkt eine Annotation mit itertracks."""
-    from app.diarize import _extract_segments
-
-    class FakeTurn:
-        start = 0.5
-        end = 1.5
-
-    class FakeAnnotation:
-        def itertracks(self, yield_label=True):
-            yield (FakeTurn(), None, "SPEAKER_00")
-            yield (FakeTurn(), None, "SPEAKER_01")
-
-    segs = _extract_segments(FakeAnnotation())
-    assert len(segs) == 2
-    assert {s["speaker"] for s in segs} == {"SPEAKER_00", "SPEAKER_01"}
-
-
-def test_extract_segments_unknown_format():
-    from app.diarize import _extract_segments
-
-    class Weird:
-        pass
-
-    assert _extract_segments(Weird()) == []
+    assert _normalise_speaker("A") == "SPEAKER_00"
+    assert _normalise_speaker("Z") == "SPEAKER_25"
+    assert _normalise_speaker("SPEAKER_07") == "SPEAKER_07"
+    assert _normalise_speaker("") == "SPEAKER_00"
+    assert _normalise_speaker("?") == "SPEAKER_00"

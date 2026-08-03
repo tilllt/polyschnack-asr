@@ -36,7 +36,12 @@ def _check_vad() -> bool:
 
 
 def _pyannote_importable() -> bool:
-    """True wenn pyannote.audio installiert ist (Import-Check)."""
+    """True wenn pyannote.audio installiert ist (Import-Check).
+
+    Seit Option B (Diarization via CrispASR-diar-Service) ist pyannote
+    NICHT mehr in der Webapp installiert — dieser Check bleibt als
+    konservativer Fallback für ältere Images (False → diar-Service-Check).
+    """
     try:
         import pyannote.audio  # noqa: F401
         return True
@@ -44,102 +49,49 @@ def _pyannote_importable() -> bool:
         return False
 
 
-def _check_diarize() -> bool:
-    """Check if pyannote pipeline can load (model cached)."""
-    return _pyannote_importable()
-
-
-def _hf_token() -> bool:
-    return bool(os.getenv("HF_TOKEN"))
-
-
-# Komponenten der pyannote speaker-diarization-3.1 Pipeline (config.yaml):
-#   embedding:    pyannote/wespeaker-voxceleb-resnet34-LM
-#   segmentation: pyannote/segmentation-3.0
-# plus das PLDA/community-Modell, das die Pipeline intern nachlädt.
-DIARIZE_REPOS = [
-    "pyannote/speaker-diarization-3.1",
-    "pyannote/segmentation-3.0",
-    "pyannote/wespeaker-voxceleb-resnet34-LM",
-    "pyannote/speaker-diarization-community-1",
-]
-
-
-def _probe_repo(repo_id: str, token: str | None) -> Dict[str, Any]:
-    """Prüft Erreichbarkeit eines HF-Repos per API-Call (schnell, kein Download).
-
-    HTTP-Status → Ursache:
-      200 → ok
-      401 → Token fehlt/ungültig (kein Login)
-      403 → gated (Nutzungsbedingungen nicht akzeptiert)
-      404 → Repo existiert nicht
-      sonst / Exception → network-error
-    """
-    if not token:
-        return {"status": None, "code": "no-token", "repo": repo_id,
-                "message": "HF_TOKEN nicht gesetzt — Modell kann nicht authentifiziert geladen werden."}
-    # WICHTIG: Slash NICHT zu %2F encoden — die HF-API antwortet auf %2F
-    # mit 400 (Bad Request). Nur der rohe Pfad funktioniert.
-    url = f"https://huggingface.co/api/models/{repo_id}"
+def _diar_service_reachable() -> bool:
+    """True wenn der diar-Service (CrispASR) per HTTP erreichbar ist."""
     try:
-        resp = httpx.get(url, timeout=15, headers={"Authorization": f"Bearer {token}"})
-    except Exception as exc:
-        return {"status": None, "code": "network-error", "repo": repo_id,
-                "message": f"HuggingFace nicht erreichbar: {exc.__class__.__name__}: {exc}"}
-    code = resp.status_code
-    if code == 200:
-        return {"status": 200, "code": "ok", "repo": repo_id, "message": ""}
-    if code == 401:
-        return {"status": 401, "code": "unauthorized", "repo": repo_id,
-                "message": f"Token ungültig oder kein Login (HTTP 401) für {repo_id}."}
-    if code == 403:
-        return {"status": 403, "code": "gated", "repo": repo_id,
-                "message": f"{repo_id} ist gated — Nutzungsbedingungen auf "
-                           f"huggingface.co/{repo_id} akzeptieren (Agree and access repository)."}
-    if code == 404:
-        return {"status": 404, "code": "not-found", "repo": repo_id,
-                "message": f"Repo {repo_id} existiert nicht (HTTP 404) — "
-                           "Modell-ID in der Pipeline-Konfiguration prüfen."}
-    return {"status": code, "code": "http-error", "repo": repo_id,
-            "message": f"Unerwarteter HTTP-Status {code} für {repo_id}."}
+        resp = httpx.get(f"{settings.DIAR_URL.rstrip('/')}/health", timeout=5)
+        resp.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+def _check_diarize() -> bool:
+    """Check if the diar-Service is reachable (CrispASR-Server, Option B)."""
+    if _pyannote_importable():
+        # Altes Image (pyannote lokal) — dort war der Import der Check.
+        return True
+    return _diar_service_reachable()
 
 
 def _diarize_diagnosis() -> Dict[str, Any]:
-    """Detaillierte Diagnose, warum die Diarization-Pipeline (nicht) lädt.
+    """Detaillierte Diagnose, warum die Diarization (nicht) verfügbar ist.
 
-    Rückgabe: {available, code, message, repo, components}
-      codes: ok | no-token | pyannote-missing | gated | not-found |
-             unauthorized | network-error | http-error
+    Rückgabe: {available, code, message, service, components}
+      codes: ok | diar-unreachable | diar-error
+    Seit Option B läuft die Diarization im CrispASR-diar-Container —
+    kein HF_TOKEN, kein pyannote-Download mehr in der Webapp.
     """
-    if not _hf_token():
-        return {"available": False, "code": "no-token", "repo": None,
-                "message": "HF_TOKEN nicht gesetzt (compose.yml environment). "
-                           "Diarization ist ohne Token nicht nutzbar.",
+    url = settings.DIAR_URL.rstrip("/")
+    try:
+        resp = httpx.get(f"{url}/health", timeout=5)
+        resp.raise_for_status()
+        return {"available": True, "code": "ok", "service": url,
+                "message": "Diar-Service erreichbar (CrispASR).",
+                "components": [{"repo": "diar-service", "status": 200,
+                                "code": "ok", "message": "health ok"}]}
+    except httpx.HTTPStatusError as exc:
+        return {"available": False, "code": "diar-error", "service": url,
+                "message": f"Diar-Service antwortete mit HTTP "
+                           f"{exc.response.status_code}.",
                 "components": []}
-    if not _pyannote_importable():
-        return {"available": False, "code": "pyannote-missing", "repo": None,
-                "message": "pyannote.audio ist nicht installiert — "
-                           "Container-Image prüfen / neu bauen.",
+    except Exception as exc:
+        return {"available": False, "code": "diar-unreachable", "service": url,
+                "message": f"Diar-Service nicht erreichbar: {exc}",
                 "components": []}
-
-    token = os.getenv("HF_TOKEN")
-    components: list[Dict[str, Any]] = []
-    first_fail: Dict[str, Any] | None = None
-    for repo in DIARIZE_REPOS:
-        probe = _probe_repo(repo, token)
-        components.append(probe)
-        if probe["code"] != "ok" and first_fail is None:
-            first_fail = probe
-
-    if first_fail is None:
-        return {"available": True, "code": "ok", "repo": None,
-                "message": "Alle Diarization-Komponenten erreichbar.",
-                "components": components}
-
-    return {"available": False, "code": first_fail["code"],
-            "repo": first_fail["repo"],
-            "message": first_fail["message"],
-            "components": components}
 
 
 def _download_vad():
@@ -161,30 +113,6 @@ def _download_vad():
         _download_progress["vad"] = f"failed: {exc}"
     finally:
         _downloading["vad"] = False
-
-
-def _download_diarize():
-    """Download pyannote model from HuggingFace (~300MB)."""
-    if _downloading.get("diarize"):
-        return
-    if not _hf_token():
-        _download_progress["diarize"] = "no-token"
-        return
-    _downloading["diarize"] = True
-    _download_progress["diarize"] = "starting"
-    try:
-        from pyannote.audio import Pipeline  # noqa: F811
-        token = os.getenv("HF_TOKEN")
-        Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            token=token,
-            cache_dir=str(_MODEL_CACHE),
-        )
-        _download_progress["diarize"] = "done"
-    except Exception as exc:
-        _download_progress["diarize"] = f"failed: {exc}"
-    finally:
-        _downloading["diarize"] = False
 
 
 # ------------------------------------------------------------------
@@ -221,7 +149,7 @@ def model_status() -> Dict[str, Any]:
     return {
         "vad_available": vad_available,
         "diarize_available": diag["available"],
-        "hf_token": _hf_token(),
+        "diar_service": diag["service"],
         "asr_device": asr_device,
         "backend": client.capabilities.label,
         "features": {
@@ -255,21 +183,19 @@ def download_vad() -> DownloadResponse:
 
 @router.post("/diarize/download")
 def download_diarize() -> DownloadResponse:
-    if not _hf_token():
-        return DownloadResponse(
-            status="no-token",
-            message="HF_TOKEN not set — add it to compose.yml:\n"
-                    "environment:\n"
-                    "  HF_TOKEN: hf_your_token_here\n\n"
-                    "Get a token at https://huggingface.co/settings/tokens",
-        )
+    """Kein Download mehr nötig — Diarization läuft im CrispASR-diar-Container.
+
+    Seit Option B liegt das Diarization-Modell (parakeet-GGUF) als Volume
+    im diar-Service (./DATA/diar-models/). Der Endpoint bleibt als
+    Kompatibilitäts-Stub für ältere Frontends und meldet den neuen Zustand.
+    """
     if _check_diarize():
-        return DownloadResponse(status="ok", message="already installed")
-    if _downloading.get("diarize"):
-        return DownloadResponse(status="running", message="already downloading")
-    thread = threading.Thread(target=_download_diarize, daemon=True)
-    thread.start()
+        return DownloadResponse(
+            status="ok",
+            message="Diarization verfügbar (CrispASR-diar-Service).",
+        )
     return DownloadResponse(
-        status="started",
-        message="pyannote model download started (~300 MB)",
+        status="service-unreachable",
+        message="Diar-Service nicht erreichbar — Container 'diar' prüfen "
+                "(Modell liegt unter ./DATA/diar-models/).",
     )

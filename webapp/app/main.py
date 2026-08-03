@@ -26,7 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
-from .routers.models import router as models_router, _hf_token, _check_vad, _check_diarize
+from .routers.models import router as models_router, _check_vad, _check_diarize
 from .routers.matrix import router as matrix_router
 from .routers.queue_api import router as queue_api_router
 from .routers.admin import router as admin_router
@@ -94,13 +94,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 log.warning("re-enqueue skipped for rec_id=%s", rec_id)
 
     # Startup diagnostics: model availability
-    hf_token_ok = bool(os.getenv("HF_TOKEN"))
-    log.info("HF_TOKEN: %s", "✓ set" if hf_token_ok else "✗ NOT SET — diarization disabled")
     log.info("silero-vad (VAD): %s", "✓ cached" if _check_vad() else "✗ not installed")
-    if hf_token_ok:
-        log.info("pyannote (diarize): %s", "✓ cached" if _check_diarize() else "✗ not installed — click toggle to download")
-    else:
-        log.info("pyannote (diarize): skipped (no HF_TOKEN)")
+    diar_ok = _check_diarize()
+    log.info("diarization (CrispASR-diar): %s", "✓ reachable" if diar_ok else "✗ NOT reachable — container 'diar' prüfen")
 
     # --- Task B4: Retention-Sweep für anonyme Sessions (alle 5 min) ---
     import threading
