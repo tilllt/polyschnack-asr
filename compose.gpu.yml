@@ -38,3 +38,9 @@ services:
 
   ark-asr:
     runtime: nvidia
+
+  moonshine-de:
+    runtime: nvidia
+
+  canary-asr:
+    runtime: nvidia

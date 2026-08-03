@@ -102,6 +102,55 @@ services:
       retries: 3
       start_period: 90s
 
+  moonshine-de:
+    profiles: ["moonshine"]
+    image: registry.example.com/public/polyschnack-asr-moonshine-de:latest
+    container_name: polyschnack-moonshine-de
+    environment:
+      MOONSHINE_DE_MODEL: /models/moonshine-base-de-fidoriel-q4_k.gguf
+      # Deutsches Spezialmodell (61,5M, 6,9% WER CV22-de, ~39 MB GGUF).
+      # Residenter Post-Prozessor: Interpunktion + deutsches Truecasing.
+      # ⚠ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell!) — siehe README.
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+    volumes:
+      - ./DATA/moonshine-models:/models:ro
+    ports:
+      - "5096:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  canary-asr:
+    profiles: ["canary"]
+    image: registry.example.com/public/polyschnack-asr-canary:latest
+    container_name: polyschnack-canary
+    environment:
+      CANARY_ASR_MODEL: /models/canary-1b-v2-q4_k.gguf
+      # Multilingual (EN/DE/FR/ES). Residenter Post-Prozessor:
+      # Interpunktion + deutsches Truecasing.
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+    volumes:
+      - ./DATA/canary-models:/models:ro
+    ports:
+      - "5097:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
   # Voxtral (Profil "voxtral") — GEPLANT, noch kein Image gebaut.
   # Dockerfile nach dem qwen3-asr-cpp/ark-asr-cpp-Muster bauen
   # (voxtral.cpp, andrijdavid/voxtral.cpp), Modell
