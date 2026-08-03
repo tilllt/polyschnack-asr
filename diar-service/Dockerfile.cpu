@@ -1,0 +1,33 @@
+# ==============================================================
+# PolySchnack Diarization Service — CrispASR CPU-Runtime (Option B)
+# ==============================================================
+# CPU-Variante des Diarization-Services (kein NVIDIA-Toolkit nötig).
+# Asset: crispasr-linux-x86_64.tar.gz (ohne -cuda Suffix).
+# ==============================================================
+FROM ubuntu:24.04
+
+ARG CRISPASR_VERSION=v0.8.25
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg ca-certificates wget curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# CrispASR pre-compiled Linux CPU binary
+RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPASR_VERSION}/crispasr-linux-x86_64.tar.gz" \
+    -O /tmp/crispasr.tar.gz && \
+    tar xzf /tmp/crispasr.tar.gz -C /tmp && \
+    cp /tmp/crispasr-linux-x86_64/crispasr /usr/local/bin/crispasr && \
+    cp /tmp/crispasr-linux-x86_64/libc2pa_c.so /usr/local/lib/libc2pa_c.so && \
+    ldconfig && \
+    chmod +x /usr/local/bin/crispasr && \
+    rm -rf /tmp/crispasr.tar.gz /tmp/crispasr-linux-x86_64
+
+# Verify
+RUN crispasr --help 2>&1 | head -5
+
+# Model volume — parakeet GGUF hier mounten (q8_0, ~470 MB)
+ENV DIAR_MODEL=/models/parakeet-tdt-0.6b-v3-q8_0.gguf
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "exec crispasr --server -m \"$DIAR_MODEL\" --host 0.0.0.0 --port 8080"]

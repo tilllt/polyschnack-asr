@@ -50,6 +50,25 @@ services:
       retries: 3
       start_period: 90s
 
+  diar:
+    image: registry.example.com/public/polyschnack-asr-diar:latest
+    container_name: polyschnack-diar
+    environment:
+      DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+    volumes:
+      - ./DATA/diar-models:/models:ro
+    expose:
+      - "5096"
+    restart: unless-stopped
+    # GPU-Zugriff: NUR über compose.gpu.yml (runtime: nvidia) — siehe dort.
+    # Ohne Overlay läuft der Container CPU-only (CrispASR ggml CPU-Backend).
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
   webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
     container_name: polyschnack-webapp
@@ -59,6 +78,8 @@ services:
       ASR_URL: "${ASR_URL:-http://asr:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
+      DIAR_URL: "${DIAR_URL:-http://diar:5096}"
+      DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       DOCKER_PROXY_URL: http://docker-proxy:2375
       # Admin-Bereich: wer darf Services starten/stoppen und das
@@ -66,7 +87,6 @@ services:
       # POLYSCHNACK_ADMINS: "sub-oder-email,weiterer-user"
       # POLYSCHNACK_ADMIN_GROUPS: "admins"   # OIDC-Gruppen
       POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-pk-python}"
-      HF_TOKEN: ""                       # ← Setzen für Speaker Diarization
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
       PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)
       # Optional OIDC — uncomment to enable per-user workspaces.
@@ -87,6 +107,8 @@ services:
     depends_on:
       asr:
         condition: service_healthy
+      diar:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:

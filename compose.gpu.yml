@@ -2,10 +2,10 @@
 #
 #   docker compose -f compose.yml -f compose.gpu.yml up -d
 #
-# Aktiviert GPU-Zugriff (runtime: nvidia) für ASR-Service und Webapp:
-#   - asr:     parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
-#   - webapp:  pyannote-Diarization nutzt CUDA-torch (device auto-detect in
-#              app/diarize.py → torch.cuda.is_available())
+# Aktiviert GPU-Zugriff (runtime: nvidia) für ASR-Service und diar-Service:
+#   - asr:   parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
+#   - diar:  CrispASR-Diarization (Option B) läuft auf CUDA — die Webapp
+#            selbst braucht KEIN torch/CUDA mehr (kein pyannote lokal)
 #
 # OHNE dieses Overlay läuft der Stack auf der CPU (Default in compose.yml):
 #   docker compose up -d
@@ -20,6 +20,6 @@ services:
     environment:
       POLYSCHNACK_USE_GPU: "true"
 
-  webapp:
-    image: registry.example.com/public/polyschnack-asr-webapp:latest
+  diar:
+    image: registry.example.com/public/polyschnack-asr-diar:latest
     runtime: nvidia
