@@ -25,7 +25,10 @@ services:
     image: registry.example.com/public/polyschnack-asr:latest
     container_name: polyschnack-asr
     environment:
-      POLYSCHNACK_USE_GPU: "true"
+      # Hybrid: "auto" = GPU wenn CUDA-Provider verfügbar, sonst CPU-INT8.
+      # Explizit "true" (mit GPU-Zugriff) setzt nur das GPU-Overlay
+      # compose.gpu.yml (runtime: nvidia).
+      POLYSCHNACK_USE_GPU: "auto"
       POLYSCHNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
       POLYSCHNACK_INFER_WORKERS: "1"
     ports:
@@ -33,7 +36,9 @@ services:
     volumes:
       - ./DATA/parakeet-models:/app/models
     restart: unless-stopped
-    runtime: nvidia
+    # GPU-Zugriff: NUR über compose.gpu.yml (runtime: nvidia) — siehe dort.
+    # Ohne Overlay läuft der Container CPU-only (onnxruntime-gpu fällt auf
+    # CPUExecutionProvider zurück, _auto_select_model wählt das CPU-Modell).
     deploy:
       resources:
         limits:

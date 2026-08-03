@@ -1,0 +1,25 @@
+# PolySchnack — GPU-Overlay (NUR auf Maschinen mit NVIDIA Container Toolkit!)
+#
+#   docker compose -f compose.yml -f compose.gpu.yml up -d
+#
+# Aktiviert GPU-Zugriff (runtime: nvidia) für ASR-Service und Webapp:
+#   - asr:     parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
+#   - webapp:  pyannote-Diarization nutzt CUDA-torch (device auto-detect in
+#              app/diarize.py → torch.cuda.is_available())
+#
+# OHNE dieses Overlay läuft der Stack auf der CPU (Default in compose.yml):
+#   docker compose up -d
+#
+# Wichtig: runtime: nvidia ist hardcodiert NICHT in compose.yml, weil der
+# Stack sonst auf Maschinen ohne NVIDIA-Runtime gar nicht starten würde.
+# Das Overlay ist die einzige Stelle, an der GPU-Zugriff vergeben wird.
+services:
+  asr:
+    image: registry.example.com/public/polyschnack-asr:latest
+    runtime: nvidia
+    environment:
+      POLYSCHNACK_USE_GPU: "true"
+
+  webapp:
+    image: registry.example.com/public/polyschnack-asr-webapp:latest
+    runtime: nvidia

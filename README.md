@@ -56,16 +56,30 @@ entstanden und wurde **massiv erweitert**:
 
 **Voraussetzung:** Docker mit Compose v2. Für GPU: NVIDIA Container Toolkit.
 
+PolySchnack ist **hybrid**: Der Default-Stack läuft überall (CPU), mit einem
+Overlay wird GPU-Zugriff aktiviert (ASR + Diarization).
+
 ```bash
 git clone <dein-repo-url>
 cd polyschnack
 
-# Standard: Python/ONNX-Backend (Parakeet TDT 0.6B)
+# Variante A — CPU (läuft überall, kein NVIDIA-Toolkit nötig):
 docker compose up -d
+
+# Variante B — GPU (RTX 3090 o.ä., NVIDIA Container Toolkit installiert):
+docker compose -f compose.yml -f compose.gpu.yml up -d
 ```
 
 - **Web UI:** http://localhost:8088
 - **ASR API (direkt):** http://localhost:5092
+
+**Wie Hybrid funktioniert:** Der Kern-ASR-Service prüft beim Start, ob ein
+CUDA-Provider verfügbar ist (`POLYSCHNACK_USE_GPU=auto`). Mit GPU-Zugriff
+(Overlay `compose.gpu.yml` → `runtime: nvidia`) lädt er das GPU-Modell,
+ohne GPU das CPU-INT8-Modell. Die Diarization (pyannote) wählt ihr Device
+ebenfalls automatisch (`torch.cuda.is_available()` → CUDA, sonst CPU).
+Das Overlay ist die einzige Stelle, an der `runtime: nvidia` gesetzt wird —
+ohne es startet der Stack auf jeder Maschine.
 
 ---
 
