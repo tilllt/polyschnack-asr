@@ -4,31 +4,21 @@ This document covers Docker deployment options for PolySchnack ASR (Parakeet TDT
 
 ## Quick Start
 
-### CPU Deployment (Recommended for most users)
+Ein einziges hybrides Image (Weg 1): `onnxruntime-gpu` enthält CUDA- und
+CPU-Provider — mit GPU-Zugriff (`--gpus all` / NVIDIA-Toolkit) läuft es auf
+CUDA, ohne GPU automatisch auf CPU (INT8-Modell via `POLYSNACK_USE_GPU=auto`).
 
 ```bash
-# Build and run
-docker compose up polyschnack-cpu -d
+# Build
+docker build -t polyschnack-asr:latest .
 
-# Or build manually
-docker build -f Dockerfile.cpu -t polyschnack-asr:cpu .
-docker run -d --name polyschnack -p 5092:5092 -v polyschnack-models:/app/models polyschnack-asr:cpu
-```
+# Run (mit GPU: NVIDIA Container Toolkit nötig; ohne --gpus → CPU auto)
+docker run -d --name polyschnack -p 5092:5092 \
+    -v polyschnack-models:/app/models polyschnack-asr:latest
 
-### GPU Deployment (Requires NVIDIA GPU)
-
-**Prerequisites:**
-- NVIDIA GPU with CUDA support
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-
-```bash
-# Build and run with Docker Compose
-docker compose up polyschnack-gpu -d
-
-# Or build manually
-docker build -f Dockerfile.gpu -t polyschnack-asr:gpu .
-docker run -d --name polyschnack-gpu -p 5092:5092 --gpus all \
-    -v polyschnack-models:/app/models polyschnack-asr:gpu
+# Mit GPU explizit:
+docker run -d --name polyschnack -p 5092:5092 --gpus all \
+    -v polyschnack-models:/app/models polyschnack-asr:latest
 ```
 
 ## Endpoints
@@ -68,8 +58,7 @@ docker volume rm polyschnack-models
 
 | File | Description |
 |------|-------------|
-| `Dockerfile.cpu` | CPU-only image (Python 3.10 slim) |
-| `Dockerfile.gpu` | NVIDIA CUDA 12.1 image with GPU support |
+| `Dockerfile` | Hybrid-Image (onnxruntime-gpu = CUDA + CPU-Fallback, auto-detect) |
 | `compose.poc-approach-a.yml` | Orchestration for both variants (historic PoC; use `compose.yml` + `compose.backends.yml` for the production stack) |
 | `.dockerignore` | Excludes unnecessary files from build |
 

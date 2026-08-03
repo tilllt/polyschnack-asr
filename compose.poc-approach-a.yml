@@ -6,8 +6,8 @@ services:
   asr:
     build:
       context: ./approach-a
-      dockerfile: Dockerfile.cpu
-    image: polyschnack-asr:cpu
+      dockerfile: Dockerfile
+    image: polyschnack-asr:latest
     container_name: poc-asr
     environment:
       POLYSCHNACK_USE_GPU: "false"

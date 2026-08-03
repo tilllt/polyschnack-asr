@@ -7,10 +7,9 @@ Single source of truth for:
   the overall concurrency (Decision 3),
 - feature capabilities used for the model matrix (README + GUI).
 
-GPU/CPU-Automatik (Option B2): Jeder lokale Service kann eine CPU-Variante
-haben (``cpu_container_name``). Die Admin-API startet automatisch die
-GPU- oder CPU-Variante, je nachdem ob der Host NVIDIA-Container-Toolkit
-hat (``host_info()['has_nvidia']``) — kein manueller Wechsel mehr.
+Weg 1 (hybrid): Jeder lokale Service hat genau EIN Image, das auf GPU UND
+CPU läuft (CUDA/ggml-Binary mit CPU-Fallback via ggml_backend_init_best).
+Es gibt keine CPU-Varianten mehr — die Admin-API nutzt immer ``container_name``.
 
 Kept deliberately small: a plain dict + assert self-check. No image/container
 duplicates — that is compose's job. ``available_services()`` returns services
@@ -50,7 +49,6 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "pk-cpp",
         "compose_profile": "cpp",
         "container_name": "polyschnack-cpp",
-        "cpu_container_name": "polyschnack-cpp-cpu",
         "type": "local",
         "cost_per_minute_eur": 0.0,
         "concurrency": 1,
@@ -74,7 +72,6 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "qwen3-asr",
         "compose_profile": "qwen3",
         "container_name": "qwen3-asr",
-        "cpu_container_name": "qwen3-asr-cpu",
         "type": "local",
         "cost_per_minute_eur": 0.0,
         "concurrency": 1,
@@ -98,7 +95,6 @@ SERVICES: List[Dict[str, Any]] = [
         "backend": "ark-asr",
         "compose_profile": "ark",
         "container_name": "ark-asr",
-        "cpu_container_name": "ark-asr-cpu",
         "type": "local",
         "cost_per_minute_eur": 0.0,
         "concurrency": 1,
@@ -163,18 +159,6 @@ def available_services() -> List[Dict[str, Any]]:
     return [s for s in SERVICES if s["status"] == "active"]
 
 
-def resolve_container(svc: Dict[str, Any], has_nvidia: bool) -> str:
-    """Container-Name für einen Service — GPU/CPU-Variante automatisch wählen.
-
-    Wenn der Host kein NVIDIA-Container-Toolkit hat (``has_nvidia=False``)
-    und der Service eine CPU-Variante besitzt (``cpu_container_name``),
-    wird diese gewählt. Sonst der GPU-Container (``container_name``).
-    """
-    if not has_nvidia and svc.get("cpu_container_name"):
-        return svc["cpu_container_name"]
-    return svc["container_name"]
-
-
 def total_concurrency() -> int:
     """Sum of endpoint capacities — the derived transcribe concurrency (Decision 3)."""
     return sum(s["concurrency"] for s in available_services())
@@ -193,9 +177,7 @@ if __name__ == "__main__":
         for k, v in s["capabilities"].items():
             assert isinstance(v, (bool, str, list)), f"{s['name']}.capabilities.{k}"
     assert len({s["name"] for s in SERVICES}) == len(SERVICES), "duplicate service names"
-    # CPU-Varianten-Referenzen prüfen (jeweils eigener Container-Name)
-    names = {s["container_name"] for s in SERVICES}
-    for s in SERVICES:
-        if s.get("cpu_container_name"):
-            assert s["cpu_container_name"] not in names, f"CPU-Name kollidiert: {s['cpu_container_name']}"
+    # container_name müssen eindeutig sein (compose-Namen kollidieren sonst)
+    names = [s["container_name"] for s in SERVICES if s.get("container_name")]
+    assert len(names) == len(set(names)), "container_name doppelt vergeben"
     print(f"service_registry self-check OK: {len(SERVICES)} services, total_concurrency={total_concurrency()}")

@@ -1,5 +1,7 @@
-# PolySchnack ASR (Parakeet TDT 0.6B ONNX) - GPU Dockerfile
-# High-performance speech transcription with NVIDIA CUDA
+# PolySchnack ASR (Parakeet TDT 0.6B ONNX) - hybrides Image (Weg 1)
+# High-performance speech transcription — GPU (CUDA) und CPU im selben Image.
+# onnxruntime-gpu enthält beide Provider; POLYSCHNACK_USE_GPU=auto wählt
+# automatisch (CUDA wenn verfügbar, sonst CPU + INT8-Modell).
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 

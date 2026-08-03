@@ -1,18 +1,22 @@
 # PolySchnack — GPU-Overlay (NUR auf Maschinen mit NVIDIA Container Toolkit!)
 #
 #   docker compose -f compose.yml -f compose.gpu.yml up -d
+#   (mit Backends: zusätzlich -f compose.backends.yml + Profile)
 #
-# Aktiviert GPU-Zugriff (runtime: nvidia) für ASR-Service und diar-Service:
-#   - asr:   parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
-#   - diar:  CrispASR-Diarization (Option B) läuft auf CUDA — die Webapp
-#            selbst braucht KEIN torch/CUDA mehr (kein pyannote lokal)
+# Aktiviert GPU-Zugriff (runtime: nvidia) für ALLE hybriden Services:
+#   - asr:      parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
+#   - diar:     CrispASR-Diarization (Option B) läuft auf CUDA — die Webapp
+#               selbst braucht KEIN torch/CUDA mehr (kein pyannote lokal)
+#   - asr-cpp / qwen3-asr / ark-asr: C++-Backends auf CUDA
 #
-# OHNE dieses Overlay läuft der Stack auf der CPU (Default in compose.yml):
-#   docker compose up -d
+# OHNE dieses Overlay laufen alle Container auf der CPU (Default) — die
+# hybriden CUDA/ggml-Binaries fallen automatisch auf den CPU-Backend zurück
+# (ggml_backend_init_best = CUDA > Metal > Vulkan > CPU, onnxruntime auto).
 #
-# Wichtig: runtime: nvidia ist hardcodiert NICHT in compose.yml, weil der
-# Stack sonst auf Maschinen ohne NVIDIA-Runtime gar nicht starten würde.
-# Das Overlay ist die einzige Stelle, an der GPU-Zugriff vergeben wird.
+# Wichtig: runtime: nvidia ist hardcodiert NICHT in compose.yml/
+# compose.backends.yml, weil der Stack sonst auf Maschinen ohne NVIDIA-Runtime
+# gar nicht starten würde. Das Overlay ist die einzige Stelle, an der
+# GPU-Zugriff vergeben wird.
 services:
   asr:
     image: registry.example.com/public/polyschnack-asr:latest
@@ -22,4 +26,15 @@ services:
 
   diar:
     image: registry.example.com/public/polyschnack-asr-diar:latest
+    runtime: nvidia
+
+  asr-cpp:
+    runtime: nvidia
+
+  qwen3-asr:
+    runtime: nvidia
+    environment:
+      QWEN_USE_VRAM: "1"
+
+  ark-asr:
     runtime: nvidia

@@ -1,5 +1,7 @@
 # ==============================================================
 # Builder stage — compile qwen3-asr.cpp with CUDA support
+# HYBRID (Weg 1): CUDA-Build enthält CPU-Backend via
+# ggml_backend_init_best — GPU via compose.gpu.yml, sonst CPU.
 # ==============================================================
 FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 AS builder
 

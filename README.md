@@ -73,13 +73,15 @@ docker compose -f compose.yml -f compose.gpu.yml up -d
 - **Web UI:** http://localhost:8088
 - **ASR API (direkt):** http://localhost:5092
 
-**Wie Hybrid funktioniert:** Der Kern-ASR-Service prüft beim Start, ob ein
-CUDA-Provider verfügbar ist (`POLYSCHNACK_USE_GPU=auto`). Mit GPU-Zugriff
-(Overlay `compose.gpu.yml` → `runtime: nvidia`) lädt er das GPU-Modell,
-ohne GPU das CPU-INT8-Modell. Die **Diarization** läuft seit „Option B" im
-eigenen CrispASR-diar-Container (`diar`, Port 5096) — mit GPU via Overlay
-auf CUDA, ohne auf CPU (ggml). Die Webapp selbst ist **CPU-only** (kein
-torch/pyannote im Image, ~2,5–3 GB schlanker).
+**Wie Hybrid funktioniert (Weg 1):** Jeder Service ist EIN Image für GPU UND
+CPU — die CUDA/ggml-Binaries enthalten den CPU-Backend und wählen automatisch
+(`ggml_backend_init_best` = CUDA > Metal > Vulkan > CPU; approach-a nutzt
+`POLYSCHNACK_USE_GPU=auto` mit onnxruntime-gpu). Mit GPU-Zugriff (Overlay
+`compose.gpu.yml` → `runtime: nvidia`) läuft alles auf der GPU, ohne Overlay
+automatisch auf der CPU. Es gibt keine separaten CPU-Container mehr.
+Die **Diarization** läuft seit „Option B" im eigenen CrispASR-diar-Container
+(`diar`, Port 8080) — ebenfalls hybrid. Die Webapp selbst ist **CPU-only**
+(kein torch/pyannote im Image, ~2,5–3 GB schlanker).
 Das Overlay ist die einzige Stelle, an der `runtime: nvidia` gesetzt wird —
 ohne es startet der Stack auf jeder Maschine.
 
@@ -92,13 +94,10 @@ Env-Variable — kein Code nötig.
 
 | Backend | Profil | CLI-Name | Beschreibung |
 |---------|--------|----------|-------------|
-| **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Läuft auf CPU oder GPU (auto-detect). |
-| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). |
-| **parakeet.cpp CPU** | `--profile cpp-cpu` | `pk-cpp` | Dieselbe GGUF ohne NVIDIA-Toolkit (`parakeet.cpp-server:latest`, CPU-Build). |
-| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
-| **Qwen3-ASR CPU** | `--profile qwen3-cpu` | `qwen3-asr` | CPU-Build (`Dockerfile.cpu`, ggml ohne CUDA), gleiche Modelle. |
-| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
-| **ARK-ASR CPU** | `--profile ark-cpu` | `ark-asr` | CrispASR-CPU-Binary (`Dockerfile.cpu`), gleiche GGUF. |
+| **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
+| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Hybrid (CUDA-Binary mit CPU-Fallback). |
+| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). Hybrid. |
+| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. Hybrid (CrispASR-Binary). |
 | **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
 
 ### Feature-Matrix der Backends
@@ -349,7 +348,10 @@ volumes:
 
 ### Profile im Detail
 
-| Profil | Befehl | Startet | Nutzt GPU |
+Alle Profile starten hybride Images (GPU via `-f compose.gpu.yml`-Overlay,
+sonst automatisch CPU — kein manueller GPU/CPU-Wechsel):
+
+| Profil | Befehl | Startet | GPU via Overlay |
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | asr + webapp | ✅ |
 | `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | asr-cpp + webapp | ✅ |

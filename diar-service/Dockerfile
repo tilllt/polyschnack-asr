@@ -4,7 +4,9 @@
 # Statt pyannote/CUDA-torch in der Webapp: eigener schlanker Container
 # mit dem CrispASR-Binary und einem kleinen parakeet-Modell. Die Webapp
 # ruft POST /v1/audio/transcriptions mit diarize=true auf.
-# GPU-Zugriff NUR via compose.gpu.yml (runtime: nvidia).
+# HYBRID (Weg 1): Das CUDA-Binary enthält den CPU-Backend (ggml_backend_init_best
+# = CUDA > Metal > Vulkan > CPU). GPU-Zugriff NUR via compose.gpu.yml
+# (runtime: nvidia); ohne Overlay läuft der Container automatisch auf CPU.
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 

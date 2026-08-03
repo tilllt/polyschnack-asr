@@ -1,5 +1,9 @@
 # ==============================================================
 # CrispASR runtime — downloads pre-compiled release binary
+# HYBRID (Weg 1): Das CUDA-Binary enthält den CPU-Backend
+# (ggml_backend_init_best = CUDA > Metal > Vulkan > CPU). GPU-Zugriff
+# NUR via compose.gpu.yml (runtime: nvidia); ohne Overlay läuft der
+# Container automatisch auf CPU (kein Dockerfile.cpu mehr).
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 

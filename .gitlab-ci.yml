@@ -45,6 +45,8 @@ build-qwen3:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
 
+    # Hybrid-Image (Weg 1): CUDA-Build mit CPU-Fallback — läuft auf GPU
+    # (compose.gpu.yml-Overlay) UND CPU (Default), kein :cpu-Tag mehr.
     docker build \
       -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:latest \
       -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:${CI_COMMIT_SHORT_SHA} \
@@ -66,6 +68,8 @@ build-ark:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
 
+    # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
+    # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
     docker build \
       -t registry.example.com/public/${CI_PROJECT_NAME}-ark:latest \
       -t registry.example.com/public/${CI_PROJECT_NAME}-ark:${CI_COMMIT_SHORT_SHA} \
@@ -114,7 +118,7 @@ build-asr:
     docker build \
       -t registry.example.com/public/${CI_PROJECT_NAME}:latest \
       -t registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA} \
-      -f approach-a/Dockerfile.gpu \
+      -f approach-a/Dockerfile \
       approach-a/
 
     docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
@@ -149,39 +153,10 @@ build-webapp:
   needs:
     - test-webapp
 
-# CPU-Varianten der C++-Backends (Hybrid: ohne NVIDIA-GPU nutzbar).
-# Nutzen die Dockerfile.cpu-Builds (ggml-CPU, CrispASR-CPU-Binary) und
-# werden als :cpu-Tag gepusht — compose.backends.yml Profile *-cpu.
-build-cpu-backends:
-  timeout: 60 minutes
-  stage: build
-  image: registry.example.com/public/ci-tools
-  script: |
-    mkdir ~/.docker
-    cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu-${CI_COMMIT_SHORT_SHA} \
-      -f qwen3-asr-cpp/Dockerfile.cpu \
-      qwen3-asr-cpp/
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu-${CI_COMMIT_SHORT_SHA} \
-      -f ark-asr-cpp/Dockerfile.cpu \
-      ark-asr-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu-${CI_COMMIT_SHORT_SHA}
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu-${CI_COMMIT_SHORT_SHA}
-  only:
-    - main
-  tags:
-    - shared
-  needs:
-    - test-webapp
+# CPU-Varianten entfallen seit Weg 1: alle Backend-Images sind hybrid
+# (CUDA-Binary mit CPU-Fallback via ggml_backend_init_best). Kein
+# build-cpu-backends-Job mehr nötig — build-qwen3/build-ark bauen die
+# einzigen Images, die auf GPU (Overlay) UND CPU (Default) laufen.
 
 # Compose-Dateien syntaktisch validieren (base + gpu-Overlay + backends)
 compose-validate:
