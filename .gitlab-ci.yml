@@ -101,7 +101,9 @@ build-diar:
   needs:
     - test-webapp
 
-build-gpu:
+# ASR-GPU-Image (approach-a, ONNX + CUDA) — das Kern-Backend pk-python.
+# Eigener Job, damit der Webapp-Build nicht hinter dem 60-min-CUDA-Build wartet.
+build-asr:
   timeout: 60 minutes
   stage: build
   image: registry.example.com/public/ci-tools
@@ -115,13 +117,29 @@ build-gpu:
       -f approach-a/Dockerfile.gpu \
       approach-a/
 
+    docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-core
+
+# Webapp-Image — seit Option B CPU-only (kein CUDA-torch/pyannote mehr),
+# baut deshalb parallel zum ASR-GPU-Image statt dahinter zu warten.
+build-webapp:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
     docker build \
       -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest \
       -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA} \
       webapp/
 
-    docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
     docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest
     docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA}
   only:
@@ -129,7 +147,6 @@ build-gpu:
   tags:
     - shared
   needs:
-    - test-core
     - test-webapp
 
 # CPU-Varianten der C++-Backends (Hybrid: ohne NVIDIA-GPU nutzbar).
