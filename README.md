@@ -111,7 +111,7 @@ Env-Variable — kein Code nötig.
 | Diarization (pyannote, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Gerät | GPU + CPU | GPU | GPU | GPU | GPU |
+| Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
 | Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~2,7 GB |
 
 *⚠️ „prüfen" = Wert wird beim Implementieren gegen die echte API-Antwort verifiziert.

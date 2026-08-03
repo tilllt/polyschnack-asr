@@ -1,7 +1,9 @@
 """Diarization-Merge: Flicker-Segmente dürfen Wörter nicht zerhauen (Karaoke-Bug)."""
 from __future__ import annotations
 
-from app.service import _merge_diarization
+import pytest
+
+from app.service import _build_word_stream, _merge_diarization, _normalize_ts
 
 
 def _seg(start: float, end: float, text: str, words: list) -> dict:
@@ -121,3 +123,80 @@ def test_word_overlapping_two_segments_equally_goes_to_later():
     merged = _merge_diarization(asr_segments, diar)
     assert merged[1]["speaker"] == "SPEAKER_01"
     assert merged[1]["text"] == "y", merged[1]["text"]
+
+
+# ---------------------------------------------------------------------------
+# Wort-Stream-Normalisierer (Plan 2026-08-02, Task 1)
+# ---------------------------------------------------------------------------
+def test_normalize_ts_seconds():
+    assert _normalize_ts(1.5, "s") == 1.5
+    assert _normalize_ts(1500, "ms") == 1.5
+    assert _normalize_ts(None, "s") is None
+    assert _normalize_ts("2.5", "s") == 2.5
+
+
+def test_build_word_stream_word_ts():
+    segs = [{"start": 0.0, "end": 2.0, "text": "a b",
+             "words": [{"word": "a", "start": 0.0, "end": 1.0},
+                        {"word": "b", "start": 1.0, "end": 2.0}]}]
+    ws = _build_word_stream(segs, 2.0)
+    assert ws == [{"word": "a", "start": 0.0, "end": 1.0},
+                  {"word": "b", "start": 1.0, "end": 2.0}]
+
+
+def test_build_word_stream_segment_ts_only():
+    """Keine Wort-TS: Text-Wörter uniform über das Segment verteilen."""
+    segs = [{"start": 0.0, "end": 4.0, "text": "a b"}]
+    ws = _build_word_stream(segs, 4.0)
+    assert len(ws) == 2
+    assert ws[0]["start"] == 0.0
+    assert ws[1]["end"] == 4.0
+    assert ws[0]["start"] < ws[1]["start"]
+
+
+def test_build_word_stream_no_ts_returns_none():
+    """Weder Wort- noch Segment-TS → None (kein Mapping möglich)."""
+    segs = [{"text": "a b c"}]
+    assert _build_word_stream(segs, None) is None
+
+
+def test_build_word_stream_ms_fields():
+    """Backend liefert start_ms/end_ms → in Sekunden normalisieren."""
+    segs = [{"start_ms": 0, "end_ms": 2000, "text": "a",
+             "words": [{"word": "a", "start_ms": 0, "end_ms": 2000}]}]
+    ws = _build_word_stream(segs, 2.0)
+    assert ws[0]["start"] == 0.0 and ws[0]["end"] == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Proportionaler Fallback (Plan 2026-08-02, Task 2 — Status B)
+# ---------------------------------------------------------------------------
+def test_merge_diarization_no_word_stream_proportional():
+    """Ohne Wort-Stream: Gesamttext proportional nach Segmentdauer aufteilen,
+    Segmente mit estimated=True kennzeichnen."""
+    diar = [
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+        {"start": 2.0, "end": 10.0, "speaker": "SPEAKER_01"},
+    ]
+    merged = _merge_diarization([], diar, None, 10.0,
+                                full_text="Hallo du bist dran und jetzt rede ich")
+    assert len(merged) == 2
+    assert merged[0]["speaker"] == "SPEAKER_00"
+    assert merged[0].get("estimated") is True
+    # Anteil: 2s/10s von 7 Wörtern ≈ 1-2 Wörter
+    assert len(merged[0]["words"]) <= 2
+    assert merged[1]["speaker"] == "SPEAKER_01"
+
+
+def test_merge_diarization_ms_word_stream():
+    """Wort-Stream mit ms-Feldern wird korrekt gemappt."""
+    ws = [{"word": "Hallo", "start": 0.0, "end": 0.5},
+          {"word": "hier", "start": 0.5, "end": 1.0}]
+    diar = [{"start": 0.0, "end": 4.0, "speaker": "SPEAKER_00"}]
+    merged = _merge_diarization([], diar, ws, 4.0)
+    assert merged[0]["text"] == "Hallo hier"
+
+
+def test_merge_diarization_no_stream_no_text_returns_empty():
+    assert _merge_diarization([], [{"start": 0, "end": 1, "speaker": "S"}],
+                              None, 1.0) == []

@@ -57,7 +57,7 @@ SERVICES: List[Dict[str, Any]] = [
             "diarization": "external",
             "enhance": True,
             "languages": ["de", "en"],
-            "device": ["gpu"],
+            "device": ["gpu", "cpu"],  # CPU-Profil: --profile cpp-cpu
         },
         "status": "active",
     },
@@ -79,7 +79,7 @@ SERVICES: List[Dict[str, Any]] = [
             "diarization": "external",
             "enhance": True,
             "languages": ["de", "en"],
-            "device": ["gpu"],
+            "device": ["gpu", "cpu"],  # CPU-Profil: --profile qwen3-cpu
         },
         "status": "active",
     },
@@ -101,7 +101,7 @@ SERVICES: List[Dict[str, Any]] = [
             "diarization": "external",
             "enhance": True,
             "languages": ["de", "en"],
-            "device": ["gpu"],
+            "device": ["gpu", "cpu"],  # CPU-Profil: --profile ark-cpu
         },
         "status": "active",
     },

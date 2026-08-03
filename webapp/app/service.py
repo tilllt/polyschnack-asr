@@ -51,7 +51,65 @@ def _word_overlap(w: Dict[str, Any], d_start: float, d_end: float) -> float:
     return max(0.0, e - s)
 
 
-def _merge_diarization(segments: list, diar: list) -> list:
+def _normalize_ts(value, unit: str = "s") -> Optional[float]:
+    """Timestamp in Sekunden normalisieren (s/ms-Support)."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v / 1000.0 if unit in ("ms", "milliseconds") else v
+
+
+def _pick_ts(d: dict) -> tuple:
+    """Liest start/end (Sekunden) oder start_ms/end_ms; (None, None) wenn fehlt."""
+    s = _normalize_ts(d.get("start"), "s")
+    if s is None:
+        s = _normalize_ts(d.get("start_ms"), "ms")
+    e = _normalize_ts(d.get("end"), "s")
+    if e is None:
+        e = _normalize_ts(d.get("end_ms"), "ms")
+    return s, e
+
+
+def _build_word_stream(segments: list, total_duration: Optional[float]) -> Optional[list]:
+    """Einheitlicher Wort-Stream [{word,start,end}] in Sekunden.
+
+    Kaskade: (1) vorhandene Wort-TS, (2) Uniform-Verteilung pro Segment
+    (gleiche Formel wie asr_client._parse_result — siehe dort Zeile ~133),
+    (3) keine Zeitinformation → None (kein Text-Mapping möglich).
+    """
+    words: List[Dict[str, Any]] = []
+    any_ts = False
+    for seg in segments:
+        s, e = _pick_ts(seg)
+        if s is not None and e is not None:
+            any_ts = True
+        seg_words = seg.get("words") or []
+        if seg_words and all(_pick_ts(w)[0] is not None for w in seg_words):
+            for w in seg_words:
+                ws, we = _pick_ts(w)
+                words.append({"word": w.get("word", ""), "start": ws, "end": we})
+        else:
+            # Uniform-Verteilung des Segment-Texts (Fallback wie _parse_result)
+            text_words = (seg.get("text") or "").split()
+            dur = max((e or 0) - (s or 0), 0.1)
+            w_dur = dur / max(len(text_words), 1)
+            for i, w in enumerate(text_words):
+                words.append({"word": w, "start": (s or 0) + i * w_dur,
+                              "end": (s or 0) + (i + 1) * w_dur})
+            if s is not None:
+                any_ts = True
+    words = [w for w in words if w.get("start") is not None]
+    words.sort(key=lambda w: w.get("start") or 0)
+    return words if (words and any_ts) else None
+
+
+def _merge_diarization(segments: list, diar: list,
+                       word_stream: Optional[list] = None,
+                       total_duration: Optional[float] = None,
+                       full_text: Optional[str] = None) -> list:
     """Ersetzt die ASR-Segmentierung durch die Diarization-Segmentierung.
 
     Jedes Diarization-Segment (start/end/speaker) wird ein Anzeige-Segment;
@@ -70,13 +128,46 @@ def _merge_diarization(segments: list, diar: list) -> list:
     Das behebt den Bug, dass das erste Wort eines neuen Sprechers (beginnt
     minimal vor der pyannote-Grenze) dem letzten Segment des VORIGEN
     Sprechers zugeordnet wurde.
+
+    ``word_stream`` (optional): vorbereiteter Wort-Stream in Sekunden — wenn
+    None, wird er aus ``segments`` gebaut (Backend-Agnostik). Liefert auch
+    das gar keine Zeitinformation, wird ``full_text`` PROPORTIONAL zur
+    Segmentdauer aufgeteilt und als ``estimated`` markiert (Status B) —
+    damit gibt es immer eine Speaker-Aufteilung.
     """
-    # Alle Wörter mit Zeitstempeln flach sammeln
-    words = []
-    for seg in segments:
-        for w in seg.get("words") or []:
-            words.append(w)
-    words.sort(key=lambda w: w.get("start") or 0)
+    # Wort-Stream ermitteln: explizit übergeben oder aus segments bauen.
+    if word_stream is None:
+        word_stream = _build_word_stream(segments, total_duration)
+
+    # Status B — gar keine Timestamps: proportional aufteilen (geschätzt)
+    if not word_stream:
+        if not full_text:
+            return []
+        words_all = full_text.split()
+        total_dur = float(total_duration or 1.0)
+        out: List[Dict[str, Any]] = []
+        w_idx = 0
+        for d in sorted(diar, key=lambda x: x.get("start") or 0):
+            d_start = d.get("start", 0)
+            d_end = d.get("end", d_start)
+            dur = max(d_end - d_start, 0.0)
+            n = int(round(len(words_all) * dur / total_dur))
+            chunk = words_all[w_idx:w_idx + n]
+            w_idx += n
+            if not chunk:
+                continue
+            out.append({
+                "start": round(d_start, 2),
+                "end": round(d_end, 2),
+                "text": " ".join(chunk),
+                "words": [{"word": w} for w in chunk],
+                "speaker": d.get("speaker", "SPEAKER_00"),
+                "estimated": True,
+            })
+        return out
+
+    # Alle Wörter aus dem Stream (bereits in Sekunden normalisiert)
+    words = sorted(word_stream, key=lambda w: w.get("start") or 0)
 
     # Flicker-Segmente desselben Sprechers zusammenfassen (Lücke < 0.5 s)
     _FLICKER_GAP_S = 0.5
@@ -379,7 +470,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         else:
             diar = None
         if diar:
-            merged = _merge_diarization(segments or [], diar)
+            word_stream = _build_word_stream(segments or [], duration)
+            merged = _merge_diarization(segments or [], diar, word_stream,
+                                        duration, full_text=text)
             if merged:
                 segments = merged
                 log.info("Speaker merge: %d/%d segments labeled for rec_id=%s",
