@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import type { Segment } from "../api";
 import { updateSegment } from "../api";
 import { fmtTimecode } from "../format";
-import { activeWordIndex } from "../karaoke";
+import { activeWordIndex, shouldScrollIntoView } from "../karaoke";
 
 interface Props {
   segments: Segment[];
@@ -21,20 +21,22 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Auto-scroll the active segment into view
+  // Auto-scroll the active segment into view — nur wenn es NICHT vollständig
+  // sichtbar ist (top UND bottom im Container). scrollIntoView mit
+  // block:"nearest" scrollt minimal und verträgt sich mit scroll-smooth;
+  // die alte direkte scrollTop-Zuweisung scrollte unten abgeschnittene
+  // Segmente nie nach (nur top wurde geprüft).
   useEffect(() => {
     const container = containerRef.current;
     const activeEl = rowRefs.current[activeIdx];
     if (!container || !activeEl || activeIdx < 0) return;
 
     const top = activeEl.offsetTop - container.offsetTop;
-    const visible =
-      container.scrollTop <= top &&
-      top < container.scrollTop + container.clientHeight;
-
-    if (!visible) {
-      container.scrollTop =
-        top - container.clientHeight / 2 + activeEl.offsetHeight / 2;
+    const bottom = top + activeEl.offsetHeight;
+    if (
+      shouldScrollIntoView(container.scrollTop, container.clientHeight, top, bottom)
+    ) {
+      activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [activeIdx]);
 

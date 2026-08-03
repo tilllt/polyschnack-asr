@@ -92,3 +92,28 @@ export function isKaraokeReady(seg: KaraokeSegment): boolean {
       w.end > w.start,
   );
 }
+
+/**
+ * Soll der SegmentList-Container zum aktiven Segment scrollen?
+ *
+ * Ein Element gilt als sichtbar, wenn es VOLLSTÄNDIG im sichtbaren Bereich
+ * liegt (top >= scrollTop UND bottom <= scrollTop + clientHeight). Reicht nur
+ * der obere Rand ins Bild (bottom abgeschnitten), wird gescrollt — das
+ * behebt den Bug, dass unten abgeschnittene Segmente nie nachrutschten.
+ *
+ * @param scrollTop    container.scrollTop
+ * @param clientHeight container.clientHeight
+ * @param elTop        Element-Offset relativ zum Container
+ * @param elBottom     elTop + Element-Höhe
+ */
+export function shouldScrollIntoView(
+  scrollTop: number,
+  clientHeight: number,
+  elTop: number,
+  elBottom: number,
+): boolean {
+  if (!Number.isFinite(elTop) || !Number.isFinite(elBottom)) return false;
+  if (clientHeight <= 0) return false;
+  const viewBottom = scrollTop + clientHeight;
+  return elTop < scrollTop || elBottom > viewBottom;
+}
