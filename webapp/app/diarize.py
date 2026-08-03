@@ -18,6 +18,27 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 _pipeline = None
+#: Device, auf dem die Pipeline geladen wurde ("cuda" | "cpu") — für Tests
+#: und Status-Anzeige. None = noch nicht geladen.
+_pipeline_device = None
+
+
+def _detect_device() -> str:
+    """GPU wenn verfügbar, sonst CPU (Hybrid-Prinzip).
+
+    ``torch`` wird lazy importiert, damit das Modul auch ohne installiertes
+    torch importierbar bleibt (Tests, minimale Images).
+    """
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    try:
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        log.warning("diarize: CUDA-Detect fehlgeschlagen — CPU", exc_info=True)
+    return "cpu"
 
 
 class DiarizationError(RuntimeError):
@@ -62,8 +83,25 @@ def _classify_load_error(exc: Exception) -> tuple[str, str]:
     return "load-failed", f"Diarization-Modell konnte nicht geladen werden: {exc}"
 
 
+def _load_pipeline_impl(device: str, *, token: str):
+    """Lädt die pyannote-Pipeline auf dem gegebenen Device (cuda|cpu)."""
+    from pyannote.audio import Pipeline
+
+    return Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        token=token,
+        device=device,
+    )
+
+
 def _load_pipeline():
-    global _pipeline
+    """Pipeline mit Device-Auto-Detect laden (Hybrid: GPU wenn möglich).
+
+    Reihenfolge: HF_TOKEN prüfen → CUDA-Detect → Load auf "cuda". Schlägt
+    der CUDA-Load fehl (OOM, Treiber), wird transparent auf "cpu" neu
+    geladen — eine Aufnahme darf nie wegen fehlender GPU sterben.
+    """
+    global _pipeline, _pipeline_device
     if _pipeline is not None:
         return _pipeline
     token = os.getenv("HF_TOKEN")
@@ -73,20 +111,33 @@ def _load_pipeline():
             "HF_TOKEN ist nicht gesetzt — Diarization ist ohne Token nicht "
             "nutzbar. Bitte den Administrator informieren.",
         )
+    device = _detect_device()
     try:
-        from pyannote.audio import Pipeline
-
-        _pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            token=token,
-        )
+        _pipeline = _load_pipeline_impl(device, token=token)
+        _pipeline_device = device
     except DiarizationError:
         raise
     except Exception as exc:
-        code, message = _classify_load_error(exc)
-        log.exception("diarize: pipeline load failed on %s: %s", exc, exc)
-        raise DiarizationError(code, message) from exc
-    log.info("pyannote diarization pipeline loaded")
+        if device == "cuda":
+            # GPU-Load gescheitert (OOM/Treiber) → CPU-Fallback statt Fehler
+            log.warning(
+                "diarize: CUDA-Load fehlgeschlagen (%s) — Fallback auf CPU",
+                exc,
+            )
+            try:
+                _pipeline = _load_pipeline_impl("cpu", token=token)
+                _pipeline_device = "cpu"
+            except DiarizationError:
+                raise
+            except Exception as exc2:
+                code, message = _classify_load_error(exc2)
+                log.exception("diarize: pipeline load failed on cpu: %s", exc2)
+                raise DiarizationError(code, message) from exc2
+        else:
+            code, message = _classify_load_error(exc)
+            log.exception("diarize: pipeline load failed on %s: %s", device, exc)
+            raise DiarizationError(code, message) from exc
+    log.info("pyannote diarization pipeline loaded (device=%s)", _pipeline_device)
     return _pipeline
 
 

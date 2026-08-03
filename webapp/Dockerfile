@@ -26,6 +26,18 @@ COPY pyproject.toml ./
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN uv pip install --system "yt-dlp>=2026.05.29"
 RUN uv sync
+# CUDA-torch für GPU-Diarization (Hybrid): pyannote läuft mit CUDA, wenn der
+# Container GPU-Zugriff hat (compose.gpu.yml → runtime: nvidia), sonst CPU —
+# gleiches Image für beide Fälle (device auto-detect in app/diarize.py).
+# Versionen müssen zur uv.lock passen (pyannote-Constraints) — per ARG
+# anpassbar, wenn der CUDA-Index eine andere Minor-Version führt.
+# Achtung: macht das Image ~2-3 GB größer; CPU-torch allein wäre kleiner,
+# würde aber GPU-Diarization im selben Container unmöglich machen.
+ARG TORCH_VERSION=2.13.0
+ARG TORCHAUDIO_VERSION=2.11.0
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+RUN uv pip install --system --index-url ${TORCH_INDEX_URL} \
+    torch==${TORCH_VERSION} torchaudio==${TORCHAUDIO_VERSION}
 
 # Copy application source
 COPY app ./app
