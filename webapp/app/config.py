@@ -27,10 +27,10 @@ class _Settings:
     #: Model name forwarded in every transcription request.
     ASR_MODEL: str = os.getenv("ASR_MODEL", "parakeet-tdt-0.6b-v3")
 
-    #: Diarization-Service (CrispASR-Server, eigener Container — Option B).
-    #: Kein pyannote/torch mehr in der Webapp; der diar-Container liefert
-    #: diarized_json mit Speaker-Labels A/B/C…
-    DIAR_URL: str = os.getenv("DIAR_URL", "http://diar:5096").rstrip("/")
+    # Diarization-Service (CrispASR-Server, eigener Container — Option B).
+    # Kein pyannote/torch mehr in der Webapp; der diar-Container liefert
+    # diarized_json mit Speaker-Labels A/B/C… (Container-Port 8080)
+    DIAR_URL: str = os.getenv("DIAR_URL", "http://diar:8080").rstrip("/")
 
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
     DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")

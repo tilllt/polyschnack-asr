@@ -32,7 +32,7 @@ class _FakeClient:
 def _patch(monkeypatch, status, payload):
     fc = _FakeClient(status, payload)
     monkeypatch.setattr(d.httpx, "Client", lambda *a, **k: fc)
-    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:8080")
     return fc
 
 
@@ -53,7 +53,7 @@ def test_diarize_maps_segments_and_normalises_speakers(monkeypatch, tmp_path):
     assert data["response_format"] == "diarized_json"
     assert data["diarize_method"] == settings.DIARIZE_METHOD
     # URL zeigt auf den diar-Service
-    assert fc.last_kwargs["url"] == "http://diar:5096/v1/audio/transcriptions"
+    assert fc.last_kwargs["url"] == "http://diar:8080/v1/audio/transcriptions"
 
 
 def test_diarize_sends_max_speakers(monkeypatch, tmp_path):
@@ -76,7 +76,7 @@ def test_diarize_service_unreachable(monkeypatch, tmp_path):
             raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(d.httpx, "Client", lambda *a, **k: _Boom())
-    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:8080")
     p = tmp_path / "a.wav"
     p.write_bytes(b"RIFF....")
     with pytest.raises(d.DiarizationError) as ei:

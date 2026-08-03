@@ -78,7 +78,7 @@ services:
       ASR_URL: "${ASR_URL:-http://asr:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
-      DIAR_URL: "${DIAR_URL:-http://diar:5096}"
+      DIAR_URL: "${DIAR_URL:-http://diar:8080}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       DOCKER_PROXY_URL: http://docker-proxy:2375

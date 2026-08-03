@@ -33,7 +33,7 @@ class _FakeClient:
 def _patch(monkeypatch, status, payload=None, detail=None):
     fc = _FakeClient(status, payload=payload, detail=detail)
     monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: fc)
-    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:8080")
     return fc
 
 
@@ -66,7 +66,7 @@ def test_diarize_service_unreachable(monkeypatch, tmp_path):
             raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: _Boom())
-    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:8080")
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF....")
     with pytest.raises(DiarizationError) as ei:

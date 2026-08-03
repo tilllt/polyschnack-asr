@@ -35,7 +35,7 @@ def test_diarize_diagnosis_http_error():
     from app.routers import models as m
 
     with patch("httpx.get") as mock_get:
-        resp = httpx.Response(503, request=httpx.Request("GET", "http://diar:5096/health"))
+        resp = httpx.Response(503, request=httpx.Request("GET", "http://diar:8080/health"))
         mock_get.return_value = resp
         d = m._diarize_diagnosis()
     assert d["available"] is False
@@ -82,7 +82,7 @@ def test_status_endpoint_has_diag_fields():
     from app.routers import models as m
 
     with patch.object(m, "_diarize_diagnosis", return_value={
-            "available": True, "code": "ok", "service": "http://diar:5096",
+            "available": True, "code": "ok", "service": "http://diar:8080",
             "message": "Diar-Service erreichbar (CrispASR).",
             "components": []}), \
          patch("app.routers.models.httpx.get") as mock_httpx:
@@ -105,7 +105,7 @@ def test_status_endpoint_reports_unreachable():
 
     with patch.object(m, "_diarize_diagnosis", return_value={
             "available": False, "code": "diar-unreachable",
-            "service": "http://diar:5096",
+            "service": "http://diar:8080",
             "message": "Diar-Service nicht erreichbar: conn refused",
             "components": []}), \
          patch("app.routers.models.httpx.get") as mock_httpx:

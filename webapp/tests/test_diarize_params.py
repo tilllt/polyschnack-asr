@@ -31,7 +31,7 @@ class _FakeClient:
 def _patch(monkeypatch):
     fc = _FakeClient()
     monkeypatch.setattr("app.diarize.httpx.Client", lambda *a, **k: fc)
-    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:8080")
     return fc
 
 
