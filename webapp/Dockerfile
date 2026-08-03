@@ -35,7 +35,9 @@ RUN uv sync
 # würde aber GPU-Diarization im selben Container unmöglich machen.
 ARG TORCH_VERSION=2.13.0
 ARG TORCHAUDIO_VERSION=2.11.0
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+# cu126 (nicht cu124!): nur dieser Index führt die Lock-Versionen torch
+# 2.13.0 / torchaudio 2.11.0 — cu124 endet bei 2.6.0.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
 RUN uv pip install --system --index-url ${TORCH_INDEX_URL} \
     torch==${TORCH_VERSION} torchaudio==${TORCHAUDIO_VERSION}
 
