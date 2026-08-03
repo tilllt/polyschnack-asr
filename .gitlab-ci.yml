@@ -80,6 +80,27 @@ build-ark:
   needs:
     - test-webapp
 
+build-diar:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-diar:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-diar:${CI_COMMIT_SHORT_SHA} \
+      diar-service/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-diar:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-diar:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 build-gpu:
   timeout: 60 minutes
   stage: build
