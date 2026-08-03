@@ -122,8 +122,8 @@ VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", "0.5"))
 VAD_MIN_SILENCE_MS = int(_getenv("VAD_MIN_SILENCE_MS", "400"))
 VAD_SPEECH_PAD_MS = int(_getenv("VAD_SPEECH_PAD_MS", "120"))
 
-# Providers
-USE_GPU = _getenv("USE_GPU", "true").lower()  # auto|true|false
+# Providers — Hybrid: Default "auto" (GPU wenn verfügbar, sonst CPU).
+USE_GPU = _getenv("USE_GPU", "auto").lower()  # auto|true|false
 GPU_DEVICE_ID = int(_getenv("GPU_DEVICE_ID", "0"))
 
 # Micro-batch worker. The default is the validated RTX 3090 GPU profile;

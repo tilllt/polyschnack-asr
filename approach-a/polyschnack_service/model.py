@@ -41,9 +41,14 @@ def _preload_cuda_libraries() -> None:
         preload(cuda=True, cudnn=True, msvc=False)
         logger.info("Preloaded CUDA/cuDNN libraries for ONNX Runtime")
     except Exception as exc:
-        if USE_GPU == "true":
-            raise RuntimeError("failed to preload CUDA/cuDNN libraries") from exc
-        logger.warning("CUDA/cuDNN preload failed; GPU may be unavailable: %s", exc)
+        # Hybrid-Prinzip: KEIN harter Crash ohne GPU — ORT fällt auf den
+        # CPUExecutionProvider zurück, _auto_select_model wählt das CPU-Modell.
+        # Die Warnung bleibt auch bei USE_GPU=true (explizit gesetzt = Konfig-
+        # Fehler sichtbar machen, aber die App muss trotzdem starten).
+        logger.warning(
+            "CUDA/cuDNN preload failed (%s) — falling back to CPU execution",
+            exc,
+        )
 
 
 def _build_sess_options() -> ort.SessionOptions:
