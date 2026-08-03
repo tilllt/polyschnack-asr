@@ -59,7 +59,6 @@ docker volume rm polyschnack-models
 | File | Description |
 |------|-------------|
 | `Dockerfile` | Hybrid-Image (onnxruntime-gpu = CUDA + CPU-Fallback, auto-detect) |
-| `compose.poc-approach-a.yml` | Orchestration for both variants (historic PoC; use `compose.yml` + `compose.backends.yml` for the production stack) |
 | `.dockerignore` | Excludes unnecessary files from build |
 
 ## Testing

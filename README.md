@@ -200,12 +200,17 @@ laut CrispASR beste Accuracy, keine externen deps), `energy`/`xcorr`/
 
 ## Compose-Referenz (Datei-Split)
 
-Seit dem Split gibt es **zwei Compose-Dateien**:
+Der Stack ist bewusst in **drei Compose-Dateien** aufgeteilt — jede hat eine
+einzige Aufgabe:
 
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
-  Admin-Steuerung), `asr` (Parakeet Python/ONNX) und `webapp` (GUI).
+  Admin-Steuerung), `asr` (Parakeet Python/ONNX), `diar` (CrispASR-Diarization)
+  und `webapp` (GUI). Wird von `docker compose up` automatisch geladen.
 - **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `qwen3-asr`,
   `ark-asr` (Voxtral: geplant), jeweils über **Docker-Profile** aktivierbar.
+- **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
+  Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden;
+  ohne Overlay laufen alle Container automatisch auf der CPU.
 
 **Warum Profile statt `docker-compose.override.yml`?** Eine Override-Datei wird
 von Compose **immer automatisch gemergt** — die Backends wären dauerhaft Teil
@@ -213,9 +218,15 @@ des Stacks. Profile halten sie optional: definiert, aber nur gestartet, wenn
 `--profile <name>` gesetzt wird. Die Admin-GUI kann die (per `--no-start`
 erzeugten) Container trotzdem on demand starten/stoppen.
 
+**Warum GPU als Overlay statt hardcodiert?** `runtime: nvidia` in der
+Main-Compose würde den Stack auf Maschinen ohne NVIDIA-Runtime unstartbar
+machen. Das Overlay ist die einzige Stelle, an der GPU-Zugriff vergeben wird —
+ohne Datei läuft alles auf CPU, mit Datei auf GPU (CUDA/ggml-Fallback).
+
 ```bash
-# Nur Kern (GUI + ONNX):
-docker compose up -d
+# Nur Kern (GUI + ONNX, CPU oder GPU via Overlay):
+docker compose up -d                                   # CPU
+docker compose -f compose.yml -f compose.gpu.yml up -d # GPU
 
 # Kern + Backends (Container erzeugen, GUI startet on demand):
 docker compose -f compose.yml -f compose.backends.yml \
