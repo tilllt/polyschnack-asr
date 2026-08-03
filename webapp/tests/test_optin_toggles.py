@@ -56,6 +56,68 @@ def test_stubs_pass_through():
     assert t == "Hallo" and segs == [{"text": "Hallo"}]
 
 
+def test_punctuation_off_and_unknown_modes_pass_through():
+    assert run_punctuation("hallo welt", "off") == "hallo welt"
+    assert run_punctuation("hallo welt", "") == "hallo welt"
+    assert run_punctuation("hallo welt", "bogus") == "hallo welt"
+
+
+def test_punctuation_llm_mode_calls_endpoint(monkeypatch):
+    """llm-Modus ruft llm.chat und übernimmt das Ergebnis."""
+    calls = {}
+
+    def fake_chat(system, user_text, max_tokens=2000, endpoint=None):
+        calls["system"] = system
+        calls["user"] = user_text
+        return "Hallo, Welt!"
+
+    monkeypatch.setattr("app.llm.chat", fake_chat)
+    out = run_punctuation("hallo welt", "llm")
+    assert out == "Hallo, Welt!"
+    assert "Satzzeichen" in calls["system"]
+
+
+def test_punctuation_llm_mode_error_passthrough(monkeypatch):
+    """LLM-Fehler (kein Endpunkt) → Text unverändert, kein Crash."""
+    def boom(system, user_text, max_tokens=2000, endpoint=None):
+        raise RuntimeError("LLM-Endpunkt nicht konfiguriert")
+
+    monkeypatch.setattr("app.llm.chat", boom)
+    assert run_punctuation("hallo welt", "llm") == "hallo welt"
+
+
+def test_llm_enhance_redistributes_words_proportionally(monkeypatch):
+    """Enhance verteilt den korrigierten Text proportional auf Segmente —
+    Wörter/Segment-Verhältnis bleibt, Timestamps unangetastet."""
+    def fake_chat(system, user_text, max_tokens=2000, endpoint=None):
+        return "Hallo korrigierter Welttext der verteilt wird"
+
+    monkeypatch.setattr("app.llm.chat", fake_chat)
+    segs = [
+        {"start": 0.0, "end": 1.0, "text": "hallo welt", "words": [{"word": "hallo"}]},
+        {"start": 1.0, "end": 2.0, "text": "test", "words": [{"word": "test"}]},
+    ]
+    text, out = run_llm_enhance("hallo welt test", segs)
+    # 6 neue Wörter, alte Verteilung 2:1 → ~4:2
+    assert len(out) == 2
+    assert out[0]["start"] == 0.0 and out[0]["end"] == 1.0  # Timestamps intakt
+    assert out[1]["start"] == 1.0 and out[1]["end"] == 2.0
+    assert len(out[0]["text"].split()) >= len(out[1]["text"].split())
+    # Gesamttext = Konkatenation der Segment-Texte
+    assert text == " ".join(s["text"] for s in out)
+
+
+def test_llm_enhance_error_passthrough(monkeypatch):
+    """LLM-Fehler → unverändert, kein Crash."""
+    def boom(system, user_text, max_tokens=2000, endpoint=None):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr("app.llm.chat", boom)
+    segs = [{"text": "hallo"}]
+    t, s = run_llm_enhance("hallo", segs)
+    assert t == "hallo" and s == segs
+
+
 def test_anon_llm_enhance_403(db, qm, monkeypatch):
     monkeypatch.setattr(recordings.settings, "POLYSCHNACK_DEFAULT_LLM_ENHANCE", False)
     # Zugriff isolieren: hier zählt nur der paid-Check (ensure_access ist in A4 getestet)

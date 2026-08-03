@@ -319,14 +319,95 @@ def enhance_audio(audio_bytes: bytes, level: str = "light") -> bytes:
 
 
 def run_punctuation(text: str, mode: str) -> str:
-    """Interpunktion (Task A12) — Phase 1–2: offline fullstop (local) oder
-    LLM (llm, paid). Stub: unverändert zurückgeben."""
-    return text
+    """Interpunktion (Task A12) — LLM-Backend via LiteLLM-Proxy (paid) oder
+    offline fullstop (local). ``off`` → unverändert.
+
+    Der LLM-Call läuft über den bestehenden OpenAI-kompatiblen Endpunkt
+    (``llm.chat``) — keine neuen Downloads. Bei Fehlern (kein Endpunkt,
+    Timeout, API-Error) wird der Text UNVERÄNDERT zurückgegeben (nie crashen
+    einer Aufnahme wegen optionaler Post-Processing).
+    """
+    if mode in (None, "", "off"):
+        return text
+    if mode == "local":
+        # Offline fullstop-Punctuator ist nicht Teil der Webapp (Mem-Limit) —
+        # optionaler Compose-Service (Profil "punct", siehe Plan Task 3).
+        log.warning("run_punctuation: mode 'local' nicht verfügbar — Text unverändert")
+        return text
+    if mode != "llm":
+        log.warning("run_punctuation: unbekannter Modus %r — Text unverändert", mode)
+        return text
+
+    # LLM-Modus: deutschen Prompt über den konfigurierten Endpunkt.
+    try:
+        from . import llm as llm_mod
+
+        result = llm_mod.chat(
+            "Du bist ein deutscher Transkriptions-Postprozessor. "
+            "Setze Satzzeichen und Großschreibung in den deutschen Text ein. "
+            "Ändere KEINE Wörter und füge nichts hinzu.",
+            text,
+            max_tokens=4000,
+        )
+        result = (result or "").strip()
+        return result if result else text
+    except Exception as exc:
+        log.warning("run_punctuation: LLM-Call fehlgeschlagen (%s) — Text unverändert", exc)
+        return text
 
 
 def run_llm_enhance(text: str, segments: List[Dict[str, Any]]):
-    """LLM-Optimierung (Task A13) — Phase 1–2. Stub: unverändert zurückgeben."""
-    return text, segments
+    """LLM-Optimierung (Task A13) — Korrekturen über den LiteLLM-Endpunkt.
+
+    Verbessert den Gesamttext (Rechtschreibung, Floskeln, falsche Wörter),
+    ohne Segment-/Wort-Struktur zu brechen: Der optimierte Text wird
+    proportional auf die bestehenden Segmente verteilt (Wort-Zahl bleibt
+    möglichst stabil, Timestamps bleiben unangetastet — Karaoke-fähig).
+
+    Bei Fehlern oder fehlender Konfiguration: unverändert zurückgeben
+    (nie crashen einer Aufnahme wegen optionaler Post-Processing).
+    """
+    if not text:
+        return text, segments
+    try:
+        from . import llm as llm_mod
+
+        result = llm_mod.chat(
+            "Du bist ein deutscher Transkriptions-Korrektor. Verbessere "
+            "Rechtschreibfehler und Floskeln im Transkript. Ändere den Inhalt "
+            "nicht, füge nichts hinzu, antworte nur mit dem korrigierten Text.",
+            text,
+            max_tokens=8000,
+        )
+        result = (result or "").strip()
+        if not result:
+            return text, segments
+    except Exception as exc:
+        log.warning("run_llm_enhance: LLM-Call fehlgeschlagen (%s) — unverändert", exc)
+        return text, segments
+
+    # Optimierten Text proportional auf die bestehenden Segmente verteilen:
+    # jedes Segment bekommt Wörter im Verhältnis seiner bisherigen Wortzahl.
+    if not segments:
+        return result, segments
+    old_words = sum(len((s.get("text") or "").split()) for s in segments)
+    if old_words <= 0:
+        return result, segments
+    new_words = result.split()
+    out: List[Dict[str, Any]] = []
+    w_idx = 0
+    for s in segments:
+        n_old = max(len((s.get("text") or "").split()), 1)
+        n_new = max(int(round(len(new_words) * n_old / old_words)), 1)
+        chunk = new_words[w_idx:w_idx + n_new]
+        w_idx += n_new
+        ns = dict(s)
+        ns["text"] = " ".join(chunk)
+        out.append(ns)
+    # Rest (Rundungsdifferenz) ans letzte Segment anhängen
+    if w_idx < len(new_words):
+        out[-1]["text"] = (out[-1]["text"] + " " + " ".join(new_words[w_idx:])).strip()
+    return " ".join(ns["text"] for ns in out), out
 
 
 def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
