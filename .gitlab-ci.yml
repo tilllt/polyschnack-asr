@@ -105,6 +105,31 @@ build-diar:
   needs:
     - test-webapp
 
+# pk-cpp (Weg 1): eigenes hybrides CrispASR-Image mit parakeet-Backend
+# statt externem mudler/parakeet.cpp-server. Gleiche GGUF wie diar-Service.
+build-cpp:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
+    # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-cpp:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-cpp:${CI_COMMIT_SHORT_SHA} \
+      pk-asr-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-cpp:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-cpp:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # ASR-GPU-Image (approach-a, ONNX + CUDA) — das Kern-Backend pk-python.
 # Eigener Job, damit der Webapp-Build nicht hinter dem 60-min-CUDA-Build wartet.
 build-asr:

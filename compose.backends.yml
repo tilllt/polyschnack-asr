@@ -25,10 +25,16 @@
 services:
   asr-cpp:
     profiles: ["cpp"]
-    image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
+    # Weg 1: eigenes hybrides CrispASR-Image (parakeet-Backend, CUDA-Binary
+    # mit CPU-Fallback) statt externem mudler/parakeet.cpp-server.
+    image: registry.example.com/public/polyschnack-asr-cpp:latest
     container_name: polyschnack-cpp
     environment:
-      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+      CPP_ASR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+      # Residenter Post-Prozessor (Server-Flag): Interpunktion + deutsches
+      # Truecasing (fullstop = EN/DE/FR/IT, lstm = DE) — parakeet emittiert
+      # selbst keine Satzzeichen, der Server restauriert sie.
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
       - ./DATA/cpp-models:/models:ro
     ports:
@@ -38,11 +44,11 @@ services:
         limits:
           memory: 4G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 90s
 
   qwen3-asr:
     profiles: ["qwen3"]

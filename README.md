@@ -95,7 +95,7 @@ Env-Variable — kein Code nötig.
 | Backend | Profil | CLI-Name | Beschreibung |
 |---------|--------|----------|-------------|
 | **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
-| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Hybrid (CUDA-Binary mit CPU-Fallback). |
+| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Seit Weg 1 eigenes hybrides CrispASR-Image (CUDA-Binary mit CPU-Fallback) statt externem mudler-Image; native Interpunktion + deutsches Truecasing. |
 | **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). Hybrid. Native Interpunktion + deutsches Truecasing (Server-Flag). |
 | **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. Hybrid (CrispASR-Binary). Native Interpunktion + deutsches Truecasing (Server-Flag). |
 | **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
@@ -132,7 +132,7 @@ Keine Konfiguration nötig. Läuft auf CPU oder GPU.
 ### parakeet.cpp — schneller und schlanker
 
 ```bash
-ASR_URL=http://asr-cpp:8080 ASR_BACKEND=pk-cpp \
+CPP_URL=http://polyschnack-cpp:8080 ASR_BACKEND=pk-cpp \
   docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
 ```
 
@@ -363,7 +363,8 @@ Das Backend wird über zwei Umgebungsvariablen gesteuert:
 | Variable | Beispiel | Beschreibung |
 |----------|----------|-------------|
 | `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr` | Adapter-Auswahl |
-| `ASR_URL` | `http://qwen3-asr:8080` | Addresse des Backend-Containers |
+| `ASR_URL` | `http://qwen3-asr:8080` | Addresse des Backend-Containers (pk-python: `http://asr:5092`) |
+| `CPP_URL` | `http://polyschnack-cpp:8080` | URL des pk-cpp-Containers (CrispASR parakeet) |
 
 ```bash
 # Kurzform: nur ASR_URL setzen (Adapter wird automatisch erkannt)
