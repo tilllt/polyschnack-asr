@@ -110,3 +110,54 @@ build-gpu:
   needs:
     - test-core
     - test-webapp
+
+# CPU-Varianten der C++-Backends (Hybrid: ohne NVIDIA-GPU nutzbar).
+# Nutzen die Dockerfile.cpu-Builds (ggml-CPU, CrispASR-CPU-Binary) und
+# werden als :cpu-Tag gepusht — compose.backends.yml Profile *-cpu.
+build-cpu-backends:
+  timeout: 60 minutes
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu-${CI_COMMIT_SHORT_SHA} \
+      -f qwen3-asr-cpp/Dockerfile.cpu \
+      qwen3-asr-cpp/
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu-${CI_COMMIT_SHORT_SHA} \
+      -f ark-asr-cpp/Dockerfile.cpu \
+      ark-asr-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:cpu-${CI_COMMIT_SHORT_SHA}
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:cpu-${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
+# Compose-Dateien syntaktisch validieren (base + gpu-Overlay + backends)
+compose-validate:
+  stage: test
+  image: python:3.13-slim
+  tags:
+    - shared
+  script: |
+    pip install -q pyyaml > /dev/null 2>&1
+    python - <<'EOF'
+    import yaml
+    for f in ("compose.yml", "compose.gpu.yml", "compose.backends.yml"):
+        yaml.safe_load(open(f))
+        print(f, "OK")
+    EOF
+  only:
+    - main
