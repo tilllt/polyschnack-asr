@@ -66,3 +66,58 @@ def test_speaker_change_keeps_separation():
     assert len(merged) == 2
     assert merged[0]["speaker"] == "SPEAKER_00"
     assert merged[1]["speaker"] == "SPEAKER_01"
+
+
+def test_first_word_of_new_speaker_goes_to_new_speaker():
+    """Wort beginnt 0.1s VOR d_start der neuen Sprecher-Grenze, endet aber darin.
+
+    pyannote-Segmentgrenzen liegen oft knapp NACH dem letzten Wort-Ende des
+    Vorgängers — das erste Wort des neuen Sprechers beginnt dann minimal vor
+    d_start. Strikte start-Fenster-Zuordnung würde es dem ALTEN Speaker
+    zuordnen (gemeldeter Bug). Overlap-Zuordnung muss es dem NEUEN geben.
+    """
+    asr_segments = [
+        _seg(0.0, 4.0, "hallo welt test",
+             [_w(0.0, 0.8, "hallo"), _w(0.8, 1.9, "welt"),
+              _w(1.9, 2.6, "test")]),  # beginnt vor 2.0, endet danach
+    ]
+    diar = [
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+        {"start": 2.0, "end": 4.0, "speaker": "SPEAKER_01"},
+    ]
+    merged = _merge_diarization(asr_segments, diar)
+    assert len(merged) == 2, f"erwartet 2 Segmente, bekam {len(merged)}: {merged}"
+    assert merged[0]["speaker"] == "SPEAKER_00"
+    assert merged[0]["text"] == "hallo welt", merged[0]["text"]
+    assert merged[1]["speaker"] == "SPEAKER_01"
+    assert merged[1]["text"] == "test", merged[1]["text"]
+
+
+def test_word_in_gap_goes_to_next_segment():
+    """Wort liegt komplett in Lücke zwischen Segmenten → nächstem Segment zuordnen."""
+    asr_segments = [
+        _seg(0.0, 3.0, "a b",
+             [_w(0.0, 0.9, "a"), _w(1.5, 2.2, "b")]),
+    ]
+    diar = [
+        {"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},
+        {"start": 2.0, "end": 3.0, "speaker": "SPEAKER_01"},
+    ]
+    merged = _merge_diarization(asr_segments, diar)
+    assert merged[1]["speaker"] == "SPEAKER_01"
+    assert merged[1]["text"] == "b", merged[1]["text"]
+
+
+def test_word_overlapping_two_segments_equally_goes_to_later():
+    """Gleichstand bei Overlap → späteres Segment (neuer Sprecher gewinnt)."""
+    asr_segments = [
+        _seg(0.0, 3.0, "x y",
+             [_w(0.0, 0.5, "x"), _w(1.75, 2.25, "y")]),  # y überlappt 1.75-2.0 und 2.0-2.25
+    ]
+    diar = [
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+        {"start": 2.0, "end": 3.0, "speaker": "SPEAKER_01"},
+    ]
+    merged = _merge_diarization(asr_segments, diar)
+    assert merged[1]["speaker"] == "SPEAKER_01"
+    assert merged[1]["text"] == "y", merged[1]["text"]

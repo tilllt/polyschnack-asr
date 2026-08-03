@@ -38,6 +38,19 @@ def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
                    min_duration_off=min_duration_off)
 
 
+def _word_overlap(w: Dict[str, Any], d_start: float, d_end: float) -> float:
+    """Zeitliche Überlappung eines Worts mit einem Diarization-Segment.
+
+    Positive Überlappung = Wort und Segment teilen sich Zeitfenster.
+    0.0 = keine Überlappung (Wort komplett außerhalb).
+    """
+    w_start = w.get("start") if w.get("start") is not None else 0.0
+    w_end = w.get("end") if w.get("end") is not None else w_start
+    s = max(w_start, d_start)
+    e = min(w_end, d_end)
+    return max(0.0, e - s)
+
+
 def _merge_diarization(segments: list, diar: list) -> list:
     """Ersetzt die ASR-Segmentierung durch die Diarization-Segmentierung.
 
@@ -49,6 +62,14 @@ def _merge_diarization(segments: list, diar: list) -> list:
     Sprecher (nur wenige 100 ms auseinander). Diese werden zu einem Segment
     zusammengefasst, damit Wörter nicht einzeln in Spalten zerhauen werden
     (Karaoke-Bug). Echte Sprecherwechsel bleiben erhalten.
+
+    Wort-Zuordnung (Overlap statt strikter start-Fenster): Ein Wort gehört zu
+    dem Segment, mit dem es die GRÖSSTE zeitliche Überlappung hat. Bei
+    Gleichstand gewinnt das spätere Segment (der neue Sprecher). Wörter ohne
+    jede Überlappung (Lücken) gehen ans nächste Segment mit start >= w.end.
+    Das behebt den Bug, dass das erste Wort eines neuen Sprechers (beginnt
+    minimal vor der pyannote-Grenze) dem letzten Segment des VORIGEN
+    Sprechers zugeordnet wurde.
     """
     # Alle Wörter mit Zeitstempeln flach sammeln
     words = []
@@ -68,17 +89,39 @@ def _merge_diarization(segments: list, diar: list) -> list:
                 continue
         smoothed.append(dict(d))
 
+    # Wort→Segment-Zuordnung per Overlap: jedes Wort gehört zum Segment mit
+    # der größten zeitlichen Überlappung. Gleichstand → späteres Segment.
+    # Kein Overlap (Lücke) → nächstes Segment mit start >= w.end.
+    by_seg: List[List[Dict[str, Any]]] = [[] for _ in smoothed]
+    for w in words:
+        w_start = w.get("start") if w.get("start") is not None else 0.0
+        w_end = w.get("end") if w.get("end") is not None else w_start
+        best_i, best_ov = -1, 0.0
+        for i, d in enumerate(smoothed):
+            d_start = d.get("start", 0)
+            d_end = d.get("end", d_start)
+            ov = _word_overlap(w, d_start, d_end)
+            if ov > best_ov or (ov == best_ov and best_i != -1 and i > best_i):
+                best_ov, best_i = ov, i
+        if best_i >= 0 and best_ov > 0:
+            by_seg[best_i].append(w)
+        else:
+            # Lücke: nächstes Segment, das nach dem Wortende beginnt
+            nxt = next(
+                (i for i, d in enumerate(smoothed)
+                 if (d.get("start") or 0) >= w_end),
+                None,
+            )
+            if nxt is not None:
+                by_seg[nxt].append(w)
+
     merged: List[Dict[str, Any]] = []
-    for d in smoothed:
-        d_start = d.get("start", 0)
-        d_end = d.get("end", d_start)
-        seg_words = [
-            w for w in words
-            if (w.get("start") if w.get("start") is not None else -1) >= d_start
-            and (w.get("start") if w.get("start") is not None else -1) < d_end
-        ]
+    for i, d in enumerate(smoothed):
+        seg_words = by_seg[i]
         if not seg_words:
             continue  # Pause ohne Sprache — kein leeres Segment
+        d_start = d.get("start", 0)
+        d_end = d.get("end", d_start)
         text = " ".join(w.get("word", "") for w in seg_words).strip()
         merged.append({
             "start": round(d_start, 2),
