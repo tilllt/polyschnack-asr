@@ -1,161 +1,113 @@
-"""Device-Auto-Detect für die pyannote-Diarization (Task A3, Hybrid).
+"""diarize.py als HTTP-Client für den CrispASR-diar-Service (Option B, Task 4).
 
-Die Pipeline soll auf GPU laufen, wenn der Container GPU-Zugriff hat
-(torch.cuda.is_available() → True, gesetzt via compose.gpu.yml runtime:
-nvidia), sonst auf CPU. Ein CUDA-Fehler beim Laden (OOM, Treiber) muss
-transparent auf CPU zurückfallen statt die Aufnahme zu killen.
+Die pyannote-Pipeline wurde durch den CrispASR-Server ersetzt: diarize()
+ruft POST /v1/audio/transcriptions mit diarize=true + diarized_json auf
+und normalisiert die Speaker-Labels A/B/C → SPEAKER_00/01/….
 """
 from __future__ import annotations
 
+import httpx
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _reset_pipeline(monkeypatch):
-    """Pipeline-Cache je Test zurücksetzen."""
-    import app.diarize as d
-
-    monkeypatch.setattr(d, "_pipeline", None)
-    monkeypatch.setattr(d, "_pipeline_device", None)
-    yield
+import app.diarize as d
+from app.config import settings
 
 
-class FakePipeline:
-    def __init__(self, device=None):
-        self.device = device
-        self.calls = []
+class _FakeClient:
+    def __init__(self, status, payload):
+        self._status, self._payload = status, payload
+        self.last_kwargs = None
 
-    def __call__(self, audio_path, **kwargs):
-        self.calls.append((audio_path, kwargs))
+    def __enter__(self):
         return self
 
+    def __exit__(self, *exc):
+        return False
 
-def _patch_loader(monkeypatch, device_seen):
-    """Ersetzt _load_pipeline_impl durch einen Fake, der das Device festhält."""
-    import app.diarize as d
-
-    def fake_impl(device, *, token):
-        device_seen.append(device)
-        return FakePipeline(device=device)
-
-    monkeypatch.setattr(d, "_load_pipeline_impl", fake_impl)
+    def post(self, url, files=None, data=None):
+        self.last_kwargs = {"url": url, "files": files, "data": data}
+        return httpx.Response(self._status, json=self._payload)
 
 
-class _FakeCuda:
-    @staticmethod
-    def is_available():
-        return True
+def _patch(monkeypatch, status, payload):
+    fc = _FakeClient(status, payload)
+    monkeypatch.setattr(d.httpx, "Client", lambda *a, **k: fc)
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    return fc
 
 
-class _FakeTorch:
-    cuda = _FakeCuda()
+def test_diarize_maps_segments_and_normalises_speakers(monkeypatch, tmp_path):
+    fc = _patch(monkeypatch, 200, {"segments": [
+        {"start": 0.0, "end": 10.0, "speaker": "A"},
+        {"start": 10.0, "end": 20.0, "speaker": "B"},
+    ]})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    out = d.diarize(str(p))
+    assert out[0]["speaker"] == "SPEAKER_00"
+    assert out[1]["speaker"] == "SPEAKER_01"
+    assert out[0]["start"] == 0.0 and out[0]["end"] == 10.0
+    # Request enthält diarize=true + diarized_json + Methode
+    data = fc.last_kwargs["data"]
+    assert data["diarize"] == "true"
+    assert data["response_format"] == "diarized_json"
+    assert data["diarize_method"] == settings.DIARIZE_METHOD
+    # URL zeigt auf den diar-Service
+    assert fc.last_kwargs["url"] == "http://diar:5096/v1/audio/transcriptions"
 
 
-def _set_device(monkeypatch, device: str):
-    """Erzwingt das Device-Ergebnis (mockt _detect_device)."""
-    import app.diarize as d
-
-    monkeypatch.setattr(d, "_detect_device", lambda: device)
-
-
-def test_device_cuda_when_available(monkeypatch):
-    import app.diarize as d
-
-    _set_device(monkeypatch, "cuda")
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
-    seen = []
-    _patch_loader(monkeypatch, seen)
-
-    pipe = d._load_pipeline()
-    assert seen == ["cuda"]
-    assert pipe.device == "cuda"
+def test_diarize_sends_max_speakers(monkeypatch, tmp_path):
+    fc = _patch(monkeypatch, 200, {"segments": []})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    d.diarize(str(p), num_speakers=2)
+    assert fc.last_kwargs["data"]["diarize_max_speakers"] == "2"
 
 
-def test_device_cpu_when_unavailable(monkeypatch):
-    import app.diarize as d
+def test_diarize_service_unreachable(monkeypatch, tmp_path):
+    class _Boom:
+        def __enter__(self):
+            return self
 
-    _set_device(monkeypatch, "cpu")
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
-    seen = []
-    _patch_loader(monkeypatch, seen)
+        def __exit__(self, *exc):
+            return False
 
-    d._load_pipeline()
-    assert seen == ["cpu"]
+        def post(self, url, files=None, data=None):
+            raise httpx.ConnectError("connection refused")
 
-
-def test_cuda_load_failure_falls_back_to_cpu(monkeypatch):
-    """CUDA-Load wirft (z. B. OOM) → zweiter Versuch mit device='cpu'."""
-    import app.diarize as d
-
-    _set_device(monkeypatch, "cuda")
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
-
-    attempts = []
-
-    def flaky_impl(device, *, token):
-        attempts.append(device)
-        if device == "cuda":
-            raise RuntimeError("CUDA out of memory")
-        return FakePipeline(device=device)
-
-    monkeypatch.setattr(d, "_load_pipeline_impl", flaky_impl)
-
-    pipe = d._load_pipeline()
-    assert attempts == ["cuda", "cpu"]
-    assert pipe.device == "cpu"
-
-
-def test_no_token_still_raises_before_device_probe(monkeypatch):
-    """Ohne HF_TOKEN kein Device-Probe — Fehler kommt sofort (no-token)."""
-    import app.diarize as d
-
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    _set_device(monkeypatch, "cuda")
-
+    monkeypatch.setattr(d.httpx, "Client", lambda *a, **k: _Boom())
+    monkeypatch.setattr(settings, "DIAR_URL", "http://diar:5096")
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
     with pytest.raises(d.DiarizationError) as ei:
-        d._load_pipeline()
-    assert ei.value.code == "no-token"
+        d.diarize(str(p))
+    assert ei.value.code == "service-unreachable"
 
 
-def test_diarize_uses_pipeline_with_kwargs(monkeypatch):
-    """diarize() reicht num_speakers/min_duration_off an die Pipeline weiter."""
-    import app.diarize as d
-
-    _set_device(monkeypatch, "cpu")
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
-    seen = []
-    _patch_loader(monkeypatch, seen)
-
-    fake = FakePipeline()
-    monkeypatch.setattr(d, "_load_pipeline_impl", lambda device, *, token: fake)
-
-    segs = d.diarize("/tmp/x.wav", num_speakers=2, min_duration_off=0.3)
-    assert fake.calls[0][1] == {"min_speakers": 2, "max_speakers": 2, "min_duration_off": 0.3}
-    assert isinstance(segs, list)
+def test_diarize_proxy_error_mapped(monkeypatch, tmp_path):
+    _patch(monkeypatch, 502, {"detail": {"code": "load-failed", "message": "model"}})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    with pytest.raises(d.DiarizationError) as ei:
+        d.diarize(str(p))
+    assert ei.value.code == "load-failed"
 
 
-def test_detect_device_cuda_when_torch_available(monkeypatch):
-    """_detect_device: echtes torch-Fake mit cuda.is_available()=True → cuda."""
-    import sys
-    import app.diarize as d
-
-    fake_torch = _FakeTorch()
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    # _detect_device importiert torch frisch aus sys.modules
-    assert d._detect_device() == "cuda"
+def test_diarize_http_error_without_detail(monkeypatch, tmp_path):
+    _patch(monkeypatch, 500, {})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    with pytest.raises(d.DiarizationError) as ei:
+        d.diarize(str(p))
+    assert ei.value.code == "service-error"
 
 
-def test_detect_device_cpu_without_torch(monkeypatch):
-    """_detect_device: kein torch importierbar → cpu (nie ein Crash)."""
-    import builtins
-    import app.diarize as d
+def test_detect_device_remote():
+    assert d._detect_device() == "remote"
 
-    real_import = builtins.__import__
 
-    def fake_import(name, *a, **kw):
-        if name == "torch":
-            raise ImportError("no torch")
-        return real_import(name, *a, **kw)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    assert d._detect_device() == "cpu"
+def test_normalise_speaker():
+    assert d._normalise_speaker("A") == "SPEAKER_00"
+    assert d._normalise_speaker("C") == "SPEAKER_02"
+    assert d._normalise_speaker("SPEAKER_07") == "SPEAKER_07"
+    assert d._normalise_speaker("") == "SPEAKER_00"

@@ -1,13 +1,14 @@
-"""Minimal pyannote.audio diarization wrapper.
+"""HTTP-Client für den Diarization-Service (diar:5096, CrispASR — Option B).
 
-Requires HF_TOKEN env var (accept terms at
-https://huggingface.co/pyannote/speaker-diarization-3.1 and
-https://huggingface.co/pyannote/segmentation-3.0).
+Die pyannote-Pipeline wurde durch den CrispASR-Server ersetzt:
+``POST /v1/audio/transcriptions`` mit ``diarize=true`` und
+``response_format=diarized_json`` liefert Speaker-Segmente direkt —
+kein pyannote, kein torch in der Webapp (schlankes Image).
 
-Ladefehler werden NICHT mehr still verschluckt: statt einer leeren Liste
-wirft :func:`diarize` eine :class:`DiarizationError` mit präziser Ursache
-(no-token, gated, unauthorized, not-found, …), damit der Aufrufer die
-Aufnahme als fehlgeschlagen markieren und den Admin-Hinweis ausgeben kann.
+Fehlerklassen bleiben erhalten (:class:`DiarizationError` mit
+maschinenlesbarem ``code``), neu hinzugekommen: ``service-unreachable``.
+CrispASR normalisiert Speaker auf A, B, C … — wird hier auf das
+SPEAKER_XX-Format unserer UI/Exporte gemappt.
 """
 from __future__ import annotations
 
@@ -15,170 +16,39 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+import httpx
+
+from .config import settings
+
 log = logging.getLogger(__name__)
-
-_pipeline = None
-#: Device, auf dem die Pipeline geladen wurde ("cuda" | "cpu") — für Tests
-#: und Status-Anzeige. None = noch nicht geladen.
-_pipeline_device = None
-
-
-def _detect_device() -> str:
-    """GPU wenn verfügbar, sonst CPU (Hybrid-Prinzip).
-
-    ``torch`` wird lazy importiert, damit das Modul auch ohne installiertes
-    torch importierbar bleibt (Tests, minimale Images).
-    """
-    try:
-        import torch
-    except ImportError:
-        return "cpu"
-    try:
-        if torch.cuda.is_available():
-            return "cuda"
-    except Exception:
-        log.warning("diarize: CUDA-Detect fehlgeschlagen — CPU", exc_info=True)
-    return "cpu"
 
 
 class DiarizationError(RuntimeError):
-    """Diarization nicht verfügbar — mit maschinenlesbarem ``code`` und
-    menschenlesbarer ``message`` (inkl. Admin-Hinweis)."""
-
     def __init__(self, code: str, message: str):
         super().__init__(f"diarization/{code}: {message}")
         self.code = code
         self.message = message
 
 
-def _classify_load_error(exc: Exception) -> tuple[str, str]:
-    """Mappt eine from_pretrained-Exception auf (code, message).
+def _detect_device() -> str:
+    """Die Webapp hat kein torch mehr — das Gerät meldet der diar-Service."""
+    return "remote"
 
-    codes: no-token | unauthorized | gated | not-found | load-failed
+
+def _normalise_speaker(label: str) -> str:
+    """CrispASR liefert A, B, C … — auf SPEAKER_00/01/… normalisieren.
+
+    Bereits normalisierte Labels (SPEAKER_xx) und leere Werte bleiben
+    stabil; unbekannte Zeichen fallen auf SPEAKER_00 zurück.
     """
-    # huggingface_hub HTTPStatusError trägt .response.status_code
-    status = getattr(getattr(exc, "response", None), "status_code", None)
-    text = str(exc).lower()
-    admin_hint = (
-        " Bitte den Administrator informieren, damit er die "
-        "Nutzungsbedingungen auf HuggingFace akzeptiert."
-    )
-    if status == 401 or "401" in text or "invalid token" in text:
-        return "unauthorized", (
-            "Das HuggingFace-Token ist ungültig oder abgelaufen "
-            "(HTTP 401). Bitte den Administrator informieren."
-        )
-    if status == 403 or "gated" in text or "restricted" in text \
-            or "access" in text or "403" in text:
-        return "gated", (
-            "Das Diarization-Modell ist auf HuggingFace lizenzgeschützt "
-            "(gated) und wurde für dieses Token noch nicht freigeschaltet."
-            + admin_hint
-        )
-    if status == 404 or "404" in text or "not found" in text:
-        return "not-found", (
-            "Das Diarization-Modell existiert auf HuggingFace nicht (HTTP "
-            "404) — Modell-ID in der Pipeline-Konfiguration prüfen."
-        )
-    return "load-failed", f"Diarization-Modell konnte nicht geladen werden: {exc}"
-
-
-def _load_pipeline_impl(device: str, *, token: str):
-    """Lädt die pyannote-Pipeline auf dem gegebenen Device (cuda|cpu)."""
-    from pyannote.audio import Pipeline
-
-    return Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        token=token,
-        device=device,
-    )
-
-
-def _load_pipeline():
-    """Pipeline mit Device-Auto-Detect laden (Hybrid: GPU wenn möglich).
-
-    Reihenfolge: HF_TOKEN prüfen → CUDA-Detect → Load auf "cuda". Schlägt
-    der CUDA-Load fehl (OOM, Treiber), wird transparent auf "cpu" neu
-    geladen — eine Aufnahme darf nie wegen fehlender GPU sterben.
-    """
-    global _pipeline, _pipeline_device
-    if _pipeline is not None:
-        return _pipeline
-    token = os.getenv("HF_TOKEN")
-    if not token:
-        raise DiarizationError(
-            "no-token",
-            "HF_TOKEN ist nicht gesetzt — Diarization ist ohne Token nicht "
-            "nutzbar. Bitte den Administrator informieren.",
-        )
-    device = _detect_device()
-    try:
-        _pipeline = _load_pipeline_impl(device, token=token)
-        _pipeline_device = device
-    except DiarizationError:
-        raise
-    except Exception as exc:
-        if device == "cuda":
-            # GPU-Load gescheitert (OOM/Treiber) → CPU-Fallback statt Fehler
-            log.warning(
-                "diarize: CUDA-Load fehlgeschlagen (%s) — Fallback auf CPU",
-                exc,
-            )
-            try:
-                _pipeline = _load_pipeline_impl("cpu", token=token)
-                _pipeline_device = "cpu"
-            except DiarizationError:
-                raise
-            except Exception as exc2:
-                code, message = _classify_load_error(exc2)
-                log.exception("diarize: pipeline load failed on cpu: %s", exc2)
-                raise DiarizationError(code, message) from exc2
-        else:
-            code, message = _classify_load_error(exc)
-            log.exception("diarize: pipeline load failed on %s: %s", device, exc)
-            raise DiarizationError(code, message) from exc
-    log.info("pyannote diarization pipeline loaded (device=%s)", _pipeline_device)
-    return _pipeline
-
-
-def _extract_segments(result) -> List[Dict[str, Any]]:
-    """Extrahiert {start, end, speaker}-Segmente aus dem Pipeline-Ergebnis.
-
-    Abwärtskompatibel:
-    - pyannote.audio 4.x: Ergebnis ist ein ``DiarizeOutput``-Dataclass mit
-      ``speaker_diarization`` (Annotation) bzw. ``serialize()``.
-    - pyannote.audio 3.x: Ergebnis ist direkt eine ``Annotation`` mit
-      ``itertracks(yield_label=True)``.
-    """
-    # Fall 1: pyannote 4.x DiarizeOutput (hat serialize())
-    serializer = getattr(result, "serialize", None)
-    if callable(serializer):
-        try:
-            data = serializer()
-            diar = data.get("diarization") or []
-            return [{"start": float(s["start"]), "end": float(s["end"]),
-                     "speaker": s["speaker"]} for s in diar]
-        except Exception:
-            log.exception("diarize: DiarizeOutput.serialize() failed")
-            return []
-
-    # Fall 2: DiarizeOutput ohne serialize — direkte Annotation-Attribute
-    annotation = getattr(result, "speaker_diarization", result)
-    itertracks = getattr(annotation, "itertracks", None)
-    if itertracks is None:
-        log.warning("diarize: unbekanntes Pipeline-Ergebnis-Format (%s)",
-                    type(result).__name__)
-        return []
-
-    segments: List[Dict[str, Any]] = []
-    for turn, _, speaker in itertracks(yield_label=True):
-        segments.append({
-            "start": round(turn.start, 2),
-            "end": round(turn.end, 2),
-            "speaker": speaker,
-        })
-    segments.sort(key=lambda s: s["start"])
-    return segments
+    if not label:
+        return "SPEAKER_00"
+    if label.startswith("SPEAKER_"):
+        return label
+    code = ord(label[0].upper())
+    if ord("A") <= code <= ord("Z"):
+        return f"SPEAKER_{code - ord('A'):02d}"
+    return "SPEAKER_00"
 
 
 def diarize(
@@ -186,40 +56,62 @@ def diarize(
     num_speakers: Optional[int] = None,
     min_duration_off: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
-    """Run speaker diarization on *audio_path*.
+    """Ruft den CrispASR-diar-Service und liefert {start, end, speaker}-Segmente.
 
-    Optional tuning (UI: „Sprecheranzahl" + „Sensitivität"):
-    - ``num_speakers``: min=max vorgeben (bekannte Sprecherzahl)
-    - ``min_duration_off``: minimale Pause zwischen Sprecherwechseln
-      (höher = weniger Wechsel/Flicker). None → Pipeline-Default.
+    Optionales Tuning (UI: „Sprecheranzahl"): ``num_speakers`` wird als
+    ``diarize_max_speakers`` übertragen. ``min_duration_off`` hat in
+    CrispASR keine direkte Entsprechung und wird bewusst nicht übertragen.
 
-    Returns a list of ``{"start": float, "end": float, "speaker": str}`` dicts.
-
-    Raises :class:`DiarizationError` when the pipeline cannot be loaded
-    (missing token, gated repo, …) — no silent empty list for config errors.
+    Raises :class:`DiarizationError` (service-unreachable / Proxy-Fehler) —
+    nie eine stille leere Liste bei Service-Problemen.
     """
-    pipeline = _load_pipeline()
+    url = f"{settings.DIAR_URL.rstrip('/')}/v1/audio/transcriptions"
+    with open(audio_path, "rb") as f:
+        audio_bytes = f.read()
 
-    kwargs: Dict[str, Any] = {}
+    data: Dict[str, Any] = {
+        "response_format": "diarized_json",
+        "diarize": "true",
+        "diarize_method": settings.DIARIZE_METHOD,
+    }
     if num_speakers is not None:
-        kwargs["min_speakers"] = num_speakers
-        kwargs["max_speakers"] = num_speakers
-    if min_duration_off is not None:
-        kwargs["min_duration_off"] = min_duration_off
+        data["diarize_max_speakers"] = str(num_speakers)
 
-    log.info("diarize: running pyannote pipeline on %s %s", audio_path,
-             kwargs or "(defaults)")
     try:
-        result = pipeline(audio_path, **kwargs)
-    except DiarizationError:
-        raise
-    except Exception as exc:
-        log.exception("diarize: pipeline() threw on %s: %s", audio_path, exc)
-        raise DiarizationError("run-failed", f"Diarization-Lauf fehlgeschlagen: {exc}") from exc
+        with httpx.Client(timeout=1800) as client:
+            resp = client.post(
+                url,
+                files={"file": (os.path.basename(audio_path), audio_bytes, "audio/wav")},
+                data=data,
+            )
+    except httpx.HTTPError as exc:
+        log.warning("diarize: diar-Service nicht erreichbar (%s)", exc)
+        raise DiarizationError(
+            "service-unreachable",
+            "Der Diarization-Service ist nicht erreichbar. Bitte den "
+            "Administrator informieren (Container 'diar' prüfen).",
+        ) from exc
 
-    segments = _extract_segments(result)
-    speaker_set = set(s["speaker"] for s in segments)
-    log.info("diarize: %d segments, %d speakers (%s)",
-             len(segments), len(speaker_set),
-             ", ".join(sorted(speaker_set)) if speaker_set else "none")
+    if resp.status_code != 200:
+        detail = {}
+        try:
+            detail = resp.json().get("detail", {}) or {}
+        except Exception:
+            pass
+        code = detail.get("code") if isinstance(detail, dict) else None
+        message = detail.get("message") if isinstance(detail, dict) else None
+        if code and message:
+            raise DiarizationError(code, message)
+        raise DiarizationError(
+            "service-error",
+            f"Diar-Service antwortete mit HTTP {resp.status_code}.",
+        )
+
+    segments: List[Dict[str, Any]] = []
+    for seg in resp.json().get("segments") or []:
+        segments.append({
+            "start": float(seg["start"]),
+            "end": float(seg["end"]),
+            "speaker": _normalise_speaker(str(seg.get("speaker", "A"))),
+        })
     return segments
