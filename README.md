@@ -465,6 +465,11 @@ keine Subdomain) — Methodik, hörbare Samples, Ergebnisse und Preisvergleich.
 ### Für normale User (kein Login nötig)
 
 - **Methodik-Karte** — Version, Stand, Kategorien, Anti-Gaming-Hinweis
+- **Test-Set · 2-Achsen-Matrix** — Kanal × Inhalt als 8×8-Matrix mit
+  Sample-Zählung; Klick auf eine Zelle **filtert die Samples** darunter
+  (Filter-Badge mit ✕ zum Aufheben)
+- **„Wie ist das Test-Set aufgebaut?"** — verständliche Erklärung der
+  Taxonomie (Best Practice aus GigaSpeechBench/LibriSpeech/REVERB/CHiME)
 - **Samples nach Kategorie** (collapsible, nur eine offen):
   - **Preview** (MP3 128 kbps, WaveSurfer-Player) + **finale WAV** (unkomprimiert, Download)
   - Referenztext ein-/ausblendbar
@@ -472,6 +477,19 @@ keine Subdomain) — Methodik, hörbare Samples, Ergebnisse und Preisvergleich.
 - **Preisvergleich** — WER/€-Matrix (Selbstkosten vs. SaaS vs. kommerziell)
 
 Bearbeiten ist **nicht** möglich — Read-only für normale User.
+
+### Taxonomie (2-Achsen)
+
+Die Samples sind nach zwei unabhängigen Achsen kategorisiert (Definition in
+`benchmark/spec/taxonomy.json` im polyschnack-benchmark-Repo):
+
+- **Kanal (Akustik)** — wie klingt die Aufnahme? `clean`, `transport`,
+  `broadcast`, `telefon`, `komprimiert`, `vintage`, `geraeusch`, `nachhall`
+- **Inhalt (Schwierigkeit)** — was wird gesprochen? `allgemein`, `schnell`,
+  `zahlen`, `fachsprache`, `akzent`, `jugend`, `codeswitch`, `durchsagen`
+- **Quelle (Tag, keine Kategorie):** `cv` = echte CommonVoice-Stimmen (CC0),
+  `tts` = synthetisch (**Piper** Thorsten m / Ramona w — ersetzt edge-tts,
+  Regenerationsskript `benchmark/scripts/regenerate_tts_piper.py`)
 
 ### Für Admins (OIDC-Login + `POLYSCHNACK_ADMINS`)
 
@@ -495,6 +513,29 @@ benchmark_data/
 Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
 API-Doku: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
 `/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
+
+### Wichtig vor dem Deployment
+
+Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind
+noch nicht verfügbar"). Vor dem ersten Start das Volume befüllen:
+
+```bash
+cd webapp
+SELECTION=/srv/app/polyschnack-benchmark/benchmark/selection/cv_selection_v1.json \
+TTS_SELECTION=/srv/app/polyschnack-benchmark/benchmark/selection/tts_selection.json \
+CV_WAV_DIR=/srv/app/polyschnack-benchmark/benchmark/data/cv \
+TTS_WAV_DIR=/srv/app/polyschnack-benchmark/benchmark/data/tts \
+TAXONOMY=/srv/app/polyschnack-benchmark/benchmark/spec/taxonomy.json \
+BENCHMARK_DATA_DIR=<host-mount>/benchmark \
+.venv/bin/python benchmark/seed_benchmark_data.py
+```
+
+- `BENCHMARK_DATA_DIR` muss auf den **Host-Pfad des Volumes** zeigen
+  (compose: `./DATA/poc-data:/data` → `DATA/poc-data/benchmark`), damit die
+  Daten beim Container-Start da sind.
+- Der Seed kopiert die WAVs (unkomprimiert) und erzeugt die MP3-128k-Previews
+  per ffmpeg. Erwartet: `benchmark/data/tts/` (Piper-WAVs) + `benchmark/data/cv/`
+  (echte CV-Clips, nach Extraktion aus dem 37-GB-Korpus).
 
 ---
 

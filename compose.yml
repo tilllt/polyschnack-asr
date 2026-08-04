@@ -82,7 +82,8 @@ services:
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.
-      # Separates Volume — ueberlebt auch dann, wenn ./DATA/poc-data geleert wird.
+      # Liegt im selben Volume wie /data (./DATA/poc-data:/data) — vor dem
+      # ersten Start per Seed befüllen (siehe README "Wichtig vor dem Deployment").
       BENCHMARK_DATA_DIR: /data/benchmark
       DOCKER_PROXY_URL: http://docker-proxy:2375
       # Admin-Bereich: wer darf Services starten/stoppen und das
