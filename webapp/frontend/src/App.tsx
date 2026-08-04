@@ -3,6 +3,20 @@ import { useRecordings, useStats, useModelStatus } from "./hooks";
 import { ToastProvider } from "./components/Toasts";
 import { useT, type Lang, LocaleProvider } from "./useLocale";
 import { parseSharePath } from "./share";
+import { parseBenchmarkPath } from "./benchmark";
+import {
+  fetchBenchmarkMeta,
+  fetchBenchmarkSamples,
+  fetchBenchmarkResults,
+  fetchBenchmarkPricing,
+  rejectBenchmarkSample,
+  editBenchmarkSample,
+  type BenchmarkMeta,
+  type BenchmarkSamplesResponse,
+  type BenchmarkResults,
+  type BenchmarkPricing,
+} from "./benchmark";
+import { BenchmarkPageContent } from "./components/BenchmarkPage";
 import { SharedRecordingView } from "./components/SharedRecordingView";
 import { fetchMe, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
@@ -21,6 +35,41 @@ function AppContent() {
 
   // Anon-Share-Link: /r/:uid → read-only-Ansicht ohne Login
   const shareUid = parseSharePath(window.location.pathname)?.uid ?? null;
+
+  // Benchmark-Seite: /benchmark → öffentliche BenchmarkPage
+  const isBenchmark = parseBenchmarkPath(window.location.pathname);
+  const [benchMeta, setBenchMeta] = useState<BenchmarkMeta | null>(null);
+  const [benchData, setBenchData] = useState<BenchmarkSamplesResponse | null>(null);
+  const [benchResults, setBenchResults] = useState<BenchmarkResults | null>(null);
+  const [benchPricing, setBenchPricing] = useState<BenchmarkPricing | null>(null);
+  const [benchTick, setBenchTick] = useState(0);
+
+  useEffect(() => {
+    if (!isBenchmark) return;
+    fetchBenchmarkMeta().then(setBenchMeta).catch(() => setBenchMeta(null));
+    fetchBenchmarkSamples().then(setBenchData).catch(() => setBenchData(null));
+    fetchBenchmarkResults().then(setBenchResults).catch(() => setBenchResults(null));
+    fetchBenchmarkPricing().then(setBenchPricing).catch(() => setBenchPricing(null));
+  }, [isBenchmark, benchTick]);
+
+  const onBenchReject = async (sampleId: string) => {
+    try {
+      const res = await rejectBenchmarkSample(sampleId);
+      alert(`Sample abgelehnt → neue Version v${res.new_version}, Ersatz: ${res.replacement}`);
+      setBenchTick((n) => n + 1);
+    } catch (e) {
+      alert(`Ablehnen fehlgeschlagen: ${(e as Error).message}`);
+    }
+  };
+
+  const onBenchEdit = async (sampleId: string, fields: { text: string }) => {
+    try {
+      await editBenchmarkSample(sampleId, fields);
+      setBenchTick((n) => n + 1);
+    } catch (e) {
+      alert(`Edit fehlgeschlagen: ${(e as Error).message}`);
+    }
+  };
 
   useEffect(() => {
     fetchMe().then(setUser).catch(() => setUser({ anonymous: true }));
@@ -55,6 +104,16 @@ function AppContent() {
             <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
               PolySchnack
             </h1>
+            <a
+              href="/benchmark"
+              className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
+                isBenchmark
+                  ? "bg-accent/20 text-accent"
+                  : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+              }`}
+            >
+              Benchmark
+            </a>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
@@ -109,7 +168,18 @@ function AppContent() {
 
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
-        {shareUid ? (
+        {isBenchmark ? (
+          <BenchmarkPageContent
+            meta={benchMeta}
+            data={benchData}
+            results={benchResults}
+            pricing={benchPricing}
+            admin={!!user?.is_admin}
+            onReject={onBenchReject}
+            onEdit={onBenchEdit}
+            onReload={() => setBenchTick((n) => n + 1)}
+          />
+        ) : shareUid ? (
           <SharedRecordingView uid={shareUid} />
         ) : view === "main" ? (
           <>
