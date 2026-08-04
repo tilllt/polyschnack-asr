@@ -21,6 +21,9 @@ class _Settings:
     #: Path to the SQLite database file.
     DB_PATH: Path = Path(os.getenv("DB_PATH", str(Path(os.getenv("DATA_DIR", "/data")) / "app.db")))
 
+    #: Benchmark-Daten (versionierte Manifeste + Audio) — gemountetes Volume.
+    BENCHMARK_DATA_DIR: Path = Path(os.getenv("BENCHMARK_DATA_DIR", str(Path(os.getenv("DATA_DIR", "/data")) / "benchmark")))
+
     #: Base URL of the ASR inference service (no trailing slash).
     ASR_URL: str = os.getenv("ASR_URL", "http://asr:5092").rstrip("/")
 
