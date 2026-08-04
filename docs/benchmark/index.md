@@ -36,6 +36,28 @@ Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
 API: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
 `/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
 
+## Benchmark-Container (periodisch per Cron)
+
+Der Benchmark läuft **nicht** als dauerhafter Service, sondern als
+**Einmal-Container**, der per Host-Cron periodisch gestartet wird:
+
+```bash
+# Einmal manuell:
+docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
+
+# Periodisch (Host-Crontab, z. B. täglich 04:00):
+0 4 * * * cd /srv/app/pk-asr && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+```
+
+Der Container liest `versions/vN/manifest.json` (aktive Samples), schickt
+sie an die Backends (Compose-Netzwerk) und schreibt `latest.json` +
+`pricing.json` ins Volume — die Webapp zeigt sie ohne Neustart an.
+
+- **Volumes (Least-Privilege):** `/data` ro, nur `/data/benchmark` rw
+- **CPU-only**, endet nach dem Lauf (kein Leerlauf-Verbrauch)
+- **Konfig:** `BENCH_BACKENDS` (Komma-Liste) + `BENCH_BACKEND_URLS` (JSON-Map)
+- **Image:** CI-Job `build-benchmark` → Harbor (braucht `CONFIG_JSON`-Variable)
+
 ## Wichtig vor dem Deployment
 
 Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind

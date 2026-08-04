@@ -430,7 +430,45 @@ Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
 API-Doku: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
 `/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
 
-### Wichtig vor dem Deployment
+### Benchmark-Container (periodisch per Cron)
+
+Der Benchmark läuft **nicht** als dauerhafter Service, sondern als
+**Einmal-Container**, der per Host-Cron periodisch gestartet wird — er
+schreibt die Ergebnisse ins gemeinsame Volume, die Webapp zeigt sie an.
+
+```bash
+# Einmal manuell:
+docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
+
+# Periodisch (Host-Crontab, z. B. täglich 04:00):
+0 4 * * * cd /srv/app/pk-asr && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+```
+
+**Was der Container tut:**
+- Liest das aktuelle versionierte Manifest (`versions/vN/manifest.json`,
+  aktive Samples) aus dem gemeinsamen Volume
+- Schickt jedes Sample an die konfigurierten Backends (OpenAI-kompatibel,
+  Compose-Netzwerk — Backends müssen laufen!)
+- Schreibt `results/latest.json` + `pricing.json` ins Volume
+  (`/data/benchmark`) — die Webapp zeigt sie ohne Neustart an
+
+**Konfiguration** (`compose.benchmark.yml`):
+
+| Variable | Default | Bedeutung |
+|----------|---------|-----------|
+| `BENCH_BACKENDS` | `pk-python,qwen3-asr,ark-asr,moonshine-de,canary-asr,pk-cpp` | Welche Backends laufen sollen |
+| `BENCH_BACKEND_URLS` | JSON-Map (s. Datei) | URLs im Compose-Netzwerk (Container-Port!) |
+
+**Volumes (Least-Privilege):** `/data` read-only, nur `/data/benchmark`
+beschreibbar (Container schreibt ausschließlich latest.json + pricing.json).
+CPU-only, endet nach dem Lauf — kein Leerlauf-Ressourcenverbrauch.
+
+**Image-Build:** CI-Job `build-benchmark` im polyschnack-benchmark-Repo
+(baut + pusht nach Harbor). Achtung: benötigt die CI-Variable `CONFIG_JSON`
+(Harbor-Docker-Config) — das Benchmark-Projekt hat sie noch **nicht**
+(im pk-asr-Projekt existiert sie). Siehe Fehlermeldung im CI-Log.
+
+## Wichtig vor dem Deployment
 
 Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind
 noch nicht verfügbar"). Vor dem ersten Start das Volume befüllen:
