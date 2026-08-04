@@ -1,0 +1,42 @@
+# PolySchnack — Benchmark-Container (periodisch per Cron auf dem Host).
+#
+# Aktivierung (startet einmalig, Container endet nach dem Lauf):
+#   docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
+#
+# Periodisch per Host-Cron (z. B. täglich 04:00):
+#   0 4 * * * cd /srv/app/pk-asr && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+#
+# Der Container:
+#   - liest das NEUE versionierte Manifest aus dem gemeinsamen Volume
+#     (versions/vN/manifest.json, aktive Samples)
+#   - schickt jedes Sample an die konfigurierten Backends (OpenAI-kompatibel)
+#   - schreibt results/latest.json + pricing.json ins Volume (/data/benchmark)
+#   - Die Webapp zeigt die Ergebnisse auf /benchmark an — kein Neustart nötig.
+#
+# KEINE GPU nötig (Backends laufen separat) — der Container ist CPU-only und
+# endet nach dem Lauf (kein Leerlauf-Ressourcenverbrauch).
+
+services:
+  benchmark:
+    image: registry.example.com/public/polyschnack-benchmark:latest
+    container_name: polyschnack-benchmark
+    # Einmal-Lauf: `run --rm` erzeugt und entfernt den Container automatisch.
+    restart: "no"
+    environment:
+      BENCHMARK_DATA_DIR: /data/benchmark
+      # Backends + URLs im Compose-Netzwerk (Container-Port, nicht Host-Port!)
+      BENCH_BACKENDS: "${BENCH_BACKENDS:-pk-python,qwen3-asr,ark-asr,moonshine-de,canary-asr,pk-cpp}"
+      BENCH_BACKEND_URLS: >-
+        {"pk-python":"http://asr:5092/v1",
+         "pk-cpp":"http://polyschnack-cpp:8080/v1",
+         "qwen3-asr":"http://qwen3-asr:8080/v1",
+         "ark-asr":"http://ark-asr:8080/v1",
+         "moonshine-de":"http://polyschnack-moonshine-de:8080/v1",
+         "canary-asr":"http://polyschnack-canary:8080/v1"}
+    volumes:
+      # Least-Privilege: Nur das Benchmark-Verzeichnis ist beschreibbar
+      # (latest.json + pricing.json), der Rest des Daten-Volumes bleibt read-only.
+      - ./DATA/poc-data:/data:ro
+      - ./DATA/poc-data/benchmark:/data/benchmark:rw
+    networks:
+      - default
