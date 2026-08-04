@@ -457,6 +457,47 @@ Docker-Socket-Zugriff aus der Webapp).
 
 ---
 
+## Benchmark-Seite (`/benchmark`)
+
+Öffentliche Seite unter **`https://<webapp>/benchmark`** (Pfad unter der Webapp,
+keine Subdomain) — Methodik, hörbare Samples, Ergebnisse und Preisvergleich.
+
+### Für normale User (kein Login nötig)
+
+- **Methodik-Karte** — Version, Stand, Kategorien, Anti-Gaming-Hinweis
+- **Samples nach Kategorie** (collapsible, nur eine offen):
+  - **Preview** (MP3 128 kbps, WaveSurfer-Player) + **finale WAV** (unkomprimiert, Download)
+  - Referenztext ein-/ausblendbar
+- **Ergebnisse** — gepoolte Benchmark-Ergebnisse (`results/latest.json`)
+- **Preisvergleich** — WER/€-Matrix (Selbstkosten vs. SaaS vs. kommerziell)
+
+Bearbeiten ist **nicht** möglich — Read-only für normale User.
+
+### Für Admins (OIDC-Login + `POLYSCHNACK_ADMINS`)
+
+- **✕ Ablehnen** pro Sample → Auto-Ersatz aus dem CV-Pool (gleiche Kategorie)
+  und **neue Version vN+1** (Manifest-History bleibt erhalten)
+- **Edit** pro Sample → Referenztext ändern (in-place, `updated_at`)
+- Versions-History unter `/api/benchmark/versions`
+
+### Datenlayout (`benchmark_data`)
+
+```
+benchmark_data/
+  versions/v1/manifest.json   # Samples + Kategorien (immutable pro Version)
+  versions/v1/audio/*.wav     # finale WAV (unkomprimiert)
+  versions/v1/preview/*.mp3   # MP3 128k (on-demand via ffmpeg)
+  results/latest.json         # gepoolte Ergebnisse
+  pricing.json                # Preisvergleich (Selbstkosten × markup_x)
+```
+
+`BENCHMARK_DATA_DIR` (Default: `/data/benchmark`) zeigt auf das Volume.
+Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
+API-Doku: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
+`/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
+
+---
+
 ## Konfiguration
 
 ### ASR-Backend wählen

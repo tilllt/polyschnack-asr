@@ -40,6 +40,14 @@ def test_unbekannte_pfade_liefern_index(spa_app):
     assert "SPA-ROOT" in res.text
 
 
+def test_benchmark_route_liefert_index(spa_app):
+    """/benchmark muss die SPA liefern, damit die BenchmarkPage rendert."""
+    res = spa_app.get("/benchmark")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/html")
+    assert "SPA-ROOT" in res.text
+
+
 def test_static_assets_werden_serviert(spa_app):
     res = spa_app.get("/assets/app.js")
     assert res.status_code == 200

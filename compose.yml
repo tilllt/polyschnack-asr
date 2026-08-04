@@ -81,6 +81,9 @@ services:
       DIAR_URL: "${DIAR_URL:-http://diar:8080}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
+      # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.
+      # Separates Volume — ueberlebt auch dann, wenn ./DATA/poc-data geleert wird.
+      BENCHMARK_DATA_DIR: /data/benchmark
       DOCKER_PROXY_URL: http://docker-proxy:2375
       # Admin-Bereich: wer darf Services starten/stoppen und das
       # Default-Backend wechseln? Leer = Admin-Bereich deaktiviert.
