@@ -36,9 +36,14 @@ class CrispAsrHttpClient(AsrClient):
     )
 
     def __init__(self, url: Optional[str] = None,
-                 transport: Optional[httpx.BaseTransport] = None) -> None:
+                 transport: Optional[httpx.BaseTransport] = None,
+                 capabilities: Optional[BackendCapabilities] = None) -> None:
         self.url = (url or _URL).rstrip("/")
         self._transport = transport
+        # Per-Instanz-Override (moonshine-de/canary-asr nutzen denselben
+        # Adapter mit eigener Capability-Beschreibung, Task C6).
+        if capabilities is not None:
+            self.capabilities = capabilities
 
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
@@ -59,6 +64,6 @@ class CrispAsrHttpClient(AsrClient):
                 return _parse_result(resp.json())
         except httpx.ConnectError as exc:
             raise RuntimeError(
-                f"Backend ark-asr nicht erreichbar ({self.url}). "
+                f"Backend {self.capabilities.label} nicht erreichbar ({self.url}). "
                 "Ist der Container gestartet? (Admin-Bereich → Backends)"
             ) from exc

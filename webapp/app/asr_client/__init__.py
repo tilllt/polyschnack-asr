@@ -108,6 +108,32 @@ def get_client(backend: Optional[str] = None) -> AsrClient:
     elif backend in ("ark-asr", "crispasr", "crisp-asr"):
         from .adapters.crisp_asr_http import CrispAsrHttpClient
         client = CrispAsrHttpClient()
+    elif backend == "moonshine-de":
+        # Deutsches Spezialmodell (fidoriel Fine-Tune) über den CrispASR-Server.
+        from ..service_registry import get_service
+        svc = get_service("moonshine-de") or {}
+        from .adapters.crisp_asr_http import CrispAsrHttpClient
+        client = CrispAsrHttpClient(
+            url=os.getenv("MOONSHINE_URL", svc.get("url", "http://polyschnack-moonshine-de:8080")),
+            capabilities=BackendCapabilities(
+                streaming=False, async_jobs=False, noise_reduce=False,
+                word_timestamps=True, languages=["de"], device=["gpu", "cpu"],
+                label="moonshine-de", native_punctuation=True,
+            ),
+        )
+    elif backend == "canary-asr":
+        # NVIDIA canary-1b-v2, multilingual (EN/DE/FR/ES) über CrispASR-Server.
+        from ..service_registry import get_service
+        svc = get_service("canary-asr") or {}
+        from .adapters.crisp_asr_http import CrispAsrHttpClient
+        client = CrispAsrHttpClient(
+            url=os.getenv("CANARY_URL", svc.get("url", "http://polyschnack-canary:8080")),
+            capabilities=BackendCapabilities(
+                streaming=False, async_jobs=False, noise_reduce=False,
+                word_timestamps=True, languages=["de", "en", "fr", "es"],
+                device=["gpu", "cpu"], label="canary-asr", native_punctuation=True,
+            ),
+        )
     elif backend == "voxtral":
         # Voxtral runs on the local voxtral.cpp server (OpenAI-compatible API).
         from ..service_registry import get_service
