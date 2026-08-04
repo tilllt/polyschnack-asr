@@ -137,9 +137,57 @@ SERVICES: List[Dict[str, Any]] = [
         },
         "status": "active",
     },
+    {
+        "name": "moonshine-de",
+        "backend": "moonshine-de",
+        "compose_profile": "moonshine",
+        "container_name": "polyschnack-moonshine-de",
+        "type": "local",
+        "cost_per_minute_eur": 0.0,
+        "concurrency": 1,
+        "model": "moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)",
+        "url": "http://polyschnack-moonshine-de:8080",
+        "requires": {"vram_gb": 1, "ram_gb": 2, "disk_gb": 1},
+        "capabilities": {
+            "word_timestamps": True,  # CrispASR verbose_json, -ml 1
+            "streaming": False,
+            "async_jobs": False,
+            "noise_reduce": False,
+            "vad": "external",
+            "diarization": "external",
+            "enhance": True,
+            "languages": ["de"],
+            "device": ["gpu", "cpu"],
+        },
+        "status": "active",
+    },
+    {
+        "name": "canary-asr",
+        "backend": "canary-asr",
+        "compose_profile": "canary",
+        "container_name": "polyschnack-canary",
+        "type": "local",
+        "cost_per_minute_eur": 0.0,
+        "concurrency": 1,
+        "model": "canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)",
+        "url": "http://polyschnack-canary:8080",
+        "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
+        "capabilities": {
+            "word_timestamps": True,  # CrispASR verbose_json, -ml 1
+            "streaming": False,
+            "async_jobs": False,
+            "noise_reduce": False,
+            "vad": "external",
+            "diarization": "external",
+            "enhance": True,
+            "languages": ["de", "en", "fr", "es"],
+            "device": ["gpu", "cpu"],
+        },
+        "status": "active",
+    },
 ]
 
-_VALID_PROFILES = {"default", "cpp", "qwen3", "ark", "voxtral"}
+_VALID_PROFILES = {"default", "cpp", "qwen3", "ark", "voxtral", "moonshine", "canary"}
 
 
 def get_service(name: str) -> Optional[Dict[str, Any]]:

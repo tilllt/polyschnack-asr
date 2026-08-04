@@ -35,9 +35,28 @@ def test_required_fields_present():
 
 
 def test_local_services_have_valid_profile():
+    valid = {"default", "cpp", "qwen3", "ark", "voxtral", "moonshine", "canary"}
     for s in SERVICES:
         if s["type"] == "local":
-            assert s["compose_profile"] in {"default", "cpp", "qwen3", "ark", "voxtral"}
+            assert s["compose_profile"] in valid
+
+
+def test_moonshine_de_service_registered():
+    svc = get_service("moonshine-de")
+    assert svc is not None
+    assert svc["container_name"] == "polyschnack-moonshine-de"
+    assert svc["url"] == "http://polyschnack-moonshine-de:8080"
+    assert svc["compose_profile"] == "moonshine"
+    assert svc["capabilities"]["languages"] == ["de"]
+
+
+def test_canary_asr_service_registered():
+    svc = get_service("canary-asr")
+    assert svc is not None
+    assert svc["container_name"] == "polyschnack-canary"
+    assert svc["url"] == "http://polyschnack-canary:8080"
+    assert svc["compose_profile"] == "canary"
+    assert set(svc["capabilities"]["languages"]) == {"de", "en", "fr", "es"}
 
 
 def test_default_backend_adapter_matches_registry():
