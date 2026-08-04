@@ -1,4 +1,4 @@
-![PolySchnack](assets/logo.png)
+![PolySchnack](assets/logo.svg)
 
 # PolySchnack — Multi-Backend Speech-to-Text
 
@@ -18,7 +18,7 @@ PolySchnack ist aus **[Parakeet ASR](https://github.com/nvidia/parakeet)** von
 entstanden und wurde **massiv erweitert**:
 
 - **Multi-Backend-Architektur** — wähle zwischen Python/ONNX, parakeet.cpp (ggml/C++),
-  Qwen3-ASR (ggml/C++) und weiteren Backends — ohne Code-Änderung
+  Qwen3-ASR, ARK-ASR, Moonshine-DE und Canary — ohne Code-Änderung
 - **Moderne Web UI** mit WaveSurfer-Wellenform, Zoom, Segment-Editor,
   Echtzeit-Vorschau, Export (SRT/VTT/TXT)
 - **Word-Timestamps** via Forced Alignment (Qwen3-ASR) oder
@@ -36,7 +36,7 @@ entstanden und wurde **massiv erweitert**:
 ## Features
 
 - **OpenAI-kompatible API** — Drop-in für `openai.Audio.transcriptions.create()`
-- **Multi-Backend** — `ASR_BACKEND=pk-python|pk-cpp|qwen3-asr|ark-asr|voxtral` per Env-Var
+- **Multi-Backend** — `ASR_BACKEND=pk-python|pk-cpp|qwen3-asr|ark-asr|moonshine-de|canary-asr` per Env-Var
 - **Word-Timestamps** — echte Word-Level-Timestamps via ForcedAligner (Qwen3-ASR)
 - **Web UI** — Upload, Playback, Zoom, Crop, Segment-Edit, Export
 - **Live Preview** — SSE Streaming zeigt Text chunkweise an
@@ -98,26 +98,28 @@ Env-Variable — kein Code nötig.
 | **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Seit Weg 1 eigenes hybrides CrispASR-Image (CUDA-Binary mit CPU-Fallback) statt externem mudler-Image; native Interpunktion + deutsches Truecasing. |
 | **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). Hybrid. Native Interpunktion + deutsches Truecasing (Server-Flag). |
 | **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. Hybrid (CrispASR-Binary). Native Interpunktion + deutsches Truecasing (Server-Flag). |
-| **Voxtral (voxtral.cpp)** | `--profile voxtral` | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). |
+| **Moonshine-DE (ggml/C++)** | `--profile moonshine` | `moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). Besonders schnell und ressourcenschonend. ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
+| **Canary (ggml/C++)** | `--profile canary` | `canary-asr` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). Hybrid (CrispASR-Binary). |
+| **Voxtral (voxtral.cpp)** | *(geplant)* | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Läuft über [voxtral.cpp](https://github.com/andrijdavid/voxtral.cpp) (ggml/C++), Modell als GGUF (~2,7 GB Q4_K_M). **Noch nicht gebaut** — Block in `compose.backends.yml` ist auskommentiert. |
 
 ### Feature-Matrix der Backends
 
-| Feature | pk-python | pk-cpp | qwen3-asr | ark-asr | voxtral |
-|---------|-----------|--------|-----------|---------|---------|
-| Word-Timestamps | ✅ | ✅ | ✅ | ⚠️ *prüfen* | ❌ *nicht trainiert* |
-| Live-Streaming (Preview) | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Async-Jobs (Hintergrund) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Noise-Reduction (Service) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| VAD-Trimmung (Silero, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Diarization (CrispASR-diar, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
-| Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~2,7 GB |
+| Feature | pk-python | pk-cpp | qwen3-asr | ark-asr | moonshine-de | canary-asr | voxtral* |
+|---------|-----------|--------|-----------|---------|-------------|------------|---------|
+| Word-Timestamps | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ *nicht trainiert* |
+| Live-Streaming (Preview) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Async-Jobs (Hintergrund) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Noise-Reduction (Service) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| VAD-Trimmung (Silero, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Diarization (CrispASR-diar, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ (DE-Spezial) | ✅ | ✅ |
+| Weitere Sprachen | EN u. a. | EN u. a. | 30 Sprachen | EN u. a. | — | EN/FR/ES | EN |
+| Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
+| Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~39 MB | ~0,5 GB | ~2,7 GB |
 
-*⚠️ „prüfen" = Wert wird beim Implementieren gegen die echte API-Antwort verifiziert.
-❌ „nicht trainiert" = Voxtral liefert laut Mistral keine Word-Timestamps (Modell ist ein
-LLM mit Audio-Encoder, kein reines ASR). Die Matrix ist auch live in der GUI
+*Voxtral ist **geplant** (Block in `compose.backends.yml` auskommentiert, kein Image gebaut) —
+die Zeile zeigt die Zielwerte. Die Matrix ist auch live in der GUI
 (Admin-Bereich → „Modell-Matrix") und via `GET /api/models/matrix` abrufbar.*
 
 ### Parakeet (Python/ONNX) — Standard, einfach loslegen
@@ -139,13 +141,16 @@ CPP_URL=http://polyschnack-cpp:8080 ASR_BACKEND=pk-cpp \
 Das GGUF-Modell (~700 MB) muss einmalig geladen werden:
 ```bash
 docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
-  https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
+  https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
+
+> **Achtung:** `CPP_URL` ist die **eigene** Env-Variable des pk-cpp-Adapters —
+> nicht `ASR_URL` verwenden (das ist der ONNX-pk-python-Container).
 
 ### Qwen3-ASR — beste Spracherkennung + Word-Timestamps
 
 ```bash
-ASR_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
+QWEN3_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 ```
 
@@ -153,16 +158,16 @@ Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16) müssen geladen werden:
 ```bash
 docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
   wget -qO /models/qwen3-asr-0.6b-q8_0.gguf \
-    https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/qwen3-asr-0.6b-q8_0.gguf &&
+    https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf &&
   wget -qO /models/qwen3-forced-aligner-0.6b-f16.gguf \
-    https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf
+    https://huggingface.co/OpenVoiceOS/qwen3-forced-aligner-0.6b-f16/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf
 '
 ```
 
 ### ARK-ASR — State-of-the-Art Erkennung
 
 ```bash
-ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
+CRISPASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
 ```
 
@@ -170,6 +175,38 @@ Das GGUF-Modell (~4 GB, Q8_0) muss einmalig geladen werden:
 ```bash
 docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
   https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
+```
+
+### Moonshine-DE — kompaktes Deutsches Spezialmodell
+
+```bash
+ASR_BACKEND=moonshine-de \
+  docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d
+```
+
+Modell + Tokenizer (~42 MB) müssen einmalig geladen werden:
+```bash
+docker run --rm -v "$PWD/DATA/moonshine-models:/models" alpine sh -c '
+  wget -qO /models/moonshine-base-de-fidoriel-q4_k.gguf \
+    https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf &&
+  wget -qO /models/tokenizer.bin \
+    https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/tokenizer.bin
+'
+```
+
+> ⚠️ **Lizenz:** CC-BY-NC-SA-4.0 — nicht für kommerzielle Nutzung.
+
+### Canary — multilingual (EN/DE/FR/ES)
+
+```bash
+ASR_BACKEND=canary-asr \
+  docker compose -f compose.yml -f compose.backends.yml --profile canary up -d
+```
+
+Das Modell (~0,6 GB, q4_K) muss einmalig geladen werden:
+```bash
+docker run --rm -v "$PWD/DATA/canary-models:/models" alpine wget -O /models/canary-1b-v2-q4_k.gguf \
+  https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf
 ```
 
 ### Diarization (Sprechererkennung) — CrispASR-diar-Service
@@ -237,125 +274,102 @@ docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
 ```
 
 Die folgenden YAML-Ausschnitte zeigen die Services im Überblick
-(`asr`, `webapp`, `docker-proxy` in `compose.yml`; die Backends in
-`compose.backends.yml`):
+(`asr`, `diar`, `webapp`, `docker-proxy` in `compose.yml`; die optionalen
+Backends in `compose.backends.yml`):
 
 ```yaml
 services:
   # ──────────────────────────────────────────────────
-  # Backend: Parakeet Python/ONNX (Default-Profil)
+  # Kern-Stack (compose.yml) — läuft überall (CPU),
+  # GPU nur via compose.gpu.yml-Overlay (runtime: nvidia)
   # ──────────────────────────────────────────────────
-  asr:
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    environment:
+      CONTAINERS: "1"   # GET/POST /containers/* (start/stop/restart/logs)
+      INFO: "1"         # GET /info (Host-RAM/CPU für den Ressourcen-Check)
+      POST: "1"         # POST-Aktionen erlauben
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  asr:                  # Parakeet Python/ONNX (Default-Backend)
     image: registry.example.com/public/polyschnack-asr:latest
     container_name: polyschnack-asr
-    runtime: nvidia
     environment:
-      POLYSCHNACK_USE_GPU: "true"
+      POLYSCHNACK_USE_GPU: "auto"   # GPU wenn verfügbar, sonst CPU-INT8
       POLYSCHNACK_DEFAULT_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      POLYSCHNACK_INFER_WORKERS: "1"
-    ports:
-      - "5092:5092"
-    volumes:
-      - polyschnack-models:/app/models
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5092/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
+    ports: ["5092:5092"]
+    volumes: ["./DATA/parakeet-models:/app/models"]
 
-  # ──────────────────────────────────────────────────
-  # Backend: parakeet.cpp (Profil: --profile cpp)
-  # ──────────────────────────────────────────────────
-  asr-cpp:
-    profiles: ["cpp"]
-    image: ghcr.io/mudler/parakeet.cpp-server:latest-cuda
-    container_name: polyschnack-cpp
-    runtime: nvidia
+  diar:                 # Diarization (CrispASR-Server, Option B)
+    image: registry.example.com/public/polyschnack-asr-diar:latest
+    container_name: polyschnack-diar
     environment:
-      MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
-    volumes:
-      - cpp-models:/models:ro
-    ports:
-      - "5093:8080"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+    volumes: ["./DATA/diar-models:/models:ro"]
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:8080/health"] }
 
-  # ──────────────────────────────────────────────────
-  # Backend: Qwen3-ASR (Profil: --profile qwen3)
-  # ──────────────────────────────────────────────────
-  qwen3-asr:
-    profiles: ["qwen3"]
-    image: registry.example.com/public/polyschnack-asr-qwen3:latest
-    container_name: qwen3-asr
-    runtime: nvidia
-    environment:
-      QWEN_USE_VRAM: "1"
-      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
-      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
-    volumes:
-      - qwen3-models:/models:ro
-    ports:
-      - "5094:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
-
-  # ──────────────────────────────────────────────────
-  # Backend: ARK-ASR via CrispASR (Profil: --profile ark)
-  # ──────────────────────────────────────────────────
-  ark-asr:
-    profiles: ["ark"]
-    image: registry.example.com/public/polyschnack-asr-ark:latest
-    container_name: ark-asr
-    runtime: nvidia
-    environment:
-      CRISPASR_CLI: /usr/local/bin/crispasr
-      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
-    volumes:
-      - ark-models:/models:ro
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-
-  # ──────────────────────────────────────────────────
-  # Web UI (für alle Backends identisch)
-  # ──────────────────────────────────────────────────
   webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
     container_name: polyschnack-webapp
-    mem_limit: 2g
-    memswap_limit: 2g
     environment:
       ASR_URL: "${ASR_URL:-http://asr:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
-      ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx
-      DATA_DIR: /data
-      VAD_TRIM_SILENCE: "false"
+      DIAR_URL: "${DIAR_URL:-http://diar:8080}"
+      DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"
+      DOCKER_PROXY_URL: http://docker-proxy:2375
       PUBLIC_RETENTION_MINUTES: "60"
-    ports:
-      - "8088:8080"
-    volumes:
-      - poc-data:/data
+    ports: ["8088:8080"]
+    volumes: ["./DATA/poc-data:/data"]
     depends_on:
-      asr:
-        condition: service_healthy
+      asr: { condition: service_healthy }
+      diar: { condition: service_started }
 
-volumes:
-  polyschnack-models:
-  cpp-models:
-  qwen3-models:
-  ark-models:
-  poc-data:
+  # ──────────────────────────────────────────────────
+  # Optionale Backends (compose.backends.yml, Docker-Profile)
+  # Alle hybrid: CUDA-Binary mit CPU-Fallback (Weg 1),
+  # GPU via compose.gpu.yml-Overlay, sonst automatisch CPU
+  # ──────────────────────────────────────────────────
+  asr-cpp:              # Profil: --profile cpp (Port 5093)
+    image: registry.example.com/public/polyschnack-asr-cpp:latest
+    container_name: polyschnack-cpp
+    environment:
+      CPP_ASR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+
+  qwen3-asr:            # Profil: --profile qwen3 (Port 5094)
+    image: registry.example.com/public/polyschnack-asr-qwen3:latest
+    container_name: qwen3-asr
+    environment:
+      QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
+      QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+
+  ark-asr:              # Profil: --profile ark (Port 5095)
+    image: registry.example.com/public/polyschnack-asr-ark:latest
+    container_name: ark-asr
+    environment:
+      ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+
+  moonshine-de:         # Profil: --profile moonshine (Port 5096)
+    image: registry.example.com/public/polyschnack-asr-moonshine-de:latest
+    container_name: polyschnack-moonshine-de
+    environment:
+      MOONSHINE_DE_MODEL: /models/moonshine-base-de-fidoriel-q4_k.gguf
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+
+  canary-asr:           # Profil: --profile canary (Port 5097)
+    image: registry.example.com/public/polyschnack-asr-canary:latest
+    container_name: polyschnack-canary
+    environment:
+      CANARY_ASR_MODEL: /models/canary-1b-v2-q4_k.gguf
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
 ```
+
+> **Hinweis:** Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/`
+> (keine Named-Volumes). Die `healthcheck`-Zeilen sind vereinfacht dargestellt —
+> die vollständigen Definitionen stehen in `compose.yml` / `compose.backends.yml`.
 
 ### Profile im Detail
 
@@ -364,25 +378,35 @@ sonst automatisch CPU — kein manueller GPU/CPU-Wechsel):
 
 | Profil | Befehl | Startet | GPU via Overlay |
 |--------|--------|---------|:---------:|
-| *(kein Profil)* | `docker compose up -d` | asr + webapp | ✅ |
-| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | asr-cpp + webapp | ✅ |
-| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | qwen3-asr + webapp | ✅ |
-| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | ark-asr + webapp | ✅ |
+| *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
+| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + asr-cpp | ✅ |
+| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + qwen3-asr | ✅ |
+| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + ark-asr | ✅ |
+| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + moonshine-de | ✅ |
+| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + canary-asr | ✅ |
 
-Das Backend wird über zwei Umgebungsvariablen gesteuert:
+Das Backend wird über die Adapter-Auswahl gesteuert — **jeder Adapter hat
+seine eigene URL-Env** (nie `ASR_URL` für andere Backends verwenden — das ist
+der ONNX-pk-python-Container!):
 
-| Variable | Beispiel | Beschreibung |
-|----------|----------|-------------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr` | Adapter-Auswahl |
-| `ASR_URL` | `http://qwen3-asr:8080` | Addresse des Backend-Containers (pk-python: `http://asr:5092`) |
+| Variable | Default | Beschreibung |
+|----------|---------|-------------|
+| `ASR_BACKEND` | `pk-python` | Adapter-Auswahl (`pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr`) |
+| `ASR_URL` | `http://asr:5092` | URL des ONNX-pk-python-Containers |
 | `CPP_URL` | `http://polyschnack-cpp:8080` | URL des pk-cpp-Containers (CrispASR parakeet) |
+| `QWEN3_URL` | `http://qwen3-asr:8080` | URL des Qwen3-ASR-Containers |
+| `CRISPASR_URL` | `http://ark-asr:8080` | URL des ARK-ASR-Containers (CrispASR) |
+| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:8080` | URL des Moonshine-DE-Containers |
+| `CANARY_URL` | `http://polyschnack-canary:8080` | URL des Canary-Containers |
 
 ```bash
-# Kurzform: nur ASR_URL setzen (Adapter wird automatisch erkannt)
-ASR_URL=http://qwen3-asr:8080 docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
+# WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
+# get_client() still auf pk-python zurück und postet gegen den ONNX-Container!
+QWEN3_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
-# Explizit: beide Variablen
-ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
+# Kombination mehrerer Backends (Admin-GUI startet sie on demand):
+docker compose -f compose.yml -f compose.backends.yml \
+  --profile cpp --profile qwen3 --profile ark up -d --no-start
 ```
 
 ---
@@ -392,15 +416,23 @@ ASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr docker compose -f compose.yml -f
 ```mermaid
 graph LR
     Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
-    webapp -->|HTTP :5092| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr"]
+    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr<br/>oder ark-asr …"]
+    webapp -->|Diarization| diar["diar (CrispASR-Server)"]
+    webapp -->|Docker-API| proxy["docker-proxy<br/>(Socket-Proxy)"]
+    proxy -.start/stop.-> asr
     asr --> model["ASR Modell (GGUF / ONNX)"]
-    webapp --- db[("SQLite + Audio-Dateien<br/>(poc-data Volume)")]
-    asr --- mcache[("Modell-Cache<br/>(polyschnack-models /<br/>cpp-models / qwen3-models<br/>/ ark-models)")]
+    webapp --- db[("SQLite + Audio-Dateien<br/>(./DATA/poc-data)")]
+    asr --- mcache[("Modell-Cache<br/>(./DATA/<name>-models)")]
 ```
 
-Die Webapp kommuniziert mit dem ASR-Backend über die OpenAI-kompatible
+Die Webapp kommuniziert mit den ASR-Backends über die OpenAI-kompatible
 `POST /v1/audio/transcriptions`-Schnittstelle. Der Adapter wird durch die
-Umgebungsvariable `ASR_BACKEND` gesteuert.
+Umgebungsvariable `ASR_BACKEND` gesteuert (jedes Backend hat seine eigene
+URL-Env — siehe Env-Tabelle oben). Die Diarization läuft im eigenen
+`diar`-Container (CrispASR-Server, `POST /v1/audio/transcriptions` mit
+`diarize=true&response_format=diarized_json`). Die Admin-GUI steuert die
+Backend-Container über den restriktiven `docker-proxy` (kein direkter
+Docker-Socket-Zugriff aus der Webapp).
 
 ---
 
@@ -431,8 +463,8 @@ Umgebungsvariable `ASR_BACKEND` gesteuert.
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `voxtral` | `pk-python` |
-| `ASR_URL` | URL des ASR-Dienstes | `http://asr:5092` |
+| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr` | `pk-python` |
+| `ASR_URL` | URL des ONNX-Dienstes | `http://asr:5092` |
 | `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `pk-python` |
 
 ### Webapp-Umgebungsvariablen
@@ -531,7 +563,7 @@ OIDC-Login, nie im Shared Space.
 Der Admin-Bereich (`🛠 Admin` in der GUI, nur sichtbar für Admins) steuert die
 ASR-Services on demand — die Webapp spricht dafür **niemals direkt** den
 Docker-Socket an, sondern den restriktiven Proxy-Container
-[`tecriser/docker-socket-proxy`](https://github.com/Tecnicality/docker-socket-proxy)
+[`tecnativa/docker-socket-proxy`](https://github.com/Tecnicality/docker-socket-proxy)
 (es sind nur die Container-/Info-Routen + POST freigeschaltet; Exec/Create/Events
 bleiben deaktiviert).
 
@@ -558,7 +590,7 @@ Position/ETA, fremde Jobs anonymisiert (nur `#id`).
 die GUI startet dann on demand):
 
 ```
-docker compose -f compose.yml -f compose.backends.yml --profile cpp --profile qwen3 --profile ark --profile voxtral up -d --no-start
+docker compose -f compose.yml -f compose.backends.yml --profile cpp --profile qwen3 --profile ark --profile moonshine --profile canary up -d --no-start
 ```
 
 ---

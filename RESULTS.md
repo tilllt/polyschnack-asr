@@ -1,8 +1,14 @@
 # PolySchnack ASR Server — PoC Results
 
-> Status: **in progress**. Approach A implemented + validated on CPU (Apple M1 Pro, Docker).
-> GPU latency/VRAM/throughput numbers require an NVIDIA box (target: Linux server, 4GB VRAM)
-> and are **deferred** — this Mac has no CUDA.
+> ⚠️ **HISTORISCH (2026-07, PoC-Phase).** Dieses Dokument beschreibt die
+> ursprüngliche PoC-Evaluierung von Approach A (Python/ONNX) auf einer
+> Apple-M1-Entwicklungsmaschine. Das Projekt ist seitdem weit darüber
+> hinausgewachsen: Multi-Backend-Architektur (CrispASR-hybride Backends),
+> Webapp mit Diarization (eigener `diar`-Container), OIDC-Workspaces,
+> Segment-Editor, Sharing, Post-Processing. Die aktuellen Architektur- und
+> Deploy-Infos stehen in der [README](README.md); WER-Vergleiche der Backends
+> laufen über das separate Repo `polyschnack-benchmark` (CommonVoice-DE-Korpus).
+> Die Zahlen unten sind nur noch als PoC-Referenz (CPU-Baseline) relevant.
 
 ## Approaches
 

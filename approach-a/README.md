@@ -158,12 +158,12 @@ The easiest way to get started. No dependencies to install!
 ```bash
 git clone https://github.com/groxaxo/parakeet-tdt-0.6b-v3-fastapi-openai
 cd parakeet-tdt-0.6b-v3-fastapi-openai
-docker compose up polyschnack-cpu -d
+docker compose up -d
 ```
 
 **GPU Deployment** (requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)):
 ```bash
-docker compose up polyschnack-gpu -d
+docker compose up -d   # hybrid: GPU via deploy.reservations.devices, sonst CPU
 ```
 
 The server will be available at `http://localhost:5092`. See [DOCKER.md](DOCKER.md) for more options.

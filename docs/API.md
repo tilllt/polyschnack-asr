@@ -306,5 +306,13 @@ print(r["status"], r.get("text", r.get("error")))
 - On CPU the server caps chunk length and serializes inference for low memory —
   see [`../approach-a/POC_NOTES.md`](../approach-a/POC_NOTES.md). Relax these on a
   bigger host or GPU.
-- GPU: run the `polyschnack-gpu` image (NVIDIA Container Toolkit). Verify the model
-  fits your VRAM (FP32 default; `grikdotnet/...-fp16` or INT8 for ~4 GB cards).
+- GPU: run the stack with the GPU overlay
+  (`docker compose -f compose.yml -f compose.gpu.yml up -d`, NVIDIA Container
+  Toolkit required). The `asr` image (`registry.example.com/public/polyschnack-asr`)
+  is **hybrid** — `POLYSCHNACK_USE_GPU=auto` selects CUDA when available and
+  falls back to CPU-INT8 otherwise. Verify the model fits your VRAM
+  (`grikdotnet/...-fp16` or INT8 for ~4 GB cards).
+- The other backends (pk-cpp, qwen3-asr, ark-asr, moonshine-de, canary-asr)
+  expose the same OpenAI-compatible API on their own ports (5093–5097) — the
+  endpoint contract (`POST /v1/audio/transcriptions`, `verbose_json`,
+  `timestamp_granularities=word`) is identical.
