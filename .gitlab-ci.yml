@@ -130,6 +130,53 @@ build-cpp:
   needs:
     - test-webapp
 
+# moonshine-de (Weg 1): hybrides CrispASR-Image mit deutschem Spezialmodell
+# (fidoriel Fine-Tune, 61.5M, 6.9% WER CV22-de, ~39 MB GGUF).
+# Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell) — siehe README.
+build-moonshine-de:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:${CI_COMMIT_SHORT_SHA} \
+      moonshine-de-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
+# canary-asr (Weg 1): hybrides CrispASR-Image mit NVIDIA canary-1b-v2
+# (multilingual EN/DE/FR/ES, ~600 MB GGUF).
+build-canary:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-canary:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-canary:${CI_COMMIT_SHORT_SHA} \
+      canary-asr-cpp/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-canary:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-canary:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # ASR-GPU-Image (approach-a, ONNX + CUDA) — das Kern-Backend pk-python.
 # Eigener Job, damit der Webapp-Build nicht hinter dem 60-min-CUDA-Build wartet.
 build-asr:
