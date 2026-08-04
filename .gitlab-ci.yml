@@ -1,6 +1,22 @@
 stages:
   - test
   - build
+  - pages
+
+pages:
+  stage: pages
+  image: python:3.12-slim
+  tags:
+    - shared
+  script:
+    - pip install -q -r docs/requirements.txt 2>/dev/null
+    - mkdocs build -f docs/mkdocs.yml --strict
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 day
+  only:
+    - main
 
 test-core:
   stage: test

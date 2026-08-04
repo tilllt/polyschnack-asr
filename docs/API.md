@@ -304,7 +304,7 @@ print(r["status"], r.get("text", r.get("error")))
 - Audio formats: anything `ffmpeg` decodes (mp3, wav, ogg/opus, m4a, flac, webm, …);
   PCM WAV is decoded natively.
 - On CPU the server caps chunk length and serializes inference for low memory —
-  see [`../approach-a/POC_NOTES.md`](../approach-a/POC_NOTES.md). Relax these on a
+  see `approach-a/POC_NOTES.md` im Repo. Relax these on a
   bigger host or GPU.
 - GPU: run the stack with the GPU overlay
   (`docker compose -f compose.yml -f compose.gpu.yml up -d`, NVIDIA Container

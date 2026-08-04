@@ -1,0 +1,90 @@
+site_name: PolySchnack — Multi-Backend Speech-to-Text
+site_description: OpenAI-kompatible Spracherkennung mit wählbaren ASR-Backends — Web UI, Diarization, Benchmark
+site_url: https://polyschnack.example.com/docs/
+repo_url: https://gitlab.example.com/tilllt/polyschnack-asr/polyschnack-asr
+edit_uri: -/edit/main/docs/
+
+# mkdocs.yml liegt selbst in docs/ → docs_dir ist der eigene Ordner
+docs_dir: .
+site_dir: ../public
+
+theme:
+  name: material
+  language: de
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dunkles Design
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Helles Design
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - meta
+  - pymdownx.emoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Start: index.md
+  - Quickstart: quickstart.md
+  - API: API.md
+  - Backends:
+      - Übersicht: backends/overview.md
+      - Feature-Matrix: backends/matrix.md
+      - Modelle laden: backends/models.md
+  - Web UI: webui.md
+  - Diarization: diarization.md
+  - Benchmark:
+      - Übersicht: benchmark/index.md
+      - 2-Achsen-Taxonomie: benchmark/taxonomy.md
+      - Admin-Workflow: benchmark/admin.md
+  - Konfiguration:
+      - Env-Variablen: configuration/env.md
+      - OIDC-Auth: configuration/oidc.md
+      - Admin-Bereich: configuration/admin.md
+      - Post-Processing: configuration/postprocessing.md
+  - Compose-Referenz: compose.md
+  - Architektur: architecture.md
+  - Entwicklung:
+      - Setup: development/setup.md
+      - Tests: development/tests.md
+      - OpenSpec: development/openspec.md
+  - License: license.md

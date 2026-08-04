@@ -6,7 +6,8 @@
   <a href="#quickstart">Quickstart</a> · <a href="#backend-auswahl">Backends</a> ·
   <a href="#architektur">Architektur</a> · <a href="#web-ui">Web UI</a> ·
   <a href="#benchmark">Benchmark</a> · <a href="#konfiguration">Konfiguration</a> ·
-  <a href="#oidc-auth">OIDC</a> · <a href="#entwicklung">Entwicklung</a>
+  <a href="#oidc-auth">OIDC</a> · <a href="#entwicklung">Entwicklung</a> ·
+  <a href="https://gitlab.example.com/tilllt/polyschnack-asr/polyschnack-asr/-/pages">📚 Vollständige Doku (GitLab Pages)</a>
 </p>
 
 <p align="center">
