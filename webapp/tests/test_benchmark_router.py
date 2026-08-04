@@ -25,13 +25,33 @@ MANIFEST = {
     "created_by": "admin",
     "supersedes": None,
     "categories": [
-        {"id": "akzent", "name": "Akzente", "description": "Regionale Färbungen"},
-        {"id": "jugend", "name": "Jugendstimmen", "description": "Teens-Sprecher"},
+        {"id": "akzent", "name": "Akzente", "description": "Regionale Färbungen",
+         "kanal": "clean", "inhalt": "akzent"},
+        {"id": "jugend", "name": "Jugendstimmen", "description": "Teens-Sprecher",
+         "kanal": "clean", "inhalt": "allgemein"},
     ],
+    "axes": {
+        "kanal": {
+            "beschreibung": "Akustische Umgebung — wie klingt die Aufnahme?",
+            "kategorien": {
+                "clean": {"name": "Clean / Studio"},
+                "telefon": {"name": "Telefon"},
+            },
+        },
+        "inhalt": {
+            "beschreibung": "Sprech-Inhalt — was wird gesprochen?",
+            "kategorien": {
+                "allgemein": {"name": "Allgemein"},
+                "akzent": {"name": "Akzente"},
+            },
+        },
+    },
     "samples": [
         {
             "id": "akzent_001",
             "category": "akzent",
+            "kanal": "clean",
+            "inhalt": "akzent",
             "source_path": "common_voice_de_18989125.mp3",
             "text": "Kisten und Möbel hingegen lassen sich nicht stopfen.",
             "accent": "schweizerdeutsch",
@@ -42,6 +62,8 @@ MANIFEST = {
         {
             "id": "akzent_002",
             "category": "akzent",
+            "kanal": "clean",
+            "inhalt": "akzent",
             "source_path": "common_voice_de_20255045.mp3",
             "text": "Diese Einspielung wurde in der Neuen Zeitschrift aufgenommen.",
             "accent": "schweizerdeutsch",
@@ -52,6 +74,8 @@ MANIFEST = {
         {
             "id": "jugend_001",
             "category": "jugend",
+            "kanal": "clean",
+            "inhalt": "allgemein",
             "source_path": "common_voice_de_18208942.mp3",
             "text": "Wie viel wiegst du?",
             "accent": "",
@@ -119,6 +143,21 @@ def test_meta_public(client):
     assert data["version"] == 1
     assert data["sample_count"] == 2  # akzent_001 + jugend_001 (ohne held-out)
     assert data["per_category"] == {"akzent": 1, "jugend": 1}
+
+
+def test_meta_liefert_achsen_und_matrix(client):
+    """2-Achsen-Matrix: axes (kanal/inhalt) + matrix-Zählung für die GUI."""
+    r = client.get("/api/benchmark/meta")
+    data = r.json()
+    assert "axes" in data
+    assert set(data["axes"].keys()) == {"kanal", "inhalt"}
+    assert "clean" in data["axes"]["kanal"]["kategorien"]
+    # Matrix: {kanal: {inhalt: count}} — nur öffentliche Samples
+    m = data["matrix"]
+    assert m["clean"]["akzent"] == 1
+    assert m["clean"]["allgemein"] == 1
+    # akzent_002 ist held-out → zählt nicht
+    assert data["matrix_total"] == 2
 
 
 def test_samples_exclude_held_out(client):

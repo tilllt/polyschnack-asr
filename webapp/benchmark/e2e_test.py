@@ -31,6 +31,13 @@ with TestClient(app) as c:
     print("meta:", meta.status_code, "| version:", mj["version"], "| samples:", mj["sample_count"])
     assert meta.status_code == 200 and mj["sample_count"] > 0
 
+    # 2-Achsen-Matrix: axes + matrix-Zählung vorhanden
+    assert "axes" in mj and set(mj["axes"].keys()) == {"kanal", "inhalt"}
+    assert mj["matrix_total"] == mj["sample_count"]
+    total_cells = sum(v for cell in mj["matrix"].values() for v in cell.values())
+    print("matrix_total:", mj["matrix_total"], "| Zellen-Summe:", total_cells)
+    assert total_cells == mj["sample_count"]
+
     samples = c.get("/api/benchmark/samples").json()
     print("samples:", len(samples["samples"]))
     assert len(samples["samples"]) == mj["sample_count"]

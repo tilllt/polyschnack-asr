@@ -51,6 +51,23 @@ def main() -> None:
 
     tax = json.loads(TAXONOMY.read_text(encoding="utf-8"))
     mapping = tax["mapping_alt_neu"]
+    # Achsen-Definitionen (kanal/inhalt) + Beschreibungen für die GUI-Matrix
+    axes = {
+        "kanal": {
+            "beschreibung": tax["achsen"]["kanal"]["beschreibung"],
+            "kategorien": {
+                k: {"name": v["name"]}
+                for k, v in tax["achsen"]["kanal"]["kategorien"].items()
+            },
+        },
+        "inhalt": {
+            "beschreibung": tax["achsen"]["inhalt"]["beschreibung"],
+            "kategorien": {
+                k: {"name": v["name"]}
+                for k, v in tax["achsen"]["inhalt"]["kategorien"].items()
+            },
+        },
+    }
 
     v1 = DATA_OUT / "versions" / "v1"
     audio_dir = v1 / "audio"
@@ -74,6 +91,7 @@ def main() -> None:
             "Held-out-Samples und Referenztexte sind nicht öffentlich "
             "(Anti-Gaming). Ergebnisse sind Momentaufnahmen."
         ),
+        "axes": axes,
         "categories": [
             {"id": "akzent", "name": "Akzente", "kanal": "clean", "inhalt": "akzent",
              "description": "Regionale Färbungen (Schweizerdeutsch, Österreichisch, …)"},

@@ -12,8 +12,16 @@ export interface BenchmarkSample {
   text: string;
   accent?: string;
   age?: string;
+  kanal?: string;
+  inhalt?: string;
+  quelle?: string;
   preview_url: string;
   audio_url: string;
+}
+
+export interface BenchmarkAxis {
+  beschreibung: string;
+  kategorien: Record<string, { name: string }>;
 }
 
 export interface BenchmarkMeta {
@@ -23,6 +31,9 @@ export interface BenchmarkMeta {
   categories: BenchmarkCategory[];
   sample_count: number;
   per_category: Record<string, number>;
+  axes?: { kanal: BenchmarkAxis; inhalt: BenchmarkAxis };
+  matrix?: Record<string, Record<string, number>>;
+  matrix_total?: number;
   methodology?: string;
   disclaimer?: string;
 }

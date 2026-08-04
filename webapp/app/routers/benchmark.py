@@ -51,6 +51,13 @@ def meta() -> Dict[str, Any]:
     svc = _require_data()
     m = svc.latest_manifest()
     public = svc.public_samples()
+    # 2-Achsen-Matrix: {kanal: {inhalt: count}} über öffentliche Samples
+    matrix: Dict[str, Dict[str, int]] = {}
+    for s in public:
+        kanal = s.get("kanal") or "clean"
+        inhalt = s.get("inhalt") or "allgemein"
+        matrix.setdefault(kanal, {}).setdefault(inhalt, 0)
+        matrix[kanal][inhalt] += 1
     return {
         "version": m["version"],
         "created_at": m.get("created_at"),
@@ -58,6 +65,9 @@ def meta() -> Dict[str, Any]:
         "categories": m.get("categories", []),
         "sample_count": len(public),
         "per_category": _count_by_category(public),
+        "axes": m.get("axes"),
+        "matrix": matrix,
+        "matrix_total": sum(v for cell in matrix.values() for v in cell.values()),
         "methodology": m.get("methodology", "WER/CER/RTF auf CommonVoice-de + TTS"),
         "disclaimer": m.get(
             "disclaimer",

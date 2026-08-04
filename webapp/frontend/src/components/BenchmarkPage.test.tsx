@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BenchmarkCategory, PriceComparison } from "./BenchmarkPage";
-import type { BenchmarkCategory as Cat, BenchmarkSample, BenchmarkPricing } from "../benchmark";
+import { AxesMatrix, BenchmarkCategory, PriceComparison, TestSetExplanation } from "./BenchmarkPage";
+import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing } from "../benchmark";
 
 const CAT: Cat = { id: "akzent", name: "Akzente", description: "Regionale Färbungen" };
 
@@ -113,5 +113,72 @@ describe("PriceComparison", () => {
   test("leerer Zustand ohne Daten", () => {
     render(<PriceComparison pricing={null} />);
     expect(screen.getByText(/kein Preisvergleich/i)).toBeTruthy();
+  });
+});
+
+// ── 2-Achsen-Matrix ───────────────────────────────────────────────────────
+
+const META: BenchmarkMeta = {
+  version: 1,
+  sample_count: 2,
+  categories: [{ id: "akzent", name: "Akzente" }, { id: "jugend", name: "Jugendstimmen" }],
+  per_category: { akzent: 1, jugend: 1 },
+  axes: {
+    kanal: {
+      beschreibung: "Akustische Umgebung — wie klingt die Aufnahme?",
+      kategorien: { clean: { name: "Clean / Studio" }, telefon: { name: "Telefon" } },
+    },
+    inhalt: {
+      beschreibung: "Sprech-Inhalt — was wird gesprochen?",
+      kategorien: { allgemein: { name: "Allgemein" }, akzent: { name: "Akzente" } },
+    },
+  },
+  matrix: { clean: { akzent: 1, allgemein: 1 } },
+  matrix_total: 2,
+};
+
+describe("AxesMatrix", () => {
+  test("zeigt Zellen mit Sample-Zählung", () => {
+    render(<AxesMatrix meta={META} active={null} onSelect={() => {}} />);
+    expect(screen.getByText("Clean / Studio")).toBeTruthy();
+    expect(screen.getByText("Akzente")).toBeTruthy();
+    // Zelle clean×akzent hat 1 Sample
+    const cell = screen.getByTitle("Clean / Studio × Akzente: 1 Samples");
+    expect(cell).toBeTruthy();
+  });
+
+  test("Klick auf Zelle wählt Filter aus", () => {
+    const onSelect = vi.fn();
+    render(<AxesMatrix meta={META} active={null} onSelect={onSelect} />);
+    const cell = screen.getByTitle("Clean / Studio × Akzente: 1 Samples");
+    cell.click();
+    expect(onSelect).toHaveBeenCalledWith({ kanal: "clean", inhalt: "akzent" });
+  });
+
+  test("leere Zellen sind deaktiviert", () => {
+    render(<AxesMatrix meta={META} active={null} onSelect={() => {}} />);
+    const telefon = screen.getByTitle("Telefon × Akzente: 0 Samples");
+    expect((telefon as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("aktive Zelle wird markiert", () => {
+    render(<AxesMatrix meta={META} active={{ kanal: "clean", inhalt: "akzent" }} onSelect={() => {}} />);
+    const cell = screen.getByTitle("Clean / Studio × Akzente: 1 Samples");
+    expect(cell.className).toContain("bg-accent");
+  });
+});
+
+describe("TestSetExplanation", () => {
+  test("erklärt Achsen und Quellen", () => {
+    render(<TestSetExplanation meta={META} />);
+    expect(screen.getByText(/2 Achsen/)).toBeTruthy();
+    expect(screen.getByText(/Kanal \(Akustik\)/)).toBeTruthy();
+    expect(screen.getByText(/Inhalt \(Schwierigkeit\)/)).toBeTruthy();
+    expect(screen.getAllByText(/Piper/).length).toBeGreaterThan(0);
+  });
+
+  test("nennt die Sample-Gesamtzahl", () => {
+    render(<TestSetExplanation meta={META} />);
+    expect(screen.getByText(/2 Samples/)).toBeTruthy();
   });
 });

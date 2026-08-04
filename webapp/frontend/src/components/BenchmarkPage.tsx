@@ -123,6 +123,126 @@ function SampleRow({
   );
 }
 
+// ── 2-Achsen-Matrix (Kanal × Inhalt) ─────────────────────────────────────
+
+interface MatrixProps {
+  meta: BenchmarkMeta;
+  active: { kanal: string; inhalt: string } | null;
+  onSelect: (cell: { kanal: string; inhalt: string } | null) => void;
+}
+
+export function AxesMatrix({ meta, active, onSelect }: MatrixProps) {
+  const axes = meta.axes;
+  if (!axes || !meta.matrix) {
+    return <p className="text-sm text-dim">Keine Taxonomie-Achsen im Manifest.</p>;
+  }
+  const kanalKeys = Object.keys(axes.kanal.kategorien);
+  const inhaltKeys = Object.keys(axes.inhalt.kategorien);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr>
+            <th className="py-1 pr-2 text-left text-dim font-normal">
+              Kanal ↓ · Inhalt →
+            </th>
+            {inhaltKeys.map((ik) => (
+              <th key={ik} className="py-1 px-2 text-center font-medium">
+                {axes.inhalt.kategorien[ik].name}
+              </th>
+            ))}
+            <th className="py-1 px-2 text-center font-medium">Σ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {kanalKeys.map((kk) => (
+            <tr key={kk}>
+              <td className="py-1 pr-2 whitespace-nowrap">
+                <span className="font-medium">{axes.kanal.kategorien[kk].name}</span>
+                <span className="text-dim text-xs block">{kk}</span>
+              </td>
+              {inhaltKeys.map((ik) => {
+                const n = meta.matrix?.[kk]?.[ik] ?? 0;
+                const isActive = active?.kanal === kk && active?.inhalt === ik;
+                return (
+                  <td key={ik} className="py-1 px-1 text-center">
+                    <button
+                      onClick={() => onSelect(isActive ? null : { kanal: kk, inhalt: ik })}
+                      disabled={n === 0}
+                      className={[
+                        "min-w-[2.4rem] px-2 py-1 rounded text-xs",
+                        n === 0
+                          ? "text-dim/30 cursor-not-allowed"
+                          : isActive
+                            ? "bg-accent text-bg font-bold"
+                            : "bg-[rgba(255,255,255,.05)] hover:bg-[rgba(255,255,255,.12)] cursor-pointer",
+                      ].join(" ")}
+                      title={`${axes.kanal.kategorien[kk].name} × ${axes.inhalt.kategorien[ik].name}: ${n} Samples`}
+                    >
+                      {n > 0 ? n : "·"}
+                    </button>
+                  </td>
+                );
+              })}
+              <td className="py-1 px-2 text-center text-dim">
+                {inhaltKeys.reduce((acc, ik) => acc + (meta.matrix?.[kk]?.[ik] ?? 0), 0)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-dim mt-2">
+        {meta.matrix_total ?? 0} Samples gesamt · Klick auf eine Zelle filtert die Samples darunter
+        {active ? ` (aktiv: ${active.kanal} × ${active.inhalt})` : ""}
+      </p>
+    </div>
+  );
+}
+
+// ── Test-Set-Erklärung ────────────────────────────────────────────────────
+
+export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
+  const axes = meta.axes;
+  const total = meta.matrix_total ?? meta.sample_count;
+  return (
+    <div className="text-sm text-dim space-y-2">
+      <p>
+        Das Test-Set besteht aus <strong className="text-txt">{total} Samples</strong>{" "}
+        (echte CommonVoice-Sprecher + Piper-TTS), aufgeteilt nach{" "}
+        <strong className="text-txt">2 Achsen</strong> — angelehnt an die Best
+        Practice echter ASR-Benchmarks (GigaSpeechBench, LibriSpeech, REVERB, CHiME):
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        {axes?.kanal && (
+          <li>
+            <strong className="text-txt">Kanal (Akustik):</strong>{" "}
+            {axes.kanal.beschreibung.toLowerCase()}{" "}
+            {Object.values(axes.kanal.kategorien).map((k) => k.name).join(" · ")}
+          </li>
+        )}
+        {axes?.inhalt && (
+          <li>
+            <strong className="text-txt">Inhalt (Schwierigkeit):</strong>{" "}
+            {axes.inhalt.beschreibung.toLowerCase()}{" "}
+            {Object.values(axes.inhalt.kategorien).map((k) => k.name).join(" · ")}
+          </li>
+        )}
+        <li>
+          <strong className="text-txt">Quelle:</strong> <code className="text-xs">cv</code> =
+          echte Stimmen (CC0), <code className="text-xs">tts</code> = synthetisch (Piper)
+        </li>
+      </ul>
+      <p>
+        Jedes Sample liegt als unkomprimierte WAV vor (Benchmark-Lauf) und als{" "}
+        <strong className="text-txt">MP3-128k-Preview</strong> (Anhören).{" "}
+        Referenztexte und held-out-Samples bleiben privat (Anti-Gaming) — die
+        WER/CER-Werte sind deshalb nicht „trainierbar".
+      </p>
+    </div>
+  );
+}
+
 // ── Preisvergleich ────────────────────────────────────────────────────────
 
 export function PriceComparison({ pricing }: { pricing: BenchmarkPricing | null }) {
@@ -212,6 +332,7 @@ interface PageProps {
 export function BenchmarkPageContent({ meta, data, results, pricing, admin, onReject, onEdit, onReload }: PageProps) {
   const [openCat, setOpenCat] = useState<string | null>(null);
   const [showText, setShowText] = useState(true);
+  const [matrixCell, setMatrixCell] = useState<{ kanal: string; inhalt: string } | null>(null);
 
   if (!meta || !data) {
     return (
@@ -222,8 +343,15 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
     );
   }
 
+  // Matrix-Filter: nur Samples der aktiven Zelle (kanal×inhalt)
+  const filtered = matrixCell
+    ? data.samples.filter(
+        (s) => (s.kanal ?? "clean") === matrixCell.kanal && (s.inhalt ?? "allgemein") === matrixCell.inhalt,
+      )
+    : data.samples;
+
   const grouped = new Map<string, BenchmarkSample[]>();
-  for (const s of data.samples) {
+  for (const s of filtered) {
     const arr = grouped.get(s.category) ?? [];
     arr.push(s);
     grouped.set(s.category, arr);
@@ -260,9 +388,28 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
         <p className="text-sm text-dim mt-1">{meta.disclaimer}</p>
       </section>
 
+      {/* 2-Achsen-Matrix */}
+      <section className="border border-border rounded-lg p-4">
+        <h2 className="font-semibold mb-2">Test-Set · 2-Achsen-Matrix</h2>
+        <AxesMatrix meta={meta} active={matrixCell} onSelect={setMatrixCell} />
+      </section>
+
+      {/* Test-Set-Erklärung */}
+      <section className="border border-border rounded-lg p-4">
+        <h2 className="font-semibold mb-2">Wie ist das Test-Set aufgebaut?</h2>
+        <TestSetExplanation meta={meta} />
+      </section>
+
       {/* Samples nach Kategorie (collapsible) */}
       <section className="space-y-2">
-        <h2 className="font-semibold">Samples</h2>
+        <h2 className="font-semibold">
+          Samples
+          {matrixCell ? (
+            <button onClick={() => setMatrixCell(null)} className="ml-2 btn-ghost text-xs">
+              Filter: {matrixCell.kanal} × {matrixCell.inhalt} ✕
+            </button>
+          ) : null}
+        </h2>
         {cats.map(({ cat, samples: ss }) => (
           <BenchmarkCategory
             key={cat.id}
@@ -278,6 +425,9 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
             audioUrl={(id) => `/api/benchmark/audio/${id}`}
           />
         ))}
+        {filtered.length === 0 && (
+          <p className="text-sm text-dim">Keine Samples in dieser Matrix-Zelle.</p>
+        )}
       </section>
 
       {/* Ergebnisse */}
