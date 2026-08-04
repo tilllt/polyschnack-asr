@@ -106,3 +106,89 @@ def test_sample_audio_preview_mp3(data_dir: Path):
     p = svc.sample_audio_path("akzent_001", kind="preview")
     assert p.suffix == ".mp3"
     assert "preview" in str(p)
+
+
+# ── Auto-Ersatz (Reject → neues Sample aus CV-Pool) ───────────────────────
+
+POOL = [
+    {"path": "common_voice_de_40067184.mp3", "text": "Er steht in der Nachfolge Jean Fouquets, ohne dessen Meister zu sein.", "accent": "schweizerdeutsch", "age": "", "gender": ""},
+    {"path": "common_voice_de_39565700.mp3", "text": "Das spezifische Epitheton bezieht sich auf die Blattform.", "accent": "österreichisches deutsch", "age": "", "gender": ""},
+    {"path": "common_voice_de_37881293.mp3", "text": "Der Ruhpoldinger Abschnitt ist flächenmäßig am bedeutendsten.", "accent": "deutschland deutsch|fränkisch", "age": "", "gender": ""},
+]
+
+
+def test_replace_rejected_sample_finds_alternative(tmp_path: Path):
+    svc = BenchmarkService(tmp_path / "benchmark_data")
+    ersatz = svc.replace_rejected_sample(
+        category="akzent", exclude_ids={"akzent_001"}, pool=POOL, seed=42
+    )
+    assert ersatz is not None
+    assert ersatz["source_path"] in {s["path"] for s in POOL}  # aus Pool
+    assert ersatz["id"].startswith("akzent_")
+    assert ersatz["status"] == "active"
+    assert ersatz["category"] == "akzent"
+
+
+def test_replace_rejected_excludes_used_paths(tmp_path: Path):
+    svc = BenchmarkService(tmp_path / "benchmark_data")
+    ersatz = svc.replace_rejected_sample(
+        category="akzent",
+        exclude_ids=set(),
+        used_paths={s["path"] for s in POOL},  # alle Pfade verbraucht
+        pool=POOL, seed=42,
+    )
+    assert ersatz is None
+
+
+def test_replace_rejected_new_id_avoids_collision(tmp_path: Path):
+    svc = BenchmarkService(tmp_path / "benchmark_data")
+    ersatz = svc.replace_rejected_sample(
+        category="akzent", exclude_ids={"akzent_001"}, pool=POOL, seed=42
+    )
+    assert ersatz["id"] not in {"akzent_001"}
+
+
+def test_create_version_after_reject(data_dir: Path):
+    svc = BenchmarkService(data_dir)
+    m2 = svc.create_version_after_reject(
+        "akzent_001",
+        {
+            "id": "akzent_004",
+            "category": "akzent",
+            "source_path": "common_voice_de_40067184.mp3",
+            "text": "Er steht in der Nachfolge Jean Fouquets.",
+            "accent": "schweizerdeutsch",
+            "age": "",
+            "held_out": False,
+            "status": "active",
+        },
+    )
+    assert m2["version"] == 2
+    assert m2["supersedes"] == 1
+    by_id = {s["id"]: s for s in m2["samples"]}
+    assert by_id["akzent_001"]["status"] == "rejected"
+    assert by_id["akzent_004"]["status"] == "active"
+    # v1 bleibt unverändert (immutable)
+    m1 = svc._load_manifest(1)
+    assert m1["samples"][0]["status"] == "active"
+
+
+def test_create_version_after_reject_unknown_raises(data_dir: Path):
+    svc = BenchmarkService(data_dir)
+    with pytest.raises(KeyError):
+        svc.create_version_after_reject("gibtsnicht", {"id": "x"})
+
+
+def test_edit_sample_mutates_in_place(data_dir: Path):
+    svc = BenchmarkService(data_dir)
+    s = svc.edit_sample("akzent_001", text="Neuer Referenztext.")
+    assert s["text"] == "Neuer Referenztext."
+    m = svc.latest_manifest()
+    assert m["samples"][0]["text"] == "Neuer Referenztext."
+    assert m.get("updated_at")
+
+
+def test_edit_sample_rejects_status_change(data_dir: Path):
+    svc = BenchmarkService(data_dir)
+    with pytest.raises(ValueError):
+        svc.edit_sample("akzent_001", status="rejected")

@@ -84,6 +84,65 @@ class BenchmarkService:
 
     # ── Admin: Reject / Edit / Versionen ───────────────────────────────────
 
+    def replace_rejected_sample(
+        self,
+        category: str,
+        exclude_ids: set,
+        pool: Optional[List[dict]] = None,
+        seed: int = 42,
+        used_paths: Optional[set] = None,
+    ) -> Optional[dict]:
+        """Wählt ein Ersatz-Sample aus dem CV-Pool (deterministisch).
+
+        - ``pool``: injizierter Kandidaten-Pool (sonst cv_extract filter_cv_targets)
+        - ``exclude_ids``: bereits verbrauchte Sample-IDs
+        - ``used_paths``: bereits im Manifest verwendete source_paths (Pfad-Dedupe)
+        - Neue ID: ``<category>_<nnn>`` (niedrigste freie Nummer ab 1)
+        """
+        used_paths = used_paths or set()
+        if pool is None:
+            # Default: CV-Metadaten (benchmark_data/cv/validated.tsv) via cv_extract
+            pool = self._load_cv_pool(category)
+        # Pfad-Dedupe: bereits verwendete Quellen ausschließen
+        candidates = [e for e in pool if e["path"] not in used_paths]
+        if not candidates:
+            log.warning("kein Ersatz für Kategorie %s (Pool leer oder verbraucht)", category)
+            return None
+        import random
+        rng = random.Random(seed)
+        pick = rng.choice(candidates)
+        used_ids = exclude_ids
+        n = 1
+        while f"{category}_{n:03d}" in used_ids:
+            n += 1
+        return {
+            "id": f"{category}_{n:03d}",
+            "category": category,
+            "source_path": pick["path"],
+            "text": pick["text"],
+            "accent": pick.get("accent", ""),
+            "age": pick.get("age", ""),
+            "held_out": False,
+            "status": "active",
+        }
+
+    def _load_cv_pool(self, category: str) -> List[dict]:
+        """Liest den CV-Metadaten-Pool (validated.tsv) für Ersatz-Samples."""
+        import sys
+        from pathlib import Path as _P
+        # cv_extract liegt im benchmark-Repo; fallback: gepoolte candidates.json
+        candidates = self.data_dir / "cv" / "candidates.json"
+        if candidates.exists():
+            data = json.loads(candidates.read_text(encoding="utf-8"))
+            return data.get(category, [])
+        tsv = self.data_dir / "cv" / "validated.tsv"
+        if not tsv.exists():
+            return []
+        sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+        from benchmark.cv_extract import filter_cv_targets  # type: ignore
+        sel = filter_cv_targets(tsv, want={category: 50}, seed=7)
+        return sel.get(category, [])
+
     def create_version_after_reject(self, sample_id: str, replacement: dict) -> dict:
         """Erzeugt vN+1: altes Sample → rejected, Ersatz eingefügt."""
         m = self.latest_manifest()
