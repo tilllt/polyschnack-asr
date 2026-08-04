@@ -1,93 +1,136 @@
 # Contributing
 
-Thank you for considering a contribution. This is a PoC/research project, so the
-bar is practical: correctness, clarity, and staying true to the project goals.
+Danke fürs Mitmachen! PolySchnack ist ein aktives Multi-Backend-Projekt —
+der Standard ist pragmatisch: korrekt, getestet, dokumentiert.
 
 ---
 
 ## Setup
 
-### Prerequisites
+### Voraussetzungen
 
-- [uv](https://docs.astral.sh/uv/) — the only Python package manager used here.
-  Install once: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Docker with Compose v2 (`docker compose version`)
-- (Optional) NVIDIA Container Toolkit for GPU work
+- [uv](https://docs.astral.sh/uv/) — der einzige Python-Paketmanager.
+  Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Node.js 20+ (Frontend)
+- Docker mit Compose v2 (`docker compose version`)
+- (Optional) NVIDIA Container Toolkit für GPU-Arbeit
 
-### ASR service (`approach-a`)
+### ASR-Backend (`approach-a`)
 
 ```bash
 cd approach-a
-uv sync               # creates .venv and installs all deps
+uv sync                 # erzeugt .venv und installiert Dependencies
 uv run uvicorn polyschnack_service.main:app --reload --port 5092
 ```
 
-### Web app (`webapp`)
+### Webapp (`webapp`)
 
 ```bash
+# Frontend (Vite Dev Server auf :5173)
+cd webapp/frontend
+npm install
+npm run dev
+
+# Backend (zweites Terminal)
 cd webapp
 uv sync
 ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
 ```
 
-### Full stack (docker)
+### Full Stack (Docker)
 
 ```bash
-# from repo root
-docker compose up -d --build
+# Kern-Stack (CPU; GPU via Overlay):
+docker compose up -d
+docker compose -f compose.yml -f compose.gpu.yml up -d   # GPU
+
+# Mit optionalen Backends (Profile, --no-start = Admin-GUI startet on demand):
+docker compose -f compose.yml -f compose.backends.yml \
+  --profile cpp --profile qwen3 --profile ark --profile moonshine --profile canary up -d --no-start
 ```
+
+---
+
+## Tests
+
+**Backend (webapp):** pytest. Eine Testdatei einzeln, um den Output klein zu
+halten (die Gesamtsuite dauert 6–10 min):
+
+```bash
+cd webapp
+.venv/bin/python -m pytest tests/test_service_registry.py -q -p no:cacheprovider
+```
+
+Die komplette Suite läuft als Per-Datei-Loop mit Log nach
+`/tmp/ps_full_suite.log` (Ergebnis: `grep "GESAMT" /tmp/ps_full_suite.log`):
+
+```bash
+bash webapp/run_full_suite.sh
+```
+
+**Frontend (webapp/frontend):** Vitest — pure Logik liegt in `src/karaoke.ts`
+und `src/share.ts`:
+
+```bash
+cd webapp/frontend
+npm test
+```
+
+**Backend-Images:** Die CI baut alle 9 Jobs (`test-core`, `test-webapp`,
+`test-frontend`, `compose-validate`, `build-asr`, `build-webapp`, `build-cpp`,
+`build-diar`, `build-ark`). Lokal ist kein Docker-Daemon nötig —
+`compose-validate` prüft die YAML-Dateien per PyYAML.
 
 ---
 
 ## Code Style
 
-| Concern | Convention |
-|---------|-----------|
-| Python version | 3.10+ (`approach-a`), 3.12+ (`webapp`) |
-| Package manager | `uv` only — never `pip install` or `python -m venv` |
-| Type annotations | Required on all public functions and module-level variables |
-| Web framework | FastAPI + Pydantic v2 |
-| ORM / DB models | SQLModel (webapp) |
-| DB logic | Lives in `crud.py` — never inline in route handlers |
-| Async | `async def` for I/O-bound route handlers; sync for pure CPU work |
-| Error handling | Named exceptions, never bare `except:` |
-| Style | Pure functions preferred over classes; factories for stateful services |
+| Belang | Konvention |
+|--------|-----------|
+| Python-Version | 3.10+ (`approach-a`), 3.12+ (`webapp`) |
+| Paketmanager | `uv` only — nie `pip install` oder `python -m venv` |
+| Typ-Annotationen | Pflicht auf allen öffentlichen Funktionen und Modul-Variablen |
+| Web-Framework | FastAPI + Pydantic v2 |
+| ORM / DB-Modelle | SQLModel (webapp) |
+| DB-Logik | Liegt in `crud.py` — nie inline in Route-Handlern |
+| Async | `async def` für I/O-gebundene Route-Handler; sync für reine CPU-Arbeit |
+| Fehlerbehandlung | Benannte Exceptions, nie nacktes `except:` |
+| Stil | Pure Functions bevorzugt; Factories für zustandsbehaftete Services |
 
-Run the linter / type-checker before opening a PR:
+Vor einem MR:
 
 ```bash
-# from approach-a or webapp
+# aus approach-a oder webapp
 uv run ruff check .
 uv run mypy .
 ```
 
 ---
 
-## Running Tests and Benchmarks
+## Backend-Adapter hinzufügen (Checkliste)
 
-### Generate test fixtures
+Ein neues ASR-Backend ist erst nutzbar, wenn ALLE diese Stellen bedient sind
+(Registry allein reicht nicht — `get_client()` fällt sonst still auf
+`pk-python` zurück):
 
-```bash
-cd approach-a
-uv run python scripts/gen_test_audio.py
-# Creates: tests/audio/short_10s.wav, medium_60s.wav, long_30min.wav (+ .txt refs)
-```
-
-### Benchmark (Approach A)
-
-Start the ASR service first (docker or local), then:
-
-```bash
-cd approach-a
-uv run python benchmark.py --runs 5 --concurrency 5
-# Output: results/approach-a.json + results/approach-a.md
-```
+1. **`compose.backends.yml`** — Service + Profil + Port + Healthcheck
+   (hybrides CrispASR-Image-Muster, siehe `ark-asr-cpp/Dockerfile`).
+2. **`webapp/app/service_registry.py`** — Eintrag in `SERVICES` +
+   `_VALID_PROFILES` erweitern (Selbst-Check: `python -m app.service_registry`).
+3. **`webapp/app/asr_client/__init__.py`** — `get_client()`-Zweig mit
+   **eigener URL-Env** (`<NAME>_URL`, Default `http://<container>:8080`) —
+   nie `settings.ASR_URL` (das ist der ONNX-Container!).
+4. **Tests** — `tests/test_get_client.py` (Factory-Zweig) +
+   Registry-Tests; HTTP-Adapter-Tests mit `httpx.MockTransport`.
+5. **CI** — Build-Job in `.gitlab-ci.yml` (Muster `build-cpp`).
+6. **Doku** — README: Backend-Tabelle, Feature-Matrix, Profil-/Env-Tabellen,
+   Modell-Download-Kommando, Lizenz-Hinweis.
 
 ---
 
 ## Pull Requests
 
-### Branch naming
+### Branch-Namen
 
 ```
 feat/short-description
@@ -96,34 +139,39 @@ bench/short-description
 docs/short-description
 ```
 
-### Commit messages
+### Commit-Messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+[Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(approach-a): add SSE streaming endpoint
+feat(webapp): add diarize_method selection
 fix(webapp): handle empty transcript segments gracefully
-bench: update approach-a results after GPU run
-docs: document POLYSCHNACK_INFER_WORKERS memory behaviour
+bench: update benchmark results after GPU run
+docs: document DIAR_URL and DIARIZE_METHOD
 ```
 
-Types: `feat`, `fix`, `refactor`, `test`, `bench`, `docs`, `chore`, `ci`.
+Typen: `feat`, `fix`, `refactor`, `test`, `bench`, `docs`, `chore`, `ci`.
 
-### Checklist before opening a PR
+### Checkliste vor einem MR
 
-- [ ] `uv run ruff check .` passes (no errors)
-- [ ] `uv run mypy .` passes (or new errors are justified in the PR description)
-- [ ] Docker build succeeds: `docker compose build`
-- [ ] Benchmark re-run if the change affects inference, chunking, or the job queue
-- [ ] `RESULTS.md` updated if benchmark numbers changed
-- [ ] No secrets, model weights, or large binaries committed
-- [ ] PR description includes a rollback plan for any infrastructure change
+- [ ] `uv run ruff check .` läuft ohne Fehler
+- [ ] `uv run mypy .` läuft (oder neue Fehler sind im MR begründet)
+- [ ] Betroffene Backend-Testdateien grün (einzeln, s. o.)
+- [ ] Frontend: `npm test` grün, falls `src/*.ts` geändert
+- [ ] CI grün (alle 9 Jobs) nach Push
+- [ ] README/Compose-Doku für das Feature aktualisiert (kein Feature ohne Doku!)
+- [ ] Keine Secrets, Modellgewichte oder große Binaries committet
+- [ ] MR-Beschreibung enthält Rollback-Plan bei Infrastruktur-Änderungen
 
 ---
 
-## Project Scope
+## Projekt-Scope
 
-This is a PoC benchmarking three approaches (A: Python/FastAPI, B: Rust/sherpa-onnx,
-C: NeMo baseline). Contributions that implement or improve any of those three paths
-are most welcome. Changes that introduce new frameworks or significantly expand scope
-should be discussed in an issue first.
+PolySchnack ist ein **Multi-Backend-Transkriptionstool** (kein TTS-Projekt):
+Fokus auf Transkriptions-Qualität, Word-Timestamps, Diarization, Editing,
+Long-Audio und Benchmarking. Qualitäts-Verbesserungen (WER, Diarization-DER)
+sind willkommen; neue große Frameworks oder Scope-Erweiterungen vorher im
+Issue/Plan diskutieren.
+
+Benchmarking läuft im separaten Repo `polyschnack-benchmark`
+(deutsches WER-Korpus mit CommonVoice-DE, `benchmark/run.py` + `report.py`).
