@@ -580,6 +580,18 @@ Mit OIDC bekommt jede\*r eingeloggte User einen **privaten Workspace** (eigene
 Aufnahmen, fremde unsichtbar). Der Admin-Bereich (Service-Start/Stop,
 Backend-Wechsel) setzt OIDC zwingend voraus — ohne Login gibt es keine Admins.
 
+**Fertiges Compose-Overlay mit Dummy-Werten:** `compose.oidc.yml`
+(zusammen mit der Hauptdatei verwenden):
+
+```bash
+docker compose -f compose.yml -f compose.oidc.yml up -d
+```
+
+Alle Werte dort sind DUMMY (Client-ID/Secret, `auth.example.com`,
+`admin@example.com`) — vor Produktion ersetzen. Das Overlay setzt die
+unten dokumentierten Variablen (OIDC_*, SESSION_SECRET, BASE_URL,
+POLYSCHNACK_ADMINS/-GROUPS); die Details hier gelten unverändert.
+
 Aktivierung in der Webapp-Umgebung:
 
 | Variable | Beispiel | Bedeutung |

@@ -8,6 +8,10 @@
 #   docker compose -f compose.yml -f compose.backends.yml \
 #     --profile cpp --profile qwen3 --profile ark up -d --no-start
 # (Erzeugt die Container, damit die Admin-GUI sie on demand starten kann.)
+#
+# OIDC-Login + Admin-Bereich (optional) über das Dummy-Overlay:
+#   docker compose -f compose.yml -f compose.oidc.yml up -d
+# (Alle Werte in compose.oidc.yml sind Platzhalter — vor Produktion ersetzen.)
 services:
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
