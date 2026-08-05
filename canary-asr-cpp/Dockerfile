@@ -33,6 +33,6 @@ ENV CANARY_ASR_MODEL=/models/canary-1b-v2-q4_k.gguf
 # deutsches Truecasing (lstm, 97,9% F1). Per Env überschreibbar.
 ENV CRISPASR_EXTRA_ARGS="--punc-model fullstop --truecase-model lstm"
 
-EXPOSE 8080
+EXPOSE 5097
 
-CMD ["sh", "-c", "exec crispasr --server -m \"$CANARY_ASR_MODEL\" --host 0.0.0.0 --port 8080 $CRISPASR_EXTRA_ARGS"]
+CMD ["sh", "-c", "exec crispasr --server -m \"$CANARY_ASR_MODEL\" --host 0.0.0.0 --port 5097 $CRISPASR_EXTRA_ARGS"]

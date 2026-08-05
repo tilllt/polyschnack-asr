@@ -1,6 +1,6 @@
 # Compose-Referenz
 
-Der Stack ist bewusst in **vier Compose-Dateien** aufgeteilt — jede hat eine
+Der Stack ist bewusst in **fünf Compose-Dateien** aufgeteilt — jede hat eine
 einzige Aufgabe:
 
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
@@ -12,6 +12,8 @@ einzige Aufgabe:
 - **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
   Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.
 - **`compose.oidc.yml`** — OIDC-Overlay mit Dummy-Werten (Login + Admin).
+- **`compose.benchmark.yml`** — Benchmark als Einmal-Container (per Host-Cron
+  oder manuell), schreibt Ergebnisse ins gemeinsame Volume.
 
 ## Warum Profile statt override.yml?
 
@@ -68,5 +70,5 @@ Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/` (keine
 Named-Volumes). Die vollständigen Service-Definitionen stehen in `compose.yml`
 / `compose.backends.yml`. Inter-Service-URLs nutzen immer den
 **Container-Port** (der interne Port im Compose-Netz), nicht das
-Host-Port-Mapping (z. B. `http://diar:5096`, während am Host nur `asr:5092`
+Host-Port-Mapping (z. B. `http://diar:5098`, während am Host nur `asr:5092`
 und `webapp:8088` gebunden sind — diar hat gar kein Host-Port).

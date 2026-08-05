@@ -24,7 +24,7 @@ def test_get_client_moonshine_de():
     assert c.capabilities.languages == ["de"]
     assert c.capabilities.device == ["gpu", "cpu"]
     assert c.capabilities.native_punctuation is True
-    assert c.url == "http://polyschnack-moonshine-de:8080"
+    assert c.url == "http://polyschnack-moonshine-de:5096"
 
 
 def test_get_client_canary_asr():
@@ -33,7 +33,7 @@ def test_get_client_canary_asr():
     assert c.capabilities.label == "canary-asr"
     assert set(c.capabilities.languages) == {"de", "en", "fr", "es"}
     assert c.capabilities.device == ["gpu", "cpu"]
-    assert c.url == "http://polyschnack-canary:8080"
+    assert c.url == "http://polyschnack-canary:5097"
 
 
 def test_get_client_url_env_override(monkeypatch):

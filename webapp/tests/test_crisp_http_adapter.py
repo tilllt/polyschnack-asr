@@ -26,7 +26,7 @@ def _verbose_json():
     }
 
 
-def _client(responses, url="http://ark-asr:8080"):
+def _client(responses, url="http://ark-asr:5095"):
     def handler(request: httpx.Request) -> httpx.Response:
         resp = responses.pop(0)
         if isinstance(resp, httpx.Response):
@@ -56,7 +56,7 @@ def test_crisp_http_posts_to_openai_endpoint():
         return httpx.Response(200, json=_verbose_json())
 
     transport = httpx.MockTransport(handler)
-    client = CrispAsrHttpClient(url="http://ark-asr:8080", transport=transport)
+    client = CrispAsrHttpClient(url="http://ark-asr:5095", transport=transport)
     client.transcribe(b"\x00\x01", "a.wav", "audio/wav")
     assert "/v1/audio/transcriptions" in seen["url"]
     assert seen["files"]

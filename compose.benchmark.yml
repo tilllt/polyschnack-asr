@@ -28,11 +28,11 @@ services:
       BENCH_BACKENDS: "${BENCH_BACKENDS:-pk-python,qwen3-asr,ark-asr,moonshine-de,canary-asr,pk-cpp}"
       BENCH_BACKEND_URLS: >-
         {"pk-python":"http://asr:5092/v1",
-         "pk-cpp":"http://polyschnack-cpp:8080/v1",
-         "qwen3-asr":"http://qwen3-asr:8080/v1",
-         "ark-asr":"http://ark-asr:8080/v1",
-         "moonshine-de":"http://polyschnack-moonshine-de:8080/v1",
-         "canary-asr":"http://polyschnack-canary:8080/v1"}
+         "pk-cpp":"http://polyschnack-cpp:5093/v1",
+         "qwen3-asr":"http://qwen3-asr:5094/v1",
+         "ark-asr":"http://ark-asr:5095/v1",
+         "moonshine-de":"http://polyschnack-moonshine-de:5096/v1",
+         "canary-asr":"http://polyschnack-canary:5097/v1"}
     volumes:
       # Least-Privilege: Nur das Benchmark-Verzeichnis ist beschreibbar
       # (latest.json + pricing.json), der Rest des Daten-Volumes bleibt read-only.

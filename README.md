@@ -84,7 +84,7 @@ docker compose -f compose.yml -f compose.oidc.yml up -d   # Werte ersetzen!
 > `POLYSCHNACK_USE_GPU=auto` mit onnxruntime-gpu). Mit GPU-Zugriff (Overlay
 > `compose.gpu.yml` → `runtime: nvidia`) läuft alles auf der GPU, ohne Overlay
 > automatisch auf der CPU. Die **Diarization** läuft im eigenen
-> CrispASR-diar-Container (`diar`, Port 8080) — ebenfalls hybrid. Die Webapp
+> CrispASR-diar-Container (`diar`, Port 5098) — ebenfalls hybrid. Die Webapp
 > selbst ist **CPU-only** (kein torch/pyannote im Image, ~2,5–3 GB schlanker).
 
 ---
@@ -151,7 +151,7 @@ docker compose up -d
 **parakeet.cpp — schneller und schlanker**
 
 ```bash
-CPP_URL=http://polyschnack-cpp:8080 ASR_BACKEND=pk-cpp \
+CPP_URL=http://polyschnack-cpp:5093 ASR_BACKEND=pk-cpp \
   docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
 
 # Modell einmalig laden:
@@ -165,7 +165,7 @@ docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakee
 **Qwen3-ASR — beste Spracherkennung + Word-Timestamps**
 
 ```bash
-QWEN3_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
+QWEN3_URL=http://qwen3-asr:5094 ASR_BACKEND=qwen3-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
 # Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16):
@@ -180,7 +180,7 @@ docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
 **ARK-ASR — State-of-the-Art Erkennung**
 
 ```bash
-CRISPASR_URL=http://ark-asr:8080 ASR_BACKEND=ark-asr \
+CRISPASR_URL=http://ark-asr:5095 ASR_BACKEND=ark-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
 
 # GGUF (~4 GB, Q8_0) einmalig laden:
@@ -243,7 +243,7 @@ Die Methode ist per `DIARIZE_METHOD` wählbar (Webapp-Env): `pyannote`
 
 ## Compose-Referenz
 
-Der Stack ist bewusst in **vier Compose-Dateien** aufgeteilt — jede hat eine
+Der Stack ist bewusst in **fünf Compose-Dateien** aufgeteilt — jede hat eine
 einzige Aufgabe:
 
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
@@ -255,6 +255,8 @@ einzige Aufgabe:
 - **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
   Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.
 - **`compose.oidc.yml`** — OIDC-Overlay mit Dummy-Werten (Login + Admin).
+- **`compose.benchmark.yml`** — Benchmark als Einmal-Container (per Host-Cron
+  oder manuell), schreibt Ergebnisse ins gemeinsame Volume.
 
 **Warum Profile statt `docker-compose.override.yml`?** Eine Override-Datei wird
 von Compose **immer automatisch gemergt** — die Backends wären dauerhaft Teil
@@ -307,16 +309,16 @@ der ONNX-pk-python-Container!):
 |----------|---------|-------------|
 | `ASR_BACKEND` | `pk-python` | Adapter-Auswahl (`pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr`) |
 | `ASR_URL` | `http://asr:5092` | URL des ONNX-pk-python-Containers |
-| `CPP_URL` | `http://polyschnack-cpp:8080` | URL des pk-cpp-Containers (CrispASR parakeet) |
-| `QWEN3_URL` | `http://qwen3-asr:8080` | URL des Qwen3-ASR-Containers |
-| `CRISPASR_URL` | `http://ark-asr:8080` | URL des ARK-ASR-Containers (CrispASR) |
-| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:8080` | URL des Moonshine-DE-Containers |
-| `CANARY_URL` | `http://polyschnack-canary:8080` | URL des Canary-Containers |
+| `CPP_URL` | `http://polyschnack-cpp:5093` | URL des pk-cpp-Containers (CrispASR parakeet) |
+| `QWEN3_URL` | `http://qwen3-asr:5094` | URL des Qwen3-ASR-Containers |
+| `CRISPASR_URL` | `http://ark-asr:5095` | URL des ARK-ASR-Containers (CrispASR) |
+| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:5096` | URL des Moonshine-DE-Containers |
+| `CANARY_URL` | `http://polyschnack-canary:5097` | URL des Canary-Containers |
 
 ```bash
 # WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
 # get_client() still auf pk-python zurück und postet gegen den ONNX-Container!
-QWEN3_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
+QWEN3_URL=http://qwen3-asr:5094 ASR_BACKEND=qwen3-asr docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
 # Kombination mehrerer Backends (Admin-GUI startet sie on demand):
 docker compose -f compose.yml -f compose.backends.yml \
@@ -700,7 +702,7 @@ npm run dev              # Vite Dev Server auf :5173
 
 # Zweites Terminal:
 cd webapp
-ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
+ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
 ```
 
 ### Tests

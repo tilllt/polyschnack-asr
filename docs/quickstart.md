@@ -56,5 +56,5 @@ enthalten den CPU-Backend und wählen automatisch
 automatisch auf der CPU.
 
 Die **Diarization** läuft im eigenen CrispASR-diar-Container (`diar`,
-Port 8080) — ebenfalls hybrid. Die Webapp selbst ist **CPU-only** (kein
+Port 5098) — ebenfalls hybrid. Die Webapp selbst ist **CPU-only** (kein
 torch/pyannote im Image, ~2,5–3 GB schlanker).

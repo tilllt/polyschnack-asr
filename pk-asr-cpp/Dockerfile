@@ -44,6 +44,6 @@ ENV CPP_ASR_MODEL=/models/parakeet-tdt-0.6b-v3-q8_0.gguf
 # nach ~/.cache/crispasr. Per Env überschreibbar (compose.backends.yml).
 ENV CRISPASR_EXTRA_ARGS="--punc-model fullstop --truecase-model lstm"
 
-EXPOSE 8080
+EXPOSE 5093
 
-CMD ["sh", "-c", "exec crispasr --server -m \"$CPP_ASR_MODEL\" -ml 1 --host 0.0.0.0 --port 8080 $CRISPASR_EXTRA_ARGS"]
+CMD ["sh", "-c", "exec crispasr --server -m \"$CPP_ASR_MODEL\" -ml 1 --host 0.0.0.0 --port 5093 $CRISPASR_EXTRA_ARGS"]

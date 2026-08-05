@@ -33,11 +33,11 @@ RUN mkdir -p /models
 
 # Default: run the server.
 # The CLI is available as "qwen3-asr-cli" for the adapter's subprocess calls.
-EXPOSE 8080
+EXPOSE 5094
 ENTRYPOINT ["qwen3-asr-server"]
 CMD ["-m", "/models/qwen3-asr-0.6b-q8_0.gguf", \
      "--host", "0.0.0.0", \
-     "--port", "8080", \
+     "--port", "5094", \
      "--convert", \
      "--max-upload-mb", "1024", \
      "-t", "8"]

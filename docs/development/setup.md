@@ -23,7 +23,7 @@ npm run dev              # Vite Dev Server auf :5173
 
 # Zweites Terminal:
 cd webapp
-ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
+ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
 ```
 
 ## Tests

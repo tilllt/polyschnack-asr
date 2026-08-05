@@ -45,7 +45,7 @@ def test_moonshine_de_service_registered():
     svc = get_service("moonshine-de")
     assert svc is not None
     assert svc["container_name"] == "polyschnack-moonshine-de"
-    assert svc["url"] == "http://polyschnack-moonshine-de:8080"
+    assert svc["url"] == "http://polyschnack-moonshine-de:5096"
     assert svc["compose_profile"] == "moonshine"
     assert svc["capabilities"]["languages"] == ["de"]
 
@@ -54,7 +54,7 @@ def test_canary_asr_service_registered():
     svc = get_service("canary-asr")
     assert svc is not None
     assert svc["container_name"] == "polyschnack-canary"
-    assert svc["url"] == "http://polyschnack-canary:8080"
+    assert svc["url"] == "http://polyschnack-canary:5097"
     assert svc["compose_profile"] == "canary"
     assert set(svc["capabilities"]["languages"]) == {"de", "en", "fr", "es"}
 

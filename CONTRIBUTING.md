@@ -34,7 +34,7 @@ npm run dev
 # Backend (zweites Terminal)
 cd webapp
 uv sync
-ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8080
+ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
 ```
 
 ### Full Stack (Docker)
@@ -118,7 +118,7 @@ Ein neues ASR-Backend ist erst nutzbar, wenn ALLE diese Stellen bedient sind
 2. **`webapp/app/service_registry.py`** — Eintrag in `SERVICES` +
    `_VALID_PROFILES` erweitern (Selbst-Check: `python -m app.service_registry`).
 3. **`webapp/app/asr_client/__init__.py`** — `get_client()`-Zweig mit
-   **eigener URL-Env** (`<NAME>_URL`, Default `http://<container>:8080`) —
+   **eigener URL-Env** (`<NAME>_URL`, Default `http://<container>:<port>` (5093–5097 je Backend)) —
    nie `settings.ASR_URL` (das ist der ONNX-Container!).
 4. **Tests** — `tests/test_get_client.py` (Factory-Zweig) +
    Registry-Tests; HTTP-Adapter-Tests mit `httpx.MockTransport`.

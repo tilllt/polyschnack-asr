@@ -38,13 +38,13 @@ services:
     volumes:
       - ./DATA/cpp-models:/models:ro
     ports:
-      - "5093:8080"
+      - "5093:5093"
     deploy:
       resources:
         limits:
           memory: 4G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5093/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,13 +65,13 @@ services:
     volumes:
       - ./DATA/qwen3-models:/models:ro
     ports:
-      - "5094:8080"
+      - "5094:5094"
     deploy:
       resources:
         limits:
           memory: 6G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/audio/transcriptions"]
+      test: ["CMD", "curl", "-f", "http://localhost:5094/v1/audio/transcriptions"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,13 +90,13 @@ services:
     volumes:
       - ./DATA/ark-models:/models:ro
     ports:
-      - "5095:8080"
+      - "5095:5095"
     deploy:
       resources:
         limits:
           memory: 6G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5095/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -115,13 +115,13 @@ services:
     volumes:
       - ./DATA/moonshine-models:/models:ro
     ports:
-      - "5096:8080"
+      - "5096:5096"
     deploy:
       resources:
         limits:
           memory: 2G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5096/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -139,13 +139,13 @@ services:
     volumes:
       - ./DATA/canary-models:/models:ro
     ports:
-      - "5097:8080"
+      - "5097:5097"
     deploy:
       resources:
         limits:
           memory: 4G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5097/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -166,7 +166,7 @@ services:
   #     volumes:
   #       - ./DATA/voxtral-models:/models:ro
   #     ports:
-  #       - "5095:8080"
+  #       - "5099:5099"
   #     deploy:
   #       resources:
   #         limits:

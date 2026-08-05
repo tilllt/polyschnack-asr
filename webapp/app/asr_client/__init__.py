@@ -114,7 +114,7 @@ def get_client(backend: Optional[str] = None) -> AsrClient:
         svc = get_service("moonshine-de") or {}
         from .adapters.crisp_asr_http import CrispAsrHttpClient
         client = CrispAsrHttpClient(
-            url=os.getenv("MOONSHINE_URL", svc.get("url", "http://polyschnack-moonshine-de:8080")),
+            url=os.getenv("MOONSHINE_URL", svc.get("url", "http://polyschnack-moonshine-de:5096")),
             capabilities=BackendCapabilities(
                 streaming=False, async_jobs=False, noise_reduce=False,
                 word_timestamps=True, languages=["de"], device=["gpu", "cpu"],
@@ -127,7 +127,7 @@ def get_client(backend: Optional[str] = None) -> AsrClient:
         svc = get_service("canary-asr") or {}
         from .adapters.crisp_asr_http import CrispAsrHttpClient
         client = CrispAsrHttpClient(
-            url=os.getenv("CANARY_URL", svc.get("url", "http://polyschnack-canary:8080")),
+            url=os.getenv("CANARY_URL", svc.get("url", "http://polyschnack-canary:5097")),
             capabilities=BackendCapabilities(
                 streaming=False, async_jobs=False, noise_reduce=False,
                 word_timestamps=True, languages=["de", "en", "fr", "es"],

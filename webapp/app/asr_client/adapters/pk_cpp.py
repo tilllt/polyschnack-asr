@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 # URL des eigenen pk-cpp-Containers (CrispASR-Server) im Compose-Netzwerk.
 # Achtung: NICHT settings.ASR_URL — das ist der ONNX-pk-python-Container
 # (http://asr:5092). Der cpp-Container hat seinen eigenen Dienst.
-_CPP_URL = os.getenv("CPP_URL", "http://polyschnack-cpp:8080")
+_CPP_URL = os.getenv("CPP_URL", "http://polyschnack-cpp:5093")
 
 
 class PkCppClient(AsrClient):

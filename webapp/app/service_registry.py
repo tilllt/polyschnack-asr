@@ -146,7 +146,7 @@ SERVICES: List[Dict[str, Any]] = [
         "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)",
-        "url": "http://polyschnack-moonshine-de:8080",
+        "url": "http://polyschnack-moonshine-de:5096",
         "requires": {"vram_gb": 1, "ram_gb": 2, "disk_gb": 1},
         "capabilities": {
             "word_timestamps": True,  # CrispASR verbose_json, -ml 1
@@ -170,7 +170,7 @@ SERVICES: List[Dict[str, Any]] = [
         "cost_per_minute_eur": 0.0,
         "concurrency": 1,
         "model": "canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)",
-        "url": "http://polyschnack-canary:8080",
+        "url": "http://polyschnack-canary:5097",
         "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
         "capabilities": {
             "word_timestamps": True,  # CrispASR verbose_json, -ml 1

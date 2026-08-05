@@ -22,11 +22,11 @@ Backends verwenden (das ist der ONNX-pk-python-Container!):
 |----------|---------|-------------|
 | `ASR_BACKEND` | `pk-python` | Adapter-Auswahl (`pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr`) |
 | `ASR_URL` | `http://asr:5092` | URL des ONNX-pk-python-Containers |
-| `CPP_URL` | `http://polyschnack-cpp:8080` | URL des pk-cpp-Containers (CrispASR parakeet) |
-| `QWEN3_URL` | `http://qwen3-asr:8080` | URL des Qwen3-ASR-Containers |
-| `CRISPASR_URL` | `http://ark-asr:8080` | URL des ARK-ASR-Containers (CrispASR) |
-| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:8080` | URL des Moonshine-DE-Containers |
-| `CANARY_URL` | `http://polyschnack-canary:8080` | URL des Canary-Containers |
+| `CPP_URL` | `http://polyschnack-cpp:5093` | URL des pk-cpp-Containers (CrispASR parakeet) |
+| `QWEN3_URL` | `http://qwen3-asr:5094` | URL des Qwen3-ASR-Containers |
+| `CRISPASR_URL` | `http://ark-asr:5095` | URL des ARK-ASR-Containers (CrispASR) |
+| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:5096` | URL des Moonshine-DE-Containers |
+| `CANARY_URL` | `http://polyschnack-canary:5097` | URL des Canary-Containers |
 
 !!! warning "Adapter-Auswahl nie vergessen"
     `ASR_BACKEND` IMMER explizit setzen — ohne Adapter-Auswahl fällt
@@ -34,6 +34,6 @@ Backends verwenden (das ist der ONNX-pk-python-Container!):
     ONNX-Container!
 
 ```bash
-QWEN3_URL=http://qwen3-asr:8080 ASR_BACKEND=qwen3-asr \
+QWEN3_URL=http://qwen3-asr:5094 ASR_BACKEND=qwen3-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 ```

@@ -33,6 +33,6 @@ ENV MOONSHINE_DE_MODEL=/models/moonshine-base-de-fidoriel-q4_k.gguf
 # deutsches Truecasing (lstm, 97,9% F1). Per Env überschreibbar.
 ENV CRISPASR_EXTRA_ARGS="--punc-model fullstop --truecase-model lstm"
 
-EXPOSE 8080
+EXPOSE 5096
 
-CMD ["sh", "-c", "exec crispasr --server -m \"$MOONSHINE_DE_MODEL\" --host 0.0.0.0 --port 8080 $CRISPASR_EXTRA_ARGS"]
+CMD ["sh", "-c", "exec crispasr --server -m \"$MOONSHINE_DE_MODEL\" --host 0.0.0.0 --port 5096 $CRISPASR_EXTRA_ARGS"]

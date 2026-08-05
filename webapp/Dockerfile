@@ -39,6 +39,6 @@ COPY --from=fe /fe/dist ./app/static
 ENV DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
-EXPOSE 8080
+EXPOSE 8088
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8088"]
