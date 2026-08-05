@@ -7,8 +7,10 @@ from app.asr_client import get_client
 from app.service_registry import (
     SERVICES,
     available_services,
+    container_name,
     get_service,
     list_services,
+    service_url,
     total_concurrency,
 )
 
@@ -35,7 +37,8 @@ def test_required_fields_present():
 
 
 def test_local_services_have_valid_profile():
-    valid = {"default", "cpp", "qwen3", "ark", "voxtral", "moonshine", "canary"}
+    valid = {"default", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",
+             "ps-voxtral", "crispr-moonshine-de", "crispr-canary"}
     for s in SERVICES:
         if s["type"] == "local":
             assert s["compose_profile"] in valid
@@ -44,18 +47,18 @@ def test_local_services_have_valid_profile():
 def test_moonshine_de_service_registered():
     svc = get_service("crispr-moonshine-de")
     assert svc is not None
-    assert svc["container_name"] == "crispr-moonshine-de"
-    assert svc["url"] == "http://crispr-moonshine-de:5096"
-    assert svc["compose_profile"] == "moonshine"
+    assert container_name(svc) == "crispr-moonshine-de"
+    assert service_url(svc) == "http://crispr-moonshine-de:5096"
+    assert svc["compose_profile"] == "crispr-moonshine-de"
     assert svc["capabilities"]["languages"] == ["de"]
 
 
 def test_canary_asr_service_registered():
     svc = get_service("crispr-canary")
     assert svc is not None
-    assert svc["container_name"] == "crispr-canary"
-    assert svc["url"] == "http://crispr-canary:5097"
-    assert svc["compose_profile"] == "canary"
+    assert container_name(svc) == "crispr-canary"
+    assert service_url(svc) == "http://crispr-canary:5097"
+    assert svc["compose_profile"] == "crispr-canary"
     assert set(svc["capabilities"]["languages"]) == {"de", "en", "fr", "es"}
 
 

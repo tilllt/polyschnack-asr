@@ -30,10 +30,9 @@ _HEALTH_POLL_S = 2
 
 
 def _container_name(svc: Dict[str, Any]) -> str:
-    """compose container_name aus der Registry (Weg 1: ein hybrides Image pro
-    Service — GPU/CPU entscheidet das Binary via ggml_backend_init_best,
-    nicht mehr die Admin-API)."""
-    return svc["container_name"]
+    """Container-Name = Service-Name (Option C, aus der Registry)."""
+    from ..service_registry import container_name as _cn
+    return _cn(svc)
 
 
 def _proxy_error(exc: Exception) -> HTTPException:
@@ -109,8 +108,8 @@ def _start_with_check(svc: Dict[str, Any], docker: DockerProxyClient) -> Dict[st
             detail={
                 "reason": "not_created",
                 "message": "Container existiert nicht — Setup einmalig ausführen: "
-                           "docker compose --profile cpp --profile qwen3 --profile ark "
-                           "--profile voxtral up -d --no-start",
+                           "docker compose --profile crispr-pk-cpp --profile crispr-qwen3 "
+                           "--profile crispr-ark --profile ps-voxtral up -d --no-start",
             },
         )
     if state.get("running"):

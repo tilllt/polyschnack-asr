@@ -113,12 +113,12 @@ Env-Variable — kein Code nötig.
 | Backend | Profil | CLI-Name | Beschreibung |
 |---------|--------|----------|-------------|
 | **Parakeet (Python/ONNX)** | *(Default)* | `ps-pk-onnx` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
-| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `crispr-pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Native Interpunktion + deutsches Truecasing. |
-| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `crispr-qwen3` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
-| **ARK-ASR (ggml/C++)** | `--profile ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
-| **Moonshine-DE (ggml/C++)** | `--profile moonshine` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
-| **Canary (ggml/C++)** | `--profile canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
-| **Voxtral (voxtral.cpp)** | *(geplant)* | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). **Noch nicht gebaut** — Block in `compose.backends.yml` auskommentiert. |
+| **parakeet.cpp (ggml/C++)** | `--profile crispr-pk-cpp` | `crispr-pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Native Interpunktion + deutsches Truecasing. |
+| **Qwen3-ASR (ggml/C++)** | `--profile crispr-qwen3` | `crispr-qwen3` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
+| **ARK-ASR (ggml/C++)** | `--profile crispr-ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
+| **Moonshine-DE (ggml/C++)** | `--profile crispr-moonshine-de` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
+| **Canary (ggml/C++)** | `--profile crispr-canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
+| **Voxtral (voxtral.cpp)** | *(geplant)* | `ps-voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). **Noch nicht gebaut** — Block in `compose.backends.yml` auskommentiert. |
 
 ### Feature-Matrix der Backends
 
@@ -151,22 +151,22 @@ docker compose up -d
 **parakeet.cpp — schneller und schlanker**
 
 ```bash
-CPP_URL=http://crispr-pk-cpp:5093 ASR_BACKEND=crispr-pk-cpp \
-  docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
+CRISPR_PK_CPP_URL=http://crispr-pk-cpp:5093 ASR_BACKEND=crispr-pk-cpp \
+  docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
 
 # Modell einmalig laden:
 docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
   https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
 
-> **Achtung:** `CPP_URL` ist die **eigene** Env-Variable des crispr-pk-cpp-Adapters —
+> **Achtung:** `CRISPR_PK_CPP_URL` ist die **eigene** Env-Variable des crispr-pk-cpp-Adapters —
 > nicht `ASR_URL` verwenden (das ist der ONNX-ps-pk-onnx-Container).
 
 **Qwen3-ASR — beste Spracherkennung + Word-Timestamps**
 
 ```bash
-QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 \
-  docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
+CRISPR_QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 \
+  docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
 
 # Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16):
 docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
@@ -180,8 +180,8 @@ docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
 **ARK-ASR — State-of-the-Art Erkennung**
 
 ```bash
-CRISPASR_URL=http://crispr-ark:5095 ASR_BACKEND=crispr-ark \
-  docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
+CRISPR_ARK_URL=http://crispr-ark:5095 ASR_BACKEND=crispr-ark \
+  docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d
 
 # GGUF (~4 GB, Q8_0) einmalig laden:
 docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
@@ -192,7 +192,7 @@ docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr
 
 ```bash
 ASR_BACKEND=crispr-moonshine-de \
-  docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d
+  docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d
 
 # Modell + Tokenizer (~42 MB):
 docker run --rm -v "$PWD/DATA/moonshine-models:/models" alpine sh -c '
@@ -209,7 +209,7 @@ docker run --rm -v "$PWD/DATA/moonshine-models:/models" alpine sh -c '
 
 ```bash
 ASR_BACKEND=crispr-canary \
-  docker compose -f compose.yml -f compose.backends.yml --profile canary up -d
+  docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d
 
 # Modell (~0,6 GB, q4_K):
 docker run --rm -v "$PWD/DATA/canary-models:/models" alpine wget -O /models/canary-1b-v2-q4_k.gguf \
@@ -283,10 +283,10 @@ docker compose -f compose.yml -f compose.gpu.yml up -d # GPU
 
 # Kern + Backends (Container erzeugen, GUI startet on demand):
 docker compose -f compose.yml -f compose.backends.yml \
-  --profile cpp --profile qwen3 --profile ark up -d --no-start
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 
 # Kern + einzelnes Backend direkt mitstarten:
-docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
 
 # Kern + OIDC-Login (Dummy-Werte vorher ersetzen!):
 docker compose -f compose.yml -f compose.oidc.yml up -d
@@ -297,11 +297,11 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 | Profil | Befehl | Startet | GPU via Overlay |
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
-| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + crispr-pk-cpp | ✅ |
-| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + crispr-qwen3 | ✅ |
-| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + crispr-ark | ✅ |
-| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + crispr-moonshine-de | ✅ |
-| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + crispr-canary | ✅ |
+| `--profile crispr-pk-cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d` | + crispr-pk-cpp | ✅ |
+| `--profile crispr-qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d` | + crispr-qwen3 | ✅ |
+| `--profile crispr-ark` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d` | + crispr-ark | ✅ |
+| `--profile crispr-moonshine-de` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d` | + crispr-moonshine-de | ✅ |
+| `--profile crispr-canary` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d` | + crispr-canary | ✅ |
 
 ### Adapter-URLs (jedes Backend hat seine eigene!)
 
@@ -313,20 +313,20 @@ der ONNX-ps-pk-onnx-Container!):
 |----------|---------|-------------|
 | `ASR_BACKEND` | `ps-pk-onnx` | Adapter-Auswahl (`ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`) |
 | `ASR_URL` | `http://ps-pk-onnx:5092` | URL des ONNX-ps-pk-onnx-Containers |
-| `CPP_URL` | `http://crispr-pk-cpp:5093` | URL des crispr-pk-cpp-Containers (CrispASR parakeet) |
-| `QWEN3_URL` | `http://crispr-qwen3:5094` | URL des crispr-qwen3-Containers |
-| `CRISPASR_URL` | `http://crispr-ark:5095` | URL des crispr-ark-Containers (CrispASR) |
-| `MOONSHINE_URL` | `http://crispr-moonshine-de:5096` | URL des crispr-moonshine-de-Containers |
-| `CANARY_URL` | `http://crispr-canary:5097` | URL des crispr-canary-Containers |
+| `CRISPR_PK_CPP_URL` | `http://crispr-pk-cpp:5093` | URL des crispr-pk-cpp-Containers (CrispASR parakeet) |
+| `CRISPR_QWEN3_URL` | `http://crispr-qwen3:5094` | URL des crispr-qwen3-Containers |
+| `CRISPR_ARK_URL` | `http://crispr-ark:5095` | URL des crispr-ark-Containers (CrispASR) |
+| `CRISPR_MOONSHINE_DE_URL` | `http://crispr-moonshine-de:5096` | URL des crispr-moonshine-de-Containers |
+| `CRISPR_CANARY_URL` | `http://crispr-canary:5097` | URL des crispr-canary-Containers |
 
 ```bash
 # WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
 # get_client() still auf ps-pk-onnx zurück und postet gegen den ONNX-Container!
-QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
+CRISPR_QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
 
 # Kombination mehrerer Backends (Admin-GUI startet sie on demand):
 docker compose -f compose.yml -f compose.backends.yml \
-  --profile cpp --profile qwen3 --profile ark up -d --no-start
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 ```
 
 > **Hinweis:** Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/`
@@ -616,7 +616,7 @@ eigene Jobs mit Position/ETA, fremde anonymisiert.
 **Einmaliger Setup-Befehl** (erstellt alle Container, startet aber nichts):
 
 ```
-docker compose -f compose.yml -f compose.backends.yml --profile cpp --profile qwen3 --profile ark --profile moonshine --profile canary up -d --no-start
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
 ```
 
 ---
@@ -706,7 +706,7 @@ npm run dev              # Vite Dev Server auf :5173
 
 # Zweites Terminal:
 cd webapp
-ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
+PS_PK_ONNX_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
 ```
 
 ### Tests

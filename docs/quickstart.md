@@ -37,10 +37,10 @@ Alle Werte in `compose.oidc.yml` sind Platzhalter — vor Produktion
 ```bash
 # Container erzeugen (GUI startet sie on demand):
 docker compose -f compose.yml -f compose.backends.yml \
-  --profile cpp --profile qwen3 --profile ark up -d --no-start
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 
 # Oder ein Backend direkt mitstarten:
-docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
 ```
 
 Die Modelle müssen einmalig geladen werden — siehe

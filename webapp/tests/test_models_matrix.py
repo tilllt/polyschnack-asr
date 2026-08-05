@@ -43,7 +43,7 @@ def test_voxtral_profile_in_registry():
     from app.service_registry import get_service
     svc = get_service("ps-voxtral")
     assert svc is not None
-    assert svc["compose_profile"] == "voxtral"
+    assert svc["compose_profile"] == "ps-voxtral"
 
 
 def test_no_funasr_anywhere():

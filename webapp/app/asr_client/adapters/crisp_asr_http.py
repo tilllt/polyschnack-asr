@@ -18,7 +18,7 @@ from .. import AsrClient, BackendCapabilities, _parse_result
 log = logging.getLogger(__name__)
 
 # URL of the ark-asr (CrispASR server) container in the compose network
-_URL = os.getenv("CRISPASR_URL", "http://crispr-ark:5095")
+_URL = os.getenv("CRISPR_ARK_URL", "http://crispr-ark:5095")
 
 
 class CrispAsrHttpClient(AsrClient):

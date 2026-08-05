@@ -81,7 +81,7 @@ def ensure_backend_available(backend: str, request: Request) -> None:
     """
     from ..config import settings
     from ..docker_proxy import DockerProxyClient, DockerProxyError, get_docker_client
-    from ..service_registry import get_service
+    from ..service_registry import container_name as _cn, get_service
 
     if not backend or backend == settings.POLYSCHNACK_DEFAULT_BACKEND:
         return
@@ -91,7 +91,7 @@ def ensure_backend_available(backend: str, request: Request) -> None:
         raise HTTPException(status_code=404, detail=f"unknown backend {backend}")
 
     profile = svc["compose_profile"]
-    container = svc["container_name"]  # aus der Registry — keine hartkodierte Konstruktion
+    container = _cn(svc)  # Option C: Container-Name = Service-Name
 
     docker: DockerProxyClient = get_docker_client()
     try:

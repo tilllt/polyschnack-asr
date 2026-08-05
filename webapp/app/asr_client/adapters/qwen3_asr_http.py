@@ -17,7 +17,7 @@ from .. import AsrClient, BackendCapabilities, _parse_result
 log = logging.getLogger(__name__)
 
 # URL of the qwen3-asr container in the compose network (override via env)
-_URL = os.getenv("QWEN3_URL", "http://crispr-qwen3:5094")
+_URL = os.getenv("CRISPR_QWEN3_URL", "http://crispr-qwen3:5094")
 
 
 class Qwen3AsrHttpClient(AsrClient):

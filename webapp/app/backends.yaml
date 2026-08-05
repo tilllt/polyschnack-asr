@@ -29,8 +29,8 @@ services:
   - name: ps-pk-onnx
     backend: ps-pk-onnx
     compose_profile: default
-    container_name: ps-pk-onnx
     type: local
+    port: 5092
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: parakeet-tdt-0.6b-v3-onnx
@@ -51,13 +51,12 @@ services:
 
   - name: crispr-pk-cpp
     backend: crispr-pk-cpp
-    compose_profile: cpp
-    container_name: crispr-pk-cpp
+    compose_profile: crispr-pk-cpp
     type: local
+    port: 5093
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: parakeet-tdt-0.6b-v3-q8_0.gguf
-    url_env: CPP_URL               # Env-Var überschreibt die Compose-URL
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
     capabilities:
       word_timestamps: true   # gleiches Modell wie ps-pk-onnx, Timestamps modell-inhärent
@@ -74,13 +73,12 @@ services:
 
   - name: crispr-qwen3
     backend: crispr-qwen3
-    compose_profile: qwen3
-    container_name: crispr-qwen3
+    compose_profile: crispr-qwen3
     type: local
+    port: 5094
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: qwen3-asr-0.6b-q8_0.gguf + forced-aligner
-    url_env: QWEN3_URL             # Env-Var überschreibt die Compose-URL
     requires: {vram_gb: 3, ram_gb: 6, disk_gb: 4}
     capabilities:
       word_timestamps: true   # via forced aligner
@@ -97,13 +95,12 @@ services:
 
   - name: crispr-ark
     backend: crispr-ark
-    compose_profile: ark
-    container_name: crispr-ark
+    compose_profile: crispr-ark
     type: local
+    port: 5095
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: ark-asr-3b-q8_0.gguf
-    url_env: CRISPASR_URL          # Env-Var überschreibt die Compose-URL
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json liefert word-level
@@ -120,13 +117,12 @@ services:
 
   - name: ps-voxtral
     backend: ps-voxtral
-    compose_profile: voxtral
-    container_name: ps-voxtral
+    compose_profile: ps-voxtral
     type: local
+    port: 5099
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)
-    url: http://ps-voxtral:8000   # voxtral.cpp / vLLM-kompatibler Server
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
     capabilities:
       word_timestamps: "verify"      # Mistral: nicht für Timestamps trainiert (vermutlich False)
@@ -152,14 +148,12 @@ services:
 
   - name: crispr-moonshine-de
     backend: crispr-moonshine-de
-    compose_profile: moonshine
-    container_name: crispr-moonshine-de
+    compose_profile: crispr-moonshine-de
     type: local
+    port: 5096
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)
-    url: http://crispr-moonshine-de:5096
-    url_env: MOONSHINE_URL         # Env-Var überschreibt die Compose-URL
     requires: {vram_gb: 1, ram_gb: 2, disk_gb: 1}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1
@@ -176,14 +170,12 @@ services:
 
   - name: crispr-canary
     backend: crispr-canary
-    compose_profile: canary
-    container_name: crispr-canary
+    compose_profile: crispr-canary
     type: local
+    port: 5097
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)
-    url: http://crispr-canary:5097
-    url_env: CANARY_URL            # Env-Var überschreibt die Compose-URL
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1

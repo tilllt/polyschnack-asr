@@ -34,7 +34,7 @@ npm run dev
 # Backend (zweites Terminal)
 cd webapp
 uv sync
-ASR_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
+PS_PK_ONNX_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
 ```
 
 ### Full Stack (Docker)
@@ -46,7 +46,7 @@ docker compose -f compose.yml -f compose.gpu.yml up -d   # GPU
 
 # Mit optionalen Backends (Profile, --no-start = Admin-GUI startet on demand):
 docker compose -f compose.yml -f compose.backends.yml \
-  --profile cpp --profile qwen3 --profile ark --profile moonshine --profile canary up -d --no-start
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
 ```
 
 ---

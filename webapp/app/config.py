@@ -25,15 +25,17 @@ class _Settings:
     BENCHMARK_DATA_DIR: Path = Path(os.getenv("BENCHMARK_DATA_DIR", str(Path(os.getenv("DATA_DIR", "/data")) / "benchmark")))
 
     #: Base URL of the ASR inference service (no trailing slash).
-    ASR_URL: str = os.getenv("ASR_URL", "http://ps-pk-onnx:5092").rstrip("/")
+    #: Env-Var = Backend-ID (Option C): PS_PK_ONNX_URL.
+    ASR_URL: str = os.getenv("PS_PK_ONNX_URL", "http://ps-pk-onnx:5092").rstrip("/")
 
     #: Model name forwarded in every transcription request.
     ASR_MODEL: str = os.getenv("ASR_MODEL", "parakeet-tdt-0.6b-v3")
 
     # Diarization-Service (CrispASR-Server, eigener Container — Option B).
     # Kein pyannote/torch mehr in der Webapp; der diar-Container liefert
-    # diarized_json mit Speaker-Labels A/B/C… (Container-Port 5096)
-    DIAR_URL: str = os.getenv("DIAR_URL", "http://crispr-diar:5098").rstrip("/")
+    # diarized_json mit Speaker-Labels A/B/C… (Container-Port 5098)
+    # Env-Var = Backend-ID (Option C): CRISPR_DIAR_URL.
+    DIAR_URL: str = os.getenv("CRISPR_DIAR_URL", "http://crispr-diar:5098").rstrip("/")
 
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
     DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")

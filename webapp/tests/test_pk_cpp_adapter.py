@@ -3,7 +3,7 @@
 Weg-1-Umbau: pk-cpp läuft auf unserem eigenen hybriden CrispASR-Image
 (pk-asr-cpp/) statt auf dem externen mudler/parakeet.cpp-server. Der
 Adapter spricht denselben OpenAI-kompatiblen Endpunkt an, aber mit
-eigener URL (CPP_URL, Default http://crispr-pk-cpp:5093) — NICHT
+eigener URL (CRISPR_PK_CPP_URL, Default http://crispr-pk-cpp:5093) — NICHT
 settings.ASR_URL (das ist der ONNX-ps-pk-onnx-Container).
 """
 import httpx

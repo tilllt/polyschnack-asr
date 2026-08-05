@@ -6,7 +6,7 @@
 # Optionale Backends (parakeet.cpp, Qwen3, ARK, Voxtral) liegen in
 # compose.backends.yml und werden über Docker-Profile aktiviert:
 #   docker compose -f compose.yml -f compose.backends.yml \
-#     --profile cpp --profile qwen3 --profile ark up -d --no-start
+#     --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 # (Erzeugt die Container, damit die Admin-GUI sie on demand starten kann.)
 #
 # OIDC-Login + Admin-Bereich (optional) über das Dummy-Overlay:
@@ -25,9 +25,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
-  asr:
+  ps-pk-onnx:
     image: registry.example.com/public/polyschnack-asr:latest
-    container_name: ps-pk-onnx
     environment:
       # Hybrid: "auto" = GPU wenn CUDA-Provider verfügbar, sonst CPU-INT8.
       # Explizit "true" (mit GPU-Zugriff) setzt nur das GPU-Overlay
@@ -54,9 +53,8 @@ services:
       retries: 3
       start_period: 90s
 
-  diar:
+  crispr-diar:
     image: registry.example.com/public/polyschnack-asr-diar:latest
-    container_name: crispr-diar
     environment:
       DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
     volumes:
@@ -73,16 +71,15 @@ services:
       retries: 3
       start_period: 90s
 
-  webapp:
+  ps-webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
-    container_name: ps-webapp
     mem_limit: 2g
     memswap_limit: 2g
     environment:
-      ASR_URL: "${ASR_URL:-http://ps-pk-onnx:5092}"
+      PS_PK_ONNX_URL: "${PS_PK_ONNX_URL:-http://ps-pk-onnx:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-ps-pk-onnx}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
-      DIAR_URL: "${DIAR_URL:-http://crispr-diar:5098}"
+      CRISPR_DIAR_URL: "${CRISPR_DIAR_URL:-http://crispr-diar:5098}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.

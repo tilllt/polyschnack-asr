@@ -37,7 +37,7 @@ def test_get_client_canary_asr():
 
 
 def test_get_client_url_env_override(monkeypatch):
-    monkeypatch.setenv("MOONSHINE_URL", "http://moonshine-test:9999")
+    monkeypatch.setenv("CRISPR_MOONSHINE_DE_URL", "http://moonshine-test:9999")
     c = get_client("crispr-moonshine-de")
     assert c.url == "http://moonshine-test:9999"
 

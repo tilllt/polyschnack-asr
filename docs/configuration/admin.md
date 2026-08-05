@@ -33,5 +33,5 @@ Erstellt alle Container, startet aber nichts — die GUI startet dann
 on demand:
 
 ```
-docker compose -f compose.yml -f compose.backends.yml --profile cpp --profile qwen3 --profile ark --profile moonshine --profile canary up -d --no-start
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
 ```

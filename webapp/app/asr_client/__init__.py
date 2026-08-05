@@ -105,21 +105,23 @@ def _resolve_backend(backend: str) -> Dict[str, Any]:
 def _load_adapter(svc: Dict[str, Any]) -> AsrClient:
     """Instanziiert den Adapter aus dem ``adapter``-Feld (Modul:Klassenname).
 
-    Konstruktor-Argumente:
-    - ``url``: aus ``url_env`` (Env-Override) → ``url`` (Compose-Default) → None
-      (Klassen-Default, z. B. ps-pk-onnx über settings.ASR_URL)
-    - ``capabilities``: nur wenn die Klasse den Parameter akzeptiert UND die
-      Registry per-Adapter-Capabilities definiert (CrispASR-Derivate).
+    URL-Auflösung (Option C):
+    1. Env-Override ``<ID>_URL`` (z. B. ``CRISPR_QWEN3_URL``) — abgeleitet
+       aus der Backend-ID, kein manuelles url_env-Feld.
+    2. Sonst Compose-Netzwerk-URL aus ``name`` + ``port``
+       (z. B. http://crispr-qwen3:5094) — deterministisch, keine URL im YAML.
     """
     import importlib
     import inspect
+
+    from ..service_registry import service_url, service_url_env
 
     module_name, _, class_name = svc["adapter"].partition(":")
     cls = getattr(importlib.import_module(module_name), class_name)
 
     kwargs: Dict[str, Any] = {}
-    url = os.getenv(svc["url_env"]) if svc.get("url_env") else None
-    url = url or svc.get("url")
+    url = os.getenv(service_url_env(svc))
+    url = url or service_url(svc)
     if url:
         kwargs["url"] = url
 

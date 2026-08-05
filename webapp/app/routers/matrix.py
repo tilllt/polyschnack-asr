@@ -29,8 +29,9 @@ router = APIRouter(prefix="/api/models")
 
 
 def _container_name(svc: Dict[str, Any]) -> str:
-    """container_name aus der Registry — einzige Quelle (kein hartkodiertes Mapping)."""
-    return svc["container_name"]
+    """Container-Name = Service-Name aus der Registry (Option C)."""
+    from ..service_registry import container_name
+    return container_name(svc)
 
 
 def _reachable(svc: Dict[str, Any], docker: Optional[DockerProxyClient]) -> Optional[bool]:

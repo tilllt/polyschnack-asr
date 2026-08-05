@@ -44,10 +44,10 @@ docker compose -f compose.yml -f compose.gpu.yml up -d # GPU
 
 # Kern + Backends (Container erzeugen, GUI startet on demand):
 docker compose -f compose.yml -f compose.backends.yml \
-  --profile cpp --profile qwen3 --profile ark up -d --no-start
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 
 # Kern + einzelnes Backend direkt mitstarten:
-docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
 
 # Kern + OIDC-Login (Dummy-Werte vorher ersetzen!):
 docker compose -f compose.yml -f compose.oidc.yml up -d
@@ -58,11 +58,11 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 | Profil | Befehl | Startet | GPU via Overlay |
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
-| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + crispr-pk-cpp | ✅ |
-| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + crispr-qwen3 | ✅ |
-| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + crispr-ark | ✅ |
-| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + crispr-moonshine-de | ✅ |
-| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + crispr-canary | ✅ |
+| `--profile crispr-pk-cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d` | + crispr-pk-cpp | ✅ |
+| `--profile crispr-qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d` | + crispr-qwen3 | ✅ |
+| `--profile crispr-ark` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d` | + crispr-ark | ✅ |
+| `--profile crispr-moonshine-de` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d` | + crispr-moonshine-de | ✅ |
+| `--profile crispr-canary` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d` | + crispr-canary | ✅ |
 
 ## Hinweis
 
