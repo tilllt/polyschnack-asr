@@ -1,191 +1,39 @@
-"""Central registry of all ASR endpoints (Task 2).
+"""Central registry of all ASR endpoints — geladen aus backends.yaml.
 
 Single source of truth for:
 - resource requirements (``requires``: vram/ram/disk) used by the admin
   pre-start resource check,
 - endpoint capacity (``concurrency``) from which the transcribe queue derives
   the overall concurrency (Decision 3),
-- feature capabilities used for the model matrix (README + GUI).
+- feature capabilities used for the model matrix (README + GUI),
+- adapter wiring (``adapter``: Modul:Klassenname) for get_client().
 
 Weg 1 (hybrid): Jeder lokale Service hat genau EIN Image, das auf GPU UND
 CPU läuft (CUDA/ggml-Binary mit CPU-Fallback via ggml_backend_init_best).
 Es gibt keine CPU-Varianten mehr — die Admin-API nutzt immer ``container_name``.
 
-Kept deliberately small: a plain dict + assert self-check. No image/container
-duplicates — that is compose's job. ``available_services()`` returns services
-with ``status == \"active\"`` (runtime up/down state comes from the Docker proxy).
+Die Definitionen liegen NICHT im Code, sondern in ``backends.yaml`` (neben
+diesem Modul). Neues Backend = neuer YAML-Block + Adapter-Klasse; keine
+Code-Änderung an der Verdrahtung. ``available_services()`` returns services
+with ``status == "active"`` (runtime up/down state comes from the Docker proxy).
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SERVICES: List[Dict[str, Any]] = [
-    {
-        "name": "pk-python",
-        "backend": "pk-python",
-        "compose_profile": "default",
-        "container_name": "polyschnack-asr",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "parakeet-tdt-0.6b-v3-onnx",
-        "health_url": "",  # "" -> settings.ASR_URL; only our own servers report VRAM
-        "requires": {"vram_gb": 6, "ram_gb": 8, "disk_gb": 5},
-        "capabilities": {
-            "word_timestamps": True,
-            "streaming": True,
-            "async_jobs": True,
-            "noise_reduce": True,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "pk-cpp",
-        "backend": "pk-cpp",
-        "compose_profile": "cpp",
-        "container_name": "polyschnack-cpp",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "parakeet-tdt-0.6b-v3-q8_0.gguf",
-        "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
-        "capabilities": {
-            "word_timestamps": True,  # same model as pk-python, timestamps model-inherent
-            "streaming": False,
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "qwen3-asr",
-        "backend": "qwen3-asr",
-        "compose_profile": "qwen3",
-        "container_name": "qwen3-asr",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "qwen3-asr-0.6b-q8_0.gguf + forced-aligner",
-        "requires": {"vram_gb": 3, "ram_gb": 6, "disk_gb": 4},
-        "capabilities": {
-            "word_timestamps": True,  # via forced aligner
-            "streaming": False,
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "ark-asr",
-        "backend": "ark-asr",
-        "compose_profile": "ark",
-        "container_name": "ark-asr",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "ark-asr-3b-q8_0.gguf",
-        "requires": {"vram_gb": 5, "ram_gb": 6, "disk_gb": 4},
-        "capabilities": {
-            "word_timestamps": True,  # CrispASR verbose_json liefert word-level
-            "streaming": False,
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "voxtral",
-        "backend": "voxtral",
-        "compose_profile": "voxtral",
-        "container_name": "polyschnack-voxtral",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)",
-        "url": "http://polyschnack-voxtral:8000",  # voxtral.cpp / vLLM-compatible server
-        "requires": {"vram_gb": 5, "ram_gb": 6, "disk_gb": 4},
-        "capabilities": {
-            "word_timestamps": "verify",  # Mistral: not trained for timestamps (likely False)
-            "streaming": True,  # realtime model emits one token per 80ms frame
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en"],
-            "device": ["gpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "moonshine-de",
-        "backend": "moonshine-de",
-        "compose_profile": "moonshine",
-        "container_name": "polyschnack-moonshine-de",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)",
-        "url": "http://polyschnack-moonshine-de:5096",
-        "requires": {"vram_gb": 1, "ram_gb": 2, "disk_gb": 1},
-        "capabilities": {
-            "word_timestamps": True,  # CrispASR verbose_json, -ml 1
-            "streaming": False,
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-    {
-        "name": "canary-asr",
-        "backend": "canary-asr",
-        "compose_profile": "canary",
-        "container_name": "polyschnack-canary",
-        "type": "local",
-        "cost_per_minute_eur": 0.0,
-        "concurrency": 1,
-        "model": "canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)",
-        "url": "http://polyschnack-canary:5097",
-        "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
-        "capabilities": {
-            "word_timestamps": True,  # CrispASR verbose_json, -ml 1
-            "streaming": False,
-            "async_jobs": False,
-            "noise_reduce": False,
-            "vad": "external",
-            "diarization": "external",
-            "enhance": True,
-            "languages": ["de", "en", "fr", "es"],
-            "device": ["gpu", "cpu"],
-        },
-        "status": "active",
-    },
-]
+import yaml
+
+_BACKENDS_FILE = Path(__file__).parent / "backends.yaml"
+
+
+def _load() -> List[Dict[str, Any]]:
+    with open(_BACKENDS_FILE, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    return list(data["services"])
+
+
+SERVICES: List[Dict[str, Any]] = _load()
 
 _VALID_PROFILES = {"default", "cpp", "qwen3", "ark", "voxtral", "moonshine", "canary"}
 
@@ -222,6 +70,7 @@ if __name__ == "__main__":
         assert isinstance(s["concurrency"], int) and s["concurrency"] >= 1
         assert s["requires"]["vram_gb"] >= 0 and s["requires"]["ram_gb"] >= 0 and s["requires"]["disk_gb"] >= 0
         assert s["compose_profile"] in _VALID_PROFILES or s["type"] == "remote"
+        assert s.get("adapter") and ":" in s["adapter"], f"{s['name']} braucht 'adapter: Modul:Klasse'"
         for k, v in s["capabilities"].items():
             assert isinstance(v, (bool, str, list)), f"{s['name']}.capabilities.{k}"
     assert len({s["name"] for s in SERVICES}) == len(SERVICES), "duplicate service names"

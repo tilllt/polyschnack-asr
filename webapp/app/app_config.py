@@ -54,4 +54,16 @@ def delete(key: str) -> None:
 
 def effective_backend() -> Optional[str]:
     """Override or env default (None = env default in force)."""
-    return get("default_backend") or None
+    value = get("default_backend") or None
+    if value is None:
+        return None
+    # Backend-ID-Umbau (2026-08): alte Adapter-IDs aus config.json mappen.
+    return {
+        "pk-python": "ps-pk-onnx",
+        "pk-cpp": "crispr-pk-cpp",
+        "qwen3-asr": "crispr-qwen3",
+        "ark-asr": "crispr-ark",
+        "moonshine-de": "crispr-moonshine-de",
+        "canary-asr": "crispr-canary",
+        "voxtral": "ps-voxtral",
+    }.get(value, value)

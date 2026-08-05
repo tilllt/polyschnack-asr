@@ -10,7 +10,7 @@ wählst du pro Aufnahme, was nach der Transkription passieren soll.
   kostenpflichtig).
 
   !!! note "Native Interpunktion"
-      Die CrispASR-Backends (Qwen3-ASR, ARK-ASR, pk-cpp) punktieren **nativ**
+      Die CrispASR-Backends (crispr-qwen3, crispr-ark, crispr-pk-cpp) punktieren **nativ**
       vom Server (`--punc-model fullstop` = EN/DE/FR/IT, `--truecase-model lstm`
       = deutsches Truecasing, 97,9 % F1) — dort wird das LLM-Punctuation
       automatisch übersprungen (keine doppelte Interpunktion).

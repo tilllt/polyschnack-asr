@@ -25,7 +25,7 @@ class _Settings:
     BENCHMARK_DATA_DIR: Path = Path(os.getenv("BENCHMARK_DATA_DIR", str(Path(os.getenv("DATA_DIR", "/data")) / "benchmark")))
 
     #: Base URL of the ASR inference service (no trailing slash).
-    ASR_URL: str = os.getenv("ASR_URL", "http://asr:5092").rstrip("/")
+    ASR_URL: str = os.getenv("ASR_URL", "http://ps-pk-onnx:5092").rstrip("/")
 
     #: Model name forwarded in every transcription request.
     ASR_MODEL: str = os.getenv("ASR_MODEL", "parakeet-tdt-0.6b-v3")
@@ -33,7 +33,7 @@ class _Settings:
     # Diarization-Service (CrispASR-Server, eigener Container — Option B).
     # Kein pyannote/torch mehr in der Webapp; der diar-Container liefert
     # diarized_json mit Speaker-Labels A/B/C… (Container-Port 5096)
-    DIAR_URL: str = os.getenv("DIAR_URL", "http://diar:5098").rstrip("/")
+    DIAR_URL: str = os.getenv("DIAR_URL", "http://crispr-diar:5098").rstrip("/")
 
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
     DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")
@@ -70,7 +70,7 @@ class _Settings:
     DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
 
     #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
-    POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "pk-python")
+    POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")
 
     #: Opt-in processing (Task A12/A13) — Defaults aus, nichts läuft automatisch.
     POLYSCHNACK_DEFAULT_PUNCTUATION: bool = os.getenv("POLYSCHNACK_DEFAULT_PUNCTUATION", "").lower() in ("1", "true", "yes", "on")
@@ -96,8 +96,8 @@ class _Settings:
     POLYSCHNACK_VOXTRAL_API_KEY: str = os.getenv("POLYSCHNACK_VOXTRAL_API_KEY", "")
 
 
-    #: Which ASR backend adapter to use: ``pk-python`` or ``pk-cpp``
-    ASR_BACKEND: str = os.getenv("ASR_BACKEND", "pk-python")
+    #: Which ASR backend adapter to use: ``ps-pk-onnx`` or ``crispr-pk-cpp``
+    ASR_BACKEND: str = os.getenv("ASR_BACKEND", "ps-pk-onnx")
 
 
 settings = _Settings()

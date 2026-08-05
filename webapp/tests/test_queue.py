@@ -64,14 +64,14 @@ def qm_no_worker(monkeypatch):
 
 
 def test_enqueue_returns_position_one(qm):
-    assert qm.enqueue(1, None, "pk-python") == 1
+    assert qm.enqueue(1, None, "ps-pk-onnx") == 1
     assert qm.queued_count() == 1
 
 
 def test_duplicate_enqueue_raises(qm):
-    qm.enqueue(1, None, "pk-python")
+    qm.enqueue(1, None, "ps-pk-onnx")
     with pytest.raises(QueueError):
-        qm.enqueue(1, None, "pk-python")
+        qm.enqueue(1, None, "ps-pk-onnx")
 
 
 def test_queue_full_raises(qm, monkeypatch):
@@ -80,19 +80,19 @@ def test_queue_full_raises(qm, monkeypatch):
         time.sleep(5)
 
     monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "pk-python")
-    qm.enqueue(2, None, "pk-python")
-    qm.enqueue(3, None, "pk-python")
+    qm.enqueue(1, None, "ps-pk-onnx")
+    qm.enqueue(2, None, "ps-pk-onnx")
+    qm.enqueue(3, None, "ps-pk-onnx")
     with pytest.raises(QueueFullError):
-        qm.enqueue(4, None, "pk-python")
+        qm.enqueue(4, None, "ps-pk-onnx")
 
 
 def test_position_counts_same_backend_only(qm_no_worker):
     # Ohne Worker: position() ist reine Queue-Logik. Mit Worker setzt der
     # Worker den Job sofort auf 'processing' -> position 0 (CI-Timing-Race).
-    qm_no_worker.enqueue(1, None, "pk-python")
-    qm_no_worker.enqueue(2, None, "pk-cpp")
-    qm_no_worker.enqueue(3, None, "pk-python")
+    qm_no_worker.enqueue(1, None, "ps-pk-onnx")
+    qm_no_worker.enqueue(2, None, "crispr-pk-cpp")
+    qm_no_worker.enqueue(3, None, "ps-pk-onnx")
     assert qm_no_worker.position(1) == 1
     assert qm_no_worker.position(2) == 1  # anderer Endpunkt, andere Reihe
     assert qm_no_worker.position(3) == 2
@@ -104,11 +104,11 @@ def test_active_jobs_for(qm, monkeypatch):
         time.sleep(5)
 
     monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "pk-python")
-    qm.enqueue(2, None, "pk-cpp")
-    assert qm.active_jobs_for("pk-python") == 1
-    assert qm.active_jobs_for("pk-cpp") == 1
-    assert qm.active_jobs_for("qwen3-asr") == 0
+    qm.enqueue(1, None, "ps-pk-onnx")
+    qm.enqueue(2, None, "crispr-pk-cpp")
+    assert qm.active_jobs_for("ps-pk-onnx") == 1
+    assert qm.active_jobs_for("crispr-pk-cpp") == 1
+    assert qm.active_jobs_for("crispr-qwen3") == 0
 
 
 def test_worker_processes_jobs_with_bound_backend(qm, monkeypatch):
@@ -119,12 +119,12 @@ def test_worker_processes_jobs_with_bound_backend(qm, monkeypatch):
         seen.append((rec_id, backend))
 
     monkeypatch.setattr(queue_mod, "process_recording", fake_process)
-    qm.enqueue(1, None, "pk-python")
-    qm.enqueue(2, None, "qwen3-asr")
+    qm.enqueue(1, None, "ps-pk-onnx")
+    qm.enqueue(2, None, "crispr-qwen3")
     deadline = time.time() + 5
     while len(seen) < 2 and time.time() < deadline:
         time.sleep(0.02)
-    assert sorted(seen) == [(1, "pk-python"), (2, "qwen3-asr")]
+    assert sorted(seen) == [(1, "ps-pk-onnx"), (2, "crispr-qwen3")]
     assert qm.queued_count() == 0  # Jobs nach Abschluss entfernt
 
 
@@ -146,8 +146,8 @@ def test_worker_respects_endpoint_capacity(qm, monkeypatch):
             concurrent.remove(rec_id)
 
     monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "pk-python")
-    qm.enqueue(2, None, "pk-python")
+    qm.enqueue(1, None, "ps-pk-onnx")
+    qm.enqueue(2, None, "ps-pk-onnx")
     assert started.wait(timeout=5)
     time.sleep(0.2)
     release.set()
@@ -163,12 +163,12 @@ def test_cancel_queued_job(qm, monkeypatch):
         done.wait(timeout=5)  # Job bleibt processing, bis done gesetzt wird
 
     monkeypatch.setattr(queue_mod, "process_recording", fake_process)
-    qm.enqueue(1, 7, "pk-python")
-    qm.enqueue(2, 42, "pk-python")  # wartet auf Endpunkt
+    qm.enqueue(1, 7, "ps-pk-onnx")
+    qm.enqueue(2, 42, "ps-pk-onnx")  # wartet auf Endpunkt
 
     assert qm.cancel(2, user_id=99) is False  # fremder User -> abgelehnt
     assert qm.cancel(2, user_id=42) is True   # Eigentümer -> gelöscht
-    qm.enqueue(3, 43, "pk-python")
+    qm.enqueue(3, 43, "ps-pk-onnx")
     assert qm.cancel(3, user_id=None, is_admin=True) is True  # Admin -> gelöscht
     done.set()
     deadline = time.time() + 5
@@ -185,7 +185,7 @@ def test_cancel_processing_not_allowed(qm, monkeypatch):
         release.wait(timeout=5)
 
     monkeypatch.setattr(queue_mod, "process_recording", fake_process)
-    qm.enqueue(1, None, "pk-python")
+    qm.enqueue(1, None, "ps-pk-onnx")
     assert started.wait(timeout=5)
     assert qm.cancel(1, user_id=None) is False  # processing ist nicht abbrechbar
     release.set()

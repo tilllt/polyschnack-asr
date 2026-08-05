@@ -26,27 +26,27 @@ def _docker(running: dict[str, bool]) -> DockerProxyClient:
 
 
 def test_matrix_reachable_true_when_running():
-    docker = _docker({"polyschnack-cpp": True, "polyschnack-qwen3": True, "polyschnack-ark": True})
+    docker = _docker({"crispr-pk-cpp": True, "crispr-qwen3": True, "crispr-ark": True})
     m = {x["name"]: x for x in build_matrix(docker)}
-    assert m["pk-cpp"]["reachable"] is True
-    assert m["qwen3-asr"]["reachable"] is True
-    assert m["ark-asr"]["reachable"] is True
+    assert m["crispr-pk-cpp"]["reachable"] is True
+    assert m["crispr-qwen3"]["reachable"] is True
+    assert m["crispr-ark"]["reachable"] is True
 
 
 def test_matrix_reachable_false_when_stopped_or_not_created():
-    docker = _docker({"polyschnack-cpp": False})  # qwen3/ark fehlen → 404
+    docker = _docker({"crispr-pk-cpp": False})  # qwen3/ark fehlen → 404
     m = {x["name"]: x for x in build_matrix(docker)}
-    assert m["pk-cpp"]["reachable"] is False
-    assert m["qwen3-asr"]["reachable"] is False
-    assert m["ark-asr"]["reachable"] is False
+    assert m["crispr-pk-cpp"]["reachable"] is False
+    assert m["crispr-qwen3"]["reachable"] is False
+    assert m["crispr-ark"]["reachable"] is False
 
 
 def test_matrix_default_always_reachable():
     # Nur der Kern-Stack läuft; optionale Container existieren nicht.
     docker = _docker({})
     m = {x["name"]: x for x in build_matrix(docker)}
-    assert m["pk-python"]["reachable"] is True  # compose_profile default
-    assert m["qwen3-asr"]["reachable"] is False
+    assert m["ps-pk-onnx"]["reachable"] is True  # compose_profile default
+    assert m["crispr-qwen3"]["reachable"] is False
 
 
 def test_matrix_reachable_null_when_proxy_down():
@@ -55,8 +55,8 @@ def test_matrix_reachable_null_when_proxy_down():
 
     docker = DockerProxyClient(base_url="http://proxy:2375", transport=httpx.MockTransport(handler))
     m = {x["name"]: x for x in build_matrix(docker)}
-    assert m["pk-python"]["reachable"] is True
-    assert m["qwen3-asr"]["reachable"] is None
+    assert m["ps-pk-onnx"]["reachable"] is True
+    assert m["crispr-qwen3"]["reachable"] is None
 
 
 def test_matrix_has_reachable_field():

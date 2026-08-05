@@ -19,20 +19,20 @@
 services:
   benchmark:
     image: registry.example.com/public/polyschnack-benchmark:latest
-    container_name: polyschnack-benchmark
+    container_name: ps-benchmark
     # Einmal-Lauf: `run --rm` erzeugt und entfernt den Container automatisch.
     restart: "no"
     environment:
       BENCHMARK_DATA_DIR: /data/benchmark
       # Backends + URLs im Compose-Netzwerk (Container-Port, nicht Host-Port!)
-      BENCH_BACKENDS: "${BENCH_BACKENDS:-pk-python,qwen3-asr,ark-asr,moonshine-de,canary-asr,pk-cpp}"
+      BENCH_BACKENDS: "${BENCH_BACKENDS:-ps-pk-onnx,crispr-qwen3,crispr-ark,crispr-moonshine-de,crispr-canary,crispr-pk-cpp}"
       BENCH_BACKEND_URLS: >-
-        {"pk-python":"http://asr:5092/v1",
-         "pk-cpp":"http://polyschnack-cpp:5093/v1",
-         "qwen3-asr":"http://qwen3-asr:5094/v1",
-         "ark-asr":"http://ark-asr:5095/v1",
-         "moonshine-de":"http://polyschnack-moonshine-de:5096/v1",
-         "canary-asr":"http://polyschnack-canary:5097/v1"}
+        {"ps-pk-onnx":"http://ps-pk-onnx:5092/v1",
+         "crispr-pk-cpp":"http://crispr-pk-cpp:5093/v1",
+         "crispr-qwen3":"http://crispr-qwen3:5094/v1",
+         "crispr-ark":"http://crispr-ark:5095/v1",
+         "crispr-moonshine-de":"http://crispr-moonshine-de:5096/v1",
+         "crispr-canary":"http://crispr-canary:5097/v1"}
     volumes:
       # Least-Privilege: Nur das Benchmark-Verzeichnis ist beschreibbar
       # (latest.json + pricing.json), der Rest des Daten-Volumes bleibt read-only.

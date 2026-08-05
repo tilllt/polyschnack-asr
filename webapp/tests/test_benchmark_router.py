@@ -108,10 +108,10 @@ def client(tmp_path: Path, monkeypatch):
         (audio / f"{sid}.wav").write_bytes(wav)
     (root / "results").mkdir()
     (root / "results" / "latest.json").write_text(
-        json.dumps({"version": 1, "rows": [{"backend": "pk-python", "wer": 0.05}]})
+        json.dumps({"version": 1, "rows": [{"backend": "ps-pk-onnx", "wer": 0.05}]})
     )
     (root / "pricing.json").write_text(
-        json.dumps({"selfhost": {"pk-python": {"eur_per_min": 0.01, "markup_x": 2.0}}})
+        json.dumps({"selfhost": {"ps-pk-onnx": {"eur_per_min": 0.01, "markup_x": 2.0}}})
     )
     monkeypatch.setattr(settings, "OIDC_ENABLED", False)
     monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
@@ -199,13 +199,13 @@ def test_preview_returns_mp3(client):
 def test_results_public(client):
     r = client.get("/api/benchmark/results")
     assert r.status_code == 200
-    assert r.json()["rows"][0]["backend"] == "pk-python"
+    assert r.json()["rows"][0]["backend"] == "ps-pk-onnx"
 
 
 def test_pricing_public(client):
     r = client.get("/api/benchmark/pricing")
     assert r.status_code == 200
-    assert r.json()["selfhost"]["pk-python"]["eur_per_min"] == 0.01
+    assert r.json()["selfhost"]["ps-pk-onnx"]["eur_per_min"] == 0.01
 
 
 def test_versions_public(client):

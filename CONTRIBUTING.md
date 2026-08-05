@@ -111,14 +111,19 @@ uv run mypy .
 
 Ein neues ASR-Backend ist erst nutzbar, wenn ALLE diese Stellen bedient sind
 (Registry allein reicht nicht — `get_client()` fällt sonst still auf
-`pk-python` zurück):
+`ps-pk-onnx` zurück):
 
 1. **`compose.backends.yml`** — Service + Profil + Port + Healthcheck
    (hybrides CrispASR-Image-Muster, siehe `ark-asr-cpp/Dockerfile`).
-2. **`webapp/app/service_registry.py`** — Eintrag in `SERVICES` +
-   `_VALID_PROFILES` erweitern (Selbst-Check: `python -m app.service_registry`).
-3. **`webapp/app/asr_client/__init__.py`** — `get_client()`-Zweig mit
-   **eigener URL-Env** (`<NAME>_URL`, Default `http://<container>:<port>` (5093–5097 je Backend)) —
+2. **`webapp/app/backends.yaml`** — neuer YAML-Block mit allen Metadaten
+   (name/backend, compose_profile, container_name, requires, capabilities)
+   + `adapter` (Modul:Klassenname) + optional `url`/`url_env`/`adapter_kwargs`.
+   Der `container_name` muss zu compose.yml passen; das `compose_profile`
+   zum Docker-Profil. Selbst-Check: `python -m app.service_registry`.
+   **Kein Code-Change an der Verdrahtung nötig** — `service_registry.py`
+   lädt die YAML, `get_client()` instanziiert per importlib.
+3. **Adapter-Klasse** — in `webapp/app/asr_client/adapters/` (erbt von
+   `AsrClient`); URL aus eigener Env-Var (`<NAME>_URL`) oder `url`-Feld —
    nie `settings.ASR_URL` (das ist der ONNX-Container!).
 4. **Tests** — `tests/test_get_client.py` (Factory-Zweig) +
    Registry-Tests; HTTP-Adapter-Tests mit `httpx.MockTransport`.

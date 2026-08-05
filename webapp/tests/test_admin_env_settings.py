@@ -6,7 +6,7 @@ from app.routers import admin
 
 def test_env_settings_lists_values(monkeypatch):
     class _S:
-        POLYSCHNACK_DEFAULT_BACKEND = "pk-python"
+        POLYSCHNACK_DEFAULT_BACKEND = "ps-pk-onnx"
         POLYSCHNACK_PUNCTUATION_MODE = "off"
         POLYSCHNACK_DEFAULT_PUNCTUATION = False
         POLYSCHNACK_DEFAULT_LLM_ENHANCE = False
@@ -25,7 +25,7 @@ def test_env_settings_lists_values(monkeypatch):
     monkeypatch.setattr(admin, "settings", _S())
     out = admin.env_settings()
     names = {s["name"]: s for s in out["settings"]}
-    assert names["default_backend"]["value"] == "pk-python"
+    assert names["default_backend"]["value"] == "ps-pk-onnx"
     assert names["anon_retention_minutes"]["value"] == "15"
     assert names["punctuation_mode"]["value"] == "off"
     assert names["llm_url"]["value"] == "https://llm.example.com/v1"
@@ -33,7 +33,7 @@ def test_env_settings_lists_values(monkeypatch):
 
 def test_env_settings_masks_secrets(monkeypatch):
     class _S:
-        POLYSCHNACK_DEFAULT_BACKEND = "pk-python"
+        POLYSCHNACK_DEFAULT_BACKEND = "ps-pk-onnx"
         POLYSCHNACK_PUNCTUATION_MODE = "off"
         POLYSCHNACK_DEFAULT_PUNCTUATION = False
         POLYSCHNACK_DEFAULT_LLM_ENHANCE = False
@@ -58,7 +58,7 @@ def test_env_settings_masks_secrets(monkeypatch):
 
 def test_env_settings_all_have_source_env(monkeypatch):
     class _S:
-        POLYSCHNACK_DEFAULT_BACKEND = "pk-python"
+        POLYSCHNACK_DEFAULT_BACKEND = "ps-pk-onnx"
         POLYSCHNACK_PUNCTUATION_MODE = "off"
         POLYSCHNACK_DEFAULT_PUNCTUATION = False
         POLYSCHNACK_DEFAULT_LLM_ENHANCE = False

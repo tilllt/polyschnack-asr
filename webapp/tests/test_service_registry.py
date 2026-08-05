@@ -18,8 +18,8 @@ def test_list_services_returns_all():
 
 
 def test_get_service_by_name_and_backend():
-    assert get_service("pk-python")["compose_profile"] == "default"
-    assert get_service("qwen3-asr")["backend"] == "qwen3-asr"
+    assert get_service("ps-pk-onnx")["compose_profile"] == "default"
+    assert get_service("crispr-qwen3")["backend"] == "crispr-qwen3"
     assert get_service("does-not-exist") is None
 
 
@@ -42,19 +42,19 @@ def test_local_services_have_valid_profile():
 
 
 def test_moonshine_de_service_registered():
-    svc = get_service("moonshine-de")
+    svc = get_service("crispr-moonshine-de")
     assert svc is not None
-    assert svc["container_name"] == "polyschnack-moonshine-de"
-    assert svc["url"] == "http://polyschnack-moonshine-de:5096"
+    assert svc["container_name"] == "crispr-moonshine-de"
+    assert svc["url"] == "http://crispr-moonshine-de:5096"
     assert svc["compose_profile"] == "moonshine"
     assert svc["capabilities"]["languages"] == ["de"]
 
 
 def test_canary_asr_service_registered():
-    svc = get_service("canary-asr")
+    svc = get_service("crispr-canary")
     assert svc is not None
-    assert svc["container_name"] == "polyschnack-canary"
-    assert svc["url"] == "http://polyschnack-canary:5097"
+    assert svc["container_name"] == "crispr-canary"
+    assert svc["url"] == "http://crispr-canary:5097"
     assert svc["compose_profile"] == "canary"
     assert set(svc["capabilities"]["languages"]) == {"de", "en", "fr", "es"}
 
@@ -62,7 +62,7 @@ def test_canary_asr_service_registered():
 def test_default_backend_adapter_matches_registry():
     """Registry is documentation, the adapter is truth — they must agree."""
     client = get_client()
-    reg = get_service(client.capabilities.label) or get_service("pk-python")
+    reg = get_service(client.capabilities.label) or get_service("ps-pk-onnx")
     caps = client.capabilities
     assert caps.streaming == (reg["capabilities"]["streaming"] is True)
     assert caps.async_jobs == (reg["capabilities"]["async_jobs"] is True)

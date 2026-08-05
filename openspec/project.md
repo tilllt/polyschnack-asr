@@ -24,8 +24,8 @@ und Post-Processing (LLM, Delivery). Betrieben auf einer KI Box (RTX 3090).
 
 ## External Systems
 
-- **ASR-Backends:** `approach-a` (Parakeet/ONNX, Port 5092), `pk-cpp`
-  (parakeet.cpp), `qwen3-asr`, `ark-asr` (remote), `voxtral` (Mistral/LiteLLM)
+- **ASR-Backends:** `approach-a` (Parakeet/ONNX, Port 5092), `crispr-pk-cpp`
+  (parakeet.cpp), `crispr-qwen3`, `crispr-ark` (remote), `voxtral` (Mistral/LiteLLM)
   — jeweils Docker-Container oder Remote-URL, konfiguriert in der
   Service-Registry.
 - **Docker Socket Proxy** (`tecriser/docker-socket-proxy`) — einziger Weg der

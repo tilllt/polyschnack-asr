@@ -52,7 +52,7 @@ Formaten exportieren.
 #### Scenario: Re-Transkription mit anderem Backend
 
 - **Akteure:** Besitzer oder Share mit `write`/`full`.
-- **Eingaben:** `retranscribe` mit `backend="qwen3-asr"`.
+- **Eingaben:** `retranscribe` mit `backend="crispr-qwen3"`.
 - **Ergebnis:** Neue Version `kind="retranscribe"`; alte Fassung bleibt
   per Diff/Restore erreichbar.
 

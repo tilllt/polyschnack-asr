@@ -3,7 +3,7 @@
 Hintergrund: Beim Start des Webapp-Containers crashte die App mit
 ``sqlite3.OperationalError: near "-": syntax error``, sobald eine Bestands-DB
 (altes Schema) fehlende Spalten per ``ALTER TABLE ADD COLUMN`` bekam. Ursache:
-unquotierte String-Defaults wie ``backend="pk-python"`` erzeugten
+unquotierte String-Defaults wie ``backend="ps-pk-onnx"`` erzeugten
 ``DEFAULT pk-python`` (ungültiges SQL). Diese Tests simulieren eine Bestands-DB
 mit Alt-Schema und stellen sicher, dass die Migration fehlerfrei durchläuft.
 """
@@ -57,7 +57,7 @@ def test_auto_migrate_legacy_db_ohne_crash(legacy_engine):
 
 
 def test_auto_migrate_fuegt_backend_spalte_mit_default_an(legacy_engine):
-    """backend-Spalte (Default 'pk-python') muss korrekt quotiert angelegt werden."""
+    """backend-Spalte (Default 'ps-pk-onnx') muss korrekt quotiert angelegt werden."""
     db_module._auto_migrate()
     cols = {c["name"] for c in inspect(legacy_engine).get_columns("recording")}
     assert "backend" in cols
@@ -67,8 +67,8 @@ def test_auto_migrate_fuegt_backend_spalte_mit_default_an(legacy_engine):
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='recording'"
     ).fetchone()
     con.close()
-    # Der generierte DDL muss den Default quotiert enthalten (DEFAULT 'pk-python')
-    assert "DEFAULT 'pk-python'" in row[0].lower() or "DEFAULT 'pk-python'" in row[0]
+    # Der generierte DDL muss den Default quotiert enthalten (DEFAULT 'ps-pk-onnx')
+    assert "DEFAULT 'ps-pk-onnx'" in row[0].lower() or "DEFAULT 'ps-pk-onnx'" in row[0]
 
 
 def test_auto_migrate_ist_idempotent(legacy_engine):

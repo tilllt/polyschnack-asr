@@ -3,7 +3,7 @@
 ```mermaid
 graph LR
     Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
-    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr<br/>oder ark-asr …"]
+    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder crispr-pk-cpp<br/>oder crispr-qwen3<br/>oder crispr-ark …"]
     webapp -->|Diarization| diar["diar (CrispASR-Server)"]
     webapp -->|Docker-API| proxy["docker-proxy<br/>(Socket-Proxy)"]
     proxy -.start/stop.-> asr

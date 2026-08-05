@@ -113,6 +113,26 @@ def _auto_migrate() -> None:
     )
     session.exec(stale)  # type: ignore[arg-type]
     log.info("Auto-migrate: marked stale processing → failed (OOM hint)")
+
+    # Backend-ID-Umbau (2026-08): alte Adapter-IDs → neue Container-Schema-IDs.
+    # Alte Namen: pk-python, pk-cpp, qwen3-asr, ark-asr, moonshine-de, canary-asr.
+    backend_rename = {
+        "pk-python": "ps-pk-onnx",
+        "pk-cpp": "crispr-pk-cpp",
+        "qwen3-asr": "crispr-qwen3",
+        "ark-asr": "crispr-ark",
+        "moonshine-de": "crispr-moonshine-de",
+        "canary-asr": "crispr-canary",
+        "voxtral": "ps-voxtral",
+    }
+    for old, new in backend_rename.items():
+        session.exec(
+            sa_text("UPDATE recording SET backend=:new WHERE backend=:old").bindparams(
+                new=new, old=old
+            )
+        )  # type: ignore[arg-type]
+    log.info("Auto-migrate: Backend-IDs auf Container-Schema umbenannt")
+
     session.commit()
 
 

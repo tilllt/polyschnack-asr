@@ -178,7 +178,7 @@ def test_service_runs_template_and_delivers(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="pk-python")
+    service_mod.process_recording(1, backend="ps-pk-onnx")
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
@@ -214,7 +214,7 @@ def test_service_delivery_failure_marks_failed(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="pk-python")
+    service_mod.process_recording(1, backend="ps-pk-onnx")
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
@@ -255,7 +255,7 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="pk-python")
+    service_mod.process_recording(1, backend="ps-pk-onnx")
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
@@ -447,7 +447,7 @@ def test_native_punctuation_backend_skips_llm_punct(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="ark-asr")
+    service_mod.process_recording(1, backend="crispr-ark")
 
     assert calls == [], "run_punctuation darf bei nativem Punc nicht laufen"
     with Session(db) as s:
@@ -456,7 +456,7 @@ def test_native_punctuation_backend_skips_llm_punct(db, monkeypatch):
 
 
 def test_non_native_backend_still_uses_llm_punct(db, monkeypatch):
-    """Nicht-CrispASR-Backends (pk-python) → run_punctuation läuft wie bisher."""
+    """Nicht-CrispASR-Backends (ps-pk-onnx) → run_punctuation läuft wie bisher."""
     from app import service as service_mod
     from app import queue as queue_mod
 
@@ -481,7 +481,7 @@ def test_non_native_backend_still_uses_llm_punct(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="pk-python")
+    service_mod.process_recording(1, backend="ps-pk-onnx")
 
     assert calls == ["Rohtext"]
     with Session(db) as s:

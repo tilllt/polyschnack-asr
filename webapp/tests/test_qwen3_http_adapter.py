@@ -1,7 +1,7 @@
 """qwen3-Adapter (HTTP): spricht den qwen3-asr-server im Container an.
 
 OpenAI-kompatibles POST /v1/audio/transcriptions (verbose_json) — wie
-pk_cpp. Der Server lebt im eigenen Container (qwen3-asr:5094); die Webapp
+pk_cpp. Der Server lebt im eigenen Container (crispr-qwen3:5094); die Webapp
 hat kein qwen3-asr-cli mehr nötig.
 """
 import httpx
@@ -29,7 +29,7 @@ def _verbose_json():
     }
 
 
-def _client(responses, url="http://qwen3-asr:5094"):
+def _client(responses, url="http://crispr-qwen3:5094"):
     def handler(request: httpx.Request) -> httpx.Response:
         resp = responses.pop(0)
         if isinstance(resp, httpx.Response):
@@ -60,7 +60,7 @@ def test_qwen3_http_posts_to_openai_endpoint():
         return httpx.Response(200, json=_verbose_json())
 
     transport = httpx.MockTransport(handler)
-    client = Qwen3AsrHttpClient(url="http://qwen3-asr:5094", transport=transport)
+    client = Qwen3AsrHttpClient(url="http://crispr-qwen3:5094", transport=transport)
     client.transcribe(b"\x00\x01", "a.wav", "audio/wav")
     assert "/v1/audio/transcriptions" in seen["url"]
     assert seen["files"]
@@ -78,14 +78,14 @@ def test_qwen3_http_connect_error_has_hint():
         raise httpx.ConnectError("name resolution failed", request=request)
 
     transport = httpx.MockTransport(handler)
-    client = Qwen3AsrHttpClient(url="http://qwen3-asr:5094", transport=transport)
+    client = Qwen3AsrHttpClient(url="http://crispr-qwen3:5094", transport=transport)
     with pytest.raises(RuntimeError) as ei:
         client.transcribe(b"\x00\x01", "a.wav", "audio/wav")
-    assert "qwen3-asr" in str(ei.value)
+    assert "crispr-qwen3" in str(ei.value)
     assert "Container" in str(ei.value)
 
 
 def test_qwen3_http_capabilities():
     c = Qwen3AsrHttpClient()
-    assert c.capabilities.label == "qwen3-asr"
+    assert c.capabilities.label == "crispr-qwen3"
     assert c.capabilities.word_timestamps is True

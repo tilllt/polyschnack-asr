@@ -162,7 +162,7 @@ def test_service_passes_user_credentials(db, monkeypatch):
         s.add(rec)
         s.commit()
 
-    service_mod.process_recording(1, backend="pk-python")
+    service_mod.process_recording(1, backend="ps-pk-onnx")
 
     assert calls["ep"] == {"base_url": "https://api.mistral.ai/v1",
                            "api_key": "sk-own", "model": "mistral-small-latest"}

@@ -78,9 +78,9 @@ def qm(monkeypatch):
 
 def test_start_ok_when_healthy(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    r = admin.start_service("pk-cpp", None)
+    r = admin.start_service("crispr-pk-cpp", None)
     assert r["status"] == "running" and r["health"] == "healthy"
-    assert docker.started == ["polyschnack-cpp"]
+    assert docker.started == ["crispr-pk-cpp"]
 
 
 def test_start_unknown_service_404(docker, tmp_path, monkeypatch):
@@ -92,9 +92,9 @@ def test_start_unknown_service_404(docker, tmp_path, monkeypatch):
 
 def test_start_insufficient_resources_409(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    docker.mem = 2.0  # zu wenig RAM für pk-cpp (braucht 4 GB)
+    docker.mem = 2.0  # zu wenig RAM für crispr-pk-cpp (braucht 4 GB)
     with pytest.raises(HTTPException) as ei:
-        admin.start_service("pk-cpp", None)
+        admin.start_service("crispr-pk-cpp", None)
     assert ei.value.status_code == 409
     assert ei.value.detail["reason"] == "insufficient_resources"
     assert "ram_gb" in ei.value.detail["missing"]
@@ -105,7 +105,7 @@ def test_start_not_created_409(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker._state = None
     with pytest.raises(HTTPException) as ei:
-        admin.start_service("pk-cpp", None)
+        admin.start_service("crispr-pk-cpp", None)
     assert ei.value.status_code == 409
     assert ei.value.detail["reason"] == "not_created"
 
@@ -114,7 +114,7 @@ def test_start_already_running_409(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker._state = "running"
     with pytest.raises(HTTPException) as ei:
-        admin.start_service("pk-cpp", None)
+        admin.start_service("crispr-pk-cpp", None)
     assert ei.value.status_code == 409
     assert ei.value.detail["reason"] == "already_running"
 
@@ -124,9 +124,9 @@ def test_start_already_running_409(docker, tmp_path, monkeypatch):
 
 def test_stop_blocked_by_active_jobs(docker, qm, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    qm.enqueue(1, None, "pk-cpp")
+    qm.enqueue(1, None, "crispr-pk-cpp")
     with pytest.raises(HTTPException) as ei:
-        admin.stop_service("pk-cpp", None)
+        admin.stop_service("crispr-pk-cpp", None)
     assert ei.value.status_code == 409
     assert ei.value.detail["reason"] == "active_jobs"
     assert docker.stopped == []
@@ -135,9 +135,9 @@ def test_stop_blocked_by_active_jobs(docker, qm, tmp_path, monkeypatch):
 def test_stop_ok_without_jobs(docker, qm, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker._state = "running"  # Container läuft
-    r = admin.stop_service("pk-cpp", None)
+    r = admin.stop_service("crispr-pk-cpp", None)
     assert r["status"] == "stopped"
-    assert docker.stopped == ["polyschnack-cpp"]
+    assert docker.stopped == ["crispr-pk-cpp"]
 
 
 # ------------------------------------------------------------- config
@@ -153,16 +153,16 @@ def test_put_config_unknown_backend_422(docker, tmp_path, monkeypatch):
 def test_put_config_auto_starts_stopped_backend(docker, tmp_path, monkeypatch):
     """Entscheidung 8: Wechsel auf nicht-laufendes Backend startet es automatisch."""
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    r = admin.put_config(type("P", (), {"default_backend": "qwen3-asr"})(), None)
-    assert r["default_backend"] == "qwen3-asr"
-    assert docker.started == ["qwen3-asr"]
+    r = admin.put_config(type("P", (), {"default_backend": "crispr-qwen3"})(), None)
+    assert r["default_backend"] == "crispr-qwen3"
+    assert docker.started == ["crispr-qwen3"]
 
 
 def test_put_config_insufficient_resources_keeps_default(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker.mem = 1.0
     with pytest.raises(HTTPException) as ei:
-        admin.put_config(type("P", (), {"default_backend": "qwen3-asr"})(), None)
+        admin.put_config(type("P", (), {"default_backend": "crispr-qwen3"})(), None)
     assert ei.value.status_code == 409
     # Default bleibt unverändert (kein app_config.set erfolgt)
     from app import app_config
@@ -171,9 +171,9 @@ def test_put_config_insufficient_resources_keeps_default(docker, tmp_path, monke
 
 def test_config_roundtrip(docker, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    admin.put_config(type("P", (), {"default_backend": "pk-cpp"})(), None)
+    admin.put_config(type("P", (), {"default_backend": "crispr-pk-cpp"})(), None)
     cfg = admin.admin_config()
-    assert cfg["default_backend"] == "pk-cpp"
+    assert cfg["default_backend"] == "crispr-pk-cpp"
     admin.reset_config()
     cfg2 = admin.admin_config()
     assert cfg2["default_backend"] == admin.settings.POLYSCHNACK_DEFAULT_BACKEND
@@ -186,34 +186,34 @@ def test_start_uses_registry_container_name(docker, tmp_path, monkeypatch):
     """Weg 1: ein Image pro Service — Start nutzt immer container_name
     (GPU/CPU entscheidet das Binary via ggml_backend_init_best)."""
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
-    admin.start_service("ark-asr", None)
-    assert docker.started == ["ark-asr"]
+    admin.start_service("crispr-ark", None)
+    assert docker.started == ["crispr-ark"]
     docker._state = "stopped"  # FakeDocker: nach Start wieder stoppen
-    admin.start_service("qwen3-asr", None)
-    assert docker.started == ["ark-asr", "qwen3-asr"]
+    admin.start_service("crispr-qwen3", None)
+    assert docker.started == ["crispr-ark", "crispr-qwen3"]
     docker._state = "stopped"
-    admin.start_service("pk-cpp", None)
-    assert docker.started == ["ark-asr", "qwen3-asr", "polyschnack-cpp"]
+    admin.start_service("crispr-pk-cpp", None)
+    assert docker.started == ["crispr-ark", "crispr-qwen3", "crispr-pk-cpp"]
 
 
 def test_start_cpu_host_still_uses_same_container(docker, tmp_path, monkeypatch):
     """Auch auf CPU-Hosts (kein NVIDIA) derselbe Container — hybrides Image."""
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker.has_nvidia = False
-    admin.start_service("ark-asr", None)
-    assert docker.started == ["ark-asr"]
+    admin.start_service("crispr-ark", None)
+    assert docker.started == ["crispr-ark"]
 
 
 def test_stop_uses_registry_container_name(docker, qm, tmp_path, monkeypatch):
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     docker._state = "running"
-    admin.stop_service("qwen3-asr", None)
-    assert docker.stopped == ["qwen3-asr"]
+    admin.stop_service("crispr-qwen3", None)
+    assert docker.stopped == ["crispr-qwen3"]
 
 
 def test_services_list_reports_container(docker, tmp_path, monkeypatch):
     """/services meldet den Registry-Container-Namen (ein Image pro Service)."""
     monkeypatch.setattr(admin.settings, "DATA_DIR", tmp_path)
     svcs = admin.admin_services()
-    ark = next(s for s in svcs if s["name"] == "ark-asr")
-    assert ark["container"] == "ark-asr"
+    ark = next(s for s in svcs if s["name"] == "crispr-ark")
+    assert ark["container"] == "crispr-ark"

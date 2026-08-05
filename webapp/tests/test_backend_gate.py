@@ -49,7 +49,7 @@ def _settings(monkeypatch):
     from app import config
 
     monkeypatch.setattr(config.settings, "OIDC_ENABLED", True)
-    monkeypatch.setattr(config.settings, "POLYSCHNACK_DEFAULT_BACKEND", "pk-python")
+    monkeypatch.setattr(config.settings, "POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")
 
 
 @pytest.fixture(autouse=True)
@@ -65,25 +65,25 @@ def _docker_factory(monkeypatch):
 
 
 def test_default_backend_noop(_docker_factory):
-    docker = _FakeDocker({"polyschnack-asr": "running"})
+    docker = _FakeDocker({"ps-pk-onnx": "running"})
     _docker_factory["docker"] = docker
     ensure_backend_available("", _req(False))  # leer = Default
-    ensure_backend_available("pk-python", _req(False))
+    ensure_backend_available("ps-pk-onnx", _req(False))
     assert docker.started == []
 
 
 def test_running_backend_noop_for_anon(_docker_factory):
-    docker = _FakeDocker({"polyschnack-qwen3": "running"})
+    docker = _FakeDocker({"crispr-qwen3": "running"})
     _docker_factory["docker"] = docker
-    ensure_backend_available("qwen3-asr", _req(False))
+    ensure_backend_available("crispr-qwen3", _req(False))
     assert docker.started == []
 
 
 def test_stopped_backend_rejected_for_anon(_docker_factory):
-    docker = _FakeDocker({"polyschnack-qwen3": "stopped"})
+    docker = _FakeDocker({"crispr-qwen3": "stopped"})
     _docker_factory["docker"] = docker
     with pytest.raises(Exception) as ei:
-        ensure_backend_available("qwen3-asr", _req(False))
+        ensure_backend_available("crispr-qwen3", _req(False))
     assert ei.value.status_code == 409
     assert "nicht gestartet" in ei.value.detail
 
@@ -92,31 +92,31 @@ def test_not_created_backend_rejected_for_anon(_docker_factory):
     docker = _FakeDocker({})  # qwen3 nie angelegt
     _docker_factory["docker"] = docker
     with pytest.raises(Exception) as ei:
-        ensure_backend_available("qwen3-asr", _req(False))
+        ensure_backend_available("crispr-qwen3", _req(False))
     assert ei.value.status_code == 409
 
 
 def test_admin_autostarts_stopped_backend(_docker_factory, monkeypatch):
-    docker = _FakeDocker({"polyschnack-qwen3": "stopped"})
+    docker = _FakeDocker({"crispr-qwen3": "stopped"})
     _docker_factory["docker"] = docker
     monkeypatch.setattr(
         "app.resources.check_resources",
         lambda svc, docker: types.SimpleNamespace(ok=True, message=""),
     )
-    ensure_backend_available("qwen3-asr", _req(True))
-    assert docker.started == ["polyschnack-qwen3"]
+    ensure_backend_available("crispr-qwen3", _req(True))
+    assert docker.started == ["crispr-qwen3"]
 
 
 def test_admin_autostart_health_wait_ok(_docker_factory, monkeypatch):
     # Container wird durch start() sofort "running" → Health-Wait endet beim 1. Poll
-    docker = _FakeDocker({"polyschnack-cpp": "stopped"})
+    docker = _FakeDocker({"crispr-pk-cpp": "stopped"})
     _docker_factory["docker"] = docker
     monkeypatch.setattr(
         "app.resources.check_resources",
         lambda svc, docker: types.SimpleNamespace(ok=True, message=""),
     )
-    ensure_backend_available("pk-cpp", _req(True))
-    assert docker.started == ["polyschnack-cpp"]
+    ensure_backend_available("crispr-pk-cpp", _req(True))
+    assert docker.started == ["crispr-pk-cpp"]
 
 
 def test_unknown_backend_404(_docker_factory):

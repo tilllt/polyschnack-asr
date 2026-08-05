@@ -24,7 +24,7 @@ class PkPythonClient(AsrClient):
         word_timestamps=True,  # parakeet TDT emits word timestamps model-inherently
         languages=["de", "en"],
         device=["gpu", "cpu"],
-        label="pk-python",
+        label="ps-pk-onnx",
     )
 
     def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None) -> None:

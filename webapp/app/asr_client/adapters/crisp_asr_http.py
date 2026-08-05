@@ -18,7 +18,7 @@ from .. import AsrClient, BackendCapabilities, _parse_result
 log = logging.getLogger(__name__)
 
 # URL of the ark-asr (CrispASR server) container in the compose network
-_URL = os.getenv("CRISPASR_URL", "http://ark-asr:5095")
+_URL = os.getenv("CRISPASR_URL", "http://crispr-ark:5095")
 
 
 class CrispAsrHttpClient(AsrClient):
@@ -31,7 +31,7 @@ class CrispAsrHttpClient(AsrClient):
         word_timestamps=True,  # server returns segments with word timestamps
         languages=["de", "en"],
         device=["gpu"],
-        label="ark-asr",
+        label="crispr-ark",
         native_punctuation=True,  # Server: --punc-model fullstop --truecase-model lstm
     )
 

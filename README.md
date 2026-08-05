@@ -7,7 +7,7 @@
   <a href="#architektur">Architektur</a> · <a href="#web-ui">Web UI</a> ·
   <a href="#benchmark">Benchmark</a> · <a href="#konfiguration">Konfiguration</a> ·
   <a href="#oidc-auth">OIDC</a> · <a href="#entwicklung">Entwicklung</a> ·
-  <a href="https://gitlab.example.com/tilllt/polyschnack-asr/polyschnack-asr/-/pages">📚 Vollständige Doku (GitLab Pages)</a>
+  <a href="https://gitlab.example.com/tilllt/polyschnack-asr/ps-pk-onnx/-/pages">📚 Vollständige Doku (GitLab Pages)</a>
 </p>
 
 <p align="center">
@@ -112,17 +112,17 @@ Env-Variable — kein Code nötig.
 
 | Backend | Profil | CLI-Name | Beschreibung |
 |---------|--------|----------|-------------|
-| **Parakeet (Python/ONNX)** | *(Default)* | `pk-python` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
-| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Native Interpunktion + deutsches Truecasing. |
-| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `qwen3-asr` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
-| **ARK-ASR (ggml/C++)** | `--profile ark` | `ark-asr` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
-| **Moonshine-DE (ggml/C++)** | `--profile moonshine` | `moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
-| **Canary (ggml/C++)** | `--profile canary` | `canary-asr` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
+| **Parakeet (Python/ONNX)** | *(Default)* | `ps-pk-onnx` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
+| **parakeet.cpp (ggml/C++)** | `--profile cpp` | `crispr-pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Native Interpunktion + deutsches Truecasing. |
+| **Qwen3-ASR (ggml/C++)** | `--profile qwen3` | `crispr-qwen3` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
+| **ARK-ASR (ggml/C++)** | `--profile ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
+| **Moonshine-DE (ggml/C++)** | `--profile moonshine` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
+| **Canary (ggml/C++)** | `--profile canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
 | **Voxtral (voxtral.cpp)** | *(geplant)* | `voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). **Noch nicht gebaut** — Block in `compose.backends.yml` auskommentiert. |
 
 ### Feature-Matrix der Backends
 
-| Feature | pk-python | pk-cpp | qwen3-asr | ark-asr | moonshine-de | canary-asr | voxtral* |
+| Feature | ps-pk-onnx | crispr-pk-cpp | crispr-qwen3 | crispr-ark | crispr-moonshine-de | crispr-canary | ps-voxtral* |
 |---------|-----------|--------|-----------|---------|-------------|------------|---------|
 | Word-Timestamps | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ *nicht trainiert* |
 | Live-Streaming (Preview) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
@@ -151,7 +151,7 @@ docker compose up -d
 **parakeet.cpp — schneller und schlanker**
 
 ```bash
-CPP_URL=http://polyschnack-cpp:5093 ASR_BACKEND=pk-cpp \
+CPP_URL=http://crispr-pk-cpp:5093 ASR_BACKEND=pk-cpp \
   docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d
 
 # Modell einmalig laden:
@@ -159,13 +159,13 @@ docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakee
   https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
 
-> **Achtung:** `CPP_URL` ist die **eigene** Env-Variable des pk-cpp-Adapters —
-> nicht `ASR_URL` verwenden (das ist der ONNX-pk-python-Container).
+> **Achtung:** `CPP_URL` ist die **eigene** Env-Variable des crispr-pk-cpp-Adapters —
+> nicht `ASR_URL` verwenden (das ist der ONNX-ps-pk-onnx-Container).
 
 **Qwen3-ASR — beste Spracherkennung + Word-Timestamps**
 
 ```bash
-QWEN3_URL=http://qwen3-asr:5094 ASR_BACKEND=qwen3-asr \
+QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=qwen3-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
 # Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16):
@@ -180,7 +180,7 @@ docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
 **ARK-ASR — State-of-the-Art Erkennung**
 
 ```bash
-CRISPASR_URL=http://ark-asr:5095 ASR_BACKEND=ark-asr \
+CRISPASR_URL=http://crispr-ark:5095 ASR_BACKEND=ark-asr \
   docker compose -f compose.yml -f compose.backends.yml --profile ark up -d
 
 # GGUF (~4 GB, Q8_0) einmalig laden:
@@ -191,7 +191,7 @@ docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr
 **Moonshine-DE — kompaktes Deutsches Spezialmodell**
 
 ```bash
-ASR_BACKEND=moonshine-de \
+ASR_BACKEND=crispr-moonshine-de \
   docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d
 
 # Modell + Tokenizer (~42 MB):
@@ -208,7 +208,7 @@ docker run --rm -v "$PWD/DATA/moonshine-models:/models" alpine sh -c '
 **Canary — multilingual (EN/DE/FR/ES)**
 
 ```bash
-ASR_BACKEND=canary-asr \
+ASR_BACKEND=crispr-canary \
   docker compose -f compose.yml -f compose.backends.yml --profile canary up -d
 
 # Modell (~0,6 GB, q4_K):
@@ -249,8 +249,8 @@ einzige Aufgabe:
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
   Admin-Steuerung), `asr` (Parakeet Python/ONNX), `diar` (CrispASR-Diarization)
   und `webapp` (GUI). Wird von `docker compose up` automatisch geladen.
-- **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `qwen3-asr`,
-  `ark-asr`, `moonshine-de`, `canary-asr` (Voxtral: geplant), jeweils über
+- **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `crispr-qwen3`,
+  `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` (Voxtral: geplant), jeweils über
   **Docker-Profile** aktivierbar.
 - **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
   Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.
@@ -294,31 +294,31 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
 | `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + asr-cpp | ✅ |
-| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + qwen3-asr | ✅ |
-| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + ark-asr | ✅ |
-| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + moonshine-de | ✅ |
-| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + canary-asr | ✅ |
+| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + crispr-qwen3 | ✅ |
+| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + crispr-ark | ✅ |
+| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + crispr-moonshine-de | ✅ |
+| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + crispr-canary | ✅ |
 
 ### Adapter-URLs (jedes Backend hat seine eigene!)
 
 Das Backend wird über die Adapter-Auswahl gesteuert — **jeder Adapter hat
 seine eigene URL-Env** (nie `ASR_URL` für andere Backends verwenden — das ist
-der ONNX-pk-python-Container!):
+der ONNX-ps-pk-onnx-Container!):
 
 | Variable | Default | Beschreibung |
 |----------|---------|-------------|
-| `ASR_BACKEND` | `pk-python` | Adapter-Auswahl (`pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr`) |
-| `ASR_URL` | `http://asr:5092` | URL des ONNX-pk-python-Containers |
-| `CPP_URL` | `http://polyschnack-cpp:5093` | URL des pk-cpp-Containers (CrispASR parakeet) |
-| `QWEN3_URL` | `http://qwen3-asr:5094` | URL des Qwen3-ASR-Containers |
-| `CRISPASR_URL` | `http://ark-asr:5095` | URL des ARK-ASR-Containers (CrispASR) |
-| `MOONSHINE_URL` | `http://polyschnack-moonshine-de:5096` | URL des Moonshine-DE-Containers |
-| `CANARY_URL` | `http://polyschnack-canary:5097` | URL des Canary-Containers |
+| `ASR_BACKEND` | `ps-pk-onnx` | Adapter-Auswahl (`ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`) |
+| `ASR_URL` | `http://ps-pk-onnx:5092` | URL des ONNX-pk-python-Containers |
+| `CPP_URL` | `http://crispr-pk-cpp:5093` | URL des pk-cpp-Containers (CrispASR parakeet) |
+| `QWEN3_URL` | `http://crispr-qwen3:5094` | URL des Qwen3-ASR-Containers |
+| `CRISPASR_URL` | `http://crispr-ark:5095` | URL des ARK-ASR-Containers (CrispASR) |
+| `MOONSHINE_URL` | `http://crispr-moonshine-de:5096` | URL des Moonshine-DE-Containers |
+| `CANARY_URL` | `http://crispr-canary:5097` | URL des Canary-Containers |
 
 ```bash
 # WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
-# get_client() still auf pk-python zurück und postet gegen den ONNX-Container!
-QWEN3_URL=http://qwen3-asr:5094 ASR_BACKEND=qwen3-asr docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
+# get_client() still auf ps-pk-onnx zurück und postet gegen den ONNX-Container!
+QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=qwen3-asr docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 
 # Kombination mehrerer Backends (Admin-GUI startet sie on demand):
 docker compose -f compose.yml -f compose.backends.yml \
@@ -336,7 +336,7 @@ docker compose -f compose.yml -f compose.backends.yml \
 ```mermaid
 graph LR
     Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
-    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder pk-cpp<br/>oder qwen3-asr<br/>oder ark-asr …"]
+    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder crispr-pk-cpp<br/>oder crispr-qwen3<br/>oder crispr-ark …"]
     webapp -->|Diarization| diar["diar (CrispASR-Server)"]
     webapp -->|Docker-API| proxy["docker-proxy<br/>(Socket-Proxy)"]
     proxy -.start/stop.-> asr
@@ -458,7 +458,7 @@ docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
 
 | Variable | Default | Bedeutung |
 |----------|---------|-----------|
-| `BENCH_BACKENDS` | `pk-python,qwen3-asr,ark-asr,moonshine-de,canary-asr,pk-cpp` | Welche Backends laufen sollen |
+| `BENCH_BACKENDS` | `ps-pk-onnx,crispr-qwen3,crispr-ark,crispr-moonshine-de,crispr-canary,crispr-pk-cpp` | Welche Backends laufen sollen |
 | `BENCH_BACKEND_URLS` | JSON-Map (s. Datei) | URLs im Compose-Netzwerk (Container-Port!) |
 
 **Volumes (Least-Privilege):** `/data` read-only, nur `/data/benchmark`
@@ -499,18 +499,18 @@ BENCHMARK_DATA_DIR=<host-mount>/benchmark \
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr` | `pk-python` |
-| `ASR_URL` | URL des ONNX-Dienstes | `http://asr:5092` |
-| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `pk-python` |
+| `ASR_BACKEND` | `ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` | `ps-pk-onnx` |
+| `ASR_URL` | URL des ONNX-Dienstes | `http://ps-pk-onnx:5092` |
+| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `ps-pk-onnx` |
 
 ### Webapp-Umgebungsvariablen
 
 | Variable | Default | Beschreibung |
 |----------|---------|-------------|
-| `ASR_URL` | `http://asr:5092` | ASR-Service-URL |
-| `ASR_BACKEND` | `pk-python` | Welcher Adapter |
+| `ASR_URL` | `http://ps-pk-onnx:5092` | ASR-Service-URL |
+| `ASR_BACKEND` | `ps-pk-onnx` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `DIAR_URL` | `http://diar:5096` | Diarization-Service (CrispASR-diar-Container) |
+| `DIAR_URL` | `http://crispr-crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
 | `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |

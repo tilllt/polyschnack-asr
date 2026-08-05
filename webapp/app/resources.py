@@ -1,7 +1,7 @@
 """Resource availability check before container starts (Task 5).
 
 Best-effort guard (documented in the plan): RAM/disk are measured exactly,
-VRAM only for our own servers (pk-python reports it via /health); foreign
+VRAM only for our own servers (ps-pk-onnx reports it via /health); foreign
 images yield ``unknown`` -> warning instead of block. The real protection
 after a start is the health-wait + log excerpt.
 """

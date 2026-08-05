@@ -62,7 +62,7 @@ def test_ensure_free_only_anon_llm_mode_403():
 def test_ensure_free_only_anon_local_ok(monkeypatch):
     monkeypatch.setattr(pricing, "get_service",
                         lambda name: {"cost_per_minute_eur": 0.0})
-    pricing.ensure_free_only(_Anon(), backend="pk-python")  # kein Raise
+    pricing.ensure_free_only(_Anon(), backend="ps-pk-onnx")  # kein Raise
 
 
 def test_ensure_free_only_oidc_paid_ok(monkeypatch):

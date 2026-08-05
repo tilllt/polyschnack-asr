@@ -88,7 +88,7 @@ def _settings(monkeypatch):
     from app import config
 
     monkeypatch.setattr(config.settings, "OIDC_ENABLED", True)
-    monkeypatch.setattr(config.settings, "POLYSCHNACK_DEFAULT_BACKEND", "pk-python")
+    monkeypatch.setattr(config.settings, "POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")
 
 
 @pytest.fixture(autouse=True)
@@ -104,14 +104,14 @@ def _docker_factory(monkeypatch):
 
 def test_admin_autostart_gpu_error_maps_to_409(_docker_factory, monkeypatch):
     """GPU-Start-Fehler → 409 mit verständlicher Meldung statt generischem 503."""
-    docker = _GpuFailingDocker({"polyschnack-qwen3": "stopped"})
+    docker = _GpuFailingDocker({"crispr-qwen3": "stopped"})
     _docker_factory["docker"] = docker
     monkeypatch.setattr(
         "app.resources.check_resources",
         lambda svc, docker: types.SimpleNamespace(ok=True, message=""),
     )
     with pytest.raises(Exception) as ei:
-        ensure_backend_available("qwen3-asr", _req(True))
+        ensure_backend_available("crispr-qwen3", _req(True))
     assert ei.value.status_code == 409
     detail = ei.value.detail
     assert "NVIDIA-GPU" in detail.get("message", "")
@@ -123,12 +123,12 @@ def test_admin_autostart_unrelated_error_still_503(_docker_factory, monkeypatch)
         def start(self, name: str):
             raise DockerProxyError("docker-proxy POST -> HTTP 500: boom")
 
-    docker = _FailingDocker({"polyschnack-qwen3": "stopped"})
+    docker = _FailingDocker({"crispr-qwen3": "stopped"})
     _docker_factory["docker"] = docker
     monkeypatch.setattr(
         "app.resources.check_resources",
         lambda svc, docker: types.SimpleNamespace(ok=True, message=""),
     )
     with pytest.raises(Exception) as ei:
-        ensure_backend_available("qwen3-asr", _req(True))
+        ensure_backend_available("crispr-qwen3", _req(True))
     assert ei.value.status_code == 503

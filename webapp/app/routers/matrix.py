@@ -10,7 +10,7 @@ flipped to booleans.
 - False — container exists but is stopped, or was never created
 - None  — docker-proxy unreachable / status unknown (frontend falls back
   to showing only the default backend for anonymous users)
-The default backend (pk-python, compose profile ``default``) is part of the
+The default backend (ps-pk-onnx, compose profile ``default``) is part of the
 core stack and therefore always reported reachable.
 """
 from __future__ import annotations
@@ -29,9 +29,8 @@ router = APIRouter(prefix="/api/models")
 
 
 def _container_name(svc: Dict[str, Any]) -> str:
-    """compose container_name mapping: polyschnack-<profile>, default -> -asr."""
-    profile = svc["compose_profile"]
-    return f"polyschnack-{'asr' if profile == 'default' else profile}"
+    """container_name aus der Registry — einzige Quelle (kein hartkodiertes Mapping)."""
+    return svc["container_name"]
 
 
 def _reachable(svc: Dict[str, Any], docker: Optional[DockerProxyClient]) -> Optional[bool]:

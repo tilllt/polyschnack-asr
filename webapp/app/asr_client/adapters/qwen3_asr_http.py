@@ -1,6 +1,6 @@
 """Adapter for qwen3-asr.cpp server (HTTP, OpenAI-compatible).
 
-The qwen3-asr backend runs as its own container (``qwen3-asr:5094``,
+The qwen3-asr backend runs as its own container (``crispr-qwen3:5094``,
 ``qwen3-asr-server`` entrypoint). The webapp talks to it over the compose
 network via POST /v1/audio/transcriptions — no local CLI binary needed.
 """
@@ -17,7 +17,7 @@ from .. import AsrClient, BackendCapabilities, _parse_result
 log = logging.getLogger(__name__)
 
 # URL of the qwen3-asr container in the compose network (override via env)
-_URL = os.getenv("QWEN3_URL", "http://qwen3-asr:5094")
+_URL = os.getenv("QWEN3_URL", "http://crispr-qwen3:5094")
 
 
 class Qwen3AsrHttpClient(AsrClient):
@@ -30,7 +30,7 @@ class Qwen3AsrHttpClient(AsrClient):
         word_timestamps=True,  # via forced aligner model on the server
         languages=["de", "en"],
         device=["gpu"],
-        label="qwen3-asr",
+        label="crispr-qwen3",
         native_punctuation=True,  # Server: --punc-model fullstop --truecase-model lstm
     )
 

@@ -27,7 +27,7 @@ services:
 
   asr:
     image: registry.example.com/public/polyschnack-asr:latest
-    container_name: polyschnack-asr
+    container_name: ps-pk-onnx
     environment:
       # Hybrid: "auto" = GPU wenn CUDA-Provider verfügbar, sonst CPU-INT8.
       # Explizit "true" (mit GPU-Zugriff) setzt nur das GPU-Overlay
@@ -56,12 +56,12 @@ services:
 
   diar:
     image: registry.example.com/public/polyschnack-asr-diar:latest
-    container_name: polyschnack-diar
+    container_name: crispr-diar
     environment:
       DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
     volumes:
       - ./DATA/diar-models:/models:ro
-    # Kein expose/ports: nur intern im Compose-Netz erreichbar (diar:5098).
+    # Kein expose/ports: nur intern im Compose-Netz erreichbar (crispr-diar:5098).
     # Am Host wird kein Port gebunden — nur asr (5092) und webapp (8088).
     restart: unless-stopped
     # GPU-Zugriff: NUR über compose.gpu.yml (runtime: nvidia) — siehe dort.
@@ -75,14 +75,14 @@ services:
 
   webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
-    container_name: polyschnack-webapp
+    container_name: ps-webapp
     mem_limit: 2g
     memswap_limit: 2g
     environment:
-      ASR_URL: "${ASR_URL:-http://asr:5092}"
-      ASR_BACKEND: "${ASR_BACKEND:-pk-python}"
+      ASR_URL: "${ASR_URL:-http://ps-pk-onnx:5092}"
+      ASR_BACKEND: "${ASR_BACKEND:-ps-pk-onnx}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
-      DIAR_URL: "${DIAR_URL:-http://diar:5098}"
+      DIAR_URL: "${DIAR_URL:-http://crispr-diar:5098}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.
@@ -94,7 +94,7 @@ services:
       # Default-Backend wechseln? Leer = Admin-Bereich deaktiviert.
       # POLYSCHNACK_ADMINS: "sub-oder-email,weiterer-user"
       # POLYSCHNACK_ADMIN_GROUPS: "admins"   # OIDC-Gruppen
-      POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-pk-python}"
+      POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-ps-pk-onnx}"
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
       PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)
       # Optional OIDC — uncomment to enable per-user workspaces.

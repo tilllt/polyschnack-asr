@@ -1,4 +1,4 @@
-"""CrispASR (ark-asr) HTTP-Adapter: spricht den crispasr-Server im Container an.
+"""CrispASR (crispr-ark) HTTP-Adapter: spricht den crispasr-Server im Container an.
 
 CrispASR hat einen OpenAI-kompatiblen Server-Modus (``crispasr --server``):
 POST /v1/audio/transcriptions mit verbose_json. Der Webapp-Adapter nutzt
@@ -26,7 +26,7 @@ def _verbose_json():
     }
 
 
-def _client(responses, url="http://ark-asr:5095"):
+def _client(responses, url="http://crispr-ark:5095"):
     def handler(request: httpx.Request) -> httpx.Response:
         resp = responses.pop(0)
         if isinstance(resp, httpx.Response):
@@ -56,7 +56,7 @@ def test_crisp_http_posts_to_openai_endpoint():
         return httpx.Response(200, json=_verbose_json())
 
     transport = httpx.MockTransport(handler)
-    client = CrispAsrHttpClient(url="http://ark-asr:5095", transport=transport)
+    client = CrispAsrHttpClient(url="http://crispr-ark:5095", transport=transport)
     client.transcribe(b"\x00\x01", "a.wav", "audio/wav")
     assert "/v1/audio/transcriptions" in seen["url"]
     assert seen["files"]
@@ -71,5 +71,5 @@ def test_crisp_http_http_error_raises():
 
 def test_crisp_http_capabilities():
     c = CrispAsrHttpClient()
-    assert c.capabilities.label == "ark-asr"
+    assert c.capabilities.label == "crispr-ark"
     assert c.capabilities.word_timestamps is True

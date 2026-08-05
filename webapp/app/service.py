@@ -440,7 +440,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         llm_endpoint_id = rec.llm_endpoint_id
         owner_id = rec.user_id
         if backend is None:
-            backend = rec.backend or "pk-python"
+            backend = rec.backend or "ps-pk-onnx"
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
@@ -573,7 +573,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         # Optional post-processing (A12/A13) — nur wenn per Toggle aktiviert,
         # niemals automatisch. Stubs: Implementierung in Phase 1–2.
-        # CrispASR-Backends (ark-asr/qwen3-asr) liefern Interpunktion +
+        # CrispASR-Backends (crispr-ark/crispr-qwen3) liefern Interpunktion +
         # deutsches Truecasing nativ vom Server (--punc-model fullstop,
         # --truecase-model lstm) — dort KEINE LLM-Punctuation nachschalten,
         # sonst doppelte/konkurrierende Interpunktion.

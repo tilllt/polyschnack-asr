@@ -20,8 +20,8 @@ def test_start_posts_to_container_endpoint():
         return httpx.Response(204)
 
     c = _client(handler)
-    c.start("polyschnack-cpp")
-    assert calls == [("POST", "/containers/polyschnack-cpp/start")]
+    c.start("crispr-pk-cpp")
+    assert calls == [("POST", "/containers/crispr-pk-cpp/start")]
 
 
 def test_stop_and_restart():
@@ -32,11 +32,11 @@ def test_stop_and_restart():
         return httpx.Response(204)
 
     c = _client(handler)
-    c.stop("polyschnack-qwen3")
-    c.restart("polyschnack-ark")
+    c.stop("crispr-qwen3")
+    c.restart("crispr-ark")
     assert calls == [
-        ("POST", "/containers/polyschnack-qwen3/stop"),
-        ("POST", "/containers/polyschnack-ark/restart"),
+        ("POST", "/containers/crispr-qwen3/stop"),
+        ("POST", "/containers/crispr-ark/restart"),
     ]
 
 
@@ -48,7 +48,7 @@ def test_container_state_parses_health():
         })
 
     c = _client(handler)
-    st = c.container_state("polyschnack-asr")
+    st = c.container_state("ps-pk-onnx")
     assert st == {"status": "running", "health": "healthy", "running": True}
 
 
@@ -57,7 +57,7 @@ def test_container_state_none_when_not_created():
         return httpx.Response(404, json={"message": "No such container"})
 
     c = _client(handler)
-    assert c.container_state("polyschnack-cpp") is None
+    assert c.container_state("crispr-pk-cpp") is None
 
 
 def test_start_not_created_raises_helpful_error():
@@ -66,7 +66,7 @@ def test_start_not_created_raises_helpful_error():
 
     c = _client(handler)
     with pytest.raises(DockerProxyError, match="--no-start"):
-        c.start("polyschnack-cpp")
+        c.start("crispr-pk-cpp")
 
 
 def test_proxy_down_raises():

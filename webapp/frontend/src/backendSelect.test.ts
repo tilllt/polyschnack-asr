@@ -25,28 +25,28 @@ function entry(name: string, reachable: boolean | null): ModelMatrixEntry {
 }
 
 const matrix = [
-  entry("pk-python", true), // Default — immer erreichbar
-  entry("pk-cpp", true),
-  entry("qwen3-asr", false), // gestoppt / nie angelegt
-  entry("ark-asr", null), // Proxy down → unbekannt
+  entry("ps-pk-onnx", true), // Default — immer erreichbar
+  entry("crispr-pk-cpp", true),
+  entry("crispr-qwen3", false), // gestoppt / nie angelegt
+  entry("crispr-ark", null), // Proxy down → unbekannt
 ];
 
 describe("filterAvailableBackends", () => {
   it("zeigt Anon-Usern nur laufende Backends", () => {
     const result = filterAvailableBackends(matrix, false);
-    expect(result).toEqual(["pk-python", "pk-cpp"]);
-    expect(result).not.toContain("qwen3-asr");
-    expect(result).not.toContain("ark-asr");
+    expect(result).toEqual(["ps-pk-onnx", "crispr-pk-cpp"]);
+    expect(result).not.toContain("crispr-qwen3");
+    expect(result).not.toContain("crispr-ark");
   });
 
   it("zeigt Admins alle aktiven Backends", () => {
     const result = filterAvailableBackends(matrix, true);
-    expect(result).toEqual(["pk-python", "pk-cpp", "qwen3-asr", "ark-asr"]);
+    expect(result).toEqual(["ps-pk-onnx", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark"]);
   });
 
   it("fallback auf Default wenn nur unbekannte Backends da sind", () => {
-    const onlyUnknown = [entry("pk-python", true), entry("ark-asr", null), entry("qwen3-asr", null)];
+    const onlyUnknown = [entry("ps-pk-onnx", true), entry("crispr-ark", null), entry("crispr-qwen3", null)];
     const result = filterAvailableBackends(onlyUnknown, false);
-    expect(result).toEqual(["pk-python"]);
+    expect(result).toEqual(["ps-pk-onnx"]);
   });
 });

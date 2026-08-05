@@ -43,8 +43,8 @@ def _patch_user(monkeypatch, uid, is_admin=False):
 
 def test_list_queue_anonymises_foreign_jobs(qm, monkeypatch):
     _patch_user(monkeypatch, uid=7)
-    qm.enqueue(1, 7, "pk-python")   # eigene
-    qm.enqueue(2, 99, "pk-python")  # fremde (User 99)
+    qm.enqueue(1, 7, "ps-pk-onnx")   # eigene
+    qm.enqueue(2, 99, "ps-pk-onnx")  # fremde (User 99)
 
     data = queue_api.list_queue(_FakeRequest(session={}))
     jobs = {j["job_id"]: j for j in data["jobs"]}
@@ -61,8 +61,8 @@ def test_list_queue_anonymises_foreign_jobs(qm, monkeypatch):
 
 def test_list_queue_admin_sees_all_as_mine(qm, monkeypatch):
     _patch_user(monkeypatch, uid=7, is_admin=True)
-    qm.enqueue(1, 7, "pk-python")
-    qm.enqueue(2, 99, "pk-python")
+    qm.enqueue(1, 7, "ps-pk-onnx")
+    qm.enqueue(2, 99, "ps-pk-onnx")
     data = queue_api.list_queue(_FakeRequest(session={"is_admin": True}))
     assert all(j["is_mine"] for j in data["jobs"])
 
@@ -75,13 +75,13 @@ def test_list_queue_reports_total_concurrency(qm, monkeypatch):
 
 def test_cancel_own_queued_job(qm, monkeypatch):
     _patch_user(monkeypatch, uid=7)
-    qm.enqueue(1, 7, "pk-python")
+    qm.enqueue(1, 7, "ps-pk-onnx")
     assert queue_api.cancel_queue_job(1, _FakeRequest(session={})) == {"cancelled": 1}
 
 
 def test_cancel_foreign_job_404(qm, monkeypatch):
     _patch_user(monkeypatch, uid=7)
-    qm.enqueue(1, 99, "pk-python")
+    qm.enqueue(1, 99, "ps-pk-onnx")
     with pytest.raises(HTTPException) as ei:
         queue_api.cancel_queue_job(1, _FakeRequest(session={}))
     assert ei.value.status_code == 404

@@ -27,36 +27,36 @@ def qm(monkeypatch):
 
 
 def test_registered_before_anonymous(qm):
-    qm.enqueue(1, user_id=10, backend="pk-python", priority=0)
-    qm.enqueue(2, user_id=None, backend="pk-python", priority=1)
+    qm.enqueue(1, user_id=10, backend="ps-pk-onnx", priority=0)
+    qm.enqueue(2, user_id=None, backend="ps-pk-onnx", priority=1)
     assert qm.position(1) == 1
     assert qm.position(2) == 2  # anon steht hinter registriertem Job
 
 
 def test_registered_springs_ahead_of_anonymous(qm):
-    qm.enqueue(1, user_id=None, backend="pk-python", priority=1)
-    qm.enqueue(2, user_id=10, backend="pk-python", priority=0)
+    qm.enqueue(1, user_id=None, backend="ps-pk-onnx", priority=1)
+    qm.enqueue(2, user_id=10, backend="ps-pk-onnx", priority=0)
     assert qm.position(1) == 2  # anon: registrierter Job zählt vor
     assert qm.position(2) == 1  # registriert springt vor
 
 
 def test_fifo_among_same_priority(qm):
-    qm.enqueue(1, user_id=10, backend="pk-python", priority=0)
-    qm.enqueue(2, user_id=11, backend="pk-python", priority=0)
+    qm.enqueue(1, user_id=10, backend="ps-pk-onnx", priority=0)
+    qm.enqueue(2, user_id=11, backend="ps-pk-onnx", priority=0)
     assert qm.position(1) == 1
     assert qm.position(2) == 2
 
 
 def test_anon_fifo_among_anonymous(qm):
-    qm.enqueue(1, user_id=None, backend="pk-python", priority=1)
-    qm.enqueue(2, user_id=None, backend="pk-python", priority=1)
+    qm.enqueue(1, user_id=None, backend="ps-pk-onnx", priority=1)
+    qm.enqueue(2, user_id=None, backend="ps-pk-onnx", priority=1)
     assert qm.position(1) == 1
     assert qm.position(2) == 2
 
 
 def test_priority_only_same_backend(qm):
-    qm.enqueue(1, user_id=10, backend="pk-cpp", priority=0)
-    qm.enqueue(2, user_id=None, backend="pk-python", priority=1)
+    qm.enqueue(1, user_id=10, backend="crispr-pk-cpp", priority=0)
+    qm.enqueue(2, user_id=None, backend="ps-pk-onnx", priority=1)
     assert qm.position(2) == 1  # anderer Endpunkt zählt nicht
 
 

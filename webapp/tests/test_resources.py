@@ -20,7 +20,7 @@ class _FakeDocker:
 
 
 _SERVICE = {
-    "name": "pk-cpp",
+    "name": "crispr-pk-cpp",
     "requires": {"vram_gb": 2, "ram_gb": 4, "disk_gb": 2},
     # no health_url -> vram unknown
 }

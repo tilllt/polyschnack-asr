@@ -4,18 +4,18 @@
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `pk-python`, `pk-cpp`, `qwen3-asr`, `ark-asr`, `moonshine-de`, `canary-asr` | `pk-python` |
-| `ASR_URL` | URL des ONNX-Dienstes | `http://asr:5092` |
-| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `pk-python` |
+| `ASR_BACKEND` | `ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` | `ps-pk-onnx` |
+| `ASR_URL` | URL des ONNX-Dienstes | `http://ps-pk-onnx:5092` |
+| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `ps-pk-onnx` |
 
 ## Webapp-Umgebungsvariablen
 
 | Variable | Default | Beschreibung |
 |----------|---------|-------------|
-| `ASR_URL` | `http://asr:5092` | ASR-Service-URL |
-| `ASR_BACKEND` | `pk-python` | Welcher Adapter |
+| `ASR_URL` | `http://ps-pk-onnx:5092` | ASR-Service-URL |
+| `ASR_BACKEND` | `ps-pk-onnx` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `DIAR_URL` | `http://diar:5098` | Diarization-Service (CrispASR-diar-Container) |
+| `DIAR_URL` | `http://crispr-crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
 | `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |

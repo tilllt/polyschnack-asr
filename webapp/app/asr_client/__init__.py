@@ -3,7 +3,7 @@
 ``transcribe()`` — synchronous, uses batched endpoint.
 ``transcribe_streaming()`` — synchronous SSE-based, calls *on_chunk(...)* per event.
 
-Backend selection via ``ASR_BACKEND`` env var (default: ``pk-python``).
+Backend selection via ``ASR_BACKEND`` env var (default: ``ps-pk-onnx``).
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class BackendCapabilities:
     word_timestamps: bool = False
     languages: List[str] = field(default_factory=list)
     device: List[str] = field(default_factory=lambda: ["cpu"])
-    label: str = "pk-python"
+    label: str = "ps-pk-onnx"
     #: Backend liefert Interpunktion nativ (CrispASR-Server mit
     #: --punc-model) — die Webapp darf dann KEINE LLM-Punctuation
     #: nachschalten (sonst doppelte/konkurrierende Interpunktion).
@@ -84,6 +84,86 @@ class AsrClient(ABC):
 
 _client_instance: Optional[AsrClient] = None
 
+# Alias-Kompatibilität: alte/alternative Backend-Namen → kanonische ID.
+_BACKEND_ALIASES = {
+    "crispasr": "crispr-ark",
+    "crisp-asr": "crispr-ark",
+}
+
+
+def _resolve_backend(backend: str) -> Dict[str, Any]:
+    """Registry-Eintrag für eine Backend-ID (inkl. Alias-Auflösung)."""
+    from ..service_registry import get_service
+
+    canonical = _BACKEND_ALIASES.get(backend, backend)
+    svc = get_service(canonical) or {}
+    if not svc:
+        raise ValueError(f"unknown backend: {backend}")
+    return svc
+
+
+def _load_adapter(svc: Dict[str, Any]) -> AsrClient:
+    """Instanziiert den Adapter aus dem ``adapter``-Feld (Modul:Klassenname).
+
+    Konstruktor-Argumente:
+    - ``url``: aus ``url_env`` (Env-Override) → ``url`` (Compose-Default) → None
+      (Klassen-Default, z. B. ps-pk-onnx über settings.ASR_URL)
+    - ``capabilities``: nur wenn die Klasse den Parameter akzeptiert UND die
+      Registry per-Adapter-Capabilities definiert (CrispASR-Derivate).
+    """
+    import importlib
+    import inspect
+
+    module_name, _, class_name = svc["adapter"].partition(":")
+    cls = getattr(importlib.import_module(module_name), class_name)
+
+    kwargs: Dict[str, Any] = {}
+    url = os.getenv(svc["url_env"]) if svc.get("url_env") else None
+    url = url or svc.get("url")
+    if url:
+        kwargs["url"] = url
+
+    # Optionale Konstruktor-Argumente aus der YAML (adapter_kwargs).
+    # Schlüssel mit *_env-Suffix: der Wert ist der Env-Var-Name.
+    for key, value in (svc.get("adapter_kwargs") or {}).items():
+        if key.endswith("_env"):
+            kwargs[key[:-4]] = os.getenv(value, "")
+        else:
+            kwargs[key] = value
+
+    # Per-Adapter-Capabilities (moonshine-de/canary-asr teilen den
+    # CrispAsrHttpClient — gleicher Adapter, eigene Feature-Beschreibung).
+    if "capabilities" in inspect.signature(cls.__init__).parameters:
+        caps = svc.get("capabilities", {})
+        wt = caps.get("word_timestamps", False)
+        kwargs["capabilities"] = BackendCapabilities(
+            streaming=bool(caps.get("streaming", False)),
+            async_jobs=bool(caps.get("async_jobs", False)),
+            noise_reduce=bool(caps.get("noise_reduce", False)),
+            word_timestamps=wt is True,  # "verify" (unbestätigt) → False
+            languages=list(caps.get("languages", [])),
+            device=list(caps.get("device", [])),
+            label=svc["name"],
+            native_punctuation=bool(caps.get("native_punctuation", True)),
+        )
+    client = cls(**kwargs)
+    # capabilities_override (YAML): nachträglich setzen, wenn die Klasse
+    # keinen Konstruktor-Parameter hat (z. B. PkPythonClient für voxtral).
+    if svc.get("capabilities_override") and "capabilities" not in kwargs:
+        caps = svc["capabilities_override"]
+        wt = caps.get("word_timestamps", False)
+        client.capabilities = BackendCapabilities(
+            streaming=bool(caps.get("streaming", False)),
+            async_jobs=bool(caps.get("async_jobs", False)),
+            noise_reduce=bool(caps.get("noise_reduce", False)),
+            word_timestamps=wt is True,
+            languages=list(caps.get("languages", [])),
+            device=list(caps.get("device", [])),
+            label=svc["name"],
+            native_punctuation=bool(caps.get("native_punctuation", False)),
+        )
+    return client
+
 
 def get_client(backend: Optional[str] = None) -> AsrClient:
     """Return the adapter for *backend*.
@@ -94,63 +174,20 @@ def get_client(backend: Optional[str] = None) -> AsrClient:
     """
     global _client_instance
     explicit = backend is not None
-    backend = backend or os.getenv("ASR_BACKEND", "pk-python") or "pk-python"
+    backend = backend or os.getenv("ASR_BACKEND", "ps-pk-onnx") or "ps-pk-onnx"
 
     if not explicit and _client_instance is not None:
         return _client_instance
 
-    if backend == "pk-cpp":
-        from .adapters.pk_cpp import PkCppClient
-        client = PkCppClient()
-    elif backend == "qwen3-asr":
-        from .adapters.qwen3_asr_http import Qwen3AsrHttpClient
-        client = Qwen3AsrHttpClient()
-    elif backend in ("ark-asr", "crispasr", "crisp-asr"):
-        from .adapters.crisp_asr_http import CrispAsrHttpClient
-        client = CrispAsrHttpClient()
-    elif backend == "moonshine-de":
-        # Deutsches Spezialmodell (fidoriel Fine-Tune) über den CrispASR-Server.
-        from ..service_registry import get_service
-        svc = get_service("moonshine-de") or {}
-        from .adapters.crisp_asr_http import CrispAsrHttpClient
-        client = CrispAsrHttpClient(
-            url=os.getenv("MOONSHINE_URL", svc.get("url", "http://polyschnack-moonshine-de:5096")),
-            capabilities=BackendCapabilities(
-                streaming=False, async_jobs=False, noise_reduce=False,
-                word_timestamps=True, languages=["de"], device=["gpu", "cpu"],
-                label="moonshine-de", native_punctuation=True,
-            ),
-        )
-    elif backend == "canary-asr":
-        # NVIDIA canary-1b-v2, multilingual (EN/DE/FR/ES) über CrispASR-Server.
-        from ..service_registry import get_service
-        svc = get_service("canary-asr") or {}
-        from .adapters.crisp_asr_http import CrispAsrHttpClient
-        client = CrispAsrHttpClient(
-            url=os.getenv("CANARY_URL", svc.get("url", "http://polyschnack-canary:5097")),
-            capabilities=BackendCapabilities(
-                streaming=False, async_jobs=False, noise_reduce=False,
-                word_timestamps=True, languages=["de", "en", "fr", "es"],
-                device=["gpu", "cpu"], label="canary-asr", native_punctuation=True,
-            ),
-        )
-    elif backend == "voxtral":
-        # Voxtral runs on the local voxtral.cpp server (OpenAI-compatible API).
-        from ..service_registry import get_service
-        svc = get_service("voxtral") or {}
-        from .adapters.pk_python import PkPythonClient
-        client = PkPythonClient(
-            url=svc.get("url"),
-            api_key=os.getenv("POLYSCHNACK_VOXTRAL_API_KEY", ""),
-        )
-        client.capabilities = BackendCapabilities(
-            streaming=True, async_jobs=False, noise_reduce=False,
-            word_timestamps=False, languages=["de", "en"], device=["gpu"],
-            label="voxtral",
-        )
-    else:
-        from .adapters.pk_python import PkPythonClient
-        client = PkPythonClient()
+    try:
+        svc = _resolve_backend(backend)
+        client = _load_adapter(svc)
+    except ValueError:
+        # Unbekannter Backend-Name → Fallback auf das Default-Backend
+        # (ps-pk-onnx), damit alte config.json-Werte nicht crashen.
+        log.warning("Unbekannter ASR-Backend %r — Fallback auf ps-pk-onnx", backend)
+        svc = _resolve_backend("ps-pk-onnx")
+        client = _load_adapter(svc)
     log.info("ASR backend: %s", backend)
 
     if not explicit or _client_instance is None:

@@ -73,7 +73,7 @@ def _is_admin_session(request: Request) -> bool:
 def ensure_backend_available(backend: str, request: Request) -> None:
     """Ensure a non-default backend can accept jobs.
 
-    - Default (pk-python) always runs as part of the core stack → no-op.
+    - Default (ps-pk-onnx) always runs as part of the core stack → no-op.
     - Admin: tries to start the container when it is not running
       (resource check + health wait), 409 when the start fails.
     - Anonymous: 409 when the backend is not already running — anon users
@@ -91,7 +91,7 @@ def ensure_backend_available(backend: str, request: Request) -> None:
         raise HTTPException(status_code=404, detail=f"unknown backend {backend}")
 
     profile = svc["compose_profile"]
-    container = f"polyschnack-{'asr' if profile == 'default' else profile}"
+    container = svc["container_name"]  # aus der Registry — keine hartkodierte Konstruktion
 
     docker: DockerProxyClient = get_docker_client()
     try:

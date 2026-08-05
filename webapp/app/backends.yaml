@@ -1,0 +1,199 @@
+# PolySchnack — Backend-/Adapter-Definitionen (single source of truth).
+#
+# Diese Datei ersetzt die früher hartkodierte SERVICES-Liste in
+# service_registry.py: Jedes Backend wird hier deklarativ beschrieben —
+# Metadaten (Name, Compose-Profil, Container, Ressourcen) UND die
+# Adapter-Verdrahtung (welche Klasse, welche URL). Neues Backend =
+# neuer YAML-Block + Adapter-Klasse; kein Code-Change in der Verdrahtung.
+#
+# Felder:
+#   name              eindeutige ID (Backend-ID, ASR_BACKEND-Wert)
+#   backend           identisch zu name (Backend-ID)
+#   compose_profile   Docker-Compose-Profil (default | cpp | qwen3 | ark | …)
+#   container_name    Docker-Container-Name (muss zu compose.yml passen)
+#   type              local | remote
+#   cost_per_minute_eur  Selbstkosten pro Minute (Benchmark-Pricing)
+#   concurrency       Endpunkt-Kapazität (Queue leitet daraus ab)
+#   model             Beschreibung des geladenen Modells
+#   url               Compose-Netzwerk-URL des Containers (optional,
+#                     Defaults siehe Adapter-Klasse)
+#   health_url        "" → settings.ASR_URL; nur eigene Server melden VRAM
+#   requires          Ressourcen-Check vor Start (vram/ram/disk in GB)
+#   capabilities      Feature-Matrix (GUI + /api/models/matrix)
+#   status            active (nimmt Jobs an) | disabled
+#   adapter           Modul:Klassenname der Adapter-Klasse (importlib)
+#   adapter_kwargs    optionale Konstruktor-Argumente (z. B. capabilities-
+#                     Override für CrispASR-Derivate)
+
+services:
+  - name: ps-pk-onnx
+    backend: ps-pk-onnx
+    compose_profile: default
+    container_name: ps-pk-onnx
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: parakeet-tdt-0.6b-v3-onnx
+    health_url: ""
+    requires: {vram_gb: 6, ram_gb: 8, disk_gb: 5}
+    capabilities:
+      word_timestamps: true
+      streaming: true
+      async_jobs: true
+      noise_reduce: true
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.pk_python:PkPythonClient
+
+  - name: crispr-pk-cpp
+    backend: crispr-pk-cpp
+    compose_profile: cpp
+    container_name: crispr-pk-cpp
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: parakeet-tdt-0.6b-v3-q8_0.gguf
+    url_env: CPP_URL               # Env-Var überschreibt die Compose-URL
+    requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
+    capabilities:
+      word_timestamps: true   # gleiches Modell wie ps-pk-onnx, Timestamps modell-inhärent
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.pk_cpp:PkCppClient
+
+  - name: crispr-qwen3
+    backend: crispr-qwen3
+    compose_profile: qwen3
+    container_name: crispr-qwen3
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: qwen3-asr-0.6b-q8_0.gguf + forced-aligner
+    url_env: QWEN3_URL             # Env-Var überschreibt die Compose-URL
+    requires: {vram_gb: 3, ram_gb: 6, disk_gb: 4}
+    capabilities:
+      word_timestamps: true   # via forced aligner
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.qwen3_asr_http:Qwen3AsrHttpClient
+
+  - name: crispr-ark
+    backend: crispr-ark
+    compose_profile: ark
+    container_name: crispr-ark
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: ark-asr-3b-q8_0.gguf
+    url_env: CRISPASR_URL          # Env-Var überschreibt die Compose-URL
+    requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
+    capabilities:
+      word_timestamps: true   # CrispASR verbose_json liefert word-level
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
+
+  - name: ps-voxtral
+    backend: ps-voxtral
+    compose_profile: voxtral
+    container_name: ps-voxtral
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)
+    url: http://ps-voxtral:8000   # voxtral.cpp / vLLM-kompatibler Server
+    requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
+    capabilities:
+      word_timestamps: "verify"      # Mistral: nicht für Timestamps trainiert (vermutlich False)
+      streaming: true                # Realtime-Modell: 1 Token je 80-ms-Frame
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu]
+    status: active
+    adapter: app.asr_client.adapters.pk_python:PkPythonClient
+    adapter_kwargs:
+      api_key_env: POLYSCHNACK_VOXTRAL_API_KEY   # optionaler API-Key (voxtral.cpp)
+    capabilities_override:                       # PkPythonClient ohne ctor-Param → nachträglich setzen
+      word_timestamps: false
+      streaming: true
+      async_jobs: false
+      noise_reduce: false
+      languages: [de, en]
+      device: [gpu]
+
+  - name: crispr-moonshine-de
+    backend: crispr-moonshine-de
+    compose_profile: moonshine
+    container_name: crispr-moonshine-de
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)
+    url: http://crispr-moonshine-de:5096
+    url_env: MOONSHINE_URL         # Env-Var überschreibt die Compose-URL
+    requires: {vram_gb: 1, ram_gb: 2, disk_gb: 1}
+    capabilities:
+      word_timestamps: true   # CrispASR verbose_json, -ml 1
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
+
+  - name: crispr-canary
+    backend: crispr-canary
+    compose_profile: canary
+    container_name: crispr-canary
+    type: local
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)
+    url: http://crispr-canary:5097
+    url_env: CANARY_URL            # Env-Var überschreibt die Compose-URL
+    requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
+    capabilities:
+      word_timestamps: true   # CrispASR verbose_json, -ml 1
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en, fr, es]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
