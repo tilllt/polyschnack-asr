@@ -16,12 +16,12 @@ Env-Variable — kein Code nötig.
 ## Adapter-URLs
 
 Jeder Adapter hat **seine eigene URL-Env** — nie `ASR_URL` für andere
-Backends verwenden (das ist der ONNX-pk-python-Container!):
+Backends verwenden (das ist der ONNX-ps-pk-onnx-Container!):
 
 | Variable | Default | Beschreibung |
 |----------|---------|-------------|
 | `ASR_BACKEND` | `ps-pk-onnx` | Adapter-Auswahl (`ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`) |
-| `ASR_URL` | `http://ps-pk-onnx:5092` | URL des ONNX-pk-python-Containers |
+| `ASR_URL` | `http://ps-pk-onnx:5092` | URL des ONNX-ps-pk-onnx-Containers |
 | `CPP_URL` | `http://crispr-pk-cpp:5093` | URL des pk-cpp-Containers (CrispASR parakeet) |
 | `QWEN3_URL` | `http://crispr-qwen3:5094` | URL des Qwen3-ASR-Containers |
 | `CRISPASR_URL` | `http://crispr-ark:5095` | URL des ARK-ASR-Containers (CrispASR) |
@@ -34,6 +34,6 @@ Backends verwenden (das ist der ONNX-pk-python-Container!):
     ONNX-Container!
 
 ```bash
-QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=qwen3-asr \
+QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 \
   docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d
 ```

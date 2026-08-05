@@ -58,11 +58,11 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 | Profil | Befehl | Startet | GPU via Overlay |
 |--------|--------|---------|:---------:|
 | *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
-| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + asr-cpp | ✅ |
-| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + qwen3-asr | ✅ |
-| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + ark-asr | ✅ |
-| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + moonshine-de | ✅ |
-| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + canary-asr | ✅ |
+| `--profile cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile cpp up -d` | + crispr-pk-cpp | ✅ |
+| `--profile qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile qwen3 up -d` | + crispr-qwen3 | ✅ |
+| `--profile ark` | `docker compose -f compose.yml -f compose.backends.yml --profile ark up -d` | + crispr-ark | ✅ |
+| `--profile moonshine` | `docker compose -f compose.yml -f compose.backends.yml --profile moonshine up -d` | + crispr-moonshine-de | ✅ |
+| `--profile canary` | `docker compose -f compose.yml -f compose.backends.yml --profile canary up -d` | + crispr-canary | ✅ |
 
 ## Hinweis
 
@@ -70,5 +70,5 @@ Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/` (keine
 Named-Volumes). Die vollständigen Service-Definitionen stehen in `compose.yml`
 / `compose.backends.yml`. Inter-Service-URLs nutzen immer den
 **Container-Port** (der interne Port im Compose-Netz), nicht das
-Host-Port-Mapping (z. B. `http://crispr-crispr-diar:5098`, während am Host nur `asr:5092`
+Host-Port-Mapping (z. B. `http://crispr-diar:5098`, während am Host nur `asr:5092`
 und `webapp:8088` gebunden sind — diar hat gar kein Host-Port).

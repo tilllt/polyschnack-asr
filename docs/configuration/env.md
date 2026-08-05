@@ -15,7 +15,7 @@
 | `ASR_URL` | `http://ps-pk-onnx:5092` | ASR-Service-URL |
 | `ASR_BACKEND` | `ps-pk-onnx` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `DIAR_URL` | `http://crispr-crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
+| `DIAR_URL` | `http://crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
 | `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
