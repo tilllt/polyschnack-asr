@@ -32,6 +32,6 @@ RUN crispasr --help 2>&1 | head -5
 # Model volume — parakeet GGUF hier mounten (q8_0, ~470 MB)
 ENV DIAR_MODEL=/models/parakeet-tdt-0.6b-v3-q8_0.gguf
 
-EXPOSE 8080
+EXPOSE 5096
 
-CMD ["sh", "-c", "exec crispasr --server -m \"$DIAR_MODEL\" --host 0.0.0.0 --port 8080"]
+CMD ["sh", "-c", "exec crispasr --server -m \"$DIAR_MODEL\" --host 0.0.0.0 --port 5096"]

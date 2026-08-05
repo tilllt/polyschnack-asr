@@ -3,5 +3,8 @@ __pycache__/
 *.pyc
 .env
 
+# Host-Mounts (Modelle, Benchmarks, Uploads) — gehören nicht ins Repo
+DATA/
+
 # MkDocs-Build (GitLab Pages generiert das im CI)
 public/

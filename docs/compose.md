@@ -67,5 +67,6 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/` (keine
 Named-Volumes). Die vollständigen Service-Definitionen stehen in `compose.yml`
 / `compose.backends.yml`. Inter-Service-URLs nutzen immer den
-**Container-Port**, nicht das Host-Port-Mapping (z. B. `http://diar:8080`,
-nicht `:5096`).
+**Container-Port** (der interne Port im Compose-Netz), nicht das
+Host-Port-Mapping (z. B. `http://diar:5096`, während am Host nur `asr:5092`
+und `webapp:8088` gebunden sind — diar hat gar kein Host-Port).

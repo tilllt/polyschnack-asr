@@ -32,8 +32,8 @@ class _Settings:
 
     # Diarization-Service (CrispASR-Server, eigener Container — Option B).
     # Kein pyannote/torch mehr in der Webapp; der diar-Container liefert
-    # diarized_json mit Speaker-Labels A/B/C… (Container-Port 8080)
-    DIAR_URL: str = os.getenv("DIAR_URL", "http://diar:8080").rstrip("/")
+    # diarized_json mit Speaker-Labels A/B/C… (Container-Port 5096)
+    DIAR_URL: str = os.getenv("DIAR_URL", "http://diar:5096").rstrip("/")
 
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
     DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")

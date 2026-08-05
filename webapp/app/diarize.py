@@ -1,4 +1,4 @@
-"""HTTP-Client für den Diarization-Service (diar:8080, CrispASR — Option B).
+"""HTTP-Client für den Diarization-Service (diar:5096, CrispASR — Option B).
 
 Die pyannote-Pipeline wurde durch den CrispASR-Server ersetzt:
 ``POST /v1/audio/transcriptions`` mit ``diarize=true`` und

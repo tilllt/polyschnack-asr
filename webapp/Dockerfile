@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 RUN uv pip install --system "yt-dlp>=2026.05.29"
 RUN uv sync
 # Kein CUDA-torch mehr in der Webapp: Diarization läuft seit Option B im
-# separaten CrispASR-diar-Container (diar:8080). Die Webapp bleibt CPU-only
+# separaten CrispASR-diar-Container (diar:5096). Die Webapp bleibt CPU-only
 # (~2,5-3 GB kleiner); GPU-Zugriff bekommen asr + diar via compose.gpu.yml.
 
 # Copy application source

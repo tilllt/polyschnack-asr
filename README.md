@@ -508,7 +508,7 @@ BENCHMARK_DATA_DIR=<host-mount>/benchmark \
 | `ASR_URL` | `http://asr:5092` | ASR-Service-URL |
 | `ASR_BACKEND` | `pk-python` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `DIAR_URL` | `http://diar:8080` | Diarization-Service (CrispASR-diar-Container) |
+| `DIAR_URL` | `http://diar:5096` | Diarization-Service (CrispASR-diar-Container) |
 | `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
