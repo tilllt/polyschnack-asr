@@ -210,6 +210,10 @@ build-asr:
       approach-a/
 
     docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
+    # GHCR-Mirror (public) — ghcr.io/tilllt
+    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    docker tag registry.example.com/public/${CI_PROJECT_NAME}:latest ${GHCR_IMAGE}:latest
+    docker push ${GHCR_IMAGE}:latest
     docker push registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
   only:
     - main
