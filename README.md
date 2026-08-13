@@ -155,7 +155,7 @@ CRISPR_PK_CPP_URL=http://crispr-pk-cpp:5093 ASR_BACKEND=crispr-pk-cpp \
   docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
 
 # Modell einmalig laden:
-docker run --rm -v "$PWD/DATA/cpp-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
   https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
 
@@ -169,7 +169,7 @@ CRISPR_QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 \
   docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
 
 # Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16):
-docker run --rm -v "$PWD/DATA/qwen3-models:/models" alpine sh -c '
+docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c '
   wget -qO /models/qwen3-asr-0.6b-q8_0.gguf \
     https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf &&
   wget -qO /models/qwen3-forced-aligner-0.6b-f16.gguf \
@@ -184,7 +184,7 @@ CRISPR_ARK_URL=http://crispr-ark:5095 ASR_BACKEND=crispr-ark \
   docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d
 
 # GGUF (~4 GB, Q8_0) einmalig laden:
-docker run --rm -v "$PWD/DATA/ark-models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
   https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
 ```
 
@@ -195,7 +195,7 @@ ASR_BACKEND=crispr-moonshine-de \
   docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d
 
 # Modell + Tokenizer (~42 MB):
-docker run --rm -v "$PWD/DATA/moonshine-models:/models" alpine sh -c '
+docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c '
   wget -qO /models/moonshine-base-de-fidoriel-q4_k.gguf \
     https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf &&
   wget -qO /models/tokenizer.bin \
@@ -212,7 +212,7 @@ ASR_BACKEND=crispr-canary \
   docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d
 
 # Modell (~0,6 GB, q4_K):
-docker run --rm -v "$PWD/DATA/canary-models:/models" alpine wget -O /models/canary-1b-v2-q4_k.gguf \
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/canary-1b-v2-q4_k.gguf \
   https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf
 ```
 
@@ -229,8 +229,11 @@ unabhängig vom gewählten ASR-Backend funktioniert:
   mit `diarize=true&response_format=diarized_json` auf
 
 ```bash
-# Modell (parakeet-GGUF, ~470 MB) einmalig laden:
-docker run --rm -v "$PWD/DATA/diar-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
+# Das Modell (parakeet-GGUF q8_0, ~640 MB) lädt der Container beim ersten
+# Start automatisch von HuggingFace in ./DATA/models/ — manuell nur nötig,
+# wenn er keinen Internetzugang hat (gleiche Datei wie parakeet.cpp, nur
+# einmal laden):
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
   https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
 ```
 

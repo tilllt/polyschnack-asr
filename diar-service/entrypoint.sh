@@ -60,8 +60,8 @@ Moegliche Ursachen:
   - Modellname existiert nicht im Repo ${HF_MODEL_REPO}
 
 Manueller Download auf dem HOST:
-  mkdir -p ./DATA/diar-models
-  curl -L -o ./DATA/diar-models/${model_name} "${model_url}"
+  mkdir -p ./DATA/models
+  curl -L -o ./DATA/models/${model_name} "${model_url}"
 
 Danach Neustart:  docker compose restart crispr-diar
 (Der Container versucht den Download bei jedem Start automatisch erneut.)

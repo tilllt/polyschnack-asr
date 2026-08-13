@@ -60,7 +60,8 @@ services:
     volumes:
       # rw (nicht :ro): der Entrypoint lädt ein fehlendes Modell automatisch
       # von HuggingFace in dieses Volume nach (siehe diar-service/entrypoint.sh).
-      - ./DATA/diar-models:/models
+      # Gemeinsamer Modell-Ordner — crispr-pk-cpp nutzt dieselbe GGUF-Datei.
+      - ./DATA/models:/models
     # Kein expose/ports: nur intern im Compose-Netz erreichbar (crispr-diar:5098).
     # Am Host wird kein Port gebunden — nur asr (5092) und webapp (8088).
     restart: unless-stopped

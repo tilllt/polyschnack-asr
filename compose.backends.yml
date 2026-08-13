@@ -35,7 +35,8 @@ services:
       # selbst keine Satzzeichen, der Server restauriert sie.
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
-      - ./DATA/cpp-models:/models:ro
+      # Gemeinsamer Modell-Ordner ./DATA/models (alle Backends + diar)
+      - ./DATA/models:/models:ro
     ports:
       - "5093:5093"
     deploy:
@@ -61,7 +62,7 @@ services:
       # der Server automatisch (auto-download nach ~/.cache/crispasr).
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
-      - ./DATA/qwen3-models:/models:ro
+      - ./DATA/models:/models:ro
     ports:
       - "5094:5094"
     deploy:
@@ -85,7 +86,7 @@ services:
       # automatisch (auto-download nach ~/.cache/crispasr).
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
-      - ./DATA/ark-models:/models:ro
+      - ./DATA/models:/models:ro
     ports:
       - "5095:5095"
     deploy:
@@ -109,7 +110,7 @@ services:
       # ⚠ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell!) — siehe README.
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
-      - ./DATA/moonshine-models:/models:ro
+      - ./DATA/models:/models:ro
     ports:
       - "5096:5096"
     deploy:
@@ -132,7 +133,7 @@ services:
       # Interpunktion + deutsches Truecasing.
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:
-      - ./DATA/canary-models:/models:ro
+      - ./DATA/models:/models:ro
     ports:
       - "5097:5097"
     deploy:
@@ -159,7 +160,7 @@ services:
   #   environment:
   #       VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf
   #     volumes:
-  #       - ./DATA/voxtral-models:/models:ro
+  #       - ./DATA/models:/models:ro
   #     ports:
   #       - "5099:5099"
   #     deploy:

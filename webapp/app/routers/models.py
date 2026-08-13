@@ -186,7 +186,7 @@ def download_diarize() -> DownloadResponse:
     """Kein Download mehr nötig — Diarization läuft im CrispASR-diar-Container.
 
     Seit Option B liegt das Diarization-Modell (parakeet-GGUF) als Volume
-    im diar-Service (./DATA/diar-models/). Der Endpoint bleibt als
+    im diar-Service (./DATA/models/). Der Endpoint bleibt als
     Kompatibilitäts-Stub für ältere Frontends und meldet den neuen Zustand.
     """
     if _check_diarize():
@@ -197,5 +197,5 @@ def download_diarize() -> DownloadResponse:
     return DownloadResponse(
         status="service-unreachable",
         message="Diar-Service nicht erreichbar — Container 'diar' prüfen "
-                "(Modell liegt unter ./DATA/diar-models/).",
+                "(Modell liegt unter ./DATA/models/).",
     )
