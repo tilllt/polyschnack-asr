@@ -63,7 +63,9 @@ cd polyschnack
 docker compose up -d
 
 # Variante B — GPU (RTX 3090 o.ä., NVIDIA Container Toolkit installiert):
-docker compose -f compose.yml -f compose.gpu.yml up -d
+# compose.backends.yml immer mitladen — das GPU-Overlay referenziert die
+# Backend-Services; ohne aktivierte Profile starten sie trotzdem nicht:
+docker compose -f compose.yml -f compose.backends.yml -f compose.gpu.yml up -d
 
 # Variante C — bequem: ./start.sh (GPU automatisch erkannt, OIDC wenn
 # echte Credentials in compose.oidc.yml, alle Backends mit --no-start

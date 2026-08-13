@@ -17,6 +17,11 @@
 # compose.backends.yml, weil der Stack sonst auf Maschinen ohne NVIDIA-Runtime
 # gar nicht starten würde. Das Overlay ist die einzige Stelle, an der
 # GPU-Zugriff vergeben wird.
+#
+# Achtung: Das Overlay referenziert Backend-Services (crispr-pk-cpp …),
+# die nur in compose.backends.yml existieren — compose.backends.yml muss
+# deshalb IMMER Teil des Projekts sein (./start.sh macht das automatisch).
+# Ohne aktivierte Profile starten die Backends trotzdem nicht.
 services:
   ps-pk-onnx:
     image: registry.example.com/public/polyschnack-asr:latest

@@ -17,7 +17,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-COMPOSE=(docker compose -f compose.yml)
+COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
+# compose.backends.yml ist IMMER Teil des Projekts: die Overlays
+# (compose.gpu.yml) referenzieren Backend-Services, die sonst ohne
+# image/build existieren -> "invalid compose project". Ohne aktivierte
+# Profile starten/erstellen die Backends beim up -d trotzdem NICHT.
 
 # --- GPU-Overlay: nur wenn die NVIDIA-Container-Runtime existiert -------
 if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
@@ -39,7 +43,7 @@ echo "-> Starte Kern-Stack ..."
 "${COMPOSE[@]}" up -d
 
 echo "-> Provisioniere optionale Backends (--no-start, GUI startet on demand) ..."
-"${COMPOSE[@]}" -f compose.backends.yml \
+"${COMPOSE[@]}" \
     --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark \
     --profile crispr-moonshine-de --profile crispr-canary \
     up -d --no-start
