@@ -64,6 +64,11 @@ docker compose up -d
 
 # Variante B — GPU (RTX 3090 o.ä., NVIDIA Container Toolkit installiert):
 docker compose -f compose.yml -f compose.gpu.yml up -d
+
+# Variante C — bequem: ./start.sh (GPU automatisch erkannt, OIDC wenn
+# echte Credentials in compose.oidc.yml, alle Backends mit --no-start
+# provisioniert — die Admin-GUI startet sie on demand):
+./start.sh
 ```
 
 - **Web UI:** http://localhost:8088
