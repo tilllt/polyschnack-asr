@@ -18,29 +18,29 @@
 # gar nicht starten würde. Das Overlay ist die einzige Stelle, an der
 # GPU-Zugriff vergeben wird.
 services:
-  asr:
+  ps-pk-onnx:
     image: registry.example.com/public/polyschnack-asr:latest
     runtime: nvidia
     environment:
       POLYSCHNACK_USE_GPU: "true"
 
-  diar:
+  crispr-diar:
     image: registry.example.com/public/polyschnack-asr-diar:latest
     runtime: nvidia
 
-  asr-cpp:
+  crispr-pk-cpp:
     runtime: nvidia
 
-  qwen3-asr:
+  crispr-qwen3:
     runtime: nvidia
     environment:
       QWEN_USE_VRAM: "1"
 
-  ark-asr:
+  crispr-ark:
     runtime: nvidia
 
-  moonshine-de:
+  crispr-moonshine-de:
     runtime: nvidia
 
-  canary-asr:
+  crispr-canary:
     runtime: nvidia

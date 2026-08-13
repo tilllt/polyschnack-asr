@@ -17,7 +17,7 @@
 # Ohne dieses Overlay läuft die App wie bisher OHNE Login (anonym).
 
 services:
-  webapp:
+  ps-webapp:
     environment:
       # ── OIDC (DUMMY) ──────────────────────────────────────────────────
       OIDC_CLIENT_ID: "polyschnack-dev-client"

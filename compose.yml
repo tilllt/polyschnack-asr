@@ -113,9 +113,9 @@ services:
     volumes:
       - ./DATA/poc-data:/data
     depends_on:
-      asr:
+      ps-pk-onnx:
         condition: service_healthy
-      diar:
+      crispr-diar:
         condition: service_started
     restart: unless-stopped
     deploy:
