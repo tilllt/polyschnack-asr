@@ -24,7 +24,14 @@ Die „Sprecheranzahl" aus der UI wird als `diarize_max_speakers` übertragen.
 
 ## Modell
 
-Das Modell (parakeet-GGUF, ~470 MB) muss einmalig geladen werden:
+Der Container lädt das Modell (parakeet-GGUF **q8_0**, ~640 MB) beim ersten
+Start automatisch von HuggingFace in das Volume `./DATA/diar-models/` —
+das Volume muss dafür beschreibbar gemountet sein (in `compose.yml` bewusst
+ohne `:ro`). Fehlt eine Datei, versucht der Entrypoint den Download bei jedem
+Start erneut und gibt bei Fehlschlag eine Anleitung aus (siehe
+`diar-service/entrypoint.sh`).
+
+Manueller Download (z.B. wenn der Container keinen Internetzugang hat):
 
 ```bash
 docker run --rm -v "$PWD/DATA/diar-models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \

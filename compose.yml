@@ -58,7 +58,9 @@ services:
     environment:
       DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
     volumes:
-      - ./DATA/diar-models:/models:ro
+      # rw (nicht :ro): der Entrypoint lädt ein fehlendes Modell automatisch
+      # von HuggingFace in dieses Volume nach (siehe diar-service/entrypoint.sh).
+      - ./DATA/diar-models:/models
     # Kein expose/ports: nur intern im Compose-Netz erreichbar (crispr-diar:5098).
     # Am Host wird kein Port gebunden — nur asr (5092) und webapp (8088).
     restart: unless-stopped
@@ -69,7 +71,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 90s
+      # großzügig: Erststart lädt ggf. das Modell (q8_0, ~640 MB)
+      start_period: 300s
 
   ps-webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
