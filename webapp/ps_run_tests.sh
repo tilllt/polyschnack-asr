@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Führt Webapp-Backend-Tests aus (eine Datei oder alle).
 set -e
-cd /srv/app/pk-asr/webapp
+cd "$(dirname "$0")"
 export DATA_DIR=/tmp/ps_debug
 if [ -n "$1" ]; then
   .venv/bin/python -m pytest "$1" -q -p no:cacheprovider --tb=short 2>&1 | grep -v "sitecustomize\|importlib.types" | tail -30

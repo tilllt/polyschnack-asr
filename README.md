@@ -7,7 +7,7 @@
   <a href="#architektur">Architektur</a> · <a href="#web-ui">Web UI</a> ·
   <a href="#benchmark">Benchmark</a> · <a href="#konfiguration">Konfiguration</a> ·
   <a href="#oidc-auth">OIDC</a> · <a href="#entwicklung">Entwicklung</a> ·
-  <a href="https://gitlab.example.com/tilllt/polyschnack-asr/ps-pk-onnx/-/pages">📚 Vollständige Doku (GitLab Pages)</a>
+  <a href="docs/">📚 Vollständige Doku (docs/)</a>
 </p>
 
 <p align="center">
@@ -499,7 +499,7 @@ schreibt die Ergebnisse ins gemeinsame Volume, die Webapp zeigt sie an.
 docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
 
 # Periodisch (Host-Crontab, z. B. täglich 04:00):
-0 4 * * * cd /srv/app/pk-asr && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+0 4 * * * cd /pfad/zum/polyschnack-checkout && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
 ```
 
 **Was der Container tut:**
@@ -533,11 +533,11 @@ noch nicht verfügbar"). Vor dem ersten Start das Volume befüllen:
 
 ```bash
 cd webapp
-SELECTION=/srv/app/polyschnack-benchmark/benchmark/selection/cv_selection_v1.json \
-TTS_SELECTION=/srv/app/polyschnack-benchmark/benchmark/selection/tts_selection.json \
-CV_WAV_DIR=/srv/app/polyschnack-benchmark/benchmark/data/cv \
-TTS_WAV_DIR=/srv/app/polyschnack-benchmark/benchmark/data/tts \
-TAXONOMY=/srv/app/polyschnack-benchmark/benchmark/spec/taxonomy.json \
+SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/cv_selection_v1.json \
+TTS_SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/tts_selection.json \
+CV_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/cv \
+TTS_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/tts \
+TAXONOMY=/pfad/zum/polyschnack-benchmark/benchmark/spec/taxonomy.json \
 BENCHMARK_DATA_DIR=<host-mount>/benchmark \
 .venv/bin/python benchmark/seed_benchmark_data.py
 ```

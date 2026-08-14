@@ -1,7 +1,7 @@
 site_name: PolySchnack — Multi-Backend Speech-to-Text
 site_description: OpenAI-kompatible Spracherkennung mit wählbaren ASR-Backends — Web UI, Diarization, Benchmark
 site_url: https://polyschnack.example.com/docs/
-repo_url: https://gitlab.example.com/tilllt/polyschnack-asr/polyschnack-asr
+repo_url: https://gitlab.example.com/tilllt/polyschnack-asr
 edit_uri: -/edit/main/docs/
 
 # mkdocs.yml liegt selbst in docs/ → docs_dir ist der eigene Ordner

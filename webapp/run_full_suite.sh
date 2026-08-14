@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kompletter Backend-Testlauf der Webapp — Ergebnisse nach Datei in /tmp.
 set -u
-cd /srv/app/pk-asr/webapp
+cd "$(dirname "$0")"
 export DATA_DIR=/tmp/ps_debug
 OUT=/tmp/ps_full_suite.log
 : > "$OUT"

@@ -292,3 +292,44 @@ compose-validate:
     EOF
   only:
     - main
+
+# GHCR-Mirror: spiegelt ALLE Images von Harbor nach ghcr.io/tilllt/*
+# (compose.yml nutzt ${REGISTRY:-ghcr.io/tilllt} als Default-Quelle).
+# Das Kern-ASR-Image pusht build-asr selbst (GHCR_IMAGE-Variable).
+push-ghcr:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+    for img in \
+      "${CI_PROJECT_NAME}-diar" \
+      "${CI_PROJECT_NAME}-aligner" \
+      "${CI_PROJECT_NAME}-webapp" \
+      "${CI_PROJECT_NAME}-cpp" \
+      "${CI_PROJECT_NAME}-qwen3" \
+      "${CI_PROJECT_NAME}-ark" \
+      "${CI_PROJECT_NAME}-moonshine-de" \
+      "${CI_PROJECT_NAME}-canary"; do
+      docker pull registry.example.com/public/${img}:${CI_COMMIT_SHORT_SHA} 2>/dev/null || continue
+      docker tag registry.example.com/public/${img}:${CI_COMMIT_SHORT_SHA} ghcr.io/tilllt/${img}:latest
+      docker tag registry.example.com/public/${img}:${CI_COMMIT_SHORT_SHA} ghcr.io/tilllt/${img}:${CI_COMMIT_SHORT_SHA}
+      docker push ghcr.io/tilllt/${img}:latest
+      docker push ghcr.io/tilllt/${img}:${CI_COMMIT_SHORT_SHA}
+    done
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - build-webapp
+    - build-asr
+    - build-diar
+    - build-aligner
+    - build-cpp
+    - build-qwen3
+    - build-ark
+    - build-moonshine-de
+    - build-canary

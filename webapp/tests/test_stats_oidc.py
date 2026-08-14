@@ -3,7 +3,7 @@
 Bug: stats_endpoint rief _current_user(request) OHNE session auf; dadurch
 erreichte ensure_anonymous_user() ein None-Session-Objekt (AttributeError:
 'NoneType' object has no attribute 'get') -> 500 bei jedem /api/stats-Request
-auf whisper.example.org. Alle anderen Routen übergeben die Session korrekt.
+auf der Produktionsinstanz. Alle anderen Routen übergeben die Session korrekt.
 """
 from __future__ import annotations
 

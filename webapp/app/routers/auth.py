@@ -7,7 +7,7 @@ Endpoints:
   GET /auth/me       → current user info (or {"anonymous":True})
 
 Uses standard OIDC Authorization Code flow with PKCE.
-Works with auth.example.com, Keycloak, Authentik, Google, etc.
+Works with Keycloak, Authentik, Google, etc.
 No dependency on authlib — pure httpx + stdlib.
 """
 from __future__ import annotations

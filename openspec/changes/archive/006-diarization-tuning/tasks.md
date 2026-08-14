@@ -35,6 +35,6 @@
 - [ ] `openspec/`: Spec `transcription` mit MODIFIED-Delta aktualisieren
       (change 006 → specs anwenden), dann archivieren.
 - [ ] Commit + Push (Backend + Frontend + openspec), CI-Watcher.
-- [ ] Deploy auf whisper.example.org, Live-Test: 2-Sprecher-Aufnahme
+- [ ] Deploy auf die Produktionsinstanz, Live-Test: 2-Sprecher-Aufnahme
       mit „Sprecherzahl: 2" → genau 2 Speaker; „Weniger Wechsel" → weniger
       Segment-Flicker.
