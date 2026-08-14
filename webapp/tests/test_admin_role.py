@@ -14,9 +14,11 @@ from app.routers.auth import _is_admin
 
 
 class _FakeUser:
-    def __init__(self, sub="u1", email=None):
+    def __init__(self, sub="u1", email=None, name="Max"):
         self.sub = sub
         self.email = email
+        self.name = name
+        self.preferred_username = None
 
 
 class _FakeRequest:
@@ -70,3 +72,80 @@ def test_require_admin_403_when_oidc_disabled(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         require_admin(_FakeRequest(session={"is_admin": True}))
     assert ei.value.status_code == 403
+
+
+# -------------------------------------------------- /auth/me frisch (2026-08-14)
+#
+# Der Admin-Status wird beim Login in die Session gecacht. Damit Änderungen
+# an POLYSCHNACK_ADMINS sofort wirken (ohne Logout/Login), berechnet
+# /auth/me ihn bei jedem Aufruf FRISCH gegen die Env und schreibt ihn in
+# die Session zurück (require_admin bleibt konsistent).
+
+class _FakeSessionCtx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+
+def _call_me(monkeypatch, session, user):
+    from app.routers import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "get_session", lambda: iter([_FakeSessionCtx()]))
+    monkeypatch.setattr(
+        "app.crud.get_user", lambda s, uid: user
+    )
+    req = _FakeRequest(session=session)
+    return auth_mod.me(req), req
+
+
+def test_me_admin_frisch_trotz_altem_session_flag(monkeypatch):
+    """Env enthält die sub, aber die Session hat noch is_admin=False
+    (Login vor der Env-Änderung) → /auth/me liefert True und schreibt das
+    Flag in die Session zurück."""
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "neu-sub, x@y.de")
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "")
+    body, req = _call_me(
+        monkeypatch,
+        session={"user_id": 1, "is_admin": False, "groups": []},
+        user=_FakeUser(sub="neu-sub"),
+    )
+    assert body["is_admin"] is True
+    assert req.session["is_admin"] is True  # Rückgabe in Session
+
+
+def test_me_admin_frisch_per_email(monkeypatch):
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "neu-sub, admin@cia-spandau.de")
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "")
+    body, req = _call_me(
+        monkeypatch,
+        session={"user_id": 1, "is_admin": False, "groups": []},
+        user=_FakeUser(sub="x", email="admin@cia-spandau.de"),
+    )
+    assert body["is_admin"] is True
+
+
+def test_me_admin_frisch_per_gruppe(monkeypatch):
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "")
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "polyschnack-admins")
+    body, req = _call_me(
+        monkeypatch,
+        session={"user_id": 1, "is_admin": False, "groups": ["polyschnack-admins"]},
+        user=_FakeUser(sub="x"),
+    )
+    assert body["is_admin"] is True
+    assert req.session["is_admin"] is True
+
+
+def test_me_bleibt_nicht_admin(monkeypatch):
+    """Env ohne die sub → frisch False, Session-Flag bleibt False."""
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "anderer-user")
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "")
+    body, req = _call_me(
+        monkeypatch,
+        session={"user_id": 1, "is_admin": False, "groups": []},
+        user=_FakeUser(sub="neu-sub"),
+    )
+    assert body["is_admin"] is False
+    assert req.session["is_admin"] is False

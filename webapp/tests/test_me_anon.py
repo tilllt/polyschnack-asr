@@ -144,14 +144,18 @@ def test_me_liefert_oidc_enabled_flag(client, monkeypatch):
     assert body.get("oidc_enabled") is True
 
 
-def test_me_oidc_liefert_is_admin(client, monkeypatch):
-    """AdminPanel-Regression: is_admin kommt aus der Session zurück."""
+def test_me_oidc_is_admin_kommt_frisch_aus_env(client, monkeypatch):
+    """AdminPanel-Regression (2026-08-14): is_admin wird FRISCH gegen die
+    Env berechnet — ein altes Session-Flag allein macht keinen Admin, und
+    eine Env-Änderung wirkt ohne Logout/Login (das Flag wird in die
+    Session zurückgeschrieben)."""
     from app.config import settings
     from app.db import engine
     from app.models import User
     from sqlmodel import Session
 
     monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "")
     with Session(engine) as s:
         s.add(User(id=3, sub="oidc-3", kind="oidc", name="Admin"))
         s.commit()
@@ -161,11 +165,14 @@ def test_me_oidc_liefert_is_admin(client, monkeypatch):
     class _FakeAdminRequest:
         session = {"user_id": 3, "is_admin": True}
 
-    body = me(_FakeAdminRequest())
-    assert body.get("is_admin") is True
-
     class _FakeNormalRequest:
         session = {"user_id": 3}
 
-    body = me(_FakeNormalRequest())
-    assert body.get("is_admin") is False
+    # Env enthält die sub → Admin, egal ob das Session-Flag fehlt
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "oidc-3, anderer")
+    assert me(_FakeAdminRequest()).get("is_admin") is True
+    assert me(_FakeNormalRequest()).get("is_admin") is True
+
+    # Env ohne die sub → kein Admin, trotz altem Session-Flag True
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "jemand-anders")
+    assert me(_FakeAdminRequest()).get("is_admin") is False

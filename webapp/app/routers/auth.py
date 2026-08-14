@@ -179,6 +179,15 @@ def me(request: Request) -> Dict[str, Any]:
             user = get_user(session, user_id)
             if not user:
                 return {"authenticated": False, "oidc_enabled": oidc_enabled}
+            # Admin-Status FRISCH gegen die Env berechnen (sub/email aus DB,
+            # groups aus der Session) und in die Session zurückschreiben:
+            # Änderungen an POLYSCHNACK_ADMINS/-GROUPS wirken damit sofort
+            # (Seite neu laden genügt), statt erst nach Logout/Login — und
+            # require_admin (Session-Flag) bleibt konsistent. (2026-08-14)
+            is_admin = _is_admin(
+                {"groups": list(request.session.get("groups") or [])}, user
+            )
+            request.session["is_admin"] = is_admin
             return {
                 "authenticated": True,
                 "oidc_enabled": oidc_enabled,
@@ -186,7 +195,7 @@ def me(request: Request) -> Dict[str, Any]:
                 "name": user.name or user.preferred_username or user.email,
                 "preferred_username": user.preferred_username,
                 "email": user.email,
-                "is_admin": bool(request.session.get("is_admin")),
+                "is_admin": is_admin,
                 "groups": list(request.session.get("groups") or []),
             }
     # Anon-Pfad (auch bei OIDC_ENABLED): Dummy-Name + Retention-Hinweis.
