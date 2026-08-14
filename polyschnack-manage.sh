@@ -49,7 +49,7 @@ cd "$(dirname "$0")"
 # Registry-Override: REGISTRY aus .env lesen (z. B. fuer die private
 # Dev-Registry) — Env-Variable gewinnt, sonst compose-Default (ghcr.io).
 if [ -z "${REGISTRY:-}" ] && [ -f .env ]; then
-    REGISTRY="$(grep -E '^REGISTRY=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
+    REGISTRY="$(grep -E '^REGISTRY=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
     export REGISTRY
 fi
 COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
@@ -63,7 +63,9 @@ COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
 # ein `models` (oder `update`) — sonst fehlen die GGUFs beim Start.
 BACKENDS_ALL="pk-cpp qwen3 ark moonshine-de canary"
 if [ -z "${POLYSCHNACK_BACKENDS:-}" ] && [ -f .env ]; then
-    POLYSCHNACK_BACKENDS="$(grep -E '^POLYSCHNACK_BACKENDS=' .env | head -1 | cut -d= -f2- | tr -d '\"' )"
+    # || true: Variable fehlt in .env -> grep exit 1, sonst stiller Abbruch
+    # durch set -euo pipefail (Box-Symptom 2026-08-14: alle Befehle still).
+    POLYSCHNACK_BACKENDS="$(grep -E '^POLYSCHNACK_BACKENDS=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
 fi
 BACKENDS="${POLYSCHNACK_BACKENDS:-$BACKENDS_ALL}"
 PROFILES=()
@@ -268,7 +270,7 @@ case "$CMD" in
             URL="${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
             TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
             if [ -z "$TOKEN" ] && [ -f .env ]; then
-                TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
+                TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
             fi
             if [ -z "$TOKEN" ]; then
                 echo "! POLYSCHNACK_GITLAB_BASE gesetzt - dann braucht selfupdate POLYSCHNACK_GITLAB_TOKEN in .env" >&2
