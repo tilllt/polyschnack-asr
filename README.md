@@ -94,9 +94,13 @@ Backends). Ersetzt das frühere `start.sh`. Ohne Argument = `start`.
   starten on demand über die Admin-GUI.
 - **`stop` / `restart` / `down`** — stoppt alle Container, Neustart, oder
   entfernt Container (Volumes bleiben erhalten).
-- **`status`** — `docker compose ps` für alle Services.
+- **`status`** — GPU-Erkennung, aktive Backend-Auswahl und
+  `docker compose ps` für alle Services.
 - **`logs [SERVICE]`** — folgt den Logs (alle oder ein Service).
-- **`update`** — kompletter Deploy: `git pull` → `pull` → `start`.
+- **`models`** — lädt fehlende GGUF-Modelle der **aktiven** Backends nach
+  `./DATA/models` (idempotent; Auswahl via `POLYSCHNACK_BACKENDS`, s. u.).
+- **`update`** — kompletter Deploy: `git pull` → `pull` → `models` → `start`.
+- **`selfupdate`** — aktualisiert das Skript selbst (public GitHub-Mirror).
 - **`help`** — Befehlshilfe.
 
 Beispiele:
@@ -156,7 +160,7 @@ Env-Variable — kein Code nötig.
 | **ARK-ASR (ggml/C++)** | `--profile crispr-ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
 | **Moonshine-DE (ggml/C++)** | `--profile crispr-moonshine-de` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
 | **Canary (ggml/C++)** | `--profile crispr-canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
-| **Voxtral (voxtral.cpp)** | *(geplant)* | `ps-voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). **Noch nicht gebaut** — Block in `compose.backends.yml` auskommentiert. |
+| **Voxtral (voxtral.cpp)** | *(geplant)* | `ps-voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Registry-Eintrag (`backends.yaml`) vorhanden, Container-Block in `compose.backends.yml` noch auskommentiert (kein Image). |
 
 ### Feature-Matrix der Backends
 
@@ -174,85 +178,36 @@ Env-Variable — kein Code nötig.
 | Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
 | Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~39 MB | ~0,5 GB | ~2,7 GB |
 
-*Voxtral ist **geplant** (Block in `compose.backends.yml` auskommentiert, kein
-Image gebaut) — die Zeile zeigt die Zielwerte. Die Matrix ist auch live in der
-GUI (Admin-Bereich → „Modell-Matrix") und via `GET /api/models/matrix` abrufbar.*
+*Voxtral: Registry-Eintrag (`backends.yaml`) vorhanden, aber kein Container/
+Image gebaut (Block in `compose.backends.yml` auskommentiert) — die Zeile
+zeigt die Zielwerte. Die Matrix ist auch live in der GUI (Admin-Bereich →
+„Modell-Matrix") und via `GET /api/models/matrix` abrufbar.*
 
 ### Backends starten & Modelle laden
 
-**Parakeet (Python/ONNX) — Standard, einfach loslegen**
+Welche Backends aktiv sind und welche Modelle sie brauchen, steuert
+`POLYSCHNACK_BACKENDS` in der `.env` — siehe
+[Backends aktivieren/deaktivieren](#backends-aktivierendeadaktivieren-mit-polyschnack-managesh).
+Das Manage-Skript lädt fehlende Modelle automatisch (`update` bzw. `models`);
+manuelle wget-Befehle (z. B. für Installations ohne Manage-Skript) stehen in
+[docs/backends/models.md](docs/backends/models.md). Die **Backend-URLs** werden
+automatisch abgeleitet — keine Konfiguration nötig (siehe
+[Backend-Erkennung & URLs](#backend-erkennung--urls-automatisch)).
 
-```bash
-docker compose up -d
-```
+Modelle, die der jeweilige Backend in `./DATA/models` erwartet:
 
-**parakeet.cpp — schneller und schlanker**
+| Backend | Modelle | Größe |
+|---------|---------|-------|
+| ps-pk-onnx (Default) | ONNX-Modell, lädt sich selbst von HuggingFace (`./DATA/parakeet-models`) | ~600 MB |
+| crispr-pk-cpp | `parakeet-tdt-0.6b-v3-q8_0.gguf` (gleiche Datei wie diar) | ~640 MB |
+| crispr-qwen3 | `qwen3-asr-0.6b-q8_0.gguf` + `qwen3-forced-aligner-0.6b-f16.gguf` | ~3 GB |
+| crispr-ark | `ark-asr-3b-q8_0.gguf` | ~4 GB |
+| crispr-moonshine-de | `moonshine-base-de-fidoriel-q4_k.gguf` + `tokenizer.bin` ⚠️ CC-BY-NC-SA-4.0 | ~42 MB |
+| crispr-canary | `canary-1b-v2-q4_k.gguf` | ~0,6 GB |
 
-```bash
-CRISPR_PK_CPP_URL=http://crispr-pk-cpp:5093 ASR_BACKEND=crispr-pk-cpp \
-  docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
-
-# Modell einmalig laden:
-docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
-  https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
-```
-
-> **Achtung:** `CRISPR_PK_CPP_URL` ist die **eigene** Env-Variable des crispr-pk-cpp-Adapters —
-> nicht `ASR_URL` verwenden (das ist der ONNX-ps-pk-onnx-Container).
-
-**Qwen3-ASR — beste Spracherkennung + Word-Timestamps**
-
-```bash
-CRISPR_QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 \
-  docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
-
-# Zwei Modelle (~3 GB): ASR (Q8_0) + ForcedAligner (F16):
-docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c '
-  wget -qO /models/qwen3-asr-0.6b-q8_0.gguf \
-    https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf &&
-  wget -qO /models/qwen3-forced-aligner-0.6b-f16.gguf \
-    https://huggingface.co/OpenVoiceOS/qwen3-forced-aligner-0.6b-f16/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf
-'
-```
-
-**ARK-ASR — State-of-the-Art Erkennung**
-
-```bash
-CRISPR_ARK_URL=http://crispr-ark:5095 ASR_BACKEND=crispr-ark \
-  docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d
-
-# GGUF (~4 GB, Q8_0) einmalig laden:
-docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/ark-asr-3b-q8_0.gguf \
-  https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
-```
-
-**Moonshine-DE — kompaktes Deutsches Spezialmodell**
-
-```bash
-ASR_BACKEND=crispr-moonshine-de \
-  docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d
-
-# Modell + Tokenizer (~42 MB):
-docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c '
-  wget -qO /models/moonshine-base-de-fidoriel-q4_k.gguf \
-    https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf &&
-  wget -qO /models/tokenizer.bin \
-    https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/tokenizer.bin
-'
-```
-
-> ⚠️ **Lizenz:** CC-BY-NC-SA-4.0 — nicht für kommerzielle Nutzung.
-
-**Canary — multilingual (EN/DE/FR/ES)**
-
-```bash
-ASR_BACKEND=crispr-canary \
-  docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d
-
-# Modell (~0,6 GB, q4_K):
-docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/canary-1b-v2-q4_k.gguf \
-  https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf
-```
+> **Hinweis:** Der diar-Service und der Forced-Aligner laden ihre Modelle beim
+> ersten Start automatisch von HuggingFace nach (`./DATA/models` muss dazu
+> beschreibbar gemountet sein — die Backends selbst mounten read-only).
 
 ### Diarization (Sprechererkennung) — CrispASR-diar-Service
 
@@ -402,28 +357,43 @@ Konsequenzen:
 - **Direkte Compose-Nutzung ohne Manage-Skript:** Profile manuell via
   `--profile` setzen; `POLYSCHNACK_BACKENDS` wird dann nicht gelesen.
 
-### Adapter-URLs (jedes Backend hat seine eigene!)
+### Backend-Erkennung & URLs (automatisch)
 
-Das Backend wird über die Adapter-Auswahl gesteuert — **jeder Adapter hat
-seine eigene URL-Env** (nie `ASR_URL` für andere Backends verwenden — das ist
-der ONNX-ps-pk-onnx-Container!):
+Backend-Erkennung und URLs sind **vollautomatisch** — keine Konfiguration
+nötig:
 
-| Variable | Default | Beschreibung |
-|----------|---------|-------------|
-| `ASR_BACKEND` | `ps-pk-onnx` | Adapter-Auswahl (`ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`) |
-| `ASR_URL` | `http://ps-pk-onnx:5092` | URL des ONNX-ps-pk-onnx-Containers |
-| `CRISPR_PK_CPP_URL` | `http://crispr-pk-cpp:5093` | URL des crispr-pk-cpp-Containers (CrispASR parakeet) |
-| `CRISPR_QWEN3_URL` | `http://crispr-qwen3:5094` | URL des crispr-qwen3-Containers |
-| `CRISPR_ARK_URL` | `http://crispr-ark:5095` | URL des crispr-ark-Containers (CrispASR) |
-| `CRISPR_MOONSHINE_DE_URL` | `http://crispr-moonshine-de:5096` | URL des crispr-moonshine-de-Containers |
-| `CRISPR_CANARY_URL` | `http://crispr-canary:5097` | URL des crispr-canary-Containers |
-| `CRISP_ALIGN_URL` | `http://crispr-align:5099` | URL des Forced-Aligner-Service (Karaoke-Word-Sync) |
+- **Definitionen:** `webapp/app/backends.yaml` (Registry) — Name, Port,
+  Modell, Fähigkeiten, Adapter. Neues Backend = YAML-Block, keine
+  Code-Änderung.
+- **URL-Ableitung (Option C):** die HTTP-URL jedes lokalen Backends ergibt
+  sich deterministisch aus Service-Name + Port (`http://<name>:<port>`);
+  für Remote-Backends (`type: remote`) aus `adapter_kwargs.base_url`.
+- **Container-Status:** die Admin-GUI erkennt laufende Backends über den
+  restriktiven Docker-Socket-Proxy (`docker-proxy`) — kein direkter
+  Socket-Zugriff aus der Webapp.
+- **Backend-Auswahl pro Job:** die GUI wählt das Backend explizit (Default
+  per Admin-GUI / `POLYSCHNACK_DEFAULT_BACKEND`). `ASR_BACKEND` ist nur der
+  Fallback-Default für direkte API-Aufrufe ohne Backend-Angabe.
+
+Die `*_URL`-Env-Variablen sind **nur Overrides** für Spezialfälle (eigene
+Hosts/Ports) — im Normalfall weglassen:
+
+| Variable | Default (abgeleitet) | Zweck |
+|----------|---------------------|-------|
+| `ASR_BACKEND` | `ps-pk-onnx` | Fallback-Default für direkte API-Aufrufe |
+| `POLYSCHNACK_DEFAULT_BACKEND` | `ps-pk-onnx` | GUI-Default für neue Jobs (per Admin-GUI änderbar) |
+| `ASR_URL` | `http://ps-pk-onnx:5092` | Override: ONNX-ps-pk-onnx |
+| `CRISPR_PK_CPP_URL` | `http://crispr-pk-cpp:5093` | Override: crispr-pk-cpp |
+| `CRISPR_QWEN3_URL` | `http://crispr-qwen3:5094` | Override: crispr-qwen3 |
+| `CRISPR_ARK_URL` | `http://crispr-ark:5095` | Override: crispr-ark |
+| `CRISPR_MOONSHINE_DE_URL` | `http://crispr-moonshine-de:5096` | Override: crispr-moonshine-de |
+| `CRISPR_CANARY_URL` | `http://crispr-canary:5097` | Override: crispr-canary |
+| `CRISP_ALIGN_URL` | `http://crispr-align:5099` | Override: Forced-Aligner |
 | `POLYSCHNACK_ALIGN_WORDS` | `true` | Word-Alignment nach der ASR aktiv/deaktiviert (`false` = aus) |
 
 ```bash
-# WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
-# get_client() still auf ps-pk-onnx zurück und postet gegen den ONNX-Container!
-CRISPR_QWEN3_URL=http://crispr-qwen3:5094 ASR_BACKEND=crispr-qwen3 docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
+# Einfacher Start eines Backends — URL wird automatisch abgeleitet:
+docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
 
 # Kombination mehrerer Backends (Admin-GUI startet sie on demand):
 docker compose -f compose.yml -f compose.backends.yml \
@@ -450,9 +420,11 @@ Adapter spricht OpenAI-kompatibles `POST {base_url}/audio/transcriptions`
 den Beispielen sind **Beispielwerte** — vor Nutzung die Anbieter-Doku
 prüfen.
 
-> **Hinweis:** Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/`
-> (keine Named-Volumes). Die vollständigen Service-Definitionen stehen in
-> `compose.yml` / `compose.backends.yml`.
+> **Hinweis:** GGUF-Modelle liegen gemeinsam in `./DATA/models` (alle
+> Backends + diar + aligner), das ONNX-Modell in `./DATA/parakeet-models`,
+> Audio/Aufnahmen in `./DATA/poc-data` — alles Bind-Mounts, keine
+> Named-Volumes. Service-Definitionen: `compose.yml` / `compose.backends.yml`,
+> Backend-Registry: `webapp/app/backends.yaml`.
 
 ---
 
@@ -468,12 +440,14 @@ graph LR
     proxy -.start/stop.-> asr
     asr --> model["ASR Modell (GGUF / ONNX)"]
     webapp --- db[("SQLite + Audio-Dateien<br/>(./DATA/poc-data)")]
-    asr --- mcache[("Modell-Cache<br/>(./DATA/<name>-models)")]
+    asr --- mcache[("Modell-Cache<br/>(./DATA/models + ./DATA/parakeet-models)")]
 ```
 
 Die Webapp kommuniziert mit den ASR-Backends über die OpenAI-kompatible
-`POST /v1/audio/transcriptions`-Schnittstelle. Der Adapter wird durch die
-Umgebungsvariable `ASR_BACKEND` gesteuert. Die Diarization läuft im eigenen
+`POST /v1/audio/transcriptions`-Schnittstelle. Die Adapter-Zuordnung kommt
+aus der Registry (`backends.yaml`); die GUI wählt das Backend pro Job
+(Default per `POLYSCHNACK_DEFAULT_BACKEND`/Admin-GUI, `ASR_BACKEND` nur als
+API-Fallback). Die Diarization läuft im eigenen
 `diar`-Container (CrispASR-Server, `POST /v1/audio/transcriptions` mit
 `diarize=true&response_format=diarized_json`). Der **Forced Aligner**
 (`align`-Container, `POST /v1/audio/align` mit Audio + Referenztext) verifiziert
@@ -648,8 +622,8 @@ BENCHMARK_DATA_DIR=<host-mount>/benchmark \
 
 | Variable | Werte | Default |
 |----------|-------|---------|
-| `ASR_BACKEND` | `ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` | `ps-pk-onnx` |
-| `ASR_URL` | URL des ONNX-Dienstes | `http://ps-pk-onnx:5092` |
+| `ASR_BACKEND` | `ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` | `ps-pk-onnx` | Fallback-Default für direkte API-Aufrufe; die GUI wählt pro Job |
+| `ASR_URL` | Override: URL des ONNX-Dienstes (sonst automatisch abgeleitet) | `http://ps-pk-onnx:5092` |
 | `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `ps-pk-onnx` |
 
 ### Webapp-Umgebungsvariablen
