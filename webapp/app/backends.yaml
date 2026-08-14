@@ -38,10 +38,10 @@ services:
     requires: {vram_gb: 6, ram_gb: 8, disk_gb: 5}
     # VRAM-Prognose (2026-08-14): sichere Dauer-Obergrenze pro Backend.
     # ps-pk-onnx chunkt in 120-s-Fenstern mit begrenzter Nebenläufigkeit —
-    # der VRAM-Bedarf skaliert NICHT mit der Dateilänge, 6 h sind daher
-    # eine großzügige Queue-Grenze. streaming_advice=true → Live-Modus als
-    # Empfehlung, wenn die Grenze überschritten wird.
-    long_audio: {max_safe_duration_s: 21600, streaming_advice: true}
+    # der VRAM-Bedarf skaliert NICHT mit der Dateilänge, 8 h sind daher
+    # eine großzügige Queue-Grenze (kein OOM-Schutz). streaming_advice=true
+    # → Live-Modus als Empfehlung, wenn die Grenze überschritten wird.
+    long_audio: {max_safe_duration_s: 28800, streaming_advice: true}
     capabilities:
       word_timestamps: true
       streaming: true

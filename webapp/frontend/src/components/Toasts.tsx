@@ -38,10 +38,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const id = _nextId++;
     setToasts((prev) => [...prev, { id, msg, type }]);
 
+    // Fehler-Toasts brauchen Lesezeit (lange Meldungen, z. B. 409 mit
+    // Live-Modus-Hinweis) — 10 s statt 3,1 s; Erfolge kurz.
+    const duration = type === "err" ? 10_000 : 3_100;
     const timer = setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
       timers.current.delete(id);
-    }, 3100);
+    }, duration);
 
     timers.current.set(id, timer);
   }, []);

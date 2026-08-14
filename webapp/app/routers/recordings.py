@@ -213,7 +213,7 @@ def _check_long_audio(backend: str, rec) -> None:
         status_code=409,
         detail=(
             f"Datei ist {minutes} min lang — für Backend '{backend}' ist die "
-            f"sichere Grenze {limit_min} min (GPU-Speicher). {hint}"
+            f"sichere Grenze {limit_min} min (Bearbeitungslimit). {hint}"
         ),
     )
 

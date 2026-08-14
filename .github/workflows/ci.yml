@@ -1,0 +1,53 @@
+name: CI
+
+# Public Mirror-CI: läuft auf GitHub (gespiegelt aus GitLab tilllt/polyschnack-asr).
+# Die Images werden NICHT hier gebaut — sie liegen in der privaten Registry
+# (Harbor); siehe .gitlab-ci.yml für Build + Mirror-Push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install numpy pytest
+      - name: Run approach-a tests
+        run: cd approach-a && POLYSCHNACK_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 python -m pytest tests/ -q --tb=short
+
+  test-webapp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install pytest httpx fastapi "sqlmodel>=0.0.16" "pydantic>=2" python-multipart numpy cryptography authlib itsdangerous pyyaml
+      - name: Run webapp tests
+        run: cd webapp && python -m pytest tests/ -q --tb=short
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: cd webapp/frontend && npm install --no-audit --no-fund
+      - name: Vitest
+        run: cd webapp/frontend && npm test
+      - name: Build
+        run: cd webapp/frontend && npm run build

@@ -289,4 +289,22 @@ compose-validate:
   only:
     - main
 
+# GitHub-Mirror: spiegelt JEDE Änderung an main nach github.com/tilllt/polyschnack-asr
+# (public). Der Push triggert dort die GitHub-Actions-CI (.github/workflows/ci.yml).
+# Token: CI-Variable GH_MIRROR_TOKEN (GitHub-PAT mit repo-Scope).
+mirror-github:
+  stage: build
+  image: alpine/git:latest
+  variables:
+    GIT_DEPTH: 0
+  script: |
+    git remote add github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git" 2>/dev/null \
+      || git remote set-url github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git"
+    git push github HEAD:main
+  only:
+    - main
+  tags:
+    - shared
+  needs: []
+
 
