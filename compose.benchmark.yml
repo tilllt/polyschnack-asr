@@ -18,7 +18,7 @@
 
 services:
   benchmark:
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-benchmark:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-benchmark:latest
     container_name: ps-benchmark
     # Einmal-Lauf: `run --rm` erzeugt und entfernt den Container automatisch.
     restart: "no"

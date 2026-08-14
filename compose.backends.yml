@@ -27,7 +27,7 @@ services:
     profiles: ["crispr-pk-cpp"]
     # Weg 1: eigenes hybrides CrispASR-Image (parakeet-Backend, CUDA-Binary
     # mit CPU-Fallback) statt externem mudler/parakeet.cpp-server.
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-cpp:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-cpp:latest
     environment:
       CPP_ASR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
       # Residenter Post-Prozessor (Server-Flag): Interpunktion + deutsches
@@ -52,7 +52,7 @@ services:
 
   crispr-qwen3:
     profiles: ["crispr-qwen3"]
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-qwen3:4a3fd146
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-qwen3:4a3fd146
     environment:
       QWEN3_ASR_MODEL: /models/qwen3-asr-0.6b-q8_0.gguf
       QWEN3_ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
@@ -78,7 +78,7 @@ services:
 
   crispr-ark:
     profiles: ["crispr-ark"]
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-ark:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-ark:latest
     environment:
       ARK_ASR_MODEL: /models/ark-asr-3b-q8_0.gguf
       # Residenter Post-Prozessor (Server-Flag): Interpunktion + deutsches
@@ -102,7 +102,7 @@ services:
 
   crispr-moonshine-de:
     profiles: ["crispr-moonshine-de"]
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-moonshine-de:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-moonshine-de:latest
     environment:
       MOONSHINE_DE_MODEL: /models/moonshine-base-de-fidoriel-q4_k.gguf
       # Deutsches Spezialmodell (61,5M, 6,9% WER CV22-de, ~39 MB GGUF).
@@ -126,7 +126,7 @@ services:
 
   crispr-canary:
     profiles: ["crispr-canary"]
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-canary:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-canary:latest
     environment:
       CANARY_ASR_MODEL: /models/canary-1b-v2-q4_k.gguf
       # Multilingual (EN/DE/FR/ES). Residenter Post-Prozessor:
@@ -155,7 +155,7 @@ services:
   #
   # voxtral:
   #   profiles: ["voxtral"]
-  #   image: ${REGISTRY:-ghcr.io/tilllt}/voxtral-asr-cpp:latest
+  #   image: ${REGISTRY:-registry.example.com/public}/voxtral-asr-cpp:latest
   #   container_name: ps-voxtral
   #   environment:
   #       VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf

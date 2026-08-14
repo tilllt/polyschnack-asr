@@ -308,7 +308,7 @@ print(r["status"], r.get("text", r.get("error")))
   bigger host or GPU.
 - GPU: run the stack with the GPU overlay
   (`docker compose -f compose.yml -f compose.gpu.yml up -d`, NVIDIA Container
-  Toolkit required). The `asr` image (`ghcr.io/tilllt/polyschnack-asr`)
+  Toolkit required). The `asr` image (`registry.example.com/public/polyschnack-asr`)
   is **hybrid** — `POLYSCHNACK_USE_GPU=auto` selects CUDA when available and
   falls back to CPU-INT8 otherwise. Verify the model fits your VRAM
   (`grikdotnet/...-fp16` or INT8 for ~4 GB cards).

@@ -24,17 +24,17 @@
 # automatisch). Ohne aktivierte Profile starten die Backends trotzdem nicht.
 services:
   ps-pk-onnx:
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr:latest
     runtime: nvidia
     environment:
       POLYSCHNACK_USE_GPU: "true"
 
   crispr-diar:
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-diar:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-diar:latest
     runtime: nvidia
 
   crispr-align:
-    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-aligner:latest
+    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-aligner:latest
     runtime: nvidia
 
   crispr-pk-cpp:
