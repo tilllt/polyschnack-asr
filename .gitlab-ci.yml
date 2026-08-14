@@ -121,6 +121,31 @@ build-diar:
   needs:
     - test-webapp
 
+# Forced-Aligner-Service (Karaoke-Word-Sync): qwen3-asr.cpp-Build (CUDA mit
+# CPU-Fallback) + qwen3-forced-aligner GGUF + stdlib-HTTP-Wrapper. Kompiliert
+# qwen3-asr.cpp — deshalb 60-min-Timeout wie build-qwen3.
+build-aligner:
+  timeout: 60 minutes
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+
+    docker build \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-aligner:latest \
+      -t registry.example.com/public/${CI_PROJECT_NAME}-aligner:${CI_COMMIT_SHORT_SHA} \
+      aligner-service/
+
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-aligner:latest
+    docker push registry.example.com/public/${CI_PROJECT_NAME}-aligner:${CI_COMMIT_SHORT_SHA}
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # pk-cpp (Weg 1): eigenes hybrides CrispASR-Image mit parakeet-Backend
 # statt externem mudler/parakeet.cpp-server. Gleiche GGUF wie diar-Service.
 build-cpp:

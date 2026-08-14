@@ -33,6 +33,10 @@ services:
     image: registry.example.com/public/polyschnack-asr-diar:latest
     runtime: nvidia
 
+  crispr-align:
+    image: registry.example.com/public/polyschnack-asr-aligner:latest
+    runtime: nvidia
+
   crispr-pk-cpp:
     runtime: nvidia
 

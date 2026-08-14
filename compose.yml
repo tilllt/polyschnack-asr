@@ -75,6 +75,29 @@ services:
       # großzügig: Erststart lädt ggf. das Modell (q8_0, ~640 MB)
       start_period: 300s
 
+  crispr-align:
+    image: registry.example.com/public/polyschnack-asr-aligner:latest
+    environment:
+      # Forced-Aligner-Modell (qwen3-forced-aligner-0.6b-f16, ~1,8 GB).
+      # Fehlt die Datei, lädt der Entrypoint sie automatisch von HuggingFace
+      # nach (Volume muss ':rw' sein).
+      ALIGNER_MODEL: /models/qwen3-forced-aligner-0.6b-f16.gguf
+    volumes:
+      - ./DATA/models:/models
+    # Kein expose/ports: nur intern im Compose-Netz erreichbar
+    # (crispr-align:5099). Word-Level-Alignment für Karaoke: die Webapp
+    # schickt je 120-s-ASR-Chunk Audio + Segment-Text (Modell-Limit 400 s).
+    restart: unless-stopped
+    # GPU-Zugriff: NUR über compose.gpu.yml (runtime: nvidia) — siehe dort.
+    # Ohne Overlay läuft der Container CPU-only (ggml CPU-Backend).
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5099/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # großzügig: Erststart lädt ggf. das Modell (~1,8 GB)
+      start_period: 300s
+
   ps-webapp:
     image: registry.example.com/public/polyschnack-asr-webapp:latest
     mem_limit: 2g
