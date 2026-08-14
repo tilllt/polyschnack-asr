@@ -92,13 +92,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         return;
       }
 
+      // Peaks + Dauer vom Server → Waveform rendert sofort (Mini-Preview),
+      // ohne die komplette Audiodatei im Browser zu dekodieren. WaveSurfer
+      // erwartet peaks als Array-of-Channels: [peaks] = Mono. Nur wenn BEIDE
+      // da sind (ohne durationHint kann WaveSurfer die Timeline nicht
+      // skalieren — dann lieber selbst dekodieren).
+      const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
       try {
-        // Peaks + Dauer vom Server → Waveform rendert sofort (Mini-Preview),
-        // ohne die komplette Audiodatei im Browser zu dekodieren. WaveSurfer
-        // erwartet peaks als Array-of-Channels: [peaks] = Mono. Nur wenn BEIDE
-        // da sind (ohne durationHint kann WaveSurfer die Timeline nicht
-        // skalieren — dann lieber selbst dekodieren).
-        const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
         ws.load(
           audioUrl,
           hasPeaks ? [peaks as number[]] : undefined,
@@ -111,14 +111,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         return;
       }
 
-      // Timeout safety net — 10s, cleared by ready or error
+      // Timeout safety net — mit Server-Peaks rendert WaveSurfer sofort (10s);
+      // OHNE Peaks muss der Browser die ganze Datei dekodieren (WebAudio) —
+      // bei langen Aufnahmen dauert das deutlich länger, der alte 10s-Timeout
+      // warf dann faelschlich "Waveform data corrupted". 60s fuer den
+      // Browser-Decode-Pfad.
       timerRef.current = setTimeout(() => {
         if (!cancelled) {
           setError(true);
           setReady(true);
           onLoadErrorRef.current?.();
         }
-      }, 10000);
+      }, hasPeaks ? 10000 : 60000);
 
       // WaveSurfer fires "error" when audio fails to load/decode
       ws.on("error", () => {

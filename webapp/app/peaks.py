@@ -25,7 +25,9 @@ log = logging.getLogger(__name__)
 PEAK_COUNT = 2000
 TARGET_SR = 16000  # alle Peaks werden auf 16 kHz mono dekodiert
 _CHUNK_BYTES = 1 << 20  # 1 MiB s16le pro Lese-Häppchen (~500k Samples)
-_DECODE_TIMEOUT_S = 600  # 150-min-Audio dekodieren dauert > 60 s
+_DECODE_TIMEOUT_S = 900  # 150-min-Audio dekodieren dauert > 60 s; seit 2026-08-14
+# ist der Worker-Decode entfernt — nur noch der Hintergrund-Thread decodiert,
+# deshalb grosszuegiger Puffer statt Race um die CPU.
 
 
 def probe_sample_count(audio_bytes: bytes) -> Optional[int]:

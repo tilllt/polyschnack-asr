@@ -747,13 +747,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 rec_id, segments, audio_bytes, audio_path.name, language
             )
 
-        # Compute waveform peaks for fast WaveSurfer render
-        try:
-            audio_bytes_for_peaks = audio_path.read_bytes()
-            peaks = _compute_peaks(audio_bytes_for_peaks)
-        except Exception:
-            log.exception("peaks: compute failed for rec_id=%s", rec_id)
-            peaks = None
+        # Waveform-Peaks: bewusst NICHT hier — der synchrone Voll-Decode
+        # (bis zu 600 s bei langen Dateien) haengte den Job nach der
+        # Align-Phase minutenlang bei 99%. Die Peaks liefert der
+        # _schedule_peaks-Thread (non-blocking, nach Upload/Enqueue) bzw. der
+        # Nachzug bei GET /recordings. update_result mit waveform_peaks=None
+        # ueberschreibt vorhandene Peaks nicht (crud-Guard).
+        peaks = None
 
         # Optional post-processing (A12/A13) — nur wenn per Toggle aktiviert,
         # niemals automatisch. Stubs: Implementierung in Phase 1–2.
