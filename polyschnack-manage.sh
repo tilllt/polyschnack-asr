@@ -25,6 +25,12 @@
 #               eines Backends models (oder update) ausfuehren — die
 #               Backends mounten ./DATA/models als /models und starten
 #               ohne ihre Modelle nicht.
+#   benchmark   Startet den Benchmark-Einmal-Container (misst die in
+#               BENCH_BACKENDS konfigurierten Backends gegen das versionierte
+#               Manifest, schreibt results/latest.json + pricing.json ins
+#               Volume; die Webapp zeigt sie auf /benchmark). Konfiguration
+#               per .env: BENCH_BACKENDS, BENCH_BACKEND_URLS, OPENAI_API_KEY.
+#               Container endet nach dem Lauf — ideal fuer Host-Cron.
 #   update      git pull + pull + models + start  (kompletter Deploy-Workflow).
 #   selfupdate  Aktualisiert DIESES Skript aus dem Repo (GitLab-API, Token
 #               aus POLYSCHNACK_GITLAB_TOKEN oder .env daneben).
@@ -209,6 +215,19 @@ case "$CMD" in
         ;;
     models)
         cmd_models
+        ;;
+    benchmark)
+        echo "-> Benchmark-Einmal-Lauf (Container endet nach dem Lauf) ..."
+        # REGISTRY kommt aus .env (oben exportiert) — das Benchmark-Image
+        # liegt nur in der Dev-Registry, nicht auf GHCR.
+        # BENCH_BACKEND_URLS-Default: JSON darf kein '}' in Compose-Defaults
+        # enthalten — der Default lebt deshalb hier (in .env ueberschreibbar,
+        # z. B. fuer externe OpenAI-Endpunkte).
+        if [ -z "${BENCH_BACKEND_URLS:-}" ]; then
+            BENCH_BACKEND_URLS='{"ps-pk-onnx":"http://ps-pk-onnx:5092/v1","crispr-pk-cpp":"http://crispr-pk-cpp:5093/v1","crispr-qwen3":"http://crispr-qwen3:5094/v1","crispr-ark":"http://crispr-ark:5095/v1","crispr-moonshine-de":"http://crispr-moonshine-de:5096/v1","crispr-canary":"http://crispr-canary:5097/v1"}'
+            export BENCH_BACKEND_URLS
+        fi
+        docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
         ;;
     logs)
         shift

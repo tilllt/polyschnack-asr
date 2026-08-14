@@ -545,12 +545,32 @@ Der Benchmark läuft **nicht** als dauerhafter Service, sondern als
 schreibt die Ergebnisse ins gemeinsame Volume, die Webapp zeigt sie an.
 
 ```bash
-# Einmal manuell:
+# Einmal manuell (ohne Manage-Skript):
 docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
 
+# Empfohlen (REGISTRY/BENCH_BACKEND_URLS-Default kommen aus dem Skript):
+./polyschnack-manage.sh benchmark
+
 # Periodisch (Host-Crontab, z. B. täglich 04:00):
-0 4 * * * cd /pfad/zum/polyschnack-checkout && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+0 4 * * * cd /pfad/zum/polyschnack-checkout && ./polyschnack-manage.sh benchmark >> /var/log/polyschnack-benchmark.log 2>&1
 ```
+
+**Konfiguration** (in der `.env` neben dem Skript, compose liest sie
+automatisch):
+
+```bash
+# .env
+BENCH_BACKENDS="ps-pk-onnx,crispr-qwen3"            # welche Backends messen
+# BENCH_BACKEND_URLS='{"ps-pk-onnx":"http://ps-pk-onnx:5092/v1"}'   # URLs (JSON-Map, kompakt)
+# OPENAI_API_KEY=sk-...                              # nur für externe Endpunkte
+```
+
+**Externe OpenAI-Endpunkte:** `BENCH_BACKEND_URLS` akzeptiert beliebige
+OpenAI-kompatible URLs — z. B. `BENCH_BACKEND_URLS='{"whisper-remote":"https://api.openai.com/v1"}'`
+(+ `OPENAI_API_KEY` bzw. `LITELLM_API_KEY` in der `.env`). Der Container
+sendet dann `Authorization: Bearer …` — so läuft der Benchmark automatisch
+auch gegen Cloud-Whisper, Mistral Voxtral, Groq o. Ä. Der Key-Name in der
+JSON-Map muss mit einem `BENCH_BACKENDS`-Eintrag übereinstimmen.
 
 **Was der Container tut:**
 - Liest das aktuelle versionierte Manifest (`versions/vN/manifest.json`,

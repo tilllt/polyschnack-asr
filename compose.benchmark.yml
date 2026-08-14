@@ -27,14 +27,19 @@ services:
     environment:
       BENCHMARK_DATA_DIR: /data/benchmark
       # Backends + URLs im Compose-Netzwerk (Container-Port, nicht Host-Port!)
+      # Beide Variablen per .env ueberschreibbar (BENCH_BACKEND_URLS als
+      # JSON-Map) — so laeuft der Benchmark auch gegen externe
+      # OpenAI-kompatible Endpunkte (z. B. api.openai.com/v1).
       BENCH_BACKENDS: "${BENCH_BACKENDS:-ps-pk-onnx,crispr-qwen3,crispr-ark,crispr-moonshine-de,crispr-canary,crispr-pk-cpp}"
-      BENCH_BACKEND_URLS: >-
-        {"ps-pk-onnx":"http://ps-pk-onnx:5092/v1",
-         "crispr-pk-cpp":"http://crispr-pk-cpp:5093/v1",
-         "crispr-qwen3":"http://crispr-qwen3:5094/v1",
-         "crispr-ark":"http://crispr-ark:5095/v1",
-         "crispr-moonshine-de":"http://crispr-moonshine-de:5096/v1",
-         "crispr-canary":"http://crispr-canary:5097/v1"}
+      # JSON-Map Name->URL. KEIN :-Default hier moeglich (JSON enthaelt '}',
+      # das Compose-Interpolation nicht in Defaults unterstuetzt) — der
+      # Default steht in polyschnack-manage.sh (benchmark) bzw. in der .env.
+      # Beispiel extern: BENCH_BACKEND_URLS='{"whisper-remote":"https://api.openai.com/v1"}'
+      BENCH_BACKEND_URLS: '${BENCH_BACKEND_URLS}'
+      # API-Keys (optional): fuer externe OpenAI-kompatible Endpunkte sendet
+      # run.py dann Authorization: Bearer <key> mit (OpenAI/Mistral/Groq/…).
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      LITELLM_API_KEY: "${LITELLM_API_KEY:-}"
     volumes:
       # Least-Privilege: Nur das Benchmark-Verzeichnis ist beschreibbar
       # (latest.json + pricing.json), der Rest des Daten-Volumes bleibt read-only.
