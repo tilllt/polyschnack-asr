@@ -10,12 +10,21 @@ Samples als Python-Tuple (``struct.unpack``) — bei 150-min-Audio sind das
 kaputte Waveform bei langen Dateien. Jetzt wird der ffmpeg-Decode in
 1-MiB-Häppchen gestreamt und pro Bin (2000 Bins) nur das Maximum aggregiert:
 Speicher O(Chunk), Zeit O(n) mit numpy.
+
+OOM-Fix (2026-08-14, 357-MB-/372-min-File): ``compute_peaks_path`` lässt
+ffmpeg die Datei DIREKT von der Platte lesen (``-i <pfad>`` statt
+``-i pipe:0`` + ``stdin.write``). Die Bytes-Variante schrieb das komplette
+Audio erst in den RAM und dann in die stdin-Pipe — bei 357 MB blockierten
+sich Python (stdin.write) und ffmpeg (stdout) gegenseitig (Deadlock) und
+der peaks-Thread hielt parallel zum Transcribe-Worker ~1 GB RAM im 2-GB-
+Container → OOM-Kill, „Broken pipe"-Flut, Job blieb auf processing.
 """
 from __future__ import annotations
 
 import logging
 import subprocess as sp
 import time
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 import numpy as np
@@ -55,6 +64,27 @@ def probe_sample_count(audio_bytes: bytes) -> Optional[int]:
     # Schätzung: s16-WAV wäre len/2 Samples; komprimiert ist die echte Anzahl
     # kleiner — die Bins werden dann etwas breiter, unkritisch fürs Rendern.
     return max(1, len(audio_bytes) // 2)
+
+
+def probe_sample_count_path(path: Path) -> Optional[int]:
+    """Sample-Anzahl via ffprobe direkt auf eine Datei (kein RAM-Objekt)."""
+    try:
+        proc = sp.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            duration_s = float(proc.stdout.strip())
+            if duration_s > 0:
+                return int(duration_s * TARGET_SR)
+    except Exception:
+        pass
+    return None
 
 
 def peaks_from_s16le(chunks: Iterable[bytes], total_samples: int) -> List[float]:
@@ -138,6 +168,63 @@ def compute_peaks(audio_bytes: bytes) -> List[float]:
         return []
     except Exception:
         log.exception("peaks: compute threw")
+        return []
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def compute_peaks_path(path: Path) -> List[float]:
+    """Wie :func:`compute_peaks`, aber ffmpeg liest die Datei direkt von der
+    Platte (``-i <pfad>``) statt via ``pipe:0`` + ``stdin.write``.
+
+    Für sehr große Dateien (357 MB / 372 min) — die Bytes-Variante lädt das
+    komplette Audio in den RAM und blockiert beim Schreiben in die stdin-
+    Pipe (Deadlock mit ffmpeg-stdout); das sprengte zusammen mit dem
+    Transcribe-Worker das Container-RAM-Limit (OOM-Kill, „Broken pipe"-
+    Flut, Job blieb auf processing). Der Pfad-Weg hält den Speicher konstant:
+    ffmpeg streamt von Platte, Python liest stdout in 1-MiB-Häppchen.
+    """
+    total_samples = probe_sample_count_path(path)
+    if not total_samples:
+        return []
+
+    deadline = time.monotonic() + _DECODE_TIMEOUT_S
+    try:
+        proc = sp.Popen(
+            [
+                "ffmpeg", "-nostdin", "-loglevel", "error",
+                "-i", str(path),
+                "-ac", "1", "-ar", str(TARGET_SR),
+                "-f", "s16le",
+                "pipe:1",
+            ],
+            stdout=sp.PIPE,
+        )
+    except Exception:
+        log.exception("peaks: ffmpeg start failed (path)")
+        return []
+
+    def _chunks():
+        assert proc.stdout is not None
+        while True:
+            if time.monotonic() > deadline:
+                log.warning("peaks: decode timed out after %ds", _DECODE_TIMEOUT_S)
+                return
+            raw = proc.stdout.read(_CHUNK_BYTES)
+            if not raw:
+                return
+            yield raw
+
+    try:
+        peaks = peaks_from_s16le(_chunks(), total_samples)
+        proc.wait(timeout=30)
+        if proc.returncode not in (0, None):
+            log.warning("peaks: ffmpeg exit=%d — Peaks evtl. unvollständig",
+                        proc.returncode)
+        return peaks
+    except Exception:
+        log.exception("peaks: compute (path) threw")
         return []
     finally:
         if proc.poll() is None:

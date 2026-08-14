@@ -107,7 +107,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          # 4g statt 2g: 357-MB-/372-min-Files halten beim Transkribieren
+          # Original + 16k-WAV (~690 MB) + HTTP-Puffer im RAM — mit 2g
+          # OOM-Kill mitten im Job (still, Status blieb auf processing).
+          memory: 4g
     environment:
       PS_PK_ONNX_URL: "${PS_PK_ONNX_URL:-http://ps-pk-onnx:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-ps-pk-onnx}"

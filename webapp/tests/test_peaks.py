@@ -68,6 +68,28 @@ def test_compute_peaks_ohne_ffmpeg_graceful(monkeypatch):
     assert peaks_mod.compute_peaks(b"whatever") == []
 
 
+def test_compute_peaks_path_ohne_ffmpeg_graceful(monkeypatch):
+    """Pfad-Variante: kein ffmpeg → [] statt Crash (gleicher Fallback)."""
+    monkeypatch.setattr(peaks_mod, "probe_sample_count_path", lambda p: 16000)
+
+    def _no_ffmpeg(*a, **k):
+        raise FileNotFoundError("ffmpeg")
+
+    monkeypatch.setattr(peaks_mod.sp, "Popen", _no_ffmpeg)
+    assert peaks_mod.compute_peaks_path(__import__("pathlib").Path("/tmp/x.mp3")) == []
+
+
+def test_compute_peaks_path_ohne_probe_ergibt_leer(monkeypatch):
+    """Kein ffprobe → keine Samples → [] ohne ffmpeg-Start überhaupt."""
+    monkeypatch.setattr(peaks_mod, "probe_sample_count_path", lambda p: None)
+
+    def _boom(*a, **k):
+        raise AssertionError("Popen darf nicht aufgerufen werden")
+
+    monkeypatch.setattr(peaks_mod.sp, "Popen", _boom)
+    assert peaks_mod.compute_peaks_path(__import__("pathlib").Path("/tmp/x.mp3")) == []
+
+
 def test_probe_sample_count_fallback_ohne_ffprobe(monkeypatch):
     monkeypatch.setattr(peaks_mod.sp, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
     n = peaks_mod.probe_sample_count(b"x" * 32000)

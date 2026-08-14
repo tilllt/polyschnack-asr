@@ -291,13 +291,16 @@ def _compute_peaks_background(rec_id: int) -> None:
 
         from ..crud import get_recording as _gr
         from ..db import engine as _engine
-        from ..service import _compute_peaks
 
         with _Session(_engine) as s:
             rec = _gr(s, rec_id)
             if rec is None or getattr(rec, "waveform_peaks", None):
                 return
-            peaks = _compute_peaks(Path(rec.stored_path).read_bytes())
+            # Pfad-basiert (statt read_bytes): 357-MB-Files würden sonst das
+            # RAM-Limit sprengen (OOM-Kill, s. peaks.compute_peaks_path).
+            from ..peaks import compute_peaks_path
+
+            peaks = compute_peaks_path(Path(rec.stored_path))
             if peaks:
                 rec.waveform_peaks = peaks
                 s.add(rec)
