@@ -5,6 +5,8 @@ import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, merg
 import { fmtBytes } from "../format";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
+import { ImportToggles, IMPORT_DEFAULTS, type ImportFeatureValues } from "./ImportToggles";
+import { diarSensToMinDurationOff } from "./FeatureToggles";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 
@@ -23,13 +25,16 @@ export function UploadZone({ user }: Props) {
   const { t } = useT();
   const qc = useQueryClient();
 
-  // — Task 9: keine globalen Toggles mehr — Upload nutzt Defaults,
-  //   die Feature-Auswahl dockt an der Transcribe-Zeile (RecordingCard) an.
-  const vadOn = false;
-  const diarizeOn = false;
-  const livePreview = false;
-  const noiseReduce = true;
-  const enhanceLevel = "off";
+  // — Import-Feature-Auswahl (2026-08-14): Seit Task 9 leben die Toggles an
+  //   der Transcribe-Zeile — aber beim Upload/YouTube-Import gibt es noch
+  //   keine Aufnahme. Diese Werte steuern Upload UND URL-Import; sie werden
+  //   als enable_*-Flags an der angelegten Recording gespeichert.
+  const [importFeat, setImportFeat] = useState<ImportFeatureValues>(IMPORT_DEFAULTS);
+  const vadOn = importFeat.vad;
+  const diarizeOn = importFeat.diarize;
+  const livePreview = importFeat.streaming;
+  const noiseReduce = importFeat.noise;
+  const enhanceLevel = importFeat.enhance;
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
   // merged-Modus: der Upload-Loop pausiert bei einem Duplikat und wartet auf
   // die Entscheidung im Dialog („Upload again" → uid, „Skip" → null).
@@ -63,7 +68,10 @@ export function UploadZone({ user }: Props) {
       try {
         const r = await uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, false, (pct) => {
           setUploadProgress(Math.round(((uploadedBytes + (f.size * pct) / 100) / totalSize) * 100));
-        });
+        },
+          importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
+          diarSensToMinDurationOff(importFeat.diarSens),
+        );
         if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
           const existingId = String(r.existing_id ?? "");
           // IMMER auf die Dialog-Entscheidung warten (Upload again → uid,
@@ -133,6 +141,8 @@ export function UploadZone({ user }: Props) {
             vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel,
             true,
             (pct) => setUploadProgress(pct),
+            importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
+            diarSensToMinDurationOff(importFeat.diarSens),
           );
           const uid = "uid" in up ? up.uid : null;
           dupWaitRef.current?.(uid);
@@ -262,6 +272,7 @@ export function UploadZone({ user }: Props) {
               <div className="text-[12px] font-semibold text-txt">
                 {t("files_selected")} ({pendingFiles.length})
               </div>
+              <ImportToggles values={importFeat} onChange={(p) => setImportFeat((f) => ({ ...f, ...p }))} />
               {pendingFiles.map((f, i) => (
                 <div key={`${f.name}-${i}`} className="flex items-center gap-2 text-[12px]">
                   <span className="flex-1 truncate text-muted">
@@ -351,8 +362,8 @@ export function UploadZone({ user }: Props) {
           toast={toast}
           qc={qc}
           t={t}
-          vadOn={vadOn} diarizeOn={diarizeOn}
-          livePreview={livePreview} noiseReduce={noiseReduce} enhanceLevel={enhanceLevel}
+          importFeat={importFeat}
+          onFeatChange={(p) => setImportFeat((f) => ({ ...f, ...p }))}
         />
       )}
 
@@ -743,7 +754,13 @@ function writeStr(view: DataView, offset: number, str: string) {
 
 // ── URL tab ──
 
-function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel }: any) {
+function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
+  toast: ReturnType<typeof useToast>["toast"];
+  qc: ReturnType<typeof useQueryClient>;
+  t: ReturnType<typeof useT>["t"];
+  importFeat: ImportFeatureValues;
+  onFeatChange: (p: Partial<ImportFeatureValues>) => void;
+}) {
   const [url, setUrl] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -751,7 +768,13 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enha
     if (!url.trim() || isDownloading) return;
     setIsDownloading(true);
     try {
-      const result = await importFromUrl(url.trim(), vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel);
+      const result = await importFromUrl(
+        url.trim(),
+        importFeat.vad, importFeat.diarize, importFeat.streaming,
+        importFeat.noise, importFeat.enhance,
+        importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
+        diarSensToMinDurationOff(importFeat.diarSens),
+      );
       toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
       await qc.invalidateQueries({ queryKey: ["stats"] });
@@ -766,6 +789,7 @@ function UrlTab({ toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enha
   return (
     <div className="flex flex-col items-center gap-3 py-6">
       <div className="text-[12px] text-muted">{t("url_placeholder")}</div>
+      <ImportToggles values={importFeat} onChange={onFeatChange} />
       <div className="flex gap-2 w-full max-w-[500px]">
         <input
           type="url"

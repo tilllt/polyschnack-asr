@@ -313,6 +313,9 @@ export async function uploadRecording(
   enableEnhance = "off",
   force = false,
   onProgress?: (pct: number) => void,
+  diarizeNumSpeakers?: number,
+  diarizeMinDurationOff?: number,
+  diarizeMethod?: string,
 ): Promise<Recording | { duplicate: true; existing_id: string; recording: Recording }> {
   const fd = new FormData();
   fd.append("file", file);
@@ -322,6 +325,11 @@ export async function uploadRecording(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  // Diarization-Tuning (Import-Toggles, 2026-08-14): Backend-Endpoint
+  // akzeptiert die Felder, das Frontend schickte sie vorher nie.
+  if (diarizeNumSpeakers != null) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
+  if (diarizeMinDurationOff != null) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
+  if (diarizeMethod) fd.append("diarize_method", diarizeMethod);
 
   const url = force ? `/api/recordings?force=true` : "/api/recordings";
   if (!onProgress) {
@@ -378,6 +386,9 @@ export async function importFromUrl(
   enableStreaming = false,
   enableNoiseReduce = true,
   enableEnhance = "off",
+  diarizeNumSpeakers?: number,
+  diarizeMinDurationOff?: number,
+  diarizeMethod?: string,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
@@ -386,6 +397,9 @@ export async function importFromUrl(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  if (diarizeNumSpeakers != null) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
+  if (diarizeMinDurationOff != null) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
+  if (diarizeMethod) fd.append("diarize_method", diarizeMethod);
   // Kein endloses „Lädt herunter…" ohne Rückmeldung: Server-seitig läuft
   // yt-dlp max. 10 min, aber der User soll nach 5 min einen klaren
   // Timeout-Fehler sehen statt eines hängenden Spinners.
