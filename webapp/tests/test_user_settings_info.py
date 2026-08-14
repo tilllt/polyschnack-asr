@@ -48,6 +48,8 @@ def test_me_liefert_email_gruppen_und_username(client, monkeypatch):
     from app.routers.auth import me
 
     monkeypatch.setattr(settings, "OIDC_ENABLED", True)
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMINS", "oidc-1")  # frisch aus Env
+    monkeypatch.setattr(settings, "POLYSCHNACK_ADMIN_GROUPS", "")
     _add_user(engine, uid=1, sub="oidc-1", email="max@example.org",
               username="max")
 
