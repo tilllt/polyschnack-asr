@@ -95,7 +95,12 @@ function AppContent() {
       >
         {/* Row 1: Brand + Lang/Login */}
         <div className="flex items-center justify-between gap-2 sm:gap-4 mb-2 sm:mb-0">
-          <div className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0">
+          <a
+            href="/"
+            title={t("home")}
+            aria-label={t("home")}
+            className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline"
+          >
             <img
               src="/logo.svg"
               alt="PolySchnack"
@@ -104,6 +109,7 @@ function AppContent() {
             <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
               PolySchnack
             </h1>
+          </a>
             <a
               href="/benchmark"
               className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
@@ -114,7 +120,6 @@ function AppContent() {
             >
               Benchmark
             </a>
-          </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             {user && user.oidc_enabled && !user.authenticated && (
