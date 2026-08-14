@@ -6,11 +6,11 @@
 
 **Architecture:** FastAPI backend with `authlib` for OIDC flow + JWT session cookie. SQLModel `User` table linked to `Recording` via `user_id` foreign key. Frontend shows login button in header when OIDC is enabled; auto-redirects to IdP; shows user info + logout after auth. All recording queries are scoped to `current_user.id`. The ASR service (`approach-a`) is **not** touched — auth lives entirely in the webapp layer.
 
-**Tech Stack:** Python 3.12+, `authlib>=1.3` + `httpx` for OIDC, `itsdangerous` for session cookies (stdlib-friendly), React/TypeScript frontend. OIDC provider: `auth.example.com` (existing, used by Hermeline). SQLite — no need for Postgres for single-node deployment.
+**Tech Stack:** Python 3.12+, `authlib>=1.3` + `httpx` for OIDC, `itsdangerous` for session cookies (stdlib-friendly), React/TypeScript frontend. OIDC provider: `auth.example.org` (existing IdP setup). SQLite — no need for Postgres for single-node deployment.
 
 **Current state:** Single `Recording` table, no user concept. All queries return all rows. Frontend has no auth. Compose.yml exposes webapp on port 8088 directly.
 
-**OIDC provider context:** `auth.example.com` is already configured for Hermeline. Same flow: `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, client credentials via env vars.
+**OIDC provider context:** `auth.example.org` is already configured. Same flow: `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, client credentials via env vars.
 
 ---
 ## Task 1: Add auth dependencies + config
@@ -540,10 +540,10 @@ git commit -m "feat: add login button + user info in header"
       # Optional OIDC — uncomment to enable per-user workspaces
       # OIDC_CLIENT_ID: ""
       # OIDC_CLIENT_SECRET: ""
-      # OIDC_ISSUER: "https://auth.example.com"
+      # OIDC_ISSUER: "https://auth.example.org"
       # OIDC_SCOPE: "openid profile email"
       # SESSION_SECRET: "generate-a-random-secret-here"
-      # BASE_URL: "https://polyschnack.example.com"
+      # BASE_URL: "https://polyschnack.example.org"
 ```
 
 **Step 2: Commit**
@@ -557,7 +557,7 @@ git commit -m "docs: add OIDC env vars to compose.yml"
 ## Verification
 
 1. **Without OIDC:** App starts as before — no login, all recordings shared
-2. **With OIDC:** Set env vars → restart → login button appears → redirects to auth.example.com → callback → user sees empty workspace → upload → logout → different user sees different recordings
+2. **With OIDC:** Set env vars → restart → login button appears → redirects to the IdP → callback → user sees empty workspace → upload → logout → different user sees different recordings
 3. **Legacy data:** Recordings without `user_id` are invisible to all authenticated users. Optional migration task (Task 10) to assign them.
 4. **Stats:** Scoped per user — "5 Aufnahmen" shows only current user's count
 

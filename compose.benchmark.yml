@@ -4,7 +4,7 @@
 #   docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
 #
 # Periodisch per Host-Cron (z. B. täglich 04:00):
-#   0 4 * * * cd /srv/app/pk-asr && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
+#   0 4 * * * cd /pfad/zum/polyschnack-checkout && docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark >> /var/log/polyschnack-benchmark.log 2>&1
 #
 # Der Container:
 #   - liest das NEUE versionierte Manifest aus dem gemeinsamen Volume
