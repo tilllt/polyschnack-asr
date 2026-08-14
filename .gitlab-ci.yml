@@ -233,6 +233,9 @@ compose-validate:
 # GitHub-Mirror: spiegelt main nach github.com/tilllt/polyschnack-asr (public).
 # Der Push triggert dort die GitHub-Actions-CI (.github/workflows/ci.yml).
 # Token: CI-Variable GH_MIRROR_TOKEN (GitHub-PAT mit repo-Scope).
+# --force: nach dem History-Rewrite (2026-08-14, private Infos aus Messages/
+# Blobs entfernt) ersetzt die bereinigte History den alten GitHub-Stand;
+# bei normalen Pushes ist force identisch zu fast-forward (harmlos).
 # Image: alpine + git per apk (alpine/git hat ENTRYPOINT ["git"], was den
 # Runner-Script-Start als "git sh -c …" brechen wuerde).
 mirror-github:
@@ -245,7 +248,7 @@ mirror-github:
   script: |
     git remote add github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git" 2>/dev/null \
       || git remote set-url github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git"
-    git push github HEAD:main
+    git push --force github HEAD:main
   only:
     - main
   tags:
