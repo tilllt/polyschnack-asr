@@ -15,10 +15,16 @@ Backends** (Auswahl: `POLYSCHNACK_BACKENDS` in `.env`, siehe README
 „Backends aktivieren/deaktivieren"). Vorhandene Dateien werden übersprungen
 (idempotent). `./polyschnack-manage.sh update` ruft das automatisch mit auf.
 
+**Single source of truth:** Dateiname + Download-URL pro Backend stehen in
+`webapp/app/backends.yaml` (`model_files:`-Maps) — nicht im Skript. Eigenes
+Modell/URL ändern = dort editieren, dann `models`. `selfupdate` zieht die
+Datei automatisch mit. Abweichungen zwischen `compose.backends.yml`
+(Modell-Pfade der Container) und dem Katalog meldet `models` als Warnung.
+
 > **Wichtig:** Für ein neu aktiviertes Backend einmal `models` (oder
 > `update`) ausführen — sonst fehlen die GGUFs beim Start.
 
-Manuell (ohne Manage-Skript) je Backend:
+Manuell (ohne Manage-Skript) je Backend — URLs identisch zu `backends.yaml`:
 
 ## parakeet.cpp (~640 MB)
 

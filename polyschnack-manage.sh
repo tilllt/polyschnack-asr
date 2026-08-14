@@ -19,12 +19,14 @@
 #   status      Zeigt den Zustand aller Services (docker compose ps).
 #   logs [SVC]  Folgt den Logs (alle Services oder nur SVC).
 #   models      Laedt fehlende GGUF-Modelle der AKTIVEN Backends nach
-#               ./DATA/models (idempotent). Aktive Backends steuert
-#               POLYSCHNACK_BACKENDS in .env (Default: alle; gueltig:
-#               pk-cpp qwen3 ark moonshine-de canary). Nach dem Aktivieren
-#               eines Backends models (oder update) ausfuehren — die
-#               Backends mounten ./DATA/models als /models und starten
-#               ohne ihre Modelle nicht.
+#               ./DATA/models (idempotent). Modell-Downloads kommen aus
+#               backends.yaml (model_files) — nicht hartkodiert. Aktive
+#               Backends steuert POLYSCHNACK_BACKENDS in .env (Default:
+#               alle; gueltig: Katalog-Namen aus backends.yaml, z. B.
+#               crispr-qwen3; alte Kurznamen pk-cpp/qwen3/... funktionieren
+#               weiter). Nach dem Aktivieren eines Backends models (oder
+#               update) ausfuehren — die Backends mounten ./DATA/models
+#               als /models und starten ohne ihre Modelle nicht.
 #   benchmark   Startet den Benchmark-Einmal-Container (misst die in
 #               BENCH_BACKENDS konfigurierten Backends gegen das versionierte
 #               Manifest, schreibt results/latest.json + pricing.json ins
@@ -55,29 +57,67 @@ fi
 COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
 
 # --- Optionale Backends: welche sind aktiv? ---------------------------------
-# Default: alle. Steuerbar per POLYSCHNACK_BACKENDS in .env (Space-getrennt):
-#   POLYSCHNACK_BACKENDS="pk-cpp qwen3"
-# Gueltige Namen: pk-cpp qwen3 ark moonshine-de canary.
+# Katalog = backends.yaml (webapp/app/backends.yaml, single source of truth):
+# dort stehen Name, compose_profile, Modell-Downloads (model_files), Lizenz.
+# Auswahl per POLYSCHNACK_BACKENDS in .env (Space-getrennt, Katalog-Namen):
+#   POLYSCHNACK_BACKENDS="crispr-qwen3 crispr-ark"
+# Alte Kurznamen (pk-cpp qwen3 ark moonshine-de canary) funktionieren weiter
+# (werden auf crispr-<name> normalisiert).
 # Nur aktive Backends werden provisioniert (Profile) und ihre Modelle gezogen
 # (./polyschnack-manage.sh models). Neu aktivierte Backends brauchen danach
 # ein `models` (oder `update`) — sonst fehlen die GGUFs beim Start.
-BACKENDS_ALL="pk-cpp qwen3 ark moonshine-de canary"
+BACKENDS_YAML=""
+for _cand in webapp/app/backends.yaml; do
+    if [ -f "$_cand" ]; then BACKENDS_YAML="$_cand"; break; fi
+done
+
+_normalize_backend() {
+    case "$1" in
+        pk-cpp|qwen3|ark|moonshine-de|canary) echo "crispr-$1" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+_profile_of() {
+    # compose_profile aus dem Katalog; ohne Katalog/Eintrag -> Name selbst.
+    if [ -n "$BACKENDS_YAML" ]; then
+        local p
+        p="$(awk -v n="$1" '
+            /^  - name:/ { b=$3 }
+            /^    compose_profile:/ { if (b==n) { sub(/^    compose_profile: /, ""); print; exit } }
+        ' "$BACKENDS_YAML")"
+        [ -n "$p" ] && echo "$p" && return
+    fi
+    echo "$1"
+}
+
+BACKENDS_ALL="crispr-pk-cpp crispr-qwen3 crispr-ark crispr-moonshine-de crispr-canary"
 if [ -z "${POLYSCHNACK_BACKENDS:-}" ] && [ -f .env ]; then
     # || true: Variable fehlt in .env -> grep exit 1, sonst stiller Abbruch
     # durch set -euo pipefail (Box-Symptom 2026-08-14: alle Befehle still).
     POLYSCHNACK_BACKENDS="$(grep -E '^POLYSCHNACK_BACKENDS=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
 fi
-BACKENDS="${POLYSCHNACK_BACKENDS:-$BACKENDS_ALL}"
+# Backend-Auswahl normalisieren (Kurznamen -> Katalog-Namen).
+BACKENDS=""
+for _b in ${POLYSCHNACK_BACKENDS:-$BACKENDS_ALL}; do
+    BACKENDS="$BACKENDS $(_normalize_backend "$_b")"
+done
+BACKENDS="${BACKENDS# }"
+
+# Profile: Katalog compose_profile (Fallback: Name == Profil). Unbekannte
+# Namen im Katalog -> Warnung (Tippfehler / fehlender YAML-Block).
 PROFILES=()
 for _b in $BACKENDS; do
-    case "$_b" in
-        pk-cpp)       PROFILES+=(--profile crispr-pk-cpp) ;;
-        qwen3)        PROFILES+=(--profile crispr-qwen3) ;;
-        ark)          PROFILES+=(--profile crispr-ark) ;;
-        moonshine-de) PROFILES+=(--profile crispr-moonshine-de) ;;
-        canary)       PROFILES+=(--profile crispr-canary) ;;
-        *)            echo "! Unbekanntes Backend in POLYSCHNACK_BACKENDS: $_b (gueltig: $BACKENDS_ALL)" >&2 ;;
-    esac
+    _p="$(_profile_of "$_b")"
+    if [ "$_p" != "default" ]; then
+        PROFILES+=(--profile "$_p")
+    fi
+    if [ -n "$BACKENDS_YAML" ] && ! awk '/^  - name:/{print $3}' "$BACKENDS_YAML" | grep -qx "$_b"; then
+        echo "! Backend '$_b' nicht im Katalog backends.yaml (hinzufuegen oder POLYSCHNACK_BACKENDS pruefen)" >&2
+    fi
+    if [ -f compose.backends.yml ] && ! grep -qE "^  $_p:" compose.backends.yml; then
+        echo "! Backend '$_b': Profil '$_p' nicht in compose.backends.yml (Container-Definition fehlt/auskommentiert)" >&2
+    fi
 done
 
 # --- Overlays (nur für Start-Kommandos relevant) ---------------------------
@@ -113,32 +153,73 @@ _model_req() {
     fi
 }
 
+_models_from_yaml() {
+    # Parser: "backend<TAB>datei<TAB>url" aus den model_files-Maps.
+    awk '
+        /^  - name:/ { backend=$3; next }
+        /model_files:/ { in_models=1; next }
+        in_models && /^      [^ :]+: https?:/ {
+            line=$0; sub(/^      /, "", line); split(line, kv, ": ");
+            print backend "\t" kv[1] "\t" kv[2]
+        }
+        in_models && /^    [A-Za-z_]+:/ { in_models=0 }
+    ' "$1"
+}
+
+_licenses_from_yaml() {
+    # "backend<TAB>lizenz" aus dem Katalog (z. B. Moonshine CC-BY-NC-SA).
+    # Inline-Kommentare (nach #) werden abgeschnitten.
+    awk '
+        /^  - name:/ { n=$3 }
+        /^    license:/ { sub(/^    license: /, ""); sub(/[[:space:]]*#.*$/, ""); print n "\t" $0 }
+    ' "$1"
+}
+
 cmd_models() {
     mkdir -p DATA/models
     echo "-> Pruefe Backend-Modelle in ./DATA/models (aktive Backends: $BACKENDS)"
     MODELS_SCRIPT=""
     MODEL_FILES=""
+    if [ -z "$BACKENDS_YAML" ]; then
+        echo "! backends.yaml nicht gefunden (webapp/app/backends.yaml) - bitte selfupdate ausfuehren." >&2
+        return 1
+    fi
     if [ -z "$BACKENDS" ]; then
         echo "! Keine aktiven Backends (POLYSCHNACK_BACKENDS leer) - nichts zu laden."
         return 0
     fi
-    for _b in $BACKENDS; do
-        case "$_b" in
-            pk-cpp)
-                _model_req parakeet-tdt-0.6b-v3-q8_0.gguf "https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf" ;;
-            qwen3)
-                _model_req qwen3-asr-0.6b-q8_0.gguf "https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf"
-                _model_req qwen3-forced-aligner-0.6b-f16.gguf "https://huggingface.co/OpenVoiceOS/qwen3-forced-aligner-0.6b-f16/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf" ;;
-            ark)
-                _model_req ark-asr-3b-q8_0.gguf "https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf" ;;
-            moonshine-de)
-                echo "  ! moonshine-de: Modell ist CC-BY-NC-SA-4.0 (nicht-kommerziell)"
-                _model_req moonshine-base-de-fidoriel-q4_k.gguf "https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf"
-                _model_req tokenizer.bin "https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/tokenizer.bin" ;;
-            canary)
-                _model_req canary-1b-v2-q4_k.gguf "https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf" ;;
+    local lb lic
+    while IFS=$'\t' read -r lb lic; do
+        [ -z "$lb" ] && continue
+        case " $BACKENDS " in
+            *" $lb "*) ;;
+            *) continue ;;
         esac
-    done
+        echo "  ! Modell-Lizenz beachten: $lb ($lic, ggf. nicht-kommerziell)"
+    done < <(_licenses_from_yaml "$BACKENDS_YAML")
+    local found=0 b file url
+    while IFS=$'\t' read -r b file url; do
+        [ -z "$b" ] && continue
+        case " $BACKENDS " in
+            *" $b "*) ;;
+            *) continue ;;
+        esac
+        found=1
+        _model_req "$file" "$url"
+    done < <(_models_from_yaml "$BACKENDS_YAML")
+    if [ "$found" = 0 ]; then
+        echo "-> Keine Backend-Modelle fuer die aktive Auswahl (nichts zu laden)."
+    fi
+    # Konsistenz: Modellpfade in compose.backends.yml muessen im Katalog stehen.
+    if [ -f compose.backends.yml ]; then
+        local cm
+        while read -r cm; do
+            [ -z "$cm" ] && continue
+            if ! grep -q "      $cm: https\?" "$BACKENDS_YAML"; then
+                echo "  ! WARNUNG: compose.backends.yml nutzt /models/$cm, aber backends.yaml kennt die Datei nicht" >&2
+            fi
+        done < <(grep -vE '^\s*#' compose.backends.yml | grep -oP '(?<=/models/)[A-Za-z0-9._-]+' | sort -u)
+    fi
     if [ -z "$MODELS_SCRIPT" ]; then
         echo "-> Alle Modelle vorhanden - nichts zu laden."
     elif [ -n "$MODELS_SCRIPT" ]; then
@@ -186,6 +267,16 @@ cmd_status() {
     echo "=== Backends (POLYSCHNACK_BACKENDS) ==="
     echo "  Aktiv: $BACKENDS"
     echo "  (Modelle: ./polyschnack-manage.sh models)"
+    if [ -n "$BACKENDS_YAML" ]; then
+        echo
+        echo "  Katalog (backends.yaml):"
+        awk '
+            /^  - name:/ { if (n != "") print n "\t" s "\t" l; n=$3; s=""; l="" }
+            /^    status:/ { s=$2 }
+            /^    license:/ { sub(/^    license: /, "", $0); sub(/[[:space:]]*#.*$/, "", $0); l=$0 }
+            END { if (n != "") print n "\t" s "\t" l }
+        ' "$BACKENDS_YAML" | awk -F'\t' '{ printf "    %-24s status=%-8s%s\n", $1, $2, ($3 != "" ? "  license=" $3 : "") }'
+    fi
     echo
     echo "=== Container ==="
     "${COMPOSE[@]}" "${PROFILES[@]}" ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null \
@@ -266,26 +357,45 @@ case "$CMD" in
         # Quelle: public GitHub-Mirror (raw.githubusercontent.com, kein Token
         # noetig). In internen Netzen per POLYSCHNACK_GITLAB_BASE auf die
         # GitLab-API umstellen (dann ist POLYSCHNACK_GITLAB_TOKEN noetig).
-        if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
-            URL="${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
-            TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
-            if [ -z "$TOKEN" ] && [ -f .env ]; then
-                TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+        # Holt neben dem Skript auch backends.yaml (Modell-Katalog) — beide
+        # braucht models auf Systemen ohne Git-Checkout (Box).
+        _repo_url() {
+            if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
+                echo "${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/${1//\//%2F}/raw?ref=main"
+            else
+                echo "https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/$1"
             fi
-            if [ -z "$TOKEN" ]; then
-                echo "! POLYSCHNACK_GITLAB_BASE gesetzt - dann braucht selfupdate POLYSCHNACK_GITLAB_TOKEN in .env" >&2
-                exit 1
-            fi
-        else
-            URL="https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/polyschnack-manage.sh"
-            TOKEN=""
+        }
+        TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
+        if [ -z "$TOKEN" ] && [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ] && [ -f .env ]; then
+            TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
         fi
-        TMP="$(mktemp)"
+        if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ] && [ -z "$TOKEN" ]; then
+            echo "! POLYSCHNACK_GITLAB_BASE gesetzt - dann braucht selfupdate POLYSCHNACK_GITLAB_TOKEN in .env" >&2
+            exit 1
+        fi
         CURL_ARGS=(-fsSL --max-time 30)
         if [ -n "$TOKEN" ]; then
             CURL_ARGS+=(-H "PRIVATE-TOKEN: $TOKEN")
         fi
-        if curl "${CURL_ARGS[@]}" -o "$TMP" "$URL"; then
+        # 1) backends.yaml (Katalog) — Fehler nur melden, nicht abbrechen.
+        BY_TMP="$(mktemp)"
+        if curl "${CURL_ARGS[@]}" -o "$BY_TMP" "$(_repo_url webapp/app/backends.yaml)"; then
+            if grep -q '^services:' "$BY_TMP" && grep -q 'model_files:' "$BY_TMP"; then
+                mkdir -p webapp/app
+                mv "$BY_TMP" webapp/app/backends.yaml
+                echo "-> backends.yaml aktualisiert."
+            else
+                rm -f "$BY_TMP"
+                echo "! backends.yaml-Download ungueltig - uebersprungen" >&2
+            fi
+        else
+            rm -f "$BY_TMP"
+            echo "! backends.yaml konnte nicht geladen werden (models braucht sie)" >&2
+        fi
+        # 2) manage.sh selbst.
+        TMP="$(mktemp)"
+        if curl "${CURL_ARGS[@]}" -o "$TMP" "$(_repo_url polyschnack-manage.sh)"; then
             if bash -n "$TMP" && [ "$(wc -c < "$TMP")" -gt 1000 ]; then
                 chmod +x "$TMP"
                 mv "$TMP" "$0"

@@ -14,7 +14,12 @@
 #   type              local | remote
 #   cost_per_minute_eur  Selbstkosten pro Minute (Benchmark-Pricing)
 #   concurrency       Endpunkt-Kapazität (Queue leitet daraus ab)
-#   model             Beschreibung des geladenen Modells
+#   model             Beschreibung des geladenen Modells (Freitext)
+#   model_files       Map Dateiname -> Download-URL (single source of truth
+#                     fuer ./polyschnack-manage.sh models). Nur Backends mit
+#                     GGUFs, die extern geseedet werden muessen. Backends ohne
+#                     model_files laden ihre Modelle selbst (z. B. ONNX).
+#   license           optionale Lizenz-Warnung (wird bei `models` angezeigt)
 #   url               Compose-Netzwerk-URL des Containers (optional,
 #                     Defaults siehe Adapter-Klasse)
 #   health_url        "" → settings.ASR_URL; nur eigene Server melden VRAM
@@ -63,6 +68,8 @@ services:
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: parakeet-tdt-0.6b-v3-q8_0.gguf
+    model_files:
+      parakeet-tdt-0.6b-v3-q8_0.gguf: https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
@@ -86,6 +93,9 @@ services:
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: qwen3-asr-0.6b-q8_0.gguf + forced-aligner
+    model_files:
+      qwen3-asr-0.6b-q8_0.gguf: https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf
+      qwen3-forced-aligner-0.6b-f16.gguf: https://huggingface.co/OpenVoiceOS/qwen3-forced-aligner-0.6b-f16/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf
     requires: {vram_gb: 3, ram_gb: 6, disk_gb: 4}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
@@ -109,6 +119,8 @@ services:
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: ark-asr-3b-q8_0.gguf
+    model_files:
+      ark-asr-3b-q8_0.gguf: https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
@@ -164,6 +176,10 @@ services:
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)
+    model_files:
+      moonshine-base-de-fidoriel-q4_k.gguf: https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf
+      tokenizer.bin: https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/tokenizer.bin
+    license: cc-by-nc-sa-4.0    # nicht-kommerziell
     requires: {vram_gb: 1, ram_gb: 2, disk_gb: 1}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
@@ -187,6 +203,8 @@ services:
     cost_per_minute_eur: 0.0
     concurrency: 1
     model: canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)
+    model_files:
+      canary-1b-v2-q4_k.gguf: https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:

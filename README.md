@@ -305,15 +305,18 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 
 Das Manage-Skript provisioniert standardmäßig **alle** optionalen Backends.
 Die aktive Auswahl steuert `POLYSCHNACK_BACKENDS` in der `.env` neben dem
-Skript (Space-getrennt, gültig: `pk-cpp qwen3 ark moonshine-de canary`):
+Skript (Space-getrennt, gültig: die Backend-Namen aus `backends.yaml`, z. B.
+`crispr-qwen3` — die alten Kurznamen `pk-cpp qwen3 ark moonshine-de canary`
+funktionieren weiter als Alias):
 
 ```bash
 # .env neben polyschnack-manage.sh
-POLYSCHNACK_BACKENDS="pk-cpp qwen3"   # nur diese zwei Backends
+POLYSCHNACK_BACKENDS="crispr-qwen3 crispr-ark"   # nur diese zwei Backends
 ```
 
 Nur aktive Backends werden provisioniert (Profile) und ihre Modelle geladen.
-`./polyschnack-manage.sh status` zeigt die aktive Auswahl an.
+`./polyschnack-manage.sh status` zeigt die aktive Auswahl **und** den
+Katalog-Überblick (alle Backends aus `backends.yaml` mit Status + Lizenz).
 
 > **Wichtig:** Nach dem Aktivieren eines Backends (`POLYSCHNACK_BACKENDS`
 > erweitert) einmal `./polyschnack-manage.sh models` ausführen (oder direkt
@@ -322,40 +325,45 @@ Nur aktive Backends werden provisioniert (Profile) und ihre Modelle geladen.
 > „failed to open GGUF file"). `models` lädt nur die Modelle aktiver
 > Backends und überspringt vorhandene Dateien.
 
-### Zusammenspiel: `compose.backends.yml` ↔ `POLYSCHNACK_BACKENDS`
+### Zusammenspiel: `backends.yaml` ↔ `compose.backends.yml` ↔ `POLYSCHNACK_BACKENDS`
 
-Zwei Ebenen mit getrennten Aufgaben — nicht verwechseln:
-
-- **`compose.backends.yml` = Definitionsebene („was es gibt").** Jedes
-  Backend ist dort als Service mit Docker-Profil definiert: Image,
-  Modell-Pfad (`CPP_ASR_MODEL`, `QWEN3_ASR_MODEL`, …), Ports, Healthcheck.
-  Das Manage-Skript lädt die Datei **immer** mit (sonst fänden die
-  GPU-/OIDC-Overlays keine Service-Definitionen → „invalid compose
-  project") — die Docker-Profile halten die Backends trotzdem optional:
-  Ohne `--profile <name>` erzeugt `up` ihre Container nicht.
-- **`POLYSCHNACK_BACKENDS` (.env) = Auswahlebene („was läuft").** Das
-  Manage-Skript übersetzt die Namen in `--profile`-Flags und entscheidet,
-  welche Backends provisioniert werden (`--no-start`) und für welche
-  `models` die GGUFs zieht. Gültige Namen = die Profil-Suffixe aus
-  `compose.backends.yml`: `pk-cpp qwen3 ark moonshine-de canary`.
+Drei Ebenen mit getrennten Aufgaben — ein Backend anpassen heißt: genau eine
+Stelle pro Ebene anfassen.
 
 | Ebene | Datei | Aufgabe | Beispiel |
-|--------|--------|---------|----------|
-| Definition | `compose.backends.yml` | Service + Profil + Modell-Pfad | `crispr-qwen3` mit `profiles: ["crispr-qwen3"]` |
-| Auswahl | `.env` → `POLYSCHNACK_BACKENDS` | aktiviert Profile + Modell-Download | `POLYSCHNACK_BACKENDS="qwen3"` |
+|-------|-------|---------|----------|
+| **Katalog** | `webapp/app/backends.yaml` | was es gibt: Name, `compose_profile`, Adapter, Ressourcen, **Modell-Downloads (`model_files`)**, Lizenz | `name: crispr-qwen3`, `model_files: {qwen3-asr-0.6b-q8_0.gguf: https://…}` |
+| **Container** | `compose.backends.yml` | wie es läuft: Image, Volumes, Ports, Healthcheck, Profil | `crispr-qwen3:` mit `profiles: ["crispr-qwen3"]` |
+| **Auswahl** | `.env` → `POLYSCHNACK_BACKENDS` | was läuft: aktiviert Profile + Modell-Download | `POLYSCHNACK_BACKENDS="crispr-qwen3"` |
+
+Konkret:
+
+- **`backends.yaml` ist die single source of truth für Backend-Wissen.** Das
+  Manage-Skript leitet daraus **beides** ab: die Compose-Profile
+  (`compose_profile`) für die Provisionierung und die Modell-Downloads
+  (`model_files`: Dateiname → URL) für `models` — es gibt **keine
+  hartkodierte Modell-Liste** im Skript mehr. Die Webapp (Registry,
+  Feature-Matrix, Benchmark) liest dieselbe Datei.
+- **`compose.backends.yml` beschreibt nur noch die Container.** Modell-Pfade
+  in den Envs (`CPP_ASR_MODEL: /models/…`) werden von `models` gegen den
+  Katalog geprüft — Abweichungen erzeugen eine Warnung statt stiller Drift.
+- **`POLYSCHNACK_BACKENDS` wählt nur aus** — definieren kann sie nichts.
+  Namen, die weder im Katalog noch in `compose.backends.yml` als Profil
+  existieren, erzeugen eine Warnung.
 
 Konsequenzen:
 
-- **Backend nur in `compose.backends.yml`, nicht in `POLYSCHNACK_BACKENDS`:**
-  definiert, aber nicht provisioniert → kein Container, nicht startbar
-  (auch nicht über die Admin-GUI), keine Modell-Downloads. Das ist der
-  „disabled"-Zustand.
-- **Name in `POLYSCHNACK_BACKENDS` ohne passendes Profil** (z. B. Tippfehler):
-  Warnung im Skript (`! Unbekanntes Backend …`), der Rest läuft normal.
-- **Backend-Konfiguration ändern** (anderes GGUF, Port, Image-Tag): immer in
-  `compose.backends.yml` — die `.env` wählt nur aus, definiert nichts.
-- **Direkte Compose-Nutzung ohne Manage-Skript:** Profile manuell via
-  `--profile` setzen; `POLYSCHNACK_BACKENDS` wird dann nicht gelesen.
+- **Neues Backend einbauen = drei Schritte:** YAML-Block in `backends.yaml`
+  (Name, `compose_profile`, `model_files` mit URLs, Adapter) → Service in
+  `compose.backends.yml` → Name in `POLYSCHNACK_BACKENDS`. Kein
+  Skript-Eingriff nötig.
+- **Eigenes Modell für ein Backend** (z. B. anderes GGUF): nur die URL in
+  `model_files` ändern, dann `models` — das Skript lädt die neue Datei.
+- **Backend nur im Katalog, nicht in `compose.backends.yml`** (z. B.
+  `ps-voxtral`, Container auskommentiert): Warnung beim Start-Versuch.
+- **`selfupdate`** zieht neben dem Skript auch `backends.yaml` — auf
+  Systemen ohne Git-Checkout (ki-box) bleiben Katalog und Skript so
+  synchron.
 
 ### Backend-Erkennung & URLs (automatisch)
 
