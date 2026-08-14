@@ -2,7 +2,7 @@
 # ==============================================================
 # PolySchnack — Stack-Verwaltung (ersetzt start.sh)
 # --------------------------------------------------------------
-#   ./polyschnack-manage.sh [BEFEHL]   (ohne BEFEHL = start)
+#   ./polyschnack-manage.sh [BEFEHL]   (ohne BEFEHL = Status + Hilfe)
 #
 # Befehle:
 #   pull        Zieht ALLE Images (Kern + optionale Backends, inkl. Profile)
@@ -64,11 +64,31 @@ cmd_start() {
     "${COMPOSE[@]}" "${PROFILES[@]}" ps
 }
 
+cmd_status() {
+    echo "=== GPU ==="
+    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
+        echo "GPU: JA (NVIDIA-Runtime registriert)"
+        if command -v nvidia-smi >/dev/null 2>&1; then
+            nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
+                | sed 's/^/    Gerät: /'
+        fi
+    else
+        echo "GPU: NEIN (keine NVIDIA-Runtime — Stack läuft CPU-only)"
+    fi
+    echo
+    echo "=== Container ==="
+    "${COMPOSE[@]}" "${PROFILES[@]}" ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null \
+        || "${COMPOSE[@]}" "${PROFILES[@]}" ps
+    echo
+    echo "=== Befehle ==="
+    usage
+}
+
 usage() {
     sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-CMD="${1:-start}"
+CMD="${1:-status}"
 case "$CMD" in
     pull)
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
@@ -76,6 +96,9 @@ case "$CMD" in
         ;;
     start)
         cmd_start
+        ;;
+    status)
+        cmd_status
         ;;
     stop)
         "${COMPOSE[@]}" "${PROFILES[@]}" stop
@@ -96,7 +119,13 @@ case "$CMD" in
         ;;
     update)
         echo "-> git pull ..."
-        git pull
+        if [ -d .git ]; then
+            git pull
+        else
+            echo "! Kein Git-Repository hier (.git fehlt) — git pull übersprungen."
+            echo "  Achtung: compose-Dateien/Skripte manuell aktualisieren,"
+            echo "  sonst fehlen neue Services (z.B. crispr-align)."
+        fi
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
         "${COMPOSE[@]}" "${PROFILES[@]}" pull
         cmd_start
