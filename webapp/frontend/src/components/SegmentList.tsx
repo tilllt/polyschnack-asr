@@ -19,6 +19,8 @@ interface Props {
 export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const editAreaRef = useRef<HTMLTextAreaElement>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -46,6 +48,17 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
       activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [activeIdx]);
+
+  // Auto-focus ohne Anker-Scroll: Das native focus()-Scrollen des Browsers
+  // springt in der Segmentliste (Container max-h + overflow) wie zu einem
+  // Anchor zur Zeile — auch wenn der Klick die Zeile schon sichtbar gemacht
+  // hat. focus({preventScroll:true}) verhindert den Sprung. (2026-08-14)
+  useEffect(() => {
+    if (renamingSpeaker) renameInputRef.current?.focus({ preventScroll: true });
+  }, [renamingSpeaker]);
+  useEffect(() => {
+    if (editingIdx !== null) editAreaRef.current?.focus({ preventScroll: true });
+  }, [editingIdx]);
 
   function handleClick(idx: number) {
     if (editingIdx !== null) return;  // don't seek while editing
@@ -154,7 +167,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                   }
                 }}
                 onBlur={() => handleRenameSpeaker(speaker)}
-                autoFocus
+                ref={renameInputRef}
               />
             ) : (
               <span className="flex items-center gap-0.5 flex-shrink-0">
@@ -203,7 +216,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
               onBlur={() => {
                 if (editText !== segments[i].text) handleSave(i);
               }}
-              autoFocus
+              ref={editAreaRef}
             />
           ) : (
             <span className="text-txt flex-1 min-w-0">
