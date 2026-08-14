@@ -124,7 +124,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             if (e.key === "Enter" || e.key === " ") { handleClick(i); }
           }}
           className={`
-            flex items-baseline gap-[10px] px-3 py-[6px]
+            flex items-baseline gap-x-2 px-3 py-[6px]
             cursor-pointer transition-colors duration-[120ms]
             border-l-2 border-transparent
             text-[13.5px] leading-[1.5]
@@ -133,7 +133,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
-          <span className="text-[11px] font-semibold text-accent min-w-[42px] flex-shrink-0 opacity-85 tabular-nums">
+          <span className="text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0 opacity-85 tabular-nums">
             {fmtTimecode(seg.start)}
           </span>
           {speaker && (
@@ -157,16 +157,34 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 autoFocus
               />
             ) : (
-              <span
-                className="text-[11px] font-bold text-[#25d366] min-w-[48px] flex-shrink-0 uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
-                title={t("rename_speaker_placeholder")}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();  // nicht den Text-Edit der Zeile triggern
-                  setRenamingSpeaker(speaker);
-                  setRenameText(speaker.replace("SPEAKER_", ""));
-                }}
-              >
-                {speaker.replace("SPEAKER_", "")}
+              <span className="flex items-center gap-0.5 flex-shrink-0">
+                <span
+                  className="text-[11px] font-bold text-[#25d366] w-max uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
+                  title={t("rename_speaker_placeholder")}
+                  onClick={(e) => {
+                    // Ein-Klick auf den Speaker = Umbenennen-Modus (NICHT
+                    // Zeilen-Seek). Der Zeilen-Klick (Audio abspielen) gehört
+                    // zum Timecode/Text — der Speaker-Klick ist editierend.
+                    e.stopPropagation();
+                    setRenamingSpeaker(speaker);
+                    setRenameText(speaker.replace("SPEAKER_", ""));
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                >
+                  {speaker.replace("SPEAKER_", "")}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenamingSpeaker(speaker);
+                    setRenameText(speaker.replace("SPEAKER_", ""));
+                  }}
+                  className="text-[11px] leading-none text-muted2 hover:text-accent px-0.5 cursor-pointer"
+                  title={t("rename_speaker_placeholder")}
+                  aria-label={t("rename_speaker_placeholder")}
+                >
+                  ✎
+                </button>
               </span>
             )
           )}
