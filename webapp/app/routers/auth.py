@@ -155,6 +155,8 @@ async def callback(request: Request, code: str, state: str):
         session.commit()
         request.session["user_id"] = user.id
         request.session["is_admin"] = _is_admin(userinfo, user)
+        # OIDC-Gruppen fuer die Settings-Anzeige (z. B. Admin-Gruppen-Match).
+        request.session["groups"] = list(userinfo.get("groups") or [])
     return RedirectResponse("/")
 
 
@@ -183,7 +185,9 @@ def me(request: Request) -> Dict[str, Any]:
                 "sub": user.sub,
                 "name": user.name or user.preferred_username or user.email,
                 "preferred_username": user.preferred_username,
+                "email": user.email,
                 "is_admin": bool(request.session.get("is_admin")),
+                "groups": list(request.session.get("groups") or []),
             }
     # Anon-Pfad (auch bei OIDC_ENABLED): Dummy-Name + Retention-Hinweis.
     # ensure_anonymous_user erzeugt/liest den Cookie-gebundenen anon-User.

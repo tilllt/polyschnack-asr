@@ -76,6 +76,7 @@ export interface Stats {
   failed: number;
   total_audio_s: number;
   total_processing_ms: number;
+  total_size_bytes: number;
 }
 
 export interface ModelStatus {
@@ -95,7 +96,9 @@ export interface UserInfo {
   name?: string;
   retention_minutes?: number;
   preferred_username?: string;
+  email?: string;
   is_admin?: boolean;
+  groups?: string[];
 }
 
 export interface QueueJob {

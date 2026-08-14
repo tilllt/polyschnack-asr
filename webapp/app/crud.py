@@ -253,6 +253,7 @@ def get_stats(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]
     failed = sum(1 for r in rows if r.status == "failed")
     total_audio_s = sum(r.duration_s or 0.0 for r in rows)
     total_processing_ms = sum(r.processing_ms or 0.0 for r in rows)
+    total_size_bytes = sum(r.size_bytes or 0 for r in rows)
     return {
         "total": total,
         "done": done,
@@ -261,6 +262,7 @@ def get_stats(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]
         "failed": failed,
         "total_audio_s": total_audio_s,
         "total_processing_ms": total_processing_ms,
+        "total_size_bytes": total_size_bytes,
     }
 
 
