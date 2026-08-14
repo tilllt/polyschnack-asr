@@ -367,6 +367,41 @@ Nur aktive Backends werden provisioniert (Profile) und ihre Modelle geladen.
 > „failed to open GGUF file"). `models` lädt nur die Modelle aktiver
 > Backends und überspringt vorhandene Dateien.
 
+### Zusammenspiel: `compose.backends.yml` ↔ `POLYSCHNACK_BACKENDS`
+
+Zwei Ebenen mit getrennten Aufgaben — nicht verwechseln:
+
+- **`compose.backends.yml` = Definitionsebene („was es gibt").** Jedes
+  Backend ist dort als Service mit Docker-Profil definiert: Image,
+  Modell-Pfad (`CPP_ASR_MODEL`, `QWEN3_ASR_MODEL`, …), Ports, Healthcheck.
+  Das Manage-Skript lädt die Datei **immer** mit (sonst fänden die
+  GPU-/OIDC-Overlays keine Service-Definitionen → „invalid compose
+  project") — die Docker-Profile halten die Backends trotzdem optional:
+  Ohne `--profile <name>` erzeugt `up` ihre Container nicht.
+- **`POLYSCHNACK_BACKENDS` (.env) = Auswahlebene („was läuft").** Das
+  Manage-Skript übersetzt die Namen in `--profile`-Flags und entscheidet,
+  welche Backends provisioniert werden (`--no-start`) und für welche
+  `models` die GGUFs zieht. Gültige Namen = die Profil-Suffixe aus
+  `compose.backends.yml`: `pk-cpp qwen3 ark moonshine-de canary`.
+
+| Ebene | Datei | Aufgabe | Beispiel |
+|--------|--------|---------|----------|
+| Definition | `compose.backends.yml` | Service + Profil + Modell-Pfad | `crispr-qwen3` mit `profiles: ["crispr-qwen3"]` |
+| Auswahl | `.env` → `POLYSCHNACK_BACKENDS` | aktiviert Profile + Modell-Download | `POLYSCHNACK_BACKENDS="qwen3"` |
+
+Konsequenzen:
+
+- **Backend nur in `compose.backends.yml`, nicht in `POLYSCHNACK_BACKENDS`:**
+  definiert, aber nicht provisioniert → kein Container, nicht startbar
+  (auch nicht über die Admin-GUI), keine Modell-Downloads. Das ist der
+  „disabled"-Zustand.
+- **Name in `POLYSCHNACK_BACKENDS` ohne passendes Profil** (z. B. Tippfehler):
+  Warnung im Skript (`! Unbekanntes Backend …`), der Rest läuft normal.
+- **Backend-Konfiguration ändern** (anderes GGUF, Port, Image-Tag): immer in
+  `compose.backends.yml` — die `.env` wählt nur aus, definiert nichts.
+- **Direkte Compose-Nutzung ohne Manage-Skript:** Profile manuell via
+  `--profile` setzen; `POLYSCHNACK_BACKENDS` wird dann nicht gelesen.
+
 ### Adapter-URLs (jedes Backend hat seine eigene!)
 
 Das Backend wird über die Adapter-Auswahl gesteuert — **jeder Adapter hat
