@@ -19,6 +19,8 @@
 #   status      Zeigt den Zustand aller Services (docker compose ps).
 #   logs [SVC]  Folgt den Logs (alle Services oder nur SVC).
 #   update      git pull + pull + start  (kompletter Deploy-Workflow).
+#   selfupdate  Aktualisiert DIESES Skript aus dem Repo (GitLab-API, Token
+#               aus POLYSCHNACK_GITLAB_TOKEN oder .env daneben).
 #   help        Diese Hilfe.
 #
 # Idempotent: mehrfaches Ausführen ist unkritisch.
@@ -129,6 +131,39 @@ case "$CMD" in
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
         "${COMPOSE[@]}" "${PROFILES[@]}" pull
         cmd_start
+        ;;
+    selfupdate)
+        # Repo ist internal -> GitLab-API mit Token. Token aus Umgebung oder
+        # .env-Datei im selben Verzeichnis (POLYSCHNACK_GITLAB_TOKEN, PAT mit
+        # read_repository-Recht).
+        URL="https://gitlab.example.com/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
+        TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
+        if [ -z "$TOKEN" ] && [ -f .env ]; then
+            TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
+        fi
+        if [ -z "$TOKEN" ]; then
+            echo "! selfupdate braucht einen GitLab-Token:" >&2
+            echo "   1) GitLab -> Preferences -> Access Tokens: PAT (read_repository) anlegen" >&2
+            echo "   2) POLYSCHNACK_GITLAB_TOKEN=<token> in .env (neben diesem Skript) oder exportieren" >&2
+            echo "   Alternativ: im Repo-Checkout 'git pull' und die Dateien hierher kopieren." >&2
+            exit 1
+        fi
+        TMP="$(mktemp)"
+        if curl -fsSL --max-time 30 -H "PRIVATE-TOKEN: $TOKEN" -o "$TMP" "$URL"; then
+            if bash -n "$TMP" && [ "$(wc -c < "$TMP")" -gt 1000 ]; then
+                chmod +x "$TMP"
+                mv "$TMP" "$0"
+                echo "-> Selbst-Update ok. Bitte erneut aufrufen (z.B. ./polyschnack-manage.sh status)."
+            else
+                rm -f "$TMP"
+                echo "! Download ungueltig (Syntax/zu klein) - abgebrochen" >&2
+                exit 1
+            fi
+        else
+            rm -f "$TMP"
+            echo "! Selbst-Update fehlgeschlagen (Token ungueltig oder Repo nicht erreichbar)" >&2
+            exit 1
+        fi
         ;;
     help|-h|--help)
         usage
