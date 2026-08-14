@@ -170,6 +170,7 @@ export function UploadZone({ user }: Props) {
     setPendingFiles((prev) => {
       if (!prev) return null;
       const next = prev.filter((_, i) => i !== idx);
+      if (next.length < 2) setMergeMode("separate"); // Merge-Sinn entfällt
       return next.length ? next : null;
     });
   }
@@ -254,7 +255,9 @@ export function UploadZone({ user }: Props) {
             t={t}
           />
 
-          {/* Dateiliste vor dem Upload: Reihenfolge + einzeln/gemerged */}
+          {/* Dateiliste vor dem Upload. Sortier-/Merge-GUI (↑/↓, einzeln/
+              gemerged) erst ab 2 Dateien — bei einer Datei nur Name + ✕
+              (User 2026-08-14). */}
           {pendingFiles && pendingFiles.length > 0 && !isUploading && (
             <div className="border border-border rounded-card bg-panel p-3 flex flex-col gap-2">
               <div className="text-[12px] font-semibold text-txt">
@@ -266,24 +269,28 @@ export function UploadZone({ user }: Props) {
                     {i + 1}. {f.name}
                     <span className="text-muted2 ml-1">({fmtBytes(f.size)})</span>
                   </span>
-                  <button
-                    onClick={() => moveFile(i, -1)}
-                    disabled={i === 0}
-                    className="btn-ghost-sm text-[11px] px-1"
-                    title={t("move_up")}
-                    aria-label={t("move_up")}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    onClick={() => moveFile(i, 1)}
-                    disabled={i === pendingFiles.length - 1}
-                    className="btn-ghost-sm text-[11px] px-1"
-                    title={t("move_down")}
-                    aria-label={t("move_down")}
-                  >
-                    ↓
-                  </button>
+                  {pendingFiles.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => moveFile(i, -1)}
+                        disabled={i === 0}
+                        className="btn-ghost-sm text-[11px] px-1"
+                        title={t("move_up")}
+                        aria-label={t("move_up")}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => moveFile(i, 1)}
+                        disabled={i === pendingFiles.length - 1}
+                        className="btn-ghost-sm text-[11px] px-1"
+                        title={t("move_down")}
+                        aria-label={t("move_down")}
+                      >
+                        ↓
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => removeFile(i)}
                     className="btn-ghost-sm text-err text-[11px] px-1"
@@ -293,26 +300,30 @@ export function UploadZone({ user }: Props) {
                   </button>
                 </div>
               ))}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] mt-1">
-                <label className="flex items-center gap-1.5 cursor-pointer text-muted">
-                  <input
-                    type="radio"
-                    checked={mergeMode === "separate"}
-                    onChange={() => setMergeMode("separate")}
-                  />
-                  {t("transcribe_separately")}
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer text-muted">
-                  <input
-                    type="radio"
-                    checked={mergeMode === "merged"}
-                    onChange={() => setMergeMode("merged")}
-                  />
-                  {t("merge_into_one")}
-                </label>
-              </div>
-              {mergeMode === "merged" && (
-                <div className="text-[11px] text-muted2">{t("merge_note")}</div>
+              {pendingFiles.length > 1 && (
+                <>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] mt-1">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-muted">
+                      <input
+                        type="radio"
+                        checked={mergeMode === "separate"}
+                        onChange={() => setMergeMode("separate")}
+                      />
+                      {t("transcribe_separately")}
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-muted">
+                      <input
+                        type="radio"
+                        checked={mergeMode === "merged"}
+                        onChange={() => setMergeMode("merged")}
+                      />
+                      {t("merge_into_one")}
+                    </label>
+                  </div>
+                  {mergeMode === "merged" && (
+                    <div className="text-[11px] text-muted2">{t("merge_note")}</div>
+                  )}
+                </>
               )}
               <button
                 onClick={() => void startUpload()}
