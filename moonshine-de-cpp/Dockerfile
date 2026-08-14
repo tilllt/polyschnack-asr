@@ -46,6 +46,11 @@ RUN crispasr --help 2>&1 | head -5
 # Model volume — moonshine-de GGUF + tokenizer hier mounten
 ENV MOONSHINE_DE_MODEL=/models/moonshine-base-de-fidoriel-q4_k.gguf
 
+# Lizenz-Akzeptanz: fidoriel/moonshine-base-de ist CC-BY-NC-SA-4.0
+# (NICHT-kommerziell). Der Server verweigert sonst den Start
+# ("Refusing: pass --accept-license cc-by-nc-sa-4.0").
+ENV CRISPASR_ACCEPT_LICENSE=cc-by-nc-sa-4.0
+
 # Residenter Post-Prozessor: Interpunktion (fullstop = EN/DE/FR/IT) +
 # deutsches Truecasing (lstm, 97,9% F1). Per Env überschreibbar.
 ENV CRISPASR_EXTRA_ARGS="--punc-model fullstop --truecase-model lstm"

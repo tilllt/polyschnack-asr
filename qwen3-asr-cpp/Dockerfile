@@ -28,6 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /src/build/qwen3-asr-server /usr/local/bin/
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
+# Shared library: Upstream linkt Server+CLI dynamisch gegen libqwen3-asr.so;
+# ohne sie scheitert der Start ("error while loading shared libraries",
+# Regression 2026-08-14). Wo die .so landet, variiert mit dem Upstream-Build
+# -> per find einsammeln und im ldconfig-Cache registrieren.
+RUN find /src/build -name 'libqwen3-asr.so*' -exec cp -a {} /usr/local/lib/ \; ; ldconfig
+
 # GGUF model volume — mount ASR + ForcedAligner here
 RUN mkdir -p /models
 

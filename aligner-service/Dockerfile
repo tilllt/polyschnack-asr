@@ -38,6 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Nur der CLI wird gebraucht (Alignment ist CLI-Modus: --align / -o)
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
+# Shared library: Upstream linkt die CLI dynamisch gegen libqwen3-asr.so;
+# ohne sie scheitert jeder Aufruf ("error while loading shared libraries",
+# Regression 2026-08-14, gleicher Fix wie im qwen3-Backend-Image).
+RUN find /src/build -name 'libqwen3-asr.so*' -exec cp -a {} /usr/local/lib/ \; ; ldconfig
+
 # Forced-Aligner-Modell (GGUF, ~1,8 GB) — fehlt die Datei, lädt der
 # Entrypoint sie automatisch von HuggingFace nach (Volume ':rw' nötig).
 ENV ALIGNER_MODEL=/models/qwen3-forced-aligner-0.6b-f16.gguf
