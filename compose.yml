@@ -144,7 +144,10 @@ services:
       # SESSION_SECRET: "generate-a-random-secret-here"
       # BASE_URL: "https://polyschnack.example.org"
     ports:
-      - "8088:8088"
+      # Host-Port konfigurierbar (WEBAPP_PORT in .env) — Default 8088.
+      # Bei Konflikt mit anderen Diensten (z. B. netbird-llamacpp): 
+      # WEBAPP_PORT=8089 in der .env setzen.
+      - "${WEBAPP_PORT:-8088}:8088"
     volumes:
       - ./DATA/poc-data:/data
     depends_on:

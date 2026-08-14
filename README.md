@@ -812,6 +812,12 @@ BENCHMARK_DATA_DIR=<host-mount>/benchmark \
 | `DOCKER_PROXY_URL` | `http://docker-proxy:2375` | Restriktiver Docker-Socket-Proxy |
 | `POLYSCHNACK_MAX_QUEUE_LEN` | `20` | Maximale Jobs in der Transcribe-Queue |
 
+### Host-Ports (Compose-Ebene, in der `.env` neben `compose.yml`)
+
+| Variable | Default | Beschreibung |
+|----------|---------|--------------|
+| `WEBAPP_PORT` | `8088` | Host-Port der Web-UI. Bei Konflikt mit einem anderen Dienst (Fehler „port is already allocated") einfach umstellen, z. B. `WEBAPP_PORT=8089` in der `.env` — der Container-Port innen bleibt 8088. |
+
 ---
 
 ## OIDC-Auth
