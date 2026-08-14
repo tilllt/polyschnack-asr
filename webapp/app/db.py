@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import inspect, text as sa_text
+from sqlalchemy import event, inspect, text as sa_text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
@@ -31,6 +31,26 @@ engine = create_engine(
     f"sqlite:///{settings.DB_PATH}",
     connect_args={"check_same_thread": False},
 )
+
+
+def _sqlite_pragmas(dbapi_conn, _record):
+    """WAL-Modus + busy_timeout für jede neue Verbindung (2026-08-14).
+
+    WAL (Write-Ahead-Logging) entkoppelt Leser und Schreiber: parallele
+    Streaming-Transkriptionen (Progress-/Text-Updates pro Chunk), Uploads
+    und Peaks-Schedules blockieren sich nicht mehr gegenseitig — der
+    billigste Schritt vor einem eventuellen Postgres-Wechsel.
+    journal_mode=WAL ist DB-persistent; das PRAGMA ist idempotent.
+    """
+    cur = dbapi_conn.cursor()
+    try:
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+    finally:
+        cur.close()
+
+
+event.listen(engine, "connect", _sqlite_pragmas)
 
 
 def _purge_expired() -> None:
