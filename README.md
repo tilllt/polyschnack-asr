@@ -526,6 +526,23 @@ CPU-only, endet nach dem Lauf — kein Leerlauf-Ressourcenverbrauch.
 (Harbor-Docker-Config) — das Benchmark-Projekt hat sie noch **nicht**
 (im pk-asr-Projekt existiert sie). Siehe Fehlermeldung im CI-Log.
 
+## Images & Registries
+
+- **GHCR** (`ghcr.io/tilllt/polyschnack-asr…`) — public Image-Mirror und
+  **compose-Default** (`${REGISTRY:-ghcr.io/tilllt}`); Tags `latest` +
+  Commit-SHA, automatisch per GitLab-CI gespiegelt (Job `mirror-ghcr`).
+  Externe Nutzer ziehen ihre Images direkt von dort:
+  `docker pull ghcr.io/tilllt/polyschnack-asr-webapp:latest` (bzw. `-qwen3`,
+  `-ark`, `-diar`, `-aligner`, `-cpp`, `-moonshine-de`, `-canary`; ohne Suffix
+  = ASR-Kern `approach-a`).
+- **Harbor** (`registry.example.com/public/…`) — private Dev-Registry. Für den
+  Dev-Stand (z. B. frische Builds vor dem Mirror) den Stack mit Override
+  starten: `REGISTRY=registry.example.com/public ./polyschnack-manage.sh start`.
+  Achtung: das Benchmark-Image (`polyschnack-benchmark`) gibt es nur in
+  Harbor.
+- **GitHub** (`github.com/tilllt/polyschnack-asr`) — public Code-Mirror jedes
+  `main`-Pushes; dort läuft die CI als GitHub Actions (Tests, keine Images).
+
 ## Wichtig vor dem Deployment
 
 Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind

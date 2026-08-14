@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   ps-pk-onnx:
-    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr:latest
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr:latest
     environment:
       # Hybrid: "auto" = GPU wenn CUDA-Provider verfügbar, sonst CPU-INT8.
       # Explizit "true" (mit GPU-Zugriff) setzt nur das GPU-Overlay
@@ -54,7 +54,7 @@ services:
       start_period: 90s
 
   crispr-diar:
-    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-diar:latest
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-diar:latest
     environment:
       DIAR_MODEL: /models/parakeet-tdt-0.6b-v3-q8_0.gguf
     volumes:
@@ -76,7 +76,7 @@ services:
       start_period: 300s
 
   crispr-align:
-    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-aligner:latest
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-aligner:latest
     environment:
       # Forced-Aligner-Modell (qwen3-forced-aligner-0.6b-f16, ~1,8 GB).
       # Fehlt die Datei, lädt der Entrypoint sie automatisch von HuggingFace
@@ -99,7 +99,7 @@ services:
       start_period: 300s
 
   ps-webapp:
-    image: ${REGISTRY:-registry.example.com/public}/polyschnack-asr-webapp:latest
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-webapp:latest
     mem_limit: 2g
     memswap_limit: 2g
     environment:

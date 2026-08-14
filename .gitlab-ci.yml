@@ -307,4 +307,40 @@ mirror-github:
     - shared
   needs: []
 
+# GHCR-Mirror: spiegelt alle 9 Images von Harbor nach ghcr.io/tilllt/…
+# (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
+# Harbor bleibt die private Dev-Registry (compose-Default). Tags: latest + SHA.
+# Token: CI-Variablen GHCR_USER=tilllt + GHCR_TOKEN (GitHub-PAT write:packages);
+# Paket-Sichtbarkeit ist per GitHub-API auf public gesetzt.
+mirror-ghcr:
+  stage: build
+  image: registry.example.com/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary; do
+      src="registry.example.com/public/${CI_PROJECT_NAME}${img}"
+      dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
+      docker pull "${src}:latest"
+      docker tag "${src}:latest" "${dst}:latest"
+      docker push "${dst}:latest"
+      docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
+      docker push "${dst}:${CI_COMMIT_SHORT_SHA}"
+    done
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - build-asr
+    - build-webapp
+    - build-qwen3
+    - build-ark
+    - build-diar
+    - build-aligner
+    - build-cpp
+    - build-moonshine-de
+    - build-canary
+
 
