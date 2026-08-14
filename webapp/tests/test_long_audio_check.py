@@ -67,3 +67,38 @@ def test_alt_recording_echte_dauer_unter_grenze(monkeypatch, tmp_path):
     # rec.duration_s = Schätzwert 300 min; ffprobe sagt 30 min → ok
     monkeypatch.setattr(recordings_mod, "probe_duration_s", lambda b, fallback_estimate=0: 1800.0)
     _check_long_audio("crispr-ark", _rec(18000, stored_path=str(f)))
+
+
+# --- dynamische VRAM-Grenze (long_audio.auto_vram) -------------------------
+
+def test_auto_vram_grenze_aus_freiem_vram(monkeypatch):
+    """auto_vram: Grenze = (free - safety) / vram_per_minute. 8 GB free,
+    safety 2, 0.1 GB/min → 3600 s → 59 min ok, 61 min blockiert."""
+    _patch_registry(monkeypatch, {"auto_vram": True, "vram_per_minute_gb": 0.1,
+                                  "vram_safety_gb": 2, "max_safe_duration_s": 7200,
+                                  "streaming_advice": False})
+    monkeypatch.setattr(recordings_mod, "_probe_host_vram_gb", lambda: 8.0)
+    _check_long_audio("crispr-ark", _rec(59 * 60))
+    with pytest.raises(HTTPException):
+        _check_long_audio("crispr-ark", _rec(61 * 60))
+
+
+def test_auto_vram_ohne_messwert_fallback_statisch(monkeypatch):
+    """Kein VRAM-Messwert (CPU-only / Backend down) → statische Grenze."""
+    _patch_registry(monkeypatch, {"auto_vram": True, "vram_per_minute_gb": 0.1,
+                                  "vram_safety_gb": 2, "max_safe_duration_s": 7200,
+                                  "streaming_advice": False})
+    monkeypatch.setattr(recordings_mod, "_probe_host_vram_gb", lambda: None)
+    _check_long_audio("crispr-ark", _rec(2 * 3600))  # 2 h == Grenze → ok
+
+
+def test_auto_vram_cap_als_obergrenze(monkeypatch):
+    """Dynamische Grenze darf den statischen Cap nie überschreiten —
+    24 GB free, 0.01 GB/min → 132 000 s, aber Cap 7200 s greift."""
+    _patch_registry(monkeypatch, {"auto_vram": True, "vram_per_minute_gb": 0.01,
+                                  "vram_safety_gb": 2, "max_safe_duration_s": 7200,
+                                  "streaming_advice": False})
+    monkeypatch.setattr(recordings_mod, "_probe_host_vram_gb", lambda: 24.0)
+    _check_long_audio("crispr-ark", _rec(2 * 3600))          # exakt am Cap → ok
+    with pytest.raises(HTTPException):
+        _check_long_audio("crispr-ark", _rec(2 * 3600 + 60))  # Cap + 1 min → 409

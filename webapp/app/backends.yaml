@@ -64,7 +64,7 @@ services:
     concurrency: 1
     model: parakeet-tdt-0.6b-v3-q8_0.gguf
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # gleiches Modell wie ps-pk-onnx, Timestamps modell-inhärent
       streaming: false
@@ -87,7 +87,7 @@ services:
     concurrency: 1
     model: qwen3-asr-0.6b-q8_0.gguf + forced-aligner
     requires: {vram_gb: 3, ram_gb: 6, disk_gb: 4}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # via forced aligner
       streaming: false
@@ -110,7 +110,7 @@ services:
     concurrency: 1
     model: ark-asr-3b-q8_0.gguf
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json liefert word-level
       streaming: false
@@ -165,7 +165,7 @@ services:
     concurrency: 1
     model: moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)
     requires: {vram_gb: 1, ram_gb: 2, disk_gb: 1}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1
       streaming: false
@@ -188,7 +188,7 @@ services:
     concurrency: 1
     model: canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1
       streaming: false

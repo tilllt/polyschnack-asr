@@ -159,6 +159,39 @@ def ensure_backend_available(backend: str, request: Request) -> None:
     )
 
 
+_VRAM_CACHE: dict = {"ts": 0.0, "free_gb": None}
+
+
+def _probe_host_vram_gb(ttl_s: float = 60.0):
+    """Freier VRAM des Hosts (GB) via approach-a-/health.
+
+    Proxy für ALLE Backends auf derselben GPU: nur unsere eigenen Server
+    (approach-a/ps-pk-onnx) melden VRAM, die Crisp-Container sind fremde
+    Images — deren Grenze leitet sich daher aus demselben Wert ab.
+    Gecached (ttl_s), non-fatal: None bei Fehler (CPU-only, Backend down)
+    → Aufrufer nutzt den statischen Fallback.
+    """
+    import time as _t
+
+    from ..config import settings
+
+    now = _t.monotonic()
+    if now - _VRAM_CACHE["ts"] < ttl_s:
+        return _VRAM_CACHE["free_gb"]
+    free = None
+    try:
+        import httpx
+
+        r = httpx.get(f"{settings.ASR_URL}/health", timeout=2.0)
+        r.raise_for_status()
+        free = r.json().get("resources", {}).get("vram_free_gb")
+    except Exception:
+        free = None
+    _VRAM_CACHE["ts"] = now
+    _VRAM_CACHE["free_gb"] = free
+    return free
+
+
 def _check_long_audio(backend: str, rec) -> None:
     """VRAM-Prognose VOR dem Transkribieren (User-Befund 2026-08-14).
 
@@ -179,6 +212,17 @@ def _check_long_audio(backend: str, rec) -> None:
         return
     la = svc.get("long_audio") or {}
     max_safe = la.get("max_safe_duration_s")
+    # Dynamische Grenze (auto_vram): der freie Host-VRAM bestimmt die sichere
+    # Dauer — Crisp-Backends laden die Datei am Stück, dort skaliert der VRAM
+    # mit der Länge. Gemessen wird im approach-a-/health (gleiche GPU für alle
+    # Backends); ohne Messwert → statischer Fallback (max_safe als Hard-Cap).
+    if la.get("auto_vram"):
+        free = _probe_host_vram_gb()
+        per_min = float(la.get("vram_per_minute_gb") or 0.04)
+        safety = float(la.get("vram_safety_gb") or 2.0)
+        if free is not None and per_min > 0:
+            dynamic_s = max(0.0, free - safety) / per_min * 60.0
+            max_safe = min(dynamic_s, max_safe) if max_safe else dynamic_s
     if not max_safe or max_safe <= 0:
         return
 
