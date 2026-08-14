@@ -87,3 +87,65 @@ def test_duplicate_legt_neue_aufnahme_mit_peaks_an(client):
 def test_duplicate_unbekannt_404(client):
     resp = client.post("/api/recordings/doesnotexist/duplicate")
     assert resp.status_code == 404
+
+
+def test_upload_nach_loeschen_kein_verwaistes_duplikat(client):
+    """User-Fall: Upload → Löschen → erneut hochladen.
+
+    Der content_hash steht noch in der DB (alte Row), aber die Datei wurde
+    beim Löschen von der Platte entfernt. Der Upload darf dann KEIN
+    Duplikat mehr melden (der Kopier-Pfad wäre tot) — er legt ein neues
+    Recording an.
+    """
+    rec = _upload(client)
+
+    # Löschen wie der Delete-Endpoint: Row + Datei
+    from app.config import settings
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        assert r is not None
+        stored = Path(r.stored_path)
+        s.delete(r)
+        s.commit()
+    stored.unlink(missing_ok=True)
+    assert not stored.exists()
+
+    # Erneuter Upload (ohne force) → 201, kein duplicate-Flag
+    resp = client.post(
+        "/api/recordings",
+        files={"file": ("zoom.mp3", b"fake-audio-bytes", "audio/mpeg")},
+        data={"batch_id": "b2"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json().get("duplicate") is None
+    assert resp.json()["uid"] != rec["uid"]
+
+
+def test_duplikat_mit_vorhandener_datei_wird_weiterhin_gemeldet(client):
+    """Duplikat-Erkennung funktioniert weiter, solange die Datei existiert."""
+    _upload(client)
+    resp = client.post(
+        "/api/recordings",
+        files={"file": ("zoom.mp3", b"fake-audio-bytes", "audio/mpeg")},
+        data={"batch_id": "b3"},
+    )
+    assert resp.status_code == 201  # Duplikat-Antwort kommt mit 201 (kein Fehler)
+    body = resp.json()
+    assert body.get("duplicate") is True
+    assert body.get("existing_id") is not None
+
+
+def test_force_umgeht_duplikat_sperre(client):
+    """force=true legt auch bei existierendem Duplikat ein neues Recording an."""
+    _upload(client)
+    resp = client.post(
+        "/api/recordings?force=true",
+        files={"file": ("zoom.mp3", b"fake-audio-bytes", "audio/mpeg")},
+        data={"batch_id": "b4"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json().get("duplicate") is None

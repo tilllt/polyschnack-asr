@@ -112,6 +112,8 @@ export function UploadZone({ user }: Props) {
 
   async function handleDuplicate(existingId: string) {
     setIsUploading(true);
+    setUploadingName(dupPrompt?.file.name ?? "");
+    setUploadProgress(0);
     try {
       const dup = await duplicateRecording(existingId);
       dupWaitRef.current?.(dup.uid ?? null);
@@ -119,10 +121,36 @@ export function UploadZone({ user }: Props) {
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
-      dupWaitRef.current?.(null);
-      dupWaitRef.current = null;
-      toast(`Upload failed: ${(e as Error).message}`, "err");
+      // Kopieren unmöglich (z.B. Datei gelöscht, „Upload again" nach
+      // Upload→Löschen→Neu-Upload): dann die Datei doch echt hochladen —
+      // der Browser hat sie ja noch. force=true umgeht die Duplikat-Sperre.
+      const f = dupPrompt?.file;
+      const batch = dupPrompt?.batchId;
+      if (f) {
+        try {
+          const up = await uploadRecording(
+            f,
+            batch ?? crypto.randomUUID(),
+            vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel,
+            true,
+            (pct) => setUploadProgress(pct),
+          );
+          const uid = "uid" in up ? up.uid : null;
+          dupWaitRef.current?.(uid);
+          dupWaitRef.current = null;
+          toast("Uploaded", "ok");
+        } catch (e2) {
+          dupWaitRef.current?.(null);
+          dupWaitRef.current = null;
+          toast(`Upload failed: ${(e2 as Error).message}`, "err");
+        }
+      } else {
+        dupWaitRef.current?.(null);
+        dupWaitRef.current = null;
+        toast(`Upload failed: ${(e as Error).message}`, "err");
+      }
     } finally {
+      setUploadingName("");
       setIsUploading(false);
     }
   }

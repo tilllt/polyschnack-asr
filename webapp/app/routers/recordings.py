@@ -432,7 +432,15 @@ async def upload_recording(
         select(Recording).where(Recording.content_hash == content_hash)
     ).first()
 
-    if existing and not (request.query_params.get("force") == "true"):
+    # Duplikat nur melden, wenn die Datei des Treffers auch wirklich noch auf
+    # der Platte liegt. Sonst (Upload → gelöscht → wieder hochgeladen) wäre
+    # der „Upload again"-Kopier-Pfad tot (409 source file missing) — dann
+    # legen wir stattdessen einfach ein neues Recording an.
+    if (
+        existing
+        and not (request.query_params.get("force") == "true")
+        and Path(existing.stored_path).is_file()
+    ):
         return {
             "duplicate": True,
             "existing_id": existing.id,
