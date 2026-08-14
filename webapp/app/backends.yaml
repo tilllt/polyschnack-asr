@@ -201,3 +201,99 @@ services:
       device: [gpu, cpu]
     status: active
     adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
+
+  # ===================================================================
+  # REMOTE-BACKENDS (type: remote) — auskommentierte Beispiele
+  # ===================================================================
+  # Aktivieren: Block einkommentieren (Einrueckung beachten: 2 Leerzeichen
+  # vor "- name"), status: active, und den API-Key als Env-Variable in der
+  # Container-Env des webapp-Service setzen (z. B. OPENAI_API_KEY in
+  # compose.yml oder der lokalen .env — NIE ins YAML/Repo).
+  # URL-Aufloesung: base_url (adapter_kwargs) oder Env <ID>_URL
+  # (z. B. REMOTE_OPENAI_WHISPER_URL). Kein Compose-Profil/Container noetig.
+  #
+  # WICHTIG: Fuer Remote-Backends gibt es keinen Start/Stop-Button in der
+  # Admin-GUI (kein Container) — Status kommt direkt von der API. Die
+  # Modell-/Preisangaben sind Beispielwerte (Stand 2026-08) — vor Nutzung
+  # gegen die Anbieter-Doku pruefen!
+
+  # - name: remote-openai-whisper
+  #   backend: remote-openai-whisper
+  #   compose_profile: remote          # kein Docker-Profil (truthy fuer Registry)
+  #   type: remote
+  #   port: 0                          # kein lokaler Port
+  #   cost_per_minute_eur: 0.006       # Beispiel: OpenAI Whisper (~$0.006/min)
+  #   concurrency: 2
+  #   model: whisper-1 (OpenAI API)
+  #   requires: {vram_gb: 0, ram_gb: 0, disk_gb: 0}
+  #   long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+  #   capabilities:
+  #     word_timestamps: true          # verbose_json + word granularity
+  #     streaming: false
+  #     async_jobs: false
+  #     noise_reduce: false
+  #     vad: external
+  #     diarization: external
+  #     enhance: false
+  #     languages: [de, en, fr, es, it, nl]
+  #     device: [remote]
+  #   status: active
+  #   adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
+  #   adapter_kwargs:
+  #     base_url: https://api.openai.com/v1
+  #     api_key_env: OPENAI_API_KEY
+  #     model: whisper-1
+
+  # - name: remote-mistral-voxtral
+  #   backend: remote-mistral-voxtral
+  #   compose_profile: remote
+  #   type: remote
+  #   port: 0
+  #   cost_per_minute_eur: 0.004       # Beispiel: Mistral Voxtral
+  #   concurrency: 2
+  #   model: voxtral (Mistral ASR API)
+  #   requires: {vram_gb: 0, ram_gb: 0, disk_gb: 0}
+  #   long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+  #   capabilities:
+  #     word_timestamps: true
+  #     streaming: false
+  #     async_jobs: false
+  #     noise_reduce: false
+  #     vad: external
+  #     diarization: external
+  #     enhance: false
+  #     languages: [de, en, fr, es]
+  #     device: [remote]
+  #   status: active
+  #   adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
+  #   adapter_kwargs:
+  #     base_url: https://api.mistral.ai/v1
+  #     api_key_env: MISTRAL_API_KEY
+  #     model: voxtral
+
+  # - name: remote-groq-whisper
+  #   backend: remote-groq-whisper
+  #   compose_profile: remote
+  #   type: remote
+  #   port: 0
+  #   cost_per_minute_eur: 0.0         # Beispiel: Groq (Kosten pro Tokens, frei im Beta-Tier)
+  #   concurrency: 2
+  #   model: whisper-large-v3 (Groq API)
+  #   requires: {vram_gb: 0, ram_gb: 0, disk_gb: 0}
+  #   long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+  #   capabilities:
+  #     word_timestamps: true
+  #     streaming: false
+  #     async_jobs: false
+  #     noise_reduce: false
+  #     vad: external
+  #     diarization: external
+  #     enhance: false
+  #     languages: [de, en, fr, es, it]
+  #     device: [remote]
+  #   status: active
+  #   adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
+  #   adapter_kwargs:
+  #     base_url: https://api.groq.com/openai/v1
+  #     api_key_env: GROQ_API_KEY
+  #     model: whisper-large-v3

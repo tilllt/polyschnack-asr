@@ -92,7 +92,10 @@ if __name__ == "__main__":
         assert isinstance(s["concurrency"], int) and s["concurrency"] >= 1
         assert s["requires"]["vram_gb"] >= 0 and s["requires"]["ram_gb"] >= 0 and s["requires"]["disk_gb"] >= 0
         assert s["compose_profile"] in _VALID_PROFILES or s["type"] == "remote"
-        assert isinstance(s.get("port"), int) and 1 <= s["port"] <= 65535, f"{s['name']} braucht gueltigen port"
+        # Remote-Backends (OpenAI/Mistral/Groq/…) haben keinen lokalen Port
+        # und keinen Container — der Check gilt nur fuer lokale Services.
+        assert s["type"] == "remote" or (isinstance(s.get("port"), int) and 1 <= s["port"] <= 65535), \
+            f"{s['name']} braucht gueltigen port"
         assert s.get("adapter") and ":" in s["adapter"], f"{s['name']} braucht 'adapter: Modul:Klasse'"
         for k, v in s["capabilities"].items():
             assert isinstance(v, (bool, str, list)), f"{s['name']}.capabilities.{k}"

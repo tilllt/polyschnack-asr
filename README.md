@@ -430,6 +430,26 @@ docker compose -f compose.yml -f compose.backends.yml \
   --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 ```
 
+### Remote-Backends (OpenAI Whisper, Mistral Voxtral, Groq, …)
+
+In `webapp/app/backends.yaml` liegen **auskommentierte Beispiel-Einträge**
+(`type: remote`) für häufig genutzte Whisper-APIs — OpenAI (`whisper-1`),
+Mistral (`voxtral`) und Groq (`whisper-large-v3`). Aktivieren:
+
+1. Block in `backends.yaml` einkommentieren (Einrückung: 2 Leerzeichen vor
+   `- name`), `status: active` ist gesetzt.
+2. API-Key als Env-Variable an den webapp-Container geben (z. B.
+   `OPENAI_API_KEY` in der Container-Env / `.env` — **nie ins YAML/Repo**).
+3. Stack neu starten — das Backend erscheint in der GUI-Auswahl.
+
+Remote-Backends brauchen **keinen Container** (kein Compose-Profil, kein
+Start/Stop-Button — der Status kommt von der API). Basis-URL + Modell
+stehen in `adapter_kwargs` (`base_url`, `api_key_env`, `model`); der
+Adapter spricht OpenAI-kompatibles `POST {base_url}/audio/transcriptions`
+(verbose_json, Wort-Timestamps, Bearer-Auth). Alle Preise/Modellnamen in
+den Beispielen sind **Beispielwerte** — vor Nutzung die Anbieter-Doku
+prüfen.
+
 > **Hinweis:** Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/`
 > (keine Named-Volumes). Die vollständigen Service-Definitionen stehen in
 > `compose.yml` / `compose.backends.yml`.
