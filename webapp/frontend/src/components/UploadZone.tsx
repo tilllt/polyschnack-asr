@@ -66,18 +66,16 @@ export function UploadZone({ user }: Props) {
         });
         if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
           const existingId = String(r.existing_id ?? "");
-          if (mergeMode === "merged") {
-            // Auf die Dialog-Entscheidung warten, dann weiter im Loop
-            const chosen = await new Promise<string | null>((resolve) => {
-              dupWaitRef.current = resolve;
-              setDupPrompt({ file: f, batchId, existingId });
-            });
-            if (chosen) uids.push(chosen);
-            else errors.push(`${f.name}: ${t("skipped_duplicate")}`);
-          } else {
+          // IMMER auf die Dialog-Entscheidung warten (Upload again → uid,
+          // Skip → null) — auch ohne Merge-Modus. Vorher verpuffte die
+          // „Upload again"-UID im separate-Zweig (dupWaitRef war null) und
+          // der skipped-Toast kam trotz Entscheidung sofort. (2026-08-14)
+          const chosen = await new Promise<string | null>((resolve) => {
+            dupWaitRef.current = resolve;
             setDupPrompt({ file: f, batchId, existingId });
-            errors.push(`${f.name}: ${t("skipped_duplicate")}`);
-          }
+          });
+          if (chosen) uids.push(chosen);
+          else errors.push(`${f.name}: ${t("skipped_duplicate")}`);
         } else if ("uid" in r) {
           uids.push(r.uid);
         }
@@ -118,7 +116,8 @@ export function UploadZone({ user }: Props) {
       const dup = await duplicateRecording(existingId);
       dupWaitRef.current?.(dup.uid ?? null);
       dupWaitRef.current = null;
-      toast("Uploaded (forced)", "ok");
+      // Feedback kommt aus der Upload-Loop (Zusammenfassung) — kein eigener
+      // Toast nötig, sonst doppelte Meldung. (2026-08-14)
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
       // Kopieren unmöglich (z.B. Datei gelöscht, „Upload again" nach
@@ -361,7 +360,7 @@ export function UploadZone({ user }: Props) {
       {dupPrompt && (
         <div className="bg-[rgba(248,81,73,.08)] border border-err/30 rounded-sm px-4 py-3 text-[13px] flex items-center gap-3">
           <span className="text-muted flex-1">
-            <strong>{dupPrompt.file.name}</strong> already exists.
+            <strong>{dupPrompt.file.name}</strong> {t("duplicate_exists")}
           </span>
           <button
             onClick={async () => {
@@ -371,7 +370,7 @@ export function UploadZone({ user }: Props) {
             }}
             className="btn-ghost-sm text-err text-[12px]"
           >
-            Upload again
+            {t("upload_again")}
           </button>
           <button
             onClick={() => {
@@ -381,7 +380,7 @@ export function UploadZone({ user }: Props) {
             }}
             className="btn-ghost-sm text-[12px]"
           >
-            Skip
+            {t("skip")}
           </button>
         </div>
       )}
