@@ -65,7 +65,7 @@ def test_alt_recording_echte_dauer_unter_grenze(monkeypatch, tmp_path):
     f.write_bytes(b"mp3")
     _patch_registry(monkeypatch, {"max_safe_duration_s": 7200, "streaming_advice": False})
     # rec.duration_s = Schätzwert 300 min; ffprobe sagt 30 min → ok
-    monkeypatch.setattr(recordings_mod, "probe_duration_s", lambda b, fallback_estimate=0: 1800.0)
+    monkeypatch.setattr(recordings_mod, "probe_duration_path", lambda path: 1800.0)
     _check_long_audio("crispr-ark", _rec(18000, stored_path=str(f)))
 
 

@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
 from ..config import settings
-from ..audio_utils import convert_to_wav_16k_mono, prepare_storage, probe_duration_s
+from ..audio_utils import convert_to_wav_16k_mono, prepare_storage, probe_duration_path
 from ..crud import (
     create_recording,
     delete_recording,
@@ -228,12 +228,12 @@ def _check_long_audio(backend: str, rec) -> None:
 
     duration = rec.duration_s or 0.0
     if duration > max_safe:
-        # Alt-Datensätze: echte Dauer nachmessen statt dem Schätzwert glauben
-        from pathlib import Path as _P
-
-        stored = _P(rec.stored_path)
+        # Alt-Datensätze: echte Dauer nachmessen statt dem Schätzwert glauben.
+        # Datei-basiert (ffprobe) — read_bytes() lud die komplette Datei in
+        # den RAM (bei 357-MB-Files die OOM-Falle wie beim alten Peaks-Pfad).
+        stored = Path(rec.stored_path)
         if stored.exists():
-            probed = probe_duration_s(stored.read_bytes(), fallback_estimate=duration)
+            probed = probe_duration_path(stored) or 0.0
             if probed > 0:
                 duration = probed
     if duration <= max_safe:
@@ -316,8 +316,10 @@ def _compute_peaks_background(rec_id: int) -> None:
 
 _AUDIO_MIME_FALLBACK = "audio/mpeg"
 
-# Formats the browser can decode natively → WaveSurfer works
-_BROWSER_AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".webm", ".opus", ".aac"}
+# Browser-nativ abspielbare Formate (inkl. Safari/iOS) — Referenz auf die
+# Storage-Policy in audio_utils.NATIVE_AUDIO_EXTS. Alles andere wird beim
+# Upload nach MP3 konvertiert (.aac/.ogg/.opus/.webm/.wma/…).
+_BROWSER_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".m4b", ".mp4", ".flac"}
 
 
 def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Dict[str, Any]:
@@ -458,9 +460,10 @@ async def upload_recording(
     recorded_at, source = parse_whatsapp(file.filename)
 
     # Exakte Dauer via ffprobe — Grundlage für die VRAM-Prognose und die ETA.
-    # Die alte Größen-Schätzung (len/8000) war bei 128-kbps-MP3 um Faktor 2
-    # daneben und hätte die Long-Audio-Grenze falsch ausgelöst.
-    est_duration_s = probe_duration_s(audio_data, fallback_estimate=len(raw) / 8000)
+    # Datei-basiert (Pipe liefert bei nicht-seekbarem Input oft „N/A"; der
+    # alte Größen-Fallback war bei 128-kbps-MP3 um Faktor 2 daneben und
+    # hätte Long-Audio-Grenzen/Quota falsch ausgelöst).
+    est_duration_s = probe_duration_path(stored) or (len(raw) / 8000)
 
     # Task B5: harte Limits für anonyme User (Dauer, Upload-Größe, Disk-Quota)
     uid = _current_user(request, session)

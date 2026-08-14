@@ -13,7 +13,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel import Session, select
 
-from ..audio_utils import prepare_storage, probe_duration_s
+from ..audio_utils import prepare_storage, probe_duration_path
 from ..config import settings
 from ..crud import create_recording
 from ..db import get_session
@@ -143,8 +143,8 @@ async def import_from_url(
     stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
     stored.write_bytes(audio_data)
 
-    # Exakte Dauer via ffprobe (Basis für VRAM-Prognose + ETA)
-    est_duration_s = probe_duration_s(audio_data, fallback_estimate=len(audio_data) / 8000)
+    # Exakte Dauer via ffprobe (Basis für VRAM-Prognose + ETA) — Datei-basiert
+    est_duration_s = probe_duration_path(stored) or (len(audio_data) / 8000)
     # Kanonisches MIME statt mimetypes (liefert auf manchen Systemen
     # audio/x-wav statt audio/wav — bricht WaveSurfer/ASR nicht, aber Tests)
     mime = _AUDIO_MIME.get(new_ext) or mimetypes.guess_type(stored.name)[0] or "audio/mpeg"

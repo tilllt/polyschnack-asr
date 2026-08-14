@@ -455,7 +455,7 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
         {t("multi_files")}
       </div>
       <div className="mt-[10px] text-[11px] text-muted2 tracking-[.03em]">
-        MP3 · WAV · OGG / OPUS · M4A · FLAC · WEBM
+        {t("upload_formats")}
       </div>
       <input
         ref={fileRef}
