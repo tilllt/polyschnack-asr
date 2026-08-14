@@ -357,8 +357,26 @@ export async function importFromUrl(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
-  const res = await fetch("/api/recordings/from-url", { method: "POST", body: fd }).then(checkOk);
-  return res.json() as Promise<Recording>;
+  // Kein endloses „Lädt herunter…" ohne Rückmeldung: Server-seitig läuft
+  // yt-dlp max. 10 min, aber der User soll nach 5 min einen klaren
+  // Timeout-Fehler sehen statt eines hängenden Spinners.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 300_000);
+  try {
+    const res = await fetch("/api/recordings/from-url", {
+      method: "POST",
+      body: fd,
+      signal: controller.signal,
+    }).then(checkOk);
+    return res.json() as Promise<Recording>;
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") {
+      throw new Error("Download timed out after 5 minutes — please try again");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function recordFromMic(

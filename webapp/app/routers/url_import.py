@@ -66,10 +66,36 @@ async def import_from_url(
         except FileNotFoundError:
             raise HTTPException(status_code=500, detail="yt-dlp not installed")
 
+        # YouTube blockt Datacenter-IPs intermittierend (Bot-Schutz, flaky 403).
+        # Ein Fehlschlag ist meist in <2 s fertig — ein zweiter Versuch hat
+        # gute Erfolgschancen und macht den Import spürbar robuster.
+        if proc.returncode != 0:
+            retry_proc = subprocess.run(
+                [
+                    "yt-dlp",
+                    "-f", "ba/b",
+                    "-x",
+                    "--audio-format", "wav",
+                    "--audio-quality", "0",
+                    "-o", out_template,
+                    "--no-playlist",
+                    url.strip(),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if retry_proc.returncode == 0:
+                proc = retry_proc
+
         if proc.returncode != 0:
             err = (proc.stderr or "no output")[:500]
             log.warning("yt-dlp failed for url=%s: %s", url[:80], err)
-            raise HTTPException(status_code=400, detail=f"yt-dlp failed: {err}")
+            hint = _ytdlp_error_hint(err, url)
+            detail = f"yt-dlp failed: {err}"
+            if hint:
+                detail += f" — {hint}"
+            raise HTTPException(status_code=400, detail=detail)
 
         # WICHTIG: NICHT auf --print filename verlassen — das druckt den
         # Namen VOR der Audio-Extraktion (z.B. .mp4 statt .wav). Stattdessen
@@ -90,10 +116,15 @@ async def import_from_url(
     audio_data, _, conv_note = _convert_to_wav_if_needed(audio_data, "audio.wav")
 
     content_hash = hashlib.blake2b(audio_data, digest_size=16).hexdigest()
+    current_user_id = _current_user(request, session)
     existing = session.exec(
         select(Recording).where(Recording.content_hash == content_hash)
     ).first()
-    if existing:
+    # Dedup NUR innerhalb derselben Identität: eine fremde Recording
+    # zurückzugeben würde im Frontend als „Import ok" wirken, aber die
+    # Aufnahme gehört einem anderen anon-User → Transcribe schlägt dort
+    # mit 403 „requires at least 'full' access" fehl (stiller Fehler).
+    if existing and existing.user_id == current_user_id:
         return _recording_to_dict(existing)
 
     stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}.wav"
@@ -117,6 +148,29 @@ async def import_from_url(
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
         content_hash=content_hash,
-        user_id=_current_user(request, session),  # session nötig (anon-Identität)
+        user_id=current_user_id,  # session nötig (anon-Identität)
     )
     return _recording_to_dict(rec)
+
+
+def _ytdlp_error_hint(stderr: str, url: str) -> str | None:
+    """Verständlicher Zusatzhinweis für bekannte yt-dlp-Fehlerbilder.
+
+    YouTube blockt Datacenter-IPs regelmäßig mit Bot-Schutz (403/„Sign in
+    to confirm you're not a bot"). Der User soll wissen, dass das nicht an
+    der App liegt — statt nur den rohen yt-dlp-Text zu sehen.
+    """
+    low = stderr.lower()
+    is_youtube = "youtube" in url.lower() or "youtu.be" in url.lower()
+    if is_youtube and (
+        "sign in to confirm you're not a bot" in low
+        or "http error 403" in low
+        or "http error 400" in low
+        or "video unavailable" in low
+    ):
+        return (
+            "YouTube hat den Download abgelehnt (Bot-Schutz oder "
+            "Alters-/Regionsbeschränkung). Bitte später erneut versuchen "
+            "oder eine andere Quelle nutzen."
+        )
+    return None

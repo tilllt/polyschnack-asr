@@ -41,6 +41,11 @@ def db(tmp_path, monkeypatch):
     return eng
 
 
+# Mutable Test-Globals (vor den Fixtures definiert — Pyright use-before-def)
+_user_id = {"v": 1}
+_call_count = {"v": 0}
+
+
 @pytest.fixture()
 def client(db, monkeypatch, tmp_path):
     from app import deps
@@ -52,7 +57,7 @@ def client(db, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "AUDIO_DIR", tmp_path / "audio")
 
     def _fake_identity(request, session):
-        return Identity(User(id=1, sub="owner", kind="oidc"), None)
+        return Identity(User(id=_user_id["v"], sub=f"user{_user_id['v']}", kind="oidc"), None)
 
     monkeypatch.setattr(deps, "current_identity", _fake_identity)
     monkeypatch.setattr(identity_mod, "current_identity", _fake_identity)
@@ -89,6 +94,15 @@ def patch_ytdlp(monkeypatch):
             raise subprocess.TimeoutExpired(args[0], 600)
         if _simulate["v"] == "notfound":
             raise FileNotFoundError("yt-dlp")
+        if _simulate["v"] == "fail_once":
+            # Erster Aufruf scheitert (flaky YouTube-403), zweiter (Retry) läuft normal.
+            if _call_count["v"] == 0:
+                _call_count["v"] += 1
+                r = _Result()
+                r.stdout = ""
+                r.stderr = "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+                r.returncode = 1
+                return r
         if _wav["v"] is not None:
             (tmpdir / _wav_name["v"]).write_bytes(_wav["v"])
         r = _Result()
@@ -172,6 +186,8 @@ def _reset_mock():
     _wav["v"] = _make_wav_1s_16khz_mono()  # gültige WAV, kein Null-Byte-Haufen
     _wav_name["v"] = "audio.wav"
     _simulate["v"] = None
+    _user_id["v"] = 1
+    _call_count["v"] = 0
     yield
 
 
@@ -300,3 +316,51 @@ def test_from_url_dedup_gleicher_content(client, patch_ytdlp):
     assert r1.status_code == 201
     assert r2.status_code == 201
     assert r1.json()["id"] == r2.json()["id"]  # gleicher content_hash
+
+
+def test_from_url_dedup_nur_gleicher_user(client, patch_ytdlp):
+    """Dedup darf NICHT über Identitätsgrenzen greifen: ein fremder
+    (anon-)User, der dieselbe URL importiert, muss seine EIGENE Recording
+    bekommen — die fremde wäre für ihn nicht transkribierbar (403)."""
+    r1 = _post(client)
+    _user_id["v"] = 2
+    r2 = _post(client)
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    assert r1.json()["id"] != r2.json()["id"]
+    assert r2.json()["user_id"] == 2
+
+
+def test_from_url_ytdlp_400_youtube_hint(client, patch_ytdlp):
+    """YouTube-Bot-Block (flaky 403/„Sign in to confirm…") → 400-Detail
+    enthält zusätzlich einen verständlichen deutschen Hinweis."""
+    _rc["v"] = 1
+    _stderr["v"] = (
+        "ERROR: [youtube] WhCDm12of9A: Sign in to confirm you're not a bot. "
+        "Use --cookies-from-browser or --cookies for the authentication."
+    )
+    _wav["v"] = None
+    res = _post(client, url="https://youtu.be/WhCDm12of9A")
+    assert res.status_code == 400
+    assert "yt-dlp failed" in res.json()["detail"]
+    assert "Bot-Schutz" in res.json()["detail"]
+
+
+def test_from_url_kein_hint_fuer_fremde_quelle(client, patch_ytdlp):
+    """Nicht-YouTube-Quellen bekommen keinen YouTube-Hinweis."""
+    _rc["v"] = 1
+    _stderr["v"] = "ERROR: Unsupported URL"
+    _wav["v"] = None
+    res = _post(client, url="https://example.com/audio.mp3")
+    assert res.status_code == 400
+    assert "yt-dlp failed" in res.json()["detail"]
+    assert "Bot-Schutz" not in res.json()["detail"]
+
+
+def test_from_url_retry_nach_erstem_fehlschlag(client, patch_ytdlp):
+    """Flaky-403: erster yt-dlp-Lauf scheitert, der Retry-Versuch läuft
+    durch → 201 statt 400."""
+    _simulate["v"] = "fail_once"
+    res = _post(client, url="https://youtu.be/WhCDm12of9A")
+    assert res.status_code == 201, res.text
+    assert _call_count["v"] == 1  # genau 1 Retry

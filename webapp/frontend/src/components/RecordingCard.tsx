@@ -350,6 +350,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       },
     }, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),
+      // Stiller Fehler-Fix: ohne onError verschwand ein fehlgeschlagenes
+      // Re-Transcribe komplett ohne Rückmeldung (nur der Status-Badge
+      // kippte auf failed).
+      onError: (e) => toast(`${t("retranscribe_error")}: ${e.message}`, "err"),
     });
     setReArmed(false);
   }
