@@ -524,11 +524,13 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     log.info("align: rec_id=%s Gruppe %d/%d (%ds–%ds) → %d Wörter",
                              rec_id, gi + 1, len(groups), g_start, g_end, len(words))
                 # Echter Gruppenfortschritt (96–99): die Phase kann bei langen
-                # Audios 10–25 min dauern — kein starrer 96-Hinweis.
+                # Audios 10–25 min dauern — kein starrer 96-Hinweis. Der note
+                # traegt den Gruppen-Zaehler, die UI zeigt "Alignment…".
                 with Session(engine) as session:
                     set_progress(
                         session, rec_id,
-                        96 + int((gi + 1) / len(groups) * 3.99), note="alignment",
+                        96 + int((gi + 1) / len(groups) * 3.99),
+                        note=f"alignment {gi + 1}/{len(groups)}",
                     )
             except Exception as exc_g:
                 log.warning("align: Gruppe %d/%d übersprungen (rec_id=%s): %s",
@@ -541,7 +543,9 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
         with Session(engine) as session:
             rec2 = session.get(_Rec, rec_id)
             if rec2 is not None:
-                rec2.progress_pct = 97
+                # Loop-Max ist 99 — kein Rueckwaerts-Sprung auf 97 (die UI
+                # wuerde sonst minutenlang auf 97% stehenbleiben).
+                rec2.progress_pct = 99
                 rec2.progress_note = None
                 session.add(rec2)
                 session.commit()
@@ -599,10 +603,12 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         # Mark progress: 10% — loaded
         with Session(engine) as session:
-            set_progress(session, rec_id, 10)
+            set_progress(session, rec_id, 10, note="preparing")
 
         # Optional VAD silence trimming
         if _VAD_TRIM and enable_vad:
+            with Session(engine) as session:
+                set_progress(session, rec_id, 12, note="vad")
             trimmed = _trim_silence(audio_bytes)
             if len(trimmed) < len(audio_bytes):
                 log.info("VAD trim: rec_id=%s %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
@@ -610,6 +616,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         # Optional audio enhancement (ffmpeg filters before ASR)
         if enable_enhance and enable_enhance != "off":
+            with Session(engine) as session:
+                set_progress(session, rec_id, 16, note="enhance")
             log.info("Enhance: rec_id=%s level=%s", rec_id, enable_enhance)
             enhanced = enhance_audio(audio_bytes, level=enable_enhance)
             if len(enhanced) != len(audio_bytes):
@@ -617,7 +625,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             audio_bytes = enhanced
 
         with Session(engine) as session:
-            set_progress(session, rec_id, 20)
+            set_progress(session, rec_id, 20, note="asr")
 
         # Run ASR (batched sync or SSE streaming)
         client = get_client(backend)
@@ -651,7 +659,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 # 95 statt 80: 80 war der Endwert der Streaming-Skala und wirkte
                 # bei abgerissenen Streams wie ein Dauer-Hang. 95 signalisiert
                 # „ASR fertig, Nachbearbeitung läuft" (konsistent zum Batch-Pfad).
-                set_progress(session, rec_id, 95)
+                set_progress(session, rec_id, 95, note="finalizing")
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None
@@ -672,7 +680,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 on_progress=_on_progress,
             )
             with Session(engine) as session:
-                set_progress(session, rec_id, 95)
+                set_progress(session, rec_id, 95, note="finalizing")
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None

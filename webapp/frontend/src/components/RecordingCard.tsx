@@ -15,15 +15,40 @@ import { activeSegmentIndex } from "../karaoke";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 
-function fmtETA(duration_s: number | null, pct: number, created_at: string): string {
-  if (pct <= 0 || !duration_s) return "…";
-  const elapsed = (Date.now() - new Date(created_at).getTime()) / 1000;
-  if (elapsed < 3) return "~" + Math.round(duration_s * 0.15) + "s";
-  const estimated_total = (elapsed / pct) * 100;
-  const eta_s = Math.max(0, estimated_total - elapsed);
-  if (eta_s > 120) return `~${Math.round(eta_s / 60)}m`;
-  return `~${Math.round(eta_s)}s`;
+/** ETA aus der beobachteten Fortschrittsrate (ms pro Prozentpunkt).
+ *  Die alte Formel extrapolierte linear ueber created_at (Upload-Zeit!) —
+ *  bei Re-Transcribe stundenalter Dateien kam Unsinn heraus, und bei
+ *  nicht-linearen Phasen (ASR schnell, Alignment langsam) massiv falsch. */
+function etaFromRate(rateMsPerPct: number | null, pct: number): string {
+  if (!rateMsPerPct || rateMsPerPct <= 0 || pct <= 0 || pct >= 100) return "…";
+  const ms = rateMsPerPct * (100 - pct);
+  if (ms > 120_000) return `~${Math.round(ms / 60_000)}m`;
+  return `~${Math.max(1, Math.round(ms / 1000))}s`;
 }
+
+type EtaRef = { pct: number; ts: number; rate: number | null };
+
+/** Rate aus dem letzten Fortschrittssprung des Polls ableiten und ETA rendern. */
+function updateEta(ref: { current: EtaRef }, pct: number): string {
+  const now = Date.now();
+  const prev = ref.current;
+  if (prev.ts > 0 && pct > prev.pct && now - prev.ts > 1500) {
+    ref.current = { pct, ts: now, rate: (now - prev.ts) / (pct - prev.pct) };
+  } else if (pct !== prev.pct) {
+    ref.current = { pct, ts: now, rate: prev.rate };
+  }
+  return etaFromRate(ref.current.rate, pct);
+}
+
+/** Serverseitige progress_note → i18n-Key (alignment traegt einen Zaehler). */
+const NOTE_LABELS: Record<string, string> = {
+  preparing: "preparing",
+  vad: "vad",
+  enhance: "enhance",
+  asr: "transcribing",
+  diarization: "diarizing",
+  finalizing: "finalizing",
+};
 
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -75,6 +100,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export function RecordingCard({ recording: r, compact = false, isOidc = false, isAdmin = false, defaultCollapsed = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
+  const etaRef = useRef<EtaRef>({ pct: -1, ts: 0, rate: null });
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
@@ -380,6 +406,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       : "border-l-[3px] border-l-proc";
 
   const hasText = (r.text ?? "").trim().length > 0;
+  const note = r.progress_note ?? "";
+  const phaseKey = note.startsWith("alignment")
+    ? "aligning"
+    : NOTE_LABELS[note] ?? "transcribing";
 
   function handleEdited(newSegs: typeof segments, newText: string) {
     // Update cache for all recordings queries (with and without search)
@@ -580,10 +610,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         {r.status === "processing" && (
           <div className="px-4 pb-2">
             <div className="flex items-center justify-between text-[12px] mb-[6px]">
-              <span className="text-muted">
-                {r.progress_note === "diarization" ? t("diarizing") : t("transcribing")}
-              </span>
-              <span className="text-muted2 tabular-nums">{r.progress_pct}% · {fmtETA(r.duration_s, r.progress_pct, r.created_at)}</span>
+              <span className="text-muted">{t(phaseKey)}</span>
+              <span className="text-muted2 tabular-nums">{r.progress_pct}% · {updateEta(etaRef, r.progress_pct)}</span>
             </div>
             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
               <div

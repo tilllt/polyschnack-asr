@@ -308,6 +308,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "enable_noise_reduce": rec.enable_noise_reduce,
         "enable_enhance": rec.enable_enhance,
         "waveform_peaks": rec.waveform_peaks,
+        "updated_at": rec.updated_at.isoformat() if getattr(rec, "updated_at", None) else None,
         "user_id": rec.user_id,
         "access_level": access_level,
         "is_anon_shared": bool(getattr(rec, "share_token", False)),

@@ -63,6 +63,8 @@ export interface Recording {
   /** Phasen-Hinweis während der Verarbeitung, z. B. "diarization" */
   progress_note?: string | null;
   waveform_peaks: number[] | null;
+  /** Letzter Fortschritts-Heartbeat (ISO) — Basis fuer die ETA-Rate. */
+  updated_at?: string | null;
   backend?: string;
 }
 

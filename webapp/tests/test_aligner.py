@@ -179,8 +179,11 @@ def test_run_align_phase_ersetzt_words(aligner_server, wav_bytes, monkeypatch):
         {"word": "Hallo", "start": 0.0, "end": 0.4},
         {"word": "Welt", "start": 0.4, "end": 0.9},
     ]
-    # Progress-Hinweis kam: 96 mit note=alignment
-    assert (7, 96, "alignment") in calls["set_progress"]
+    # Progress-Hinweis kam: 96 mit note=alignment (mit Gruppen-Zaehler)
+    assert any(
+        c[0] == 7 and c[1] == 96 and str(c[2]).startswith("alignment")
+        for c in calls["set_progress"]
+    )
 
 
 def test_run_align_phase_skip_wenn_down(monkeypatch):
