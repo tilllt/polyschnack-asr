@@ -20,8 +20,8 @@
 #
 # Achtung: Das Overlay referenziert Backend-Services (crispr-pk-cpp …),
 # die nur in compose.backends.yml existieren — compose.backends.yml muss
-# deshalb IMMER Teil des Projekts sein (./start.sh macht das automatisch).
-# Ohne aktivierte Profile starten die Backends trotzdem nicht.
+# deshalb IMMER Teil des Projekts sein (./polyschnack-manage.sh macht das
+# automatisch). Ohne aktivierte Profile starten die Backends trotzdem nicht.
 services:
   ps-pk-onnx:
     image: registry.example.com/public/polyschnack-asr:latest

@@ -67,14 +67,45 @@ docker compose up -d
 # Backend-Services; ohne aktivierte Profile starten sie trotzdem nicht:
 docker compose -f compose.yml -f compose.backends.yml -f compose.gpu.yml up -d
 
-# Variante C — bequem: ./start.sh (GPU automatisch erkannt, OIDC wenn
-# echte Credentials in compose.oidc.yml, alle Backends mit --no-start
-# provisioniert — die Admin-GUI startet sie on demand):
-./start.sh
+# Variante C — bequem (empfohlen): ./polyschnack-manage.sh
+# GPU automatisch erkannt, OIDC wenn echte Credentials in compose.oidc.yml,
+# alle Backends mit --no-start provisioniert (die Admin-GUI startet sie
+# on demand):
+./polyschnack-manage.sh
 ```
 
 - **Web UI:** http://localhost:8088
 - **ASR API (direkt):** http://localhost:5092
+
+### Stack-Verwaltung: `polyschnack-manage.sh`
+
+Zentrales Verwaltungsskript für den kompletten Stack (Kern + alle optionalen
+Backends). Ersetzt das frühere `start.sh`. Ohne Argument = `start`.
+
+**Befehle:**
+
+- **`pull`** — zieht ALLE Images (Kern-Container **und** Backends; ohne die
+  internen `--profile`-Flags würden die Backend-Images von
+  `docker compose pull` ignoriert).
+- **`start`** — startet den Kern-Stack (docker-proxy, ps-pk-onnx, crispr-diar,
+  crispr-align, ps-webapp). GPU-Overlay automatisch, wenn die NVIDIA-Runtime
+  registriert ist, sonst CPU-only (Hybrid-Binaries); OIDC-Overlay nur mit
+  echten Credentials. Backends werden mit `--no-start` provisioniert und
+  starten on demand über die Admin-GUI.
+- **`stop` / `restart` / `down`** — stoppt alle Container, Neustart, oder
+  entfernt Container (Volumes bleiben erhalten).
+- **`status`** — `docker compose ps` für alle Services.
+- **`logs [SERVICE]`** — folgt den Logs (alle oder ein Service).
+- **`update`** — kompletter Deploy: `git pull` → `pull` → `start`.
+- **`help`** — Befehlshilfe.
+
+Beispiele:
+
+```bash
+./polyschnack-manage.sh update     # neuesten Stand deployen
+./polyschnack-manage.sh status     # Zustand aller Services
+./polyschnack-manage.sh logs crispr-diar
+```
 
 Das Standard-Backend (Parakeet Python/ONNX, ~600 MB) lädt sein Modell beim
 ersten Start von HuggingFace — keine weitere Konfiguration nötig.
