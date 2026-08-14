@@ -33,6 +33,12 @@ cd "$(dirname "$0")"
 # (compose.gpu.yml) referenzieren Backend-Services, die sonst ohne
 # image/build existieren -> "invalid compose project". Ohne aktivierte
 # Profile starten/erstellen die Backends beim up -d trotzdem NICHT.
+# Registry-Override: REGISTRY aus .env lesen (z. B. fuer die private
+# Dev-Registry) — Env-Variable gewinnt, sonst compose-Default (ghcr.io).
+if [ -z "${REGISTRY:-}" ] && [ -f .env ]; then
+    REGISTRY="$(grep -E '^REGISTRY=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
+    export REGISTRY
+fi
 COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
 PROFILES=(
     --profile crispr-pk-cpp
