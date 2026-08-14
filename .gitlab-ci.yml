@@ -57,13 +57,13 @@ test-frontend:
 build-qwen3:
   timeout: 60 minutes
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     # Hybrid-Image (Weg 1): CUDA-Build mit CPU-Fallback — läuft auf GPU
     # (compose.gpu.yml-Overlay) UND CPU (Default), kein :cpu-Tag mehr.
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-qwen3" "qwen3-asr-cpp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-qwen3" "qwen3-asr-cpp/"
   only:
     - main
   tags:
@@ -73,13 +73,13 @@ build-qwen3:
 
 build-ark:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-ark" "ark-asr-cpp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-ark" "ark-asr-cpp/"
   only:
     - main
   tags:
@@ -89,11 +89,11 @@ build-ark:
 
 build-diar:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-diar" "diar-service/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-diar" "diar-service/"
   only:
     - main
   tags:
@@ -107,11 +107,11 @@ build-diar:
 build-aligner:
   timeout: 60 minutes
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-aligner" "aligner-service/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-aligner" "aligner-service/"
   only:
     - main
   tags:
@@ -123,13 +123,13 @@ build-aligner:
 # statt externem mudler/parakeet.cpp-server. Gleiche GGUF wie diar-Service.
 build-cpp:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-cpp" "pk-asr-cpp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-cpp" "pk-asr-cpp/"
   only:
     - main
   tags:
@@ -142,11 +142,11 @@ build-cpp:
 # Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell) — siehe README.
 build-moonshine-de:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-moonshine-de" "moonshine-de-cpp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-moonshine-de" "moonshine-de-cpp/"
   only:
     - main
   tags:
@@ -158,11 +158,11 @@ build-moonshine-de:
 # (multilingual EN/DE/FR/ES, ~600 MB GGUF).
 build-canary:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-canary" "canary-asr-cpp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-canary" "canary-asr-cpp/"
   only:
     - main
   tags:
@@ -175,11 +175,11 @@ build-canary:
 build-asr:
   timeout: 60 minutes
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}" "approach-a/" "approach-a/Dockerfile"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}" "approach-a/" "approach-a/Dockerfile"
   only:
     - main
   tags:
@@ -191,11 +191,11 @@ build-asr:
 # baut deshalb parallel zum ASR-GPU-Image statt dahinter zu warten.
 build-webapp:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-webapp" "webapp/"
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-webapp" "webapp/"
   only:
     - main
   tags:
@@ -277,13 +277,13 @@ mirror-github:
 # Paket-Sichtbarkeit ist per GitHub-API auf public gesetzt.
 mirror-ghcr:
   stage: build
-  image: registry.example.com/public/ci-tools
+  image: ${HARBOR_REGISTRY}/public/ci-tools
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
     for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary; do
-      src="registry.example.com/public/${CI_PROJECT_NAME}${img}"
+      src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
       docker pull "${src}:latest"
       docker tag "${src}:latest" "${dst}:latest"

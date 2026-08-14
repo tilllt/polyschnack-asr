@@ -18,7 +18,9 @@
 
 services:
   benchmark:
-    image: ${REGISTRY:-registry.example.com/public}/polyschnack-benchmark:latest
+    # Benchmark-Image liegt nur in der privaten Dev-Registry ->
+    # REGISTRY-Override setzen (z. B. auf den internen Registry-Host).
+    image: ${REGISTRY}/polyschnack-benchmark:latest
     container_name: ps-benchmark
     # Einmal-Lauf: `run --rm` erzeugt und entfernt den Container automatisch.
     restart: "no"

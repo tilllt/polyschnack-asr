@@ -535,9 +535,9 @@ CPU-only, endet nach dem Lauf — kein Leerlauf-Ressourcenverbrauch.
   `docker pull ghcr.io/tilllt/polyschnack-asr-webapp:latest` (bzw. `-qwen3`,
   `-ark`, `-diar`, `-aligner`, `-cpp`, `-moonshine-de`, `-canary`; ohne Suffix
   = ASR-Kern `approach-a`).
-- **Harbor** (`registry.example.com/public/…`) — private Dev-Registry. Für den
+- **Harbor** — private Dev-Registry (interner Host, nicht öffentlich). Für den
   Dev-Stand (z. B. frische Builds vor dem Mirror) den Stack mit Override
-  starten: `REGISTRY=registry.example.com/public ./polyschnack-manage.sh start`.
+  starten: `REGISTRY=<dev-registry>/public ./polyschnack-manage.sh start`.
   Achtung: das Benchmark-Image (`polyschnack-benchmark`) gibt es nur in
   Harbor.
 - **GitHub** (`github.com/tilllt/polyschnack-asr`) — public Code-Mirror jedes

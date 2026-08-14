@@ -1,6 +1,6 @@
 # License
 
-[MIT](https://gitlab.example.com/tilllt/polyschnack-asr/-/blob/main/LICENSE) — basiert auf
+[MIT](https://github.com/tilllt/polyschnack-asr/blob/main/LICENSE) — basiert auf
 [istupakov/parakeet-tdt](https://github.com/istupakov/parakeet-tdt)
 (NVIDIA Parakeet TDT 0.6B v3) und
 [mudler/parakeet.cpp](https://github.com/mudler/parakeet.cpp).

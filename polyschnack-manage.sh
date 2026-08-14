@@ -133,23 +133,29 @@ case "$CMD" in
         cmd_start
         ;;
     selfupdate)
-        # Repo ist internal -> GitLab-API mit Token. Token aus Umgebung oder
-        # .env-Datei im selben Verzeichnis (POLYSCHNACK_GITLAB_TOKEN, PAT mit
-        # read_repository-Recht).
-        URL="https://gitlab.example.com/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
-        TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
-        if [ -z "$TOKEN" ] && [ -f .env ]; then
-            TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
-        fi
-        if [ -z "$TOKEN" ]; then
-            echo "! selfupdate braucht einen GitLab-Token:" >&2
-            echo "   1) GitLab -> Preferences -> Access Tokens: PAT (read_repository) anlegen" >&2
-            echo "   2) POLYSCHNACK_GITLAB_TOKEN=<token> in .env (neben diesem Skript) oder exportieren" >&2
-            echo "   Alternativ: im Repo-Checkout 'git pull' und die Dateien hierher kopieren." >&2
-            exit 1
+        # Quelle: public GitHub-Mirror (raw.githubusercontent.com, kein Token
+        # noetig). In internen Netzen per POLYSCHNACK_GITLAB_BASE auf die
+        # GitLab-API umstellen (dann ist POLYSCHNACK_GITLAB_TOKEN noetig).
+        if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
+            URL="${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
+            TOKEN="${POLYSCHNACK_GITLAB_TOKEN:-}"
+            if [ -z "$TOKEN" ] && [ -f .env ]; then
+                TOKEN="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' )"
+            fi
+            if [ -z "$TOKEN" ]; then
+                echo "! POLYSCHNACK_GITLAB_BASE gesetzt - dann braucht selfupdate POLYSCHNACK_GITLAB_TOKEN in .env" >&2
+                exit 1
+            fi
+        else
+            URL="https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/polyschnack-manage.sh"
+            TOKEN=""
         fi
         TMP="$(mktemp)"
-        if curl -fsSL --max-time 30 -H "PRIVATE-TOKEN: $TOKEN" -o "$TMP" "$URL"; then
+        CURL_ARGS=(-fsSL --max-time 30)
+        if [ -n "$TOKEN" ]; then
+            CURL_ARGS+=(-H "PRIVATE-TOKEN: $TOKEN")
+        fi
+        if curl "${CURL_ARGS[@]}" -o "$TMP" "$URL"; then
             if bash -n "$TMP" && [ "$(wc -c < "$TMP")" -gt 1000 ]; then
                 chmod +x "$TMP"
                 mv "$TMP" "$0"

@@ -7,8 +7,8 @@
 #   bash scripts/ci_smart_build.sh "<registry>" "<image>" "<build-context>" ["<dockerfile>"]
 #
 # Beispiel:
-#   bash scripts/ci_smart_build.sh "registry.example.com/public" "polyschnack-asr-webapp" "webapp/"
-#   bash scripts/ci_smart_build.sh "registry.example.com/public" "polyschnack-asr" "approach-a/" "approach-a/Dockerfile"
+#   bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "polyschnack-asr-webapp" "webapp/"
+#   bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "polyschnack-asr" "approach-a/" "approach-a/Dockerfile"
 set -euo pipefail
 
 BASE="$1"
