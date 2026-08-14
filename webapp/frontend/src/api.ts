@@ -357,6 +357,20 @@ export async function duplicateRecording(rid: string): Promise<Recording> {
   return res.json() as Promise<Recording>;
 }
 
+/**
+ * Mehrere Aufnahmen zu EINER Datei zusammenführen (ffmpeg concat, Server).
+ * Die Einzel-Aufnahmen werden dabei gelöscht — übrig bleibt das gemergte
+ * Recording in der angegebenen Reihenfolge.
+ */
+export async function mergeRecordings(uids: string[], batchId?: string): Promise<Recording> {
+  const res = await fetch("/api/recordings/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uids, batch_id: batchId ?? null }),
+  }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
 export async function importFromUrl(
   url: string,
   enableVad = false,

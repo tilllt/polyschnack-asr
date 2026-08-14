@@ -555,6 +555,105 @@ def duplicate_recording(
     return _recording_to_dict(new_rec)
 
 
+class MergeRequest(BaseModel):
+    uids: List[str]
+    batch_id: Optional[str] = None
+
+
+@router.post("/recordings/merge", status_code=201)
+def merge_recordings(
+    req: MergeRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Mehrere Aufnahmen zu EINER Audiodatei zusammenführen (ffmpeg concat).
+
+    Multi-Upload „Als eine Aufnahme zusammenführen": die Dateien werden in
+    der angegebenen Reihenfolge zu 16-kHz-mono-WAV konkateniert (ffmpeg
+    ``filter_complex concat`` — funktioniert mit gemischten Formaten, kein
+    Codec-Gleichheits-Zwang wie beim concat-demuxer). Die Einzel-Aufnahmen
+    werden danach gelöscht (Row + Datei) — übrig bleibt nur das gemergte
+    Recording mit durchgehenden Timestamps.
+    """
+    if len(req.uids) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="mindestens 2 Dateien zum Zusammenführen nötig",
+        )
+    uid = _current_user(request, session)
+    cap = _key_cap(request, session)
+    recs: List[Recording] = []
+    for r_uid in req.uids:
+        rec = get_recording_by_uid(session, r_uid)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"recording {r_uid} not found")
+        ensure_access(session, rec, uid, "full", cap=cap)
+        src = Path(rec.stored_path)
+        if not src.is_file():
+            raise HTTPException(status_code=409, detail=f"Datei von {rec.original_name} fehlt")
+        recs.append(rec)
+
+    inputs: List[str] = []
+    for rec in recs:
+        inputs += ["-i", rec.stored_path]
+    n = len(recs)
+    concat_filter = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
+    out_path = settings.AUDIO_DIR / f"{uuid.uuid4().hex}.wav"
+    cmd = [
+        "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+        *inputs,
+        "-filter_complex", concat_filter,
+        "-map", "[out]",
+        "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+        str(out_path),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        out_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=409, detail="Zusammenführen abgebrochen (länger als 600s)"
+        ) from None
+    if proc.returncode != 0:
+        out_path.unlink(missing_ok=True)
+        err = proc.stderr.decode("utf-8", errors="replace")[:300]
+        raise HTTPException(status_code=409, detail=f"ffmpeg concat fehlgeschlagen: {err}")
+
+    # Größe + Hash streamend berechnen — kein 700-MB-RAM-Objekt (OOM-Lehre)
+    size_bytes = out_path.stat().st_size
+    h = hashlib.blake2b(digest_size=16)
+    with open(out_path, "rb") as fh:
+        while chunk := fh.read(1 << 16):
+            h.update(chunk)
+
+    duration_s = sum(rec.duration_s or 0.0 for rec in recs) or None
+    names = " + ".join(rec.original_name for rec in recs[:2])
+    if len(recs) > 2:
+        names += f" +{len(recs) - 2}"
+
+    new_rec = create_recording(
+        session,
+        original_name=f"Merge ({len(recs)} Dateien): {names}",
+        stored_path=str(out_path),
+        mime="audio/wav",
+        size_bytes=size_bytes,
+        batch_id=req.batch_id,
+        duration_s=duration_s,
+        content_hash=h.hexdigest(),
+        user_id=uid,
+    )
+    if new_rec.id is not None:
+        _schedule_peaks(new_rec.id)  # Waveform für das Merge-Ergebnis
+
+    # Einzeldateien löschen (Row + Datei) — die Einzelnen waren nur das
+    # Zwischenprodukt; übrig bleibt die eine gemergte Aufnahme.
+    for rec in recs:
+        path = Path(rec.stored_path)
+        delete_recording(session, rec.id)
+        path.unlink(missing_ok=True)
+    return _recording_to_dict(new_rec)
+
+
 # ---------------------------------------------------------------------------
 # List / get
 # ---------------------------------------------------------------------------

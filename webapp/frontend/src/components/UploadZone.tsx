@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, type UserInfo } from "../api";
+import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, mergeRecordings, type UserInfo } from "../api";
+import { fmtBytes } from "../format";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import WaveSurfer from "wavesurfer.js";
@@ -30,69 +31,119 @@ export function UploadZone({ user }: Props) {
   const noiseReduce = true;
   const enhanceLevel = "off";
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
+  // merged-Modus: der Upload-Loop pausiert bei einem Duplikat und wartet auf
+  // die Entscheidung im Dialog („Upload again" → uid, „Skip" → null).
+  const dupWaitRef = useRef<((uid: string | null) => void) | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const [mergeMode, setMergeMode] = useState<"separate" | "merged">("separate");
+  const [uploadingName, setUploadingName] = useState("");
 
-  // — Upload logic (same as before) —
+  // — Upload logic —
   async function handleFiles(files: FileList | File[]) {
     const items = Array.from(files);
     if (!items.length) return;
+    // Kein Sofort-Upload mehr: erst Liste zeigen (Reihenfolge + Modus wählen)
+    setPendingFiles(items);
+  }
 
+  async function startUpload() {
+    if (!pendingFiles || !pendingFiles.length) return;
+    const files = pendingFiles;
+    setPendingFiles(null);
     setIsUploading(true);
     setUploadProgress(0);
     const batchId = crypto.randomUUID();
-    const totalSize = items.reduce((s, f) => s + f.size, 0);
+    const totalSize = files.reduce((s, f) => s + f.size, 0);
     let uploadedBytes = 0;
+    const uids: string[] = [];
+    const errors: string[] = [];
 
-    const results = await Promise.allSettled(
-      items.map((f) =>
-        uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, false, (pct) => {
-          const fileBytes = (f.size * pct) / 100;
-          setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
-        }).then((r) => {
-          if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
-            setDupPrompt({ file: f, batchId, existingId: String(r.existing_id ?? "") });
-            return null;
+    for (const f of files) {
+      setUploadingName(f.name);
+      try {
+        const r = await uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, false, (pct) => {
+          setUploadProgress(Math.round(((uploadedBytes + (f.size * pct) / 100) / totalSize) * 100));
+        });
+        if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
+          const existingId = String(r.existing_id ?? "");
+          if (mergeMode === "merged") {
+            // Auf die Dialog-Entscheidung warten, dann weiter im Loop
+            const chosen = await new Promise<string | null>((resolve) => {
+              dupWaitRef.current = resolve;
+              setDupPrompt({ file: f, batchId, existingId });
+            });
+            if (chosen) uids.push(chosen);
+            else errors.push(`${f.name}: ${t("skipped_duplicate")}`);
+          } else {
+            setDupPrompt({ file: f, batchId, existingId });
+            errors.push(`${f.name}: ${t("skipped_duplicate")}`);
           }
-          uploadedBytes += f.size;
-          setUploadProgress(Math.round((uploadedBytes / totalSize) * 100));
-          return r;
-        })
-      )
-    );
-
-    const succeeded = results.filter((r) => r.status === "fulfilled").length;
-    const errors = results
-      .map((r, i) =>
-        r.status === "rejected"
-          ? `${items[i]?.name ?? "file"}: ${(r.reason as Error).message}`
-          : null
-      )
-      .filter((e): e is string => e !== null);
-
-    if (succeeded > 0) {
-      toast(`${succeeded} ${t("recordings")}`, "ok");
+        } else if ("uid" in r) {
+          uids.push(r.uid);
+        }
+        uploadedBytes += f.size;
+      } catch (e) {
+        errors.push(`${f.name}: ${(e as Error).message}`);
+        uploadedBytes += f.size;
+      }
     }
+
+    if (mergeMode === "merged" && uids.length >= 2) {
+      try {
+        await mergeRecordings(uids, batchId);
+        toast(`1 ${t("recordings")} · ${t("merged_ok")}`, "ok");
+      } catch (e) {
+        errors.push(`Merge: ${(e as Error).message}`);
+      }
+    } else if (mergeMode === "merged") {
+      errors.push(t("merge_need_two"));
+    }
+
     errors.forEach((msg) => toast(msg, "err"));
+    if (mergeMode !== "merged" && uids.length > 0) {
+      toast(`${uids.length} ${t("recordings")}`, "ok");
+    }
 
     await qc.invalidateQueries({ queryKey: ["recordings"] });
     await qc.invalidateQueries({ queryKey: ["stats"] });
-
+    setUploadingName("");
     setIsUploading(false);
   }
 
   async function handleDuplicate(existingId: string) {
-    // Kein Re-Upload über das Netz: der Server legt eine neue Aufnahme aus
-    // der vorhandenen Datei an (inkl. Peaks-Kopie) — sofort fertig, auch
-    // bei 300+-MB-Dateien.
     setIsUploading(true);
     try {
-      await duplicateRecording(existingId);
+      const dup = await duplicateRecording(existingId);
+      dupWaitRef.current?.(dup.uid ?? null);
+      dupWaitRef.current = null;
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
+      dupWaitRef.current?.(null);
+      dupWaitRef.current = null;
       toast(`Upload failed: ${(e as Error).message}`, "err");
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function moveFile(idx: number, dir: -1 | 1) {
+    setPendingFiles((prev) => {
+      if (!prev) return prev;
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
+  }
+
+  function removeFile(idx: number) {
+    setPendingFiles((prev) => {
+      if (!prev) return null;
+      const next = prev.filter((_, i) => i !== idx);
+      return next.length ? next : null;
+    });
   }
 
   // — Drag/drop handlers (for UploadTab) —
@@ -158,20 +209,93 @@ export function UploadZone({ user }: Props) {
 
       {/* Tab content */}
       {inputMode === "upload" && (
-        <UploadTab
-          isUploading={isUploading}
-          isDragging={isDragging}
-          uploadProgress={uploadProgress}
-          active={active}
-          handleClick={handleClick}
-          handleKeyDown={handleKeyDown}
-          handleDragOver={handleDragOver}
-          handleDragLeave={handleDragLeave}
-          handleDrop={handleDrop}
-          handleInputChange={handleInputChange}
-          fileRef={fileRef}
-          t={t}
-        />
+        <>
+          <UploadTab
+            isUploading={isUploading}
+            isDragging={isDragging}
+            uploadProgress={uploadProgress}
+            uploadName={uploadingName}
+            active={active}
+            handleClick={handleClick}
+            handleKeyDown={handleKeyDown}
+            handleDragOver={handleDragOver}
+            handleDragLeave={handleDragLeave}
+            handleDrop={handleDrop}
+            handleInputChange={handleInputChange}
+            fileRef={fileRef}
+            t={t}
+          />
+
+          {/* Dateiliste vor dem Upload: Reihenfolge + einzeln/gemerged */}
+          {pendingFiles && pendingFiles.length > 0 && !isUploading && (
+            <div className="border border-border rounded-card bg-panel p-3 flex flex-col gap-2">
+              <div className="text-[12px] font-semibold text-txt">
+                {t("files_selected")} ({pendingFiles.length})
+              </div>
+              {pendingFiles.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="flex items-center gap-2 text-[12px]">
+                  <span className="flex-1 truncate text-muted">
+                    {i + 1}. {f.name}
+                    <span className="text-muted2 ml-1">({fmtBytes(f.size)})</span>
+                  </span>
+                  <button
+                    onClick={() => moveFile(i, -1)}
+                    disabled={i === 0}
+                    className="btn-ghost-sm text-[11px] px-1"
+                    title={t("move_up")}
+                    aria-label={t("move_up")}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moveFile(i, 1)}
+                    disabled={i === pendingFiles.length - 1}
+                    className="btn-ghost-sm text-[11px] px-1"
+                    title={t("move_down")}
+                    aria-label={t("move_down")}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => removeFile(i)}
+                    className="btn-ghost-sm text-err text-[11px] px-1"
+                    aria-label={t("remove_file")}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] mt-1">
+                <label className="flex items-center gap-1.5 cursor-pointer text-muted">
+                  <input
+                    type="radio"
+                    checked={mergeMode === "separate"}
+                    onChange={() => setMergeMode("separate")}
+                  />
+                  {t("transcribe_separately")}
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer text-muted">
+                  <input
+                    type="radio"
+                    checked={mergeMode === "merged"}
+                    onChange={() => setMergeMode("merged")}
+                  />
+                  {t("merge_into_one")}
+                </label>
+              </div>
+              {mergeMode === "merged" && (
+                <div className="text-[11px] text-muted2">{t("merge_note")}</div>
+              )}
+              <button
+                onClick={() => void startUpload()}
+                disabled={isUploading}
+                className="btn-primary text-[13px] mt-1 self-start"
+              >
+                {t("upload")} ({pendingFiles.length})
+              </button>
+            </div>
+          )}
+        </>
       )}
       {inputMode === "record" && (
         <RecordTab
@@ -211,7 +335,11 @@ export function UploadZone({ user }: Props) {
             Upload again
           </button>
           <button
-            onClick={() => setDupPrompt(null)}
+            onClick={() => {
+              dupWaitRef.current?.(null);
+              dupWaitRef.current = null;
+              setDupPrompt(null);
+            }}
             className="btn-ghost-sm text-[12px]"
           >
             Skip
@@ -247,7 +375,7 @@ function TabButton({ active, disabled, onClick, children }: { active: boolean; d
 
 // ── Upload tab ──
 
-function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
+function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
   return (
     <div
       role="button"
@@ -281,6 +409,12 @@ function UploadTab({ isUploading, uploadProgress, active, handleClick, handleKey
               />
             </div>
             <span className="text-[11px] text-muted2">{uploadProgress}%</span>
+            {/* Dateiname unter dem Balken — was lade ich gerade hoch? */}
+            {uploadName && (
+              <span className="text-[11px] text-muted max-w-[280px] truncate">
+                📄 {uploadName}
+              </span>
+            )}
           </div>
         ) : (
           <Mic size={32} className="mx-auto text-muted" />
