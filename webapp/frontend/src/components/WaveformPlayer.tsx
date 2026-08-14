@@ -158,15 +158,40 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       });
 
       ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
-      ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); });
+      ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); startSync(); });
       ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
       ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
 
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
+      // ── Karaoke-Timing: rAF-Sync-Loop (2026-08-14) ──
+      // `timeupdate` feuert nur ~4x/Sekunde (Browser-HTMLMediaElement) — das
+      // Wort-Highlight hinkte dadurch bis 250ms hinterher („beginnt genau,
+      // wird dann schnell ungenau"). Der rAF-Loop liest die exakte Zeit
+      // direkt von der Quelle (getCurrentTime, ~40fps, 25ms-Schwelle) —
+      // frame-genau und driftfrei, weil nie ein Timer akkumuliert.
+      let rafId: number | null = null;
+      let lastT = -1;
+      const syncLoop = () => {
+        const t = ws.getCurrentTime();
+        if (Math.abs(t - lastT) >= 0.025) {
+          lastT = t;
+          setCurrentTime(t);
+          onTimeUpdateRef.current?.(t);
+        }
+        rafId = ws.isPlaying() ? requestAnimationFrame(syncLoop) : null;
+      };
+      const startSync = () => {
+        if (rafId == null) rafId = requestAnimationFrame(syncLoop);
+      };
+
       wsRef.current = ws;
       regionsRef.current = regions;
-      return () => { cancelled = true; ws.destroy(); };
+      return () => {
+        cancelled = true;
+        if (rafId != null) cancelAnimationFrame(rafId);
+        ws.destroy();
+      };
     }, [audioUrl]);
 
     useImperativeHandle(ref, () => ({
