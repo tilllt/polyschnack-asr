@@ -218,23 +218,30 @@ def _check_long_audio(backend: str, rec) -> None:
     )
 
 
+_peaks_inflight: set[int] = set()
+
+
 def _schedule_peaks(rec_id: int) -> None:
-    """Waveform-Peaks (Mini-Preview für WaveSurfer) direkt nach Upload/Import
-    im Hintergrund berechnen — die Wellenform ist damit SOFORT da, unabhängig
-    von der Transkription (vorher erst nach erfolgreichem Transcribe; bei
-    langen Dateien, deren Transkription fehlschlug, blieb die Waveform kaputt).
-    Fehler sind bewusst nicht-fatal (nur Log) — das Rendern fällt dann auf
-    WaveSurfers eigenes Decoding zurück.
+    """Waveform-Peaks (Mini-Preview für WaveSurfer) direkt nach Upload/Import,
+    Transcribe oder Listen-Abruf im Hintergrund berechnen — die Wellenform ist
+    damit SOFORT da, unabhängig von der Transkription (vorher erst nach
+    erfolgreichem Transcribe; bei langen Dateien, deren Transkription
+    fehlschlug, blieb die Waveform kaputt). Fehler sind bewusst nicht-fatal
+    (nur Log) — das Rendern fällt dann auf WaveSurfers eigenes Decoding zurück.
+
+    Läuft in einem eigenen Thread: die Routen sind sync (Starlette-Threadpool)
+    und haben dort KEINEN Event-Loop — asyncio.get_running_loop() wirft dort
+    immer RuntimeError, die Peaks kämen sonst nie an (Regression 2026-08-14).
     """
-    try:
-        import asyncio
+    if rec_id in _peaks_inflight:
+        return
+    _peaks_inflight.add(rec_id)
+    import threading
 
-        asyncio.get_running_loop().create_task(_compute_peaks_background(rec_id))
-    except RuntimeError:
-        pass  # kein laufender Loop (z.B. CLI-Kontext) → Peaks kommen beim Transcribe
+    threading.Thread(target=_compute_peaks_background, args=(rec_id,), daemon=True).start()
 
 
-async def _compute_peaks_background(rec_id: int) -> None:
+def _compute_peaks_background(rec_id: int) -> None:
     try:
         from sqlmodel import Session as _Session
 
@@ -253,6 +260,8 @@ async def _compute_peaks_background(rec_id: int) -> None:
                 s.commit()
     except Exception:
         log.exception("peaks: background compute failed for rec_id=%s", rec_id)
+    finally:
+        _peaks_inflight.discard(rec_id)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +463,13 @@ def list_recordings_endpoint(
     """Return all recordings (newest first), optionally filtered by *q*."""
     uid = _current_user(request, session)
     rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
+    # Alt-Aufnahmen ohne Peaks (vor dem Peaks-Feature hochgeladen): Preview im
+    # Hintergrund nachziehen, damit die Karte nicht dauerhaft
+    # "Waveform data corrupted" zeigt (WaveSurfer muesste sonst die ganze
+    # Datei dekodieren).
+    for _rec in rows:
+        if not getattr(_rec, "waveform_peaks", None):
+            _schedule_peaks(int(_rec.id))
     share_rec_ids = set()
     if uid is not None:
         share_rec_ids = {
