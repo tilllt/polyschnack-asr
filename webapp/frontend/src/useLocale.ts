@@ -185,7 +185,7 @@ const dict: Record<Lang, Record<string, string>> = {
     error: "Fehler",
     transcribing: "transkribiere…",
     diarizing: "erkenne Sprecher…",
-    aligning: "Aliniere Wort-Timestamps…",
+    aligning: "gleiche Wort-Timestamps ab…",
     preparing: "bereite vor…",
     vad: "schneide Stille…",
     enhance: "verbessere Audio…",
