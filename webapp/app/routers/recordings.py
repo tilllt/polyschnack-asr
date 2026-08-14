@@ -496,6 +496,65 @@ async def upload_recording(
     return _recording_to_dict(rec)
 
 
+@router.post("/recordings/{rid}/duplicate", status_code=201)
+def duplicate_recording(
+    rid: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Neue Aufnahme aus einer vorhandenen Datei anlegen (Duplikat-Upload).
+
+    Der Upload-Endpoint hat die Datei bereits als Duplikat erkannt (gleicher
+    content_hash) — statt sie beim „Upload again" ein zweites Mal übers Netz
+    zu übertragen (bei 300+-MB-Dateien blieb der Dialog minutenlang bei 100%
+    ohne Feedback), legt dieser Endpoint sofort eine neue Recording-Row an:
+    Datei-Kopie auf Platte, identische Waveform-Peaks (gleicher Inhalt →
+    gleiche Wellenform — spart den ffmpeg-Decode), gleiche Feature-Flags.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+
+    src = Path(rec.stored_path)
+    if not src.is_file():
+        raise HTTPException(status_code=409, detail="source file missing")
+    new_path = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{src.suffix.lower() or '.bin'}"
+    import shutil
+
+    shutil.copy2(src, new_path)
+
+    new_rec = create_recording(
+        session,
+        original_name=rec.original_name,
+        stored_path=str(new_path),
+        mime=rec.mime or "application/octet-stream",
+        size_bytes=rec.size_bytes or 0,
+        batch_id=None,
+        recorded_at=rec.recorded_at,
+        source=rec.source,
+        duration_s=rec.duration_s,
+        enable_vad=rec.enable_vad,
+        enable_diarize=rec.enable_diarize,
+        diarize_num_speakers=rec.diarize_num_speakers,
+        diarize_min_duration_off=rec.diarize_min_duration_off,
+        diarize_method=rec.diarize_method,
+        enable_streaming=rec.enable_streaming,
+        enable_noise_reduce=rec.enable_noise_reduce,
+        enable_enhance=rec.enable_enhance,
+        content_hash=rec.content_hash,
+        user_id=uid,
+    )
+    if new_rec.id is not None:
+        # Peaks übernehmen statt neu dekodieren — identischer Inhalt, und
+        # bei 300+-MB-Dateien wäre der Voll-Decode der OOM-Trigger gewesen.
+        new_rec.waveform_peaks = rec.waveform_peaks
+        session.add(new_rec)
+        session.commit()
+    return _recording_to_dict(new_rec)
+
+
 # ---------------------------------------------------------------------------
 # List / get
 # ---------------------------------------------------------------------------

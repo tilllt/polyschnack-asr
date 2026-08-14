@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { importFromUrl, recordFromMic, uploadRecording, type UserInfo } from "../api";
+import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, type UserInfo } from "../api";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import WaveSurfer from "wavesurfer.js";
@@ -29,7 +29,7 @@ export function UploadZone({ user }: Props) {
   const livePreview = false;
   const noiseReduce = true;
   const enhanceLevel = "off";
-  const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string } | null>(null);
+  const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
 
   // — Upload logic (same as before) —
   async function handleFiles(files: FileList | File[]) {
@@ -49,7 +49,7 @@ export function UploadZone({ user }: Props) {
           setUploadProgress(Math.round(((uploadedBytes + fileBytes) / totalSize) * 100));
         }).then((r) => {
           if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
-            setDupPrompt({ file: f, batchId });
+            setDupPrompt({ file: f, batchId, existingId: String(r.existing_id ?? "") });
             return null;
           }
           uploadedBytes += f.size;
@@ -79,10 +79,13 @@ export function UploadZone({ user }: Props) {
     setIsUploading(false);
   }
 
-  async function handleForceUpload(file: File, batchId: string) {
+  async function handleDuplicate(existingId: string) {
+    // Kein Re-Upload über das Netz: der Server legt eine neue Aufnahme aus
+    // der vorhandenen Datei an (inkl. Peaks-Kopie) — sofort fertig, auch
+    // bei 300+-MB-Dateien.
     setIsUploading(true);
     try {
-      await uploadRecording(file, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, true);
+      await duplicateRecording(existingId);
       toast("Uploaded (forced)", "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -199,9 +202,9 @@ export function UploadZone({ user }: Props) {
           </span>
           <button
             onClick={async () => {
-              const f = dupPrompt.file;
+              const existingId = dupPrompt.existingId;
               setDupPrompt(null);
-              await handleForceUpload(f, dupPrompt.batchId);
+              await handleDuplicate(existingId);
             }}
             className="btn-ghost-sm text-err text-[12px]"
           >

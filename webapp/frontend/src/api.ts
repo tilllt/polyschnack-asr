@@ -347,6 +347,16 @@ export async function uploadRecording(
   });
 }
 
+/**
+ * „Upload again" im Duplikat-Dialog: legt eine NEUE Aufnahme aus der bereits
+ * vorhandenen Datei an, ohne sie erneut übers Netz zu übertragen (bei
+ * 300+-MB-Dateien blieb der Dialog sonst minutenlang bei 100%).
+ */
+export async function duplicateRecording(rid: string): Promise<Recording> {
+  const res = await fetch(`/api/recordings/${rid}/duplicate`, { method: "POST" }).then(checkOk);
+  return res.json() as Promise<Recording>;
+}
+
 export async function importFromUrl(
   url: string,
   enableVad = false,
