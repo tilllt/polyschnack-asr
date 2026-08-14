@@ -60,7 +60,10 @@ fi
 cmd_start() {
     "${COMPOSE[@]}" "${OVERLAYS[@]}" up -d
     echo "-> Provisioniere optionale Backends (--no-start, GUI startet on demand) ..."
-    "${COMPOSE[@]}" "${PROFILES[@]}" up -d --no-start
+    # WICHTIG: gleiche Overlays wie im Kern-Pass — ohne sie berechnet compose
+    # die Kern-Services (ps-webapp/ps-pk-onnx/crispr-diar) OHNE GPU/OIDC-Config
+    # neu und recreatet sie (Regression 2026-08-14: OIDC-Login + GPU weg).
+    "${COMPOSE[@]}" "${OVERLAYS[@]}" "${PROFILES[@]}" up -d --no-start
     echo
     echo "Fertig. Status:"
     "${COMPOSE[@]}" "${PROFILES[@]}" ps
