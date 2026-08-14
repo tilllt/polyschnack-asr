@@ -79,12 +79,15 @@ for _b in $BACKENDS; do
 done
 
 # --- Overlays (nur für Start-Kommandos relevant) ---------------------------
+# docker info kann HAENGEN (Daemon nicht erreichbar) - mit timeout absichern,
+# sonst ist JEDER Befehl (auch help/models) still blockiert.
 OVERLAYS=()
-if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
+echo "-> Pruefe NVIDIA-Container-Runtime ..."
+if timeout 5 docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
     OVERLAYS+=(-f compose.gpu.yml)
     echo "-> GPU-Overlay aktiv (NVIDIA-Runtime gefunden)"
 else
-    echo "-> Keine NVIDIA-Runtime - Stack startet CPU-only"
+    echo "-> Keine NVIDIA-Runtime (oder Docker nicht erreichbar) - Stack startet CPU-only"
 fi
 if [ -f compose.oidc.yml ] && ! grep -qE 'dummy|auth\.example\.com|example\.com' compose.oidc.yml; then
     OVERLAYS+=(-f compose.oidc.yml)
@@ -168,7 +171,7 @@ cmd_start() {
 
 cmd_status() {
     echo "=== GPU ==="
-    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
+    if timeout 5 docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"nvidia"'; then
         echo "GPU: JA (NVIDIA-Runtime registriert)"
         if command -v nvidia-smi >/dev/null 2>&1; then
             nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
