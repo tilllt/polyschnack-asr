@@ -144,4 +144,7 @@ def test_diarize_download_stub_unreachable():
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "service-unreachable"
-    assert "diar-models" in body["message"]
+    # Option B: Modell liegt im diar-Container-Volume (./DATA/models/) —
+    # kein Download-Stub mehr, daher die neue Meldung statt "diar-models".
+    assert "Diar-Service nicht erreichbar" in body["message"]
+    assert "./DATA/models" in body["message"]
