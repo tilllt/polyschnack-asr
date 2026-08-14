@@ -711,6 +711,7 @@ def transcribe_ep(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
 
 
@@ -809,6 +810,7 @@ def retranscribe(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Re-Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
 
 

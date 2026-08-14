@@ -105,14 +105,11 @@ def _auto_migrate() -> None:
     session.exec(fix)  # type: ignore[arg-type]
     log.info("Auto-migrate: reset stale 'processing' → 'uploaded'")
 
-    # Mark long-stuck "processing" as failed with memory error hint (>30min old)
-    stale = sa_text(
-        "UPDATE recording SET status='failed', error='Processing terminated (out of memory). "
-        "Try with Live Preview enabled for long files.' "
-        "WHERE status='processing' AND julianday('now') - julianday(created_at) > 0.02"
-    )
-    session.exec(stale)  # type: ignore[arg-type]
-    log.info("Auto-migrate: marked stale processing → failed (OOM hint)")
+    # Stale-Processing-Watchdog lebt in stale_jobs.sweep_stale_processing
+    # (Heartbeat-basiert via updated_at, POLYSCHNACK_STALE_PROCESSING_MINUTES,
+    # laeuft periodisch im Retention-Loop in main.py). Kein created_at-Sweep
+    # hier: ein fixes 29-min-Limit wuerde lange Laeufe (Chunking, Alignment,
+    # 82-min-Dateien) faelschlich als "out of memory" killen.
 
     # Backend-ID-Umbau (2026-08): alte Adapter-IDs → neue Container-Schema-IDs.
     # Alte Namen: pk-python, pk-cpp, qwen3-asr, ark-asr, moonshine-de, canary-asr.
