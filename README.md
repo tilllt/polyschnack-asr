@@ -50,6 +50,113 @@ Das Besondere:
 
 ---
 
+## 🫖 Verständlich erklärt (für Nicht-Techniker)
+
+*Du willst wissen, was das hier ist, ohne Fachbuch? Dann bist du hier richtig.
+Alles Weitere im README ist für Menschen, die die Technik selbst anfassen
+wollen — dieser Abschnitt reicht zum Verstehen und Bedienen.*
+
+### Was ist PolySchnack?
+
+Stell dir ein **Transkriptions-Büro** vor: Du gibst eine Audio- oder
+Video-Datei hinein (eine Besprechung, ein Interview, eine Vorlesung) und
+bekommst **fertigen Text** zurück — mit Zeitstempeln („bei Minute 12:30 sagt
+jemand …") und getrennt nach Sprechern („Person A: …", „Person B: …").
+
+Das Besondere: Das Büro hat **mehrere „Übersetzer" (Motoren)** zur Auswahl,
+die unterschiedliche Stärken haben:
+
+- **Parakeet** (der Standard) — schnell und zuverlässig, guter Allrounder
+- **Qwen3-ASR** — sehr genau, braucht mehr Rechenleistung
+- **ARK-ASR** — besonders genau bei schwierigerem Audio
+- **Moonshine-DE** — extra auf Deutsch trainiert, winzig und flott
+- **Canary** — spricht Deutsch, Englisch, Französisch und Spanisch
+
+Du kannst jederzeit per Klick in der Oberfläche (oder in einer
+Einstellungsdatei) den Motor wechseln — der Rest der App bleibt gleich.
+Es gibt auch die Möglichkeit, **Cloud-Motoren** anzubinden (z. B. OpenAI
+Whisper) — dann wird dein Audio nicht auf deinem eigenen Rechner verarbeitet,
+sondern beim Anbieter.
+
+Die Qualität der Motoren wird **automatisch gemessen** (ein „Benchmark"):
+PolySchnack spielt Test-Sprachaufnahmen ab, vergleicht das Ergebnis mit dem
+Originaltext und zeigt dir, welcher Motor wie genau ist und was er pro Minute
+kostet. Qualität statt Marketing-Versprechen.
+
+### Die vier Bausteine
+
+| Baustein | Was es ist | Analogie |
+|----------|-----------|----------|
+| **Der Server (Webapp)** | Die Weboberfläche, in der du Dateien hochlädst und Texte siehst | Das Bürogebäude |
+| **Die Motoren (Backends)** | Die Spracherkennungs-Programme | Die Übersetzer im Büro |
+| **Die Modelle** | Große Sprach-Dateien („GGUF"), die die Motoren zum Verstehen brauchen — wie Wörterbücher mit Grammatik | Die Handbücher der Übersetzer |
+| **Der Schalter (Admin-Bereich)** | Hier wählst du, welche Motoren aktiv sind und startest sie | Der Dienstplan |
+
+### Die fünf wichtigsten Befehle (falls du die Technik selbst bedienst)
+
+Alles läuft über eine Datei namens `polyschnack-manage.sh` — eine Art
+„Fernbedienung" für das ganze System:
+
+```bash
+./polyschnack-manage.sh start       # Alles einschalten
+./polyschnack-manage.sh status      # Zeigt: läuft alles? GPU da? Welche Motoren?
+./polyschnack-manage.sh models      # Fehlende „Handbücher" (Modelle) nachladen
+./polyschnack-manage.sh update      # Alles auf den neuesten Stand bringen
+./polyschnack-manage.sh help        # Alle Befehle anzeigen
+```
+
+> **Merke:** Nachdem du einen Motor neu aktiviert hast, immer einmal
+> `models` ausführen — sonst fehlt dem Motor sein „Handbuch" und er startet
+> nicht. Das ist der häufigste Grund für „Backend startet nicht".
+
+### Wenn etwas nicht klappt (die häufigsten Fälle)
+
+- **Ein Befehl gibt gar nichts aus / endet ohne Meldung:** Die Datei
+  `polyschnack-manage.sh` ist veraltet. Einmal aktualisieren:
+  `./polyschnack-manage.sh selfupdate` (bzw. auf Systemen ohne Git die Datei
+  neu herunterladen, siehe Abschnitt „Deployment auf der ki-box").
+- **Ein Motor startet nicht** (Fehler „failed to open GGUF file"): Sein Modell
+  fehlt → `./polyschnack-manage.sh models` ausführen.
+- **Alles hängt / keine Reaktion:** Nicht das Programm — meist ist der
+  Docker-Dienst (die „Maschinenhalle") hängen geblieben. Auf dem Server:
+  `systemctl restart docker`, dann `./polyschnack-manage.sh start`.
+
+### Glossar (Fachbegriffe einfach erklärt)
+
+- **Backend / Motor** — eines der Spracherkennungs-Programme (Parakeet,
+  Qwen3, …). Der Begriff „Backend" bedeutet hier: „die Maschine, die die
+  Arbeit macht".
+- **Modell / GGUF** — die gelernte Sprachdatei eines Motors (mehrere
+  hundert MB bis GB). Ohne sie kann der Motor nicht erkennen. GGUF ist
+  einfach ein Datei-Format für solche Modelle.
+- **Container / Docker** — „abgeschottete Programme": Jeder Motor und der
+  Server laufen in einer eigenen Box, die sich gegenseitig nicht stören.
+  Docker ist das Werkzeug, das diese Boxen verwaltet.
+- **GPU / CPU** — die Rechen-Hardware. Die GPU (Grafikkarte) ist bei
+  Spracherkennung deutlich schneller; ohne sie läuft alles langsamer auf der
+  CPU. PolySchnack kann beides.
+- **OIDC / Login** — das Anmelde-Verfahren. Damit bekommen verschiedene
+  Personen eigene Bereiche; wer Admin ist, darf Motoren steuern.
+- **API / Endpunkt** — die technische Schnittstelle, über die andere
+  Programme mit PolySchnack sprechen können (z. B. dein eigenes Skript, das
+  automatisch Audiodateien transkribieren lässt).
+- **Diarization** — Sprechererkennung: wer hat wann gesprochen.
+- **Word-Timestamps** — jedes einzelne Wort ist mit seiner Zeitstelle im
+  Audio verknüpft; Klick aufs Wort springt zur Stelle.
+- **Benchmark / WER** — der Qualitäts-Test. WER (Word Error Rate) ist die
+  Fehlerquote: je kleiner, desto genauer.
+- **Env-Variable / `.env`** — eine Einstellungs-Datei neben dem System, in
+  der man Optionen setzt (z. B. welche Motoren aktiv sind). Wird beim Start
+  gelesen — wie ein Notizzettel an der Tür.
+- **Compose-Profil** — eine Kennzeichnung in der Konfiguration, die bestimmt,
+  ob ein Motor „eingebaut" (definiert) aber noch nicht „angestellt" ist.
+  Erst wenn er angestellt ist, belegt er Speicher.
+- **Katalog (`backends.yaml`)** — die zentrale Liste aller Motoren mit ihren
+  Eigenschaften und den Download-Adressen ihrer Modelle. Ein Motor existiert
+  erst, wenn er hier eingetragen ist.
+
+---
+
 ## Quickstart
 
 **Voraussetzung:** Docker mit Compose v2. Für GPU zusätzlich das
@@ -128,6 +235,32 @@ docker compose -f compose.yml -f compose.oidc.yml up -d   # Werte ersetzen!
 > automatisch auf der CPU. Die **Diarization** läuft im eigenen
 > CrispASR-diar-Container (`crispr-diar`, Port 5098) — ebenfalls hybrid. Die Webapp
 > selbst ist **CPU-only** (kein torch/pyannote im Image, ~2,5–3 GB schlanker).
+
+### Deployment auf einem Server ohne Git-Checkout (z. B. ki-box)
+
+Der Server braucht **kein Git-Repository** — die Dateien kommen per Download.
+Einmalig (oder bei größeren Änderungen):
+
+```bash
+cd /opt/container/polyschnack          # dein Installations-Ordner
+for f in compose.yml compose.backends.yml compose.gpu.yml polyschnack-manage.sh; do
+  curl -fsSL -o "$f" "https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/$f"
+done
+chmod +x polyschnack-manage.sh
+mkdir -p webapp/app
+curl -fsSL -o webapp/app/backends.yaml \
+  https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/webapp/app/backends.yaml
+./polyschnack-manage.sh update
+```
+
+> **Achtung:** `compose.oidc.yml` **niemals** überschreiben — dort stehen die
+> echten Login-Zugangsdaten (OIDC-Credentials). Sie gehört nicht ins
+> öffentliche Repo und wird vom Download-Befehl bewusst ausgelassen.
+
+Danach gilt: `./polyschnack-manage.sh selfupdate` hält Skript **und**
+`backends.yaml` automatisch aktuell; `update` zieht Images, Modelle und
+startet. Die übrigen compose-Dateien bei größeren Releases einmal per
+Download-Befehl nachziehen (der `update`-Befehl kann das ohne Git nicht).
 
 ---
 
