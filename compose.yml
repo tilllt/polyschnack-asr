@@ -107,6 +107,11 @@ services:
       ASR_BACKEND: "${ASR_BACKEND:-ps-pk-onnx}"
       ASR_MODEL: istupakov/parakeet-tdt-0.6b-v3-onnx  # → GPU model
       CRISPR_DIAR_URL: "${CRISPR_DIAR_URL:-http://crispr-diar:5098}"
+      # Forced-Aligner-Service (Karaoke-Word-Sync): verifiziert jede
+      # Wortgrenze gegen die Akustik (crispr-align, Port 5099). Aus:
+      #   POLYSCHNACK_ALIGN_WORDS: "false"
+      CRISP_ALIGN_URL: "${CRISP_ALIGN_URL:-http://crispr-align:5099}"
+      POLYSCHNACK_ALIGN_WORDS: "${POLYSCHNACK_ALIGN_WORDS:-true}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.

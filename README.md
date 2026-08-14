@@ -258,7 +258,9 @@ einzige Aufgabe:
 
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
   Admin-Steuerung), `asr` (Parakeet Python/ONNX, Container `ps-pk-onnx`),
-  `diar` (CrispASR-Diarization, Container `crispr-diar`)
+  `diar` (CrispASR-Diarization, Container `crispr-diar`),
+  `align` (Forced-Aligner, Container `crispr-align` — präzise Word-Timestamps
+  für den Karaoke-Sync)
   und `webapp` (GUI, Container `ps-webapp`). Wird von `docker compose up`
   automatisch geladen.
 - **`compose.backends.yml`** — die optionalen Backends `asr-cpp` (Container
@@ -328,6 +330,8 @@ der ONNX-ps-pk-onnx-Container!):
 | `CRISPR_ARK_URL` | `http://crispr-ark:5095` | URL des crispr-ark-Containers (CrispASR) |
 | `CRISPR_MOONSHINE_DE_URL` | `http://crispr-moonshine-de:5096` | URL des crispr-moonshine-de-Containers |
 | `CRISPR_CANARY_URL` | `http://crispr-canary:5097` | URL des crispr-canary-Containers |
+| `CRISP_ALIGN_URL` | `http://crispr-align:5099` | URL des Forced-Aligner-Service (Karaoke-Word-Sync) |
+| `POLYSCHNACK_ALIGN_WORDS` | `true` | Word-Alignment nach der ASR aktiv/deaktiviert (`false` = aus) |
 
 ```bash
 # WICHTIG: ASR_BACKEND IMMER explizit setzen — ohne Adapter-Auswahl fällt
@@ -352,6 +356,7 @@ graph LR
     Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
     webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder crispr-pk-cpp<br/>oder crispr-qwen3<br/>oder crispr-ark …"]
     webapp -->|Diarization| diar["diar (CrispASR-Server)"]
+    webapp -->|Word-Alignment| align["align (Qwen3-ForcedAligner)"]
     webapp -->|Docker-API| proxy["docker-proxy<br/>(Socket-Proxy)"]
     proxy -.start/stop.-> asr
     asr --> model["ASR Modell (GGUF / ONNX)"]
@@ -363,7 +368,13 @@ Die Webapp kommuniziert mit den ASR-Backends über die OpenAI-kompatible
 `POST /v1/audio/transcriptions`-Schnittstelle. Der Adapter wird durch die
 Umgebungsvariable `ASR_BACKEND` gesteuert. Die Diarization läuft im eigenen
 `diar`-Container (CrispASR-Server, `POST /v1/audio/transcriptions` mit
-`diarize=true&response_format=diarized_json`). Die Admin-GUI steuert die
+`diarize=true&response_format=diarized_json`). Der **Forced Aligner**
+(`align`-Container, `POST /v1/audio/align` mit Audio + Referenztext) verifiziert
+nach der ASR jede Wortgrenze gegen die Akustik (qwen3-forced-aligner,
+einzelner nicht-autoregressiver Forward-Pass, max. 400 s Audio pro Request) —
+die Webapp schickt ihre 120-s-Chunks, ersetzt die groben Backend-Word-Timestamps
+durch akustisch verifizierte und behebt so den Karaoke-Drift bei langen Audios.
+Die Admin-GUI steuert die
 Backend-Container über den restriktiven `docker-proxy` (kein direkter
 Docker-Socket-Zugriff aus der Webapp).
 

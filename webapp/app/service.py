@@ -412,6 +412,145 @@ def run_llm_enhance(text: str, segments: List[Dict[str, Any]]):
     return " ".join(ns["text"] for ns in out), out
 
 
+# ============================================================
+# Forced Alignment (Karaoke-Word-Sync) — optionaler Post-Schritt
+# ============================================================
+MAX_ALIGN_GROUP_S = 380.0  # Sicherheitsmarge unter dem 400-s-Modell-Limit
+
+
+def build_align_groups(segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_GROUP_S) -> List[tuple]:
+    """Bündelt aufeinanderfolgende Segmente zu Align-Gruppen ≤ max_s.
+
+    Returns: Liste von (start, end, text) in globalen Sekunden. Lücken
+    (Pausen) zwischen Segmenten zählen zur Spanne — der Audio-Ausschnitt
+    enthält sie, der Aligner verteilt die Wörter korrekt darüber.
+    """
+    groups: List[tuple] = []
+    cur: Optional[list] = None
+    for s in segments:
+        start, end = s.get("start"), s.get("end")
+        if start is None or end is None:
+            continue
+        if cur is None:
+            cur = [start, end, [s.get("text") or ""]]
+        else:
+            span = max(cur[1], end) - cur[0]
+            if span > max_s:
+                groups.append((cur[0], cur[1], " ".join(cur[2])))
+                cur = [start, end, [s.get("text") or ""]]
+            else:
+                cur[1] = max(cur[1], end)
+                cur[2].append(s.get("text") or "")
+    if cur is not None:
+        groups.append((cur[0], cur[1], " ".join(cur[2])))
+    return groups
+
+
+def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, Any]],
+                        group_start: float) -> List[Dict[str, Any]]:
+    """Weist alignierte Wörter (relativ zu group_start) den Segmenten zu.
+
+    Ein Wort gehört zum Segment, in dessen Zeitbereich sein Start fällt.
+    Nur Segmente mit Treffern bekommen words — Segmente ohne Treffer
+    behalten ihre Backend-Timestamps.
+    """
+    by_time = sorted(words, key=lambda w: w.get("start") or 0.0)
+    out: List[Dict[str, Any]] = []
+    wi = 0
+    for s in segments:
+        ns = dict(s)
+        s0, s1 = s.get("start", 0.0), s.get("end")
+        seg_words: List[Dict[str, Any]] = []
+        for w in by_time[wi:]:
+            ws = (w.get("start") or 0.0) + group_start
+            we = (w.get("end") or ws) + group_start
+            if s1 is not None and ws >= s1:
+                break
+            if ws >= s0 - 1e-3:
+                seg_words.append({"word": w.get("word") or "", "start": ws, "end": we})
+        if seg_words:
+            ns["words"] = seg_words
+        out.append(ns)
+        wi += len(seg_words)
+    return out
+
+
+def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: bytes,
+                     audio_name: str, language: Optional[str]) -> List[Dict[str, Any]]:
+    """Forced-Alignment-Phase: ersetzt Word-Timestamps durch akustisch
+    verifizierte Grenzen (crispr-align). Failt der Aligner (Container down,
+    Chunk > 400 s), bleiben die Backend-Timestamps — nie ein Job-Fail.
+    """
+    from .aligner_client import AlignerClient
+    from .models import Recording as _Rec
+
+    client = AlignerClient()
+    if not client.health():
+        log.info("align: crispr-align nicht erreichbar (rec_id=%s) — Backend-Timestamps behalten", rec_id)
+        return segments
+
+    with Session(engine) as session:
+        set_progress(session, rec_id, 96, note="alignment")
+
+    tmp_audio = ""
+    aligned_any = False
+    try:
+        # Zeitbasis: die VERARBEITETE Audio (nach VAD-Trim/Enhance/Konvertierung)
+        # — die Segment-Zeiten beziehen sich auf sie.
+        with tempfile.NamedTemporaryFile(suffix=Path(audio_name).suffix or ".bin", delete=False) as tfh:
+            tmp_audio = tfh.name
+            tfh.write(audio_bytes)
+
+        groups = build_align_groups(segments)
+        for gi, (g_start, g_end, g_text) in enumerate(groups):
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tfh2:
+                    chunk_wav = tfh2.name
+                sp.run(
+                    ["ffmpeg", "-y", "-v", "error", "-ss", f"{g_start:.3f}",
+                     "-to", f"{g_end:.3f}", "-i", tmp_audio,
+                     "-ar", "16000", "-ac", "1", "-f", "wav", chunk_wav],
+                    check=True, capture_output=True, timeout=120,
+                )
+                try:
+                    with open(chunk_wav, "rb") as fh:
+                        chunk_bytes = fh.read()
+                finally:
+                    os.unlink(chunk_wav)
+                words = client.align(chunk_bytes, g_text, lang=language or "de")
+                if words:
+                    segments = apply_aligned_words(segments, words, g_start)
+                    aligned_any = True
+                    log.info("align: rec_id=%s Gruppe %d/%d (%ds–%ds) → %d Wörter",
+                             rec_id, gi + 1, len(groups), g_start, g_end, len(words))
+                # Echter Gruppenfortschritt (96–99): die Phase kann bei langen
+                # Audios 10–25 min dauern — kein starrer 96-Hinweis.
+                with Session(engine) as session:
+                    set_progress(
+                        session, rec_id,
+                        96 + int((gi + 1) / len(groups) * 3.99), note="alignment",
+                    )
+            except Exception as exc_g:
+                log.warning("align: Gruppe %d/%d übersprungen (rec_id=%s): %s",
+                            gi + 1, len(groups), rec_id, exc_g)
+    except Exception as exc_a:
+        log.warning("align: Phase übersprungen (rec_id=%s): %s", rec_id, exc_a)
+    finally:
+        if tmp_audio and os.path.exists(tmp_audio):
+            os.unlink(tmp_audio)
+        with Session(engine) as session:
+            rec2 = session.get(_Rec, rec_id)
+            if rec2 is not None:
+                rec2.progress_pct = 97
+                rec2.progress_note = None
+                session.add(rec2)
+                session.commit()
+
+    if aligned_any:
+        log.info("align: Word-Timestamps für rec_id=%s ersetzt", rec_id)
+    return segments
+
+
 def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
     """Load row → read audio → call ASR → persist result.
 
@@ -513,10 +652,20 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 # bei abgerissenen Streams wie ein Dauer-Hang. 95 signalisiert
                 # „ASR fertig, Nachbearbeitung läuft" (konsistent zum Batch-Pfad).
                 set_progress(session, rec_id, 95)
+                rec2 = crud.get_recording(session, rec_id)
+                if rec2 is not None and rec2.progress_note is not None:
+                    rec2.progress_note = None
+                    session.add(rec2)
+                    session.commit()
         else:
             def _on_progress(pct: int):
                 with Session(engine) as s:
                     set_progress(s, rec_id, pct)
+            # Sync-Backends (CrispASR-Familie, async_jobs=False) liefern keinen
+            # Job-Progress — sichtbarer Phasen-Hinweis statt starrer 20%.
+            if not getattr(client.capabilities, "async_jobs", False):
+                with Session(engine) as session:
+                    set_progress(session, rec_id, 21, note="asr")
             result = client.transcribe_async(
                 audio_bytes, filename, mime,
                 noise_reduce=enable_noise_reduce,
@@ -524,6 +673,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             )
             with Session(engine) as session:
                 set_progress(session, rec_id, 95)
+                rec2 = crud.get_recording(session, rec_id)
+                if rec2 is not None and rec2.progress_note is not None:
+                    rec2.progress_note = None
+                    session.add(rec2)
+                    session.commit()
 
         text = result["text"]
         duration = result["duration"]
@@ -575,6 +729,16 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             else:
                 log.warning("Diarization returned no text-mapped segments "
                             "for rec_id=%s (falling back to ASR segments)", rec_id)
+        # Forced Alignment (Karaoke-Word-Sync): präzise Word-Timestamps gegen
+        # die Akustik (crispr-align). Ersetzt die groben Backend-Timestamps,
+        # die über Chunk-Grenzen driften. Optional — nie ein Job-Fail.
+        from .aligner_client import ALIGN_WORDS_ENABLED
+
+        if ALIGN_WORDS_ENABLED and segments:
+            segments = _run_align_phase(
+                rec_id, segments, audio_bytes, audio_path.name, language
+            )
+
         # Compute waveform peaks for fast WaveSurfer render
         try:
             audio_bytes_for_peaks = audio_path.read_bytes()
