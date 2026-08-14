@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
 from ..config import settings
+from ..audio_utils import convert_to_wav_16k_mono, prepare_storage, probe_duration_s
 from ..crud import (
     create_recording,
     delete_recording,
@@ -158,6 +159,102 @@ def ensure_backend_available(backend: str, request: Request) -> None:
     )
 
 
+def _check_long_audio(backend: str, rec) -> None:
+    """VRAM-Prognose VOR dem Transkribieren (User-Befund 2026-08-14).
+
+    Eine zu lange Datei für das gewählte Backend führte bisher erst NACH dem
+    CUDA-OOM zu einer Fehlermeldung. Diese Prüfung schlägt VOR dem Enqueue
+    fehl (409) und sagt dem User, was zu tun ist: Live-Modus aktivieren
+    (Default-Backend, verarbeitet fensterweise) oder anderes Backend wählen.
+
+    Die Grenze kommt aus backends.yaml (`long_audio.max_safe_duration_s`).
+    Da Alt-Aufnahmen eine grobe Größen-Schätzung als Dauer haben, wird bei
+    Überschreitung die ECHTE Dauer per ffprobe nachgemessen, bevor geurteilt
+    wird — kein Fehlalarm durch den alten Schätzwert.
+    """
+    from ..service_registry import get_service
+
+    svc = get_service(backend)
+    if not svc:
+        return
+    la = svc.get("long_audio") or {}
+    max_safe = la.get("max_safe_duration_s")
+    if not max_safe or max_safe <= 0:
+        return
+
+    duration = rec.duration_s or 0.0
+    if duration > max_safe:
+        # Alt-Datensätze: echte Dauer nachmessen statt dem Schätzwert glauben
+        from pathlib import Path as _P
+
+        stored = _P(rec.stored_path)
+        if stored.exists():
+            probed = probe_duration_s(stored.read_bytes(), fallback_estimate=duration)
+            if probed > 0:
+                duration = probed
+    if duration <= max_safe:
+        return
+
+    minutes = int(duration // 60)
+    limit_min = int(max_safe // 60)
+    can_stream = bool(la.get("streaming_advice", False))
+    if can_stream:
+        hint = (
+            f"Bitte den Live-Modus aktivieren (verarbeitet die Datei in "
+            f"kleinen Fenstern statt am Stück) und erneut versuchen."
+        )
+    else:
+        hint = (
+            f"Dieses Backend unterstützt keinen Live-Modus — bitte das "
+            f"Default-Backend (ps-pk-onnx) mit aktiviertem Live-Modus wählen "
+            f"oder eine kürzere Datei nutzen."
+        )
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Datei ist {minutes} min lang — für Backend '{backend}' ist die "
+            f"sichere Grenze {limit_min} min (GPU-Speicher). {hint}"
+        ),
+    )
+
+
+def _schedule_peaks(rec_id: int) -> None:
+    """Waveform-Peaks (Mini-Preview für WaveSurfer) direkt nach Upload/Import
+    im Hintergrund berechnen — die Wellenform ist damit SOFORT da, unabhängig
+    von der Transkription (vorher erst nach erfolgreichem Transcribe; bei
+    langen Dateien, deren Transkription fehlschlug, blieb die Waveform kaputt).
+    Fehler sind bewusst nicht-fatal (nur Log) — das Rendern fällt dann auf
+    WaveSurfers eigenes Decoding zurück.
+    """
+    try:
+        import asyncio
+
+        asyncio.get_running_loop().create_task(_compute_peaks_background(rec_id))
+    except RuntimeError:
+        pass  # kein laufender Loop (z.B. CLI-Kontext) → Peaks kommen beim Transcribe
+
+
+async def _compute_peaks_background(rec_id: int) -> None:
+    try:
+        from sqlmodel import Session as _Session
+
+        from ..crud import get_recording as _gr
+        from ..db import engine as _engine
+        from ..service import _compute_peaks
+
+        with _Session(_engine) as s:
+            rec = _gr(s, rec_id)
+            if rec is None or getattr(rec, "waveform_peaks", None):
+                return
+            peaks = _compute_peaks(Path(rec.stored_path).read_bytes())
+            if peaks:
+                rec.waveform_peaks = peaks
+                s.add(rec)
+                s.commit()
+    except Exception:
+        log.exception("peaks: background compute failed for rec_id=%s", rec_id)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -224,50 +321,19 @@ def _guess_mime(stored_path: str, stored_mime: str) -> str:
 
 
 def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, str, str | None]:
-    """Convert any audio format to 16kHz 16bit mono WAV via ffmpeg.
+    """Immer-Konvertierung nach 16-kHz-mono-WAV via ffmpeg (pipe).
 
     Returns (audio_bytes, final_extension, conversion_note).
-    Always converts — WebM/Opus from mic recordings need it for the ASR
-    service, and a uniform WAV store avoids surprises.
-    If conversion fails, raises HTTPException.
-    """
-    ext = Path(original_name).suffix.lower()
 
-    # Try ffmpeg conversion
-    log.info("Converting %s to WAV", original_name)
+    Seit 2026-08-14 wird das NUR noch für exotische Upload-Formate und für
+    Backends ohne Compressed-Support (on-the-fly beim Transkribieren)
+    genutzt — native Formate (MP3/OGG/…) gehen unkonvertiert in den Store.
+    Fehler → HTTPException 400.
+    """
     try:
-        proc = subprocess.run(
-            [
-                "ffmpeg", "-y", "-nostdin",
-                "-i", "pipe:0",
-                "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
-                "-f", "wav",
-                "pipe:1",
-            ],
-            input=raw,
-            capture_output=True,
-            timeout=120,
-        )
-        if proc.returncode != 0:
-            err = proc.stderr.decode("utf-8", errors="replace")[:500]
-            raise HTTPException(
-                status_code=400,
-                detail=f"Konnte {original_name} nicht konvertieren: {err}",
-            )
-        out = proc.stdout
-        if not out:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Konnte {original_name} nicht konvertieren: leere Ausgabe",
-            )
-        log.info("Converted %s: %d → %d bytes", original_name, len(raw), len(out))
-        note = f"(konvertiert von {ext or 'unbekannt'} nach WAV)"
-        return out, ".wav", note
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Konvertierung von {original_name} abgebrochen (länger als 120s)",
-        )
+        return convert_to_wav_16k_mono(raw, original_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -317,18 +383,20 @@ async def upload_recording(
             "recording": _recording_to_dict(existing),
         }
 
-    # Convert non-browser formats to WAV
-    audio_data, new_ext, conv_note = _convert_to_wav_if_needed(raw, file.filename)
+    # Storage-Policy (2026-08-14): native Formate (MP3/OGG/WebM/…) werden
+    # UNKONVERTIERT gespeichert — WaveSurfer (Browser) und die ASR-Backends
+    # (ffmpeg-Decode) können sie nativ. Nur exotische Formate → 16-kHz-mono-WAV.
+    audio_data, new_ext, conv_note = prepare_storage(raw, file.filename)
 
     stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
     stored.write_bytes(audio_data)
 
     recorded_at, source = parse_whatsapp(file.filename)
 
-    # Estimate duration from file size (rough, for ETA display).
-    # 16kHz/16bit = 32000 bytes/sec; compressed audio is smaller,
-    # so this is a conservative overestimate.
-    est_duration_s = len(audio_data) / 16000 if new_ext == ".wav" else len(raw) / 8000
+    # Exakte Dauer via ffprobe — Grundlage für die VRAM-Prognose und die ETA.
+    # Die alte Größen-Schätzung (len/8000) war bei 128-kbps-MP3 um Faktor 2
+    # daneben und hätte die Long-Audio-Grenze falsch ausgelöst.
+    est_duration_s = probe_duration_s(audio_data, fallback_estimate=len(raw) / 8000)
 
     # Task B5: harte Limits für anonyme User (Dauer, Upload-Größe, Disk-Quota)
     uid = _current_user(request, session)
@@ -367,6 +435,8 @@ async def upload_recording(
         content_hash=content_hash,
         user_id=uid,
     )
+    if rec.id is not None:
+        _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
     return _recording_to_dict(rec)
 
 
@@ -630,6 +700,8 @@ def transcribe_ep(
     backend = backend or settings.POLYSCHNACK_DEFAULT_BACKEND
     # Nicht-Default-Backends: Anon nur wenn laufend, Admin → Auto-Start (409/503 sonst)
     ensure_backend_available(backend, request)
+    # VRAM-Prognose: zu lange Datei → 409 mit Live-Modus-Hinweis BEVOR es zum OOM kommt
+    _check_long_audio(backend, rec)
     try:
         position = queue_manager.enqueue(
             int(rec.id), uid, backend,
@@ -726,6 +798,8 @@ def retranscribe(
     backend = params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND
     # Nicht-Default-Backends: Anon nur wenn laufend, Admin → Auto-Start (409/503 sonst)
     ensure_backend_available(backend, request)
+    # VRAM-Prognose: zu lange Datei → 409 mit Live-Modus-Hinweis BEVOR es zum OOM kommt
+    _check_long_audio(backend, rec)
     try:
         position = queue_manager.enqueue(
             int(rec.id), uid, backend,

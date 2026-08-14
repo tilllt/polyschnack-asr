@@ -206,6 +206,7 @@ def update_result(
     rec.processing_ms = processing_ms
     rec.error = error
     rec.progress_pct = progress_pct
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)
     if waveform_peaks is not None:
         rec.waveform_peaks = waveform_peaks
     session.add(rec)
@@ -306,6 +307,7 @@ def set_progress(session: Session, rec_id: int, pct: int, note: Optional[str] = 
     rec = session.get(Recording, rec_id)
     if rec:
         rec.progress_pct = pct
+        rec.updated_at = dt.datetime.now(dt.timezone.utc)
         if note is not None:
             rec.progress_note = note
         session.add(rec)

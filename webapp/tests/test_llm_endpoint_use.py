@@ -121,6 +121,7 @@ def test_service_passes_user_credentials(db, monkeypatch):
     class _FakeClient:
         class _Caps:
             streaming = False
+            accepts_compressed = True  # Default-Backend (ps-pk-onnx) dekodiert MP3 nativ
 
         capabilities = _Caps()
 

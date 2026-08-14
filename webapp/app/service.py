@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 from . import asr_client, crud
 from .asr_client import get_client
+from .audio_utils import convert_to_wav_16k_mono
 from .config import settings
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
@@ -481,6 +482,14 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         # Run ASR (batched sync or SSE streaming)
         client = get_client(backend)
+        # Storage ist seit 2026-08-14 nativ (MP3/OGG/…). Backends ohne
+        # Compressed-Support (CrispASR-Familie) bekommen eine 16-kHz-mono-WAV
+        # on-the-fly — der Store bleibt trotzdem im Originalformat.
+        if (not getattr(client.capabilities, "accepts_compressed", False)
+                and audio_path.suffix.lower() != ".wav"):
+            log.info("Converting %s → 16k mono WAV for backend %s",
+                     audio_path.name, backend)
+            audio_bytes, _, _ = convert_to_wav_16k_mono(audio_bytes, audio_path.name)
         if enable_streaming and client.capabilities.streaming:
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
@@ -500,7 +509,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 on_chunk=_on_chunk,
             )
             with Session(engine) as session:
-                set_progress(session, rec_id, 80)
+                # 95 statt 80: 80 war der Endwert der Streaming-Skala und wirkte
+                # bei abgerissenen Streams wie ein Dauer-Hang. 95 signalisiert
+                # „ASR fertig, Nachbearbeitung läuft" (konsistent zum Batch-Pfad).
+                set_progress(session, rec_id, 95)
         else:
             def _on_progress(pct: int):
                 with Session(engine) as s:

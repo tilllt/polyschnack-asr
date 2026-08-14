@@ -54,6 +54,13 @@ class Recording(SQLModel, table=True):
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
+    #: Letztes Update (Progress/Status) — Basis für den Stale-Processing-
+    #: Watchdog: Recordings, deren Verarbeitung hängt/gekillt wurde (z.B.
+    #: Container-OOM), bleiben bei status="processing" und frischem updated_at
+    #: stehen → Sweep markiert sie nach Ablauf der Grenze als failed.
+    updated_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
 
     # --- post-processing flags ---
     #: User opted into VAD silence trimming for this recording.

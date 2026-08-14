@@ -13,6 +13,14 @@ export interface WaveSurferHandle {
 
 interface Props {
   audioUrl: string;
+  /** Server-berechnete Peak-Envelope (2000 Werte) — WaveSurfer rendert damit
+   * SOFORT, ohne die Audiodatei zu dekodieren (Mini-Preview). Ohne Peaks
+   * muss WaveSurfer die ganze Datei laden → bei langen Aufnahmen langsam
+   * oder Timeout („Waveform data corrupted"). */
+  peaks?: number[] | null;
+  /** Exakte Dauer in Sekunden — nötig, damit WaveSurfer mit Peaks die
+   * Timeline korrekt skaliert, ohne die Datei erst zu dekodieren. */
+  durationHint?: number | null;
   onRegionChange?: (start: number, end: number) => void;
   onTimeUpdate?: (time: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
@@ -23,7 +31,7 @@ interface Props {
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
@@ -85,7 +93,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       }
 
       try {
-        ws.load(audioUrl);
+        // Peaks + Dauer vom Server → Waveform rendert sofort (Mini-Preview),
+        // ohne die komplette Audiodatei im Browser zu dekodieren. WaveSurfer
+        // erwartet peaks als Array-of-Channels: [peaks] = Mono. Nur wenn BEIDE
+        // da sind (ohne durationHint kann WaveSurfer die Timeline nicht
+        // skalieren — dann lieber selbst dekodieren).
+        const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
+        ws.load(
+          audioUrl,
+          hasPeaks ? [peaks as number[]] : undefined,
+          hasPeaks ? (durationHint as number) : undefined,
+        );
       } catch (e) {
         setError(true);
         setReady(true);

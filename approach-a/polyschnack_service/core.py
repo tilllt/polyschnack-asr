@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Dict, List, Tuple
 import numpy as np
 
 from .chunker import ChunkWindow, plan_chunks, slice_chunks
-from .config import TARGET_SR, logger
+from .config import MAX_WINDOWS_IN_FLIGHT, TARGET_SR, logger
 
 # Seam-dedup constants (achetronic seam.go: 3 frames x 80 ms = 240 ms tolerance,
 # keep at most 3 tail words for comparison).
@@ -297,12 +297,22 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
 
     Long audio is processed in overlapping windows (achetronic-style); each
     window's emit region is stitched gap-free and seams are deduplicated.
+
+    VRAM-Fix (2026-08-14): die Fenster werden NICHT mehr alle auf einmal an
+    den Worker geschickt (das ließ im BatchWorker bis zu
+    MAX_BATCH_SIZE × Fenster-Audio in einem ORT-Lauf aktiv werden → CUDA OOM
+    bei langen Dateien). MAX_WINDOWS_IN_FLIGHT (Default 1) begrenzt die
+    gleichzeitigen Inferenzen pro Request: der VRAM-Bedarf ist damit konstant
+    und unabhängig von der Dateilänge. Cross-Request-Batching des Workers
+    bleibt unberührt.
     """
     duration = wav.size / TARGET_SR
     windows = plan_chunks(wav)
     pieces = slice_chunks(wav, windows)
     t1 = time.perf_counter()
     total = len(pieces)
+    max_in_flight = max(1, MAX_WINDOWS_IN_FLIGHT)
+    sem = asyncio.Semaphore(max_in_flight)
 
     async def _track():
         nonlocal done
@@ -310,9 +320,14 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
         if progress_callback:
             await progress_callback(done, total)
 
+    async def _submit(piece):
+        async with sem:
+            return await worker.submit(piece, model_name)
+
     done = 0
-    # Use ensure_future so we get Task objects with add_done_callback
-    futures = [asyncio.ensure_future(worker.submit(p, model_name)) for p in pieces]
+    # ensure_future → Task-Objekte mit add_done_callback (Progress-Tracking);
+    # der Semaphor begrenzt, wie viele davon gleichzeitig wirklich rechnen.
+    futures = [asyncio.ensure_future(_submit(p)) for p in pieces]
     for f in futures:
         f.add_done_callback(lambda _: asyncio.ensure_future(_track()))
     results = await asyncio.gather(*futures)
@@ -320,8 +335,9 @@ async def transcribe_wav(worker, wav: np.ndarray, model_name: str,
     out = stitch(windows, results)
     out["duration"] = duration
     out["chunks"] = total
-    logger.info("transcribe_wav model=%s dur=%.2fs chunks=%d infer=%.0fms",
-                model_name, duration, total, infer_ms)
+    logger.info("transcribe_wav model=%s dur=%.2fs chunks=%d infer=%.0fms "
+                "(max_in_flight=%d)",
+                model_name, duration, total, infer_ms, max_in_flight)
     return out
 
 

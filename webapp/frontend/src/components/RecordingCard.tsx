@@ -160,6 +160,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // reachable === null (Proxy down) → nur Default bleibt übrig (immer true).
   const availableBackends = filterAvailableBackends(matrix, isAdmin);
 
+  // Streaming/Live-Fähigkeit je Backend aus der Feature-Matrix — der Live-
+  // Toggle erscheint nur, wenn das gewählte Backend Streaming kann (sonst
+  // würde der Modus im Backend still ignoriert). Default ("" = ps-pk-onnx)
+  // kann Streaming.
+  const streamingByBackend: Record<string, boolean> = { "": true };
+  for (const b of matrix) {
+    streamingByBackend[b.backend] = !!b.streaming;
+  }
+  const streamingSupported = streamingByBackend[feat.backend] ?? false;
+
   async function handleStartTranscription(id: string) {
     try {
       await startTranscription(
@@ -462,6 +472,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         <WaveformPlayer
           ref={wsRef}
           audioUrl={r.audio_url}
+          peaks={r.waveform_peaks}
+          durationHint={r.duration_s}
           onTimeUpdate={handleTimeUpdate}
           onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
           onLoadError={() => setWaveformError(true)}
@@ -503,6 +515,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <FeatureToggles
               values={feat}
               backends={availableBackends}
+              streamingSupported={streamingSupported}
+              streamingByBackend={streamingByBackend}
               flags={flags}
               pp={{ templates, targets, endpoints, isOidc }}
               onChange={(p) => setFeat((f) => ({ ...f, ...p }))}

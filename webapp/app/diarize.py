@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -80,6 +81,12 @@ def diarize(
     url = f"{settings.DIAR_URL.rstrip('/')}/v1/audio/transcriptions"
     with open(audio_path, "rb") as f:
         audio_bytes = f.read()
+    # Storage ist nativ (MP3/OGG/…) — der CrispASR-diar-Service bekommt eine
+    # 16-kHz-mono-WAV on-the-fly (gleiche Policy wie bei den ASR-Backends).
+    if Path(audio_path).suffix.lower() != ".wav":
+        from ..audio_utils import convert_to_wav_16k_mono
+
+        audio_bytes, _, _ = convert_to_wav_16k_mono(audio_bytes, Path(audio_path).name)
 
     data: Dict[str, Any] = {
         "response_format": "diarized_json",

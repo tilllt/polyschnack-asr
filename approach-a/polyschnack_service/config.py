@@ -114,8 +114,20 @@ TARGET_SR = 16_000
 # Each window covers CHUNK_SECONDS and shares CHUNK_OVERLAP_SECONDS with its
 # neighbours; the shared overlap gives the encoder context and is split at a
 # silence boundary (VAD -> mel-energy -> midpoint cascade), see chunker.py.
-CHUNK_SECONDS = float(_getenv("CHUNK_SECONDS", "300"))
+# Default 120 s: der alte 300-s-Default ließ im BatchWorker bis zu
+# MAX_BATCH_SIZE × 300 s Audio in EINEM ORT-Lauf aktiv werden → CUDA OOM
+# auf 24-GB-Karten (User-Befund 2026-08-14, 150-min-MP3). 120 s = sichere
+# Fenstergröße (alter Code capped bei 150 s) mit weiterhin viel Kontext.
+CHUNK_SECONDS = float(_getenv("CHUNK_SECONDS", "120"))
 CHUNK_OVERLAP_SECONDS = float(_getenv("CHUNK_OVERLAP_SECONDS", "15"))
+
+# Wie viele Chunk-Fenster EIN Request maximal gleichzeitig im Inferenz-Worker
+# haben darf. Default 1: der Batch-Pfad (transcribe_wav) schickte ALLE Fenster
+# auf einmal an den BatchWorker → VRAM skalierte mit der Dateilänge (OOM bei
+# langen Aufnahmen). Mit 1 ist der VRAM-Bedarf pro Request konstant
+# (unabhängig von der Dateidauer); Cross-Request-Batching (max_batch) bleibt
+# davon unberührt und begrenzt die globale Spitze.
+MAX_WINDOWS_IN_FLIGHT = int(_getenv("MAX_WINDOWS_IN_FLIGHT", "1"))
 
 # VAD parameters (Silero)
 VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", "0.5"))

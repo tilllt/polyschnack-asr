@@ -114,6 +114,7 @@ def test_transcribe_with_target_sets_pending(db, qm):
 class _FakeClient:
     class _Caps:
         streaming = False
+        accepts_compressed = True  # Default-Backend (ps-pk-onnx) dekodiert MP3 nativ
 
     capabilities = _Caps()
 
@@ -186,6 +187,55 @@ def test_service_runs_template_and_delivers(db, monkeypatch):
         assert delivered == [1]
         kinds = [v.kind for v in list_versions(s, 1)]
         assert "transcribe" in kinds and "postprocess" in kinds
+
+
+def test_service_konvertiert_fuer_backend_ohne_compressed(db, monkeypatch):
+    """Native Storage + CrispASR-Backend (kein Compressed-Support): die Webapp
+    konvertiert on-the-fly zu 16-kHz-mono-WAV VOR dem Senden — der Store
+    bleibt im Originalformat (2026-08-14)."""
+    from app import service as service_mod
+    from app import queue as queue_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    monkeypatch.setattr(queue_mod.crud, "get_recording",
+                        lambda s, rid: s.get(Recording, rid))
+    monkeypatch.setattr(service_mod.crud, "update_result", _fake_update_result)
+    monkeypatch.setattr(service_mod.crud, "set_progress",
+                        lambda session, rec_id, pct, note=None: None)
+    monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
+
+    received = {}
+
+    class _NoCompressClient:
+        class _Caps:
+            streaming = False
+            accepts_compressed = False  # CrispASR-Familie
+
+        capabilities = _Caps()
+
+        def transcribe_async(self, audio_bytes, filename, mime, noise_reduce=True,
+                             on_progress=None):
+            received["bytes"] = audio_bytes
+            received["filename"] = filename
+            return {"text": "T", "duration": 1.0, "language": "de",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "T"}]}
+
+    monkeypatch.setattr(service_mod, "get_client", lambda backend: _NoCompressClient())
+
+    converted = {}
+
+    def fake_convert(raw, name):
+        converted["raw"] = raw
+        converted["name"] = name
+        return b"WAVBYTES", ".wav", "(konvertiert)"
+
+    monkeypatch.setattr(service_mod, "convert_to_wav_16k_mono", fake_convert)
+
+    service_mod.process_recording(1, backend="crispr-ark")
+
+    assert converted["raw"] == b"MP3"       # Original aus dem Store (a.mp3)
+    assert converted["name"] == "a.mp3"
+    assert received["bytes"] == b"WAVBYTES"  # Backend bekam die konvertierte WAV
 
 
 def test_service_delivery_failure_marks_failed(db, monkeypatch):

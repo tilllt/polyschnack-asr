@@ -41,6 +41,13 @@ export interface PostProcessOptions {
 interface Props {
   values: FeatureValues;
   backends: string[]; // verfügbare Backend-Namen (Matrix, status active)
+  /** Ob das AKTUELL gewählte Backend Streaming/Live unterstützt (aus der
+   * Feature-Matrix). false → Live-Toggle wird ausgeblendet (Backend würde
+   * den Modus still ignorieren). */
+  streamingSupported?: boolean;
+  /** Streaming-Fähigkeit je Backend-Name — beim Backend-Wechsel wird der
+   * Live-Wert zurückgesetzt, wenn das neue Backend kein Streaming kann. */
+  streamingByBackend?: Record<string, boolean>;
   flags?: { vad?: boolean; diarize?: boolean };
   pp?: PostProcessOptions;
   onChange: (patch: Partial<FeatureValues>) => void;
@@ -67,7 +74,7 @@ function MiniToggle({ label, on, disabled, onChange }: {
   );
 }
 
-export function FeatureToggles({ values, backends, flags, pp, onChange }: Props) {
+export function FeatureToggles({ values, backends, streamingSupported, streamingByBackend, flags, pp, onChange }: Props) {
   const { t } = useT();
   const vadOk = flags?.vad ?? true;
   const diarOk = flags?.diarize ?? true;
@@ -127,7 +134,11 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
           </div>
         </details>
       )}
-      <MiniToggle label="⚡ Live" on={values.streaming} onChange={(v) => onChange({ streaming: v })} />
+      {/* Live nur anbieten, wenn das gewählte Backend Streaming kann —
+          sonst würde der Modus im Backend still ignoriert (stiller Fehler). */}
+      {streamingSupported !== false && (
+        <MiniToggle label="⚡ Live" on={values.streaming} onChange={(v) => onChange({ streaming: v })} />
+      )}
       <MiniToggle label="🔇 NR" on={values.noise} onChange={(v) => onChange({ noise: v })} />
       <select
         value={values.enhance}
@@ -142,7 +153,14 @@ export function FeatureToggles({ values, backends, flags, pp, onChange }: Props)
       {backends.length > 0 && (
         <select
           value={values.backend}
-          onChange={(e) => onChange({ backend: e.target.value })}
+          onChange={(e) => {
+            const b = e.target.value;
+            // Backend ohne Streaming → Live-Wert zurücksetzen (sonst würde
+            // der Modus still ignoriert).
+            const patch: Partial<FeatureValues> = { backend: b };
+            if (streamingByBackend?.[b] === false) patch.streaming = false;
+            onChange(patch);
+          }}
           className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
           title={t("backend")}
         >

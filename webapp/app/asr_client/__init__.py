@@ -40,6 +40,10 @@ class BackendCapabilities:
     #: --punc-model) — die Webapp darf dann KEINE LLM-Punctuation
     #: nachschalten (sonst doppelte/konkurrierende Interpunktion).
     native_punctuation: bool = False
+    #: Backend kann komprimierte Formate (MP3/OGG/…) direkt dekodieren
+    #: (approach-a dekodiert via ffmpeg). False → die Webapp konvertiert
+    #: vor dem Senden on-the-fly zu 16-kHz-mono-WAV (CrispASR-Familie).
+    accepts_compressed: bool = False
 
 
 # ============================================================

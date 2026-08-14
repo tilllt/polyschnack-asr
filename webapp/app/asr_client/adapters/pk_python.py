@@ -25,6 +25,7 @@ class PkPythonClient(AsrClient):
         languages=["de", "en"],
         device=["gpu", "cpu"],
         label="ps-pk-onnx",
+        accepts_compressed=True,  # approach-a dekodiert MP3/OGG/… via ffmpeg
     )
 
     def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None) -> None:
@@ -77,7 +78,7 @@ class PkPythonClient(AsrClient):
             "noise_reduce": "true" if noise_reduce else "false",
         }
 
-        with httpx.Client(timeout=3600) as client:
+        with httpx.Client(timeout=httpx.Timeout(3600, read=300)) as client:
             with client.stream(
                 "POST",
                 f"{self.url}/v1/audio/transcriptions/stream",

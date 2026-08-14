@@ -74,11 +74,12 @@ def client(db, monkeypatch, tmp_path):
 
 @pytest.fixture()
 def patch_ytdlp(monkeypatch):
-    """Mockt subprocess.run im url_import-Modul (echte WAV im Tmpdir).
+    """Mockt subprocess.run im url_import-Modul (echte Datei im Tmpdir).
 
     Nur yt-dlp-Aufrufe (erkennbar an `-o`) werden simuliert. Die
-    ffmpeg-Konvertierung (_convert_to_wav_if_needed) wird durch einen
-    pure-Python-Fake ersetzt — der CI-Test-Container hat KEIN ffmpeg.
+    Storage-Policy (prepare_storage) wird durch einen pure-Python-Fake
+    ersetzt — der CI-Test-Container hat KEIN ffmpeg. Der Fake bildet die
+    native Policy ab: Datei unverändert zurück, Endung aus dem Namen.
     """
     import app.routers.url_import as url_import_mod
 
@@ -113,8 +114,16 @@ def patch_ytdlp(monkeypatch):
         return r
 
     monkeypatch.setattr(url_import_mod.subprocess, "run", fake_run)
-    monkeypatch.setattr(url_import_mod, "_convert_to_wav_if_needed", _fake_convert)
+    monkeypatch.setattr(url_import_mod, "prepare_storage", _fake_prepare_storage)
     return url_import_mod
+
+
+def _fake_prepare_storage(raw: bytes, original_name: str):
+    """Ersatz für prepare_storage OHNE ffmpeg: Datei unverändert behalten
+    (native Policy — der Store akzeptiert MP3/OGG/WAV/… direkt)."""
+    from pathlib import Path as _P
+
+    return raw, _P(original_name).suffix.lower(), None
 
 
 def _fake_convert(raw: bytes, original_name: str):
@@ -221,32 +230,35 @@ def test_from_url_regression_stdout_zeigt_mp4_statt_wav(client, patch_ytdlp):
 
 
 def test_from_url_kein_print_kein_stdout_aber_wav(client, patch_ytdlp):
-    """Ohne --print ist stdout leer; die WAV-Erkennung läuft per glob."""
+    """Ohne --print ist stdout leer; die Datei-Erkennung läuft per iterdir."""
     _stdout["v"] = ""
     res = _post(client)
     assert res.status_code == 201, res.text
 
 
-def test_from_url_konvertiert_auf_16khz_mono(client, patch_ytdlp, tmp_path):
-    """Corrupt-audio-Fix: yt-dlp liefert 44.1/48 kHz (Stereo) — die
-    gespeicherte Datei MUSS 16 kHz mono sein (ASR/Peaks/WaveSurfer)."""
+def test_from_url_kein_wav_zwang_mehr(client, patch_ytdlp, tmp_path):
+    """Native-Storage-Policy (2026-08-14): yt-dlp liefert 44.1 kHz Stereo —
+    die Datei wird UNKONVERTIERT gespeichert (WaveSurfer/ASR können das
+    nativ; Konvertierung passiert nur noch bei Bedarf beim Transkribieren)."""
     import wave
 
     _wav["v"] = _make_wav_44k1_stereo()  # realistischer yt-dlp-Output
+    _wav_name["v"] = "audio.wav"
     res = _post(client)
     assert res.status_code == 201, res.text
+    assert res.json()["mime"] == "audio/wav"
 
     audio_dir = tmp_path / "audio"
     stored = sorted(audio_dir.glob("*.wav"))
     assert len(stored) == 1
     with wave.open(str(stored[0]), "rb") as w:
-        assert w.getframerate() == 16000
-        assert w.getnchannels() == 1
+        assert w.getframerate() == 44100  # Original bleibt, kein 16-kHz-Zwang
+        assert w.getnchannels() == 2
         assert w.getsampwidth() == 2
 
 
-def test_from_url_ytdlp_erzeugt_keine_wav_400(client, patch_ytdlp):
-    """Der Produktionsbug: yt-dlp lädt zwar, aber es entsteht keine WAV
+def test_from_url_ytdlp_erzeugt_keine_datei_400(client, patch_ytdlp):
+    """Der Produktionsbug: yt-dlp lädt zwar, aber es entsteht keine Datei
     (--print unterdrückte die Extraktion) → 400 OHNE yt-dlp-Log."""
     _wav["v"] = None
     res = _post(client)
@@ -302,10 +314,11 @@ def test_from_url_ytdlp_fehlend_500(client, patch_ytdlp):
 
 def test_from_url_uebergibt_enable_flags(client, patch_ytdlp):
     _post(client)
-    # subprocess-Aufruf enthält -f ba/b und --audio-format wav
+    # subprocess-Aufruf enthält -f ba/b; seit 2026-08-14 KEIN --audio-format
+    # mehr (natives Format wird behalten statt WAV-Re-Encode)
     args = patch_ytdlp._last_args
     assert "-f" in args and args[args.index("-f") + 1] == "ba/b"
-    assert "--audio-format" in args and args[args.index("--audio-format") + 1] == "wav"
+    assert "--audio-format" not in args
     assert "--no-playlist" in args
     assert "--print" not in args
 

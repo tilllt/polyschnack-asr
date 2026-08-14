@@ -140,6 +140,8 @@ def _vram_free_gb():
 
 @router.get("/health")
 def health():
+    from .config import CHUNK_SECONDS, CHUNK_OVERLAP_SECONDS, MAX_BATCH_SIZE, MAX_WINDOWS_IN_FLIGHT
+
     return {
         "status": "ok",
         "model": DEFAULT_MODEL,
@@ -148,6 +150,15 @@ def health():
         "loaded": loaded_models(),
         "cpu": CPU_INFO,
         "resources": {"vram_free_gb": _vram_free_gb()},
+        # Long-Audio-Profil — die Webapp nutzt das für die VRAM-Prognose
+        # (sicherer Batch-Betrieb: VRAM-Bedarf skaliert mit der Fenstergröße,
+        # nicht mit der Dateilänge).
+        "asr": {
+            "chunk_seconds": CHUNK_SECONDS,
+            "chunk_overlap_seconds": CHUNK_OVERLAP_SECONDS,
+            "max_batch_size": MAX_BATCH_SIZE,
+            "max_windows_in_flight": MAX_WINDOWS_IN_FLIGHT,
+        },
     }
 
 

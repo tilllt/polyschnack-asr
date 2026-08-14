@@ -36,6 +36,12 @@ services:
     model: parakeet-tdt-0.6b-v3-onnx
     health_url: ""
     requires: {vram_gb: 6, ram_gb: 8, disk_gb: 5}
+    # VRAM-Prognose (2026-08-14): sichere Dauer-Obergrenze pro Backend.
+    # ps-pk-onnx chunkt in 120-s-Fenstern mit begrenzter Nebenläufigkeit —
+    # der VRAM-Bedarf skaliert NICHT mit der Dateilänge, 6 h sind daher
+    # eine großzügige Queue-Grenze. streaming_advice=true → Live-Modus als
+    # Empfehlung, wenn die Grenze überschritten wird.
+    long_audio: {max_safe_duration_s: 21600, streaming_advice: true}
     capabilities:
       word_timestamps: true
       streaming: true
@@ -58,6 +64,7 @@ services:
     concurrency: 1
     model: parakeet-tdt-0.6b-v3-q8_0.gguf
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # gleiches Modell wie ps-pk-onnx, Timestamps modell-inhärent
       streaming: false
@@ -80,6 +87,7 @@ services:
     concurrency: 1
     model: qwen3-asr-0.6b-q8_0.gguf + forced-aligner
     requires: {vram_gb: 3, ram_gb: 6, disk_gb: 4}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # via forced aligner
       streaming: false
@@ -102,6 +110,7 @@ services:
     concurrency: 1
     model: ark-asr-3b-q8_0.gguf
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json liefert word-level
       streaming: false
@@ -124,6 +133,7 @@ services:
     concurrency: 1
     model: Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)
     requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: true}
     capabilities:
       word_timestamps: "verify"      # Mistral: nicht für Timestamps trainiert (vermutlich False)
       streaming: true                # Realtime-Modell: 1 Token je 80-ms-Frame
@@ -155,6 +165,7 @@ services:
     concurrency: 1
     model: moonshine-base-de-fidoriel-q4_k.gguf (61.5M, DE-Spezial, 6.9% WER CV22-de)
     requires: {vram_gb: 1, ram_gb: 2, disk_gb: 1}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1
       streaming: false
@@ -177,6 +188,7 @@ services:
     concurrency: 1
     model: canary-1b-v2-q4_k.gguf (multilingual EN/DE/FR/ES)
     requires: {vram_gb: 2, ram_gb: 4, disk_gb: 2}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:
       word_timestamps: true   # CrispASR verbose_json, -ml 1
       streaming: false

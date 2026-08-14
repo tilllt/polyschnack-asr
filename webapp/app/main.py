@@ -100,8 +100,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("diarization (CrispASR-diar): %s", "✓ reachable" if diar_ok else "✗ NOT reachable — container 'diar' prüfen")
 
     # --- Task B4: Retention-Sweep für anonyme Sessions (alle 5 min) ---
+    # Im selben Loop: Stale-Processing-Watchdog (hängende Transkriptionen,
+    # z.B. nach Container-OOM oder abgerissener SSE-Verbindung → failed).
     import threading
     from .retention import sweep
+    from .stale_jobs import sweep_stale_processing
 
     _sweep_stop = threading.Event()
 
@@ -113,6 +116,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     n = sweep(session)
                     if n:
                         log.info("retention sweep: %d anon user(s) deleted", n)
+                    stale = sweep_stale_processing(session)
+                    if stale:
+                        log.info("stale sweep: %d hängende Transkription(en) als failed markiert", stale)
             except Exception:
                 log.exception("retention sweep failed")
 
