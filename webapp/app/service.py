@@ -230,6 +230,18 @@ def _compute_peaks(audio_bytes: bytes) -> list:
     from .peaks import compute_peaks
     return compute_peaks(audio_bytes)
 
+
+def _compute_peaks_path(path) -> list:
+    """Peaks direkt von der Datei (ffmpeg liest -i <pfad> statt pipe:0).
+
+    Für große Audiodateien — die Bytes-Variante lädt das komplette Audio in
+    den RAM und blockiert beim stdin.write (Deadlock, OOM-Kill bei 357-MB-
+    Files, s. peaks.compute_peaks_path). Der Background-Thread (schedule_
+    peaks) nutzt deshalb den Pfad-Weg.
+    """
+    from .peaks import compute_peaks_path
+    return compute_peaks_path(path)
+
 _VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false").lower() in ("true", "1", "yes")
 _ENHANCE_LEVEL = os.getenv("ENHANCE_LEVEL", "off")  # off, light, medium, aggressive
 

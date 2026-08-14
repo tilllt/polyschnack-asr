@@ -38,7 +38,7 @@ def test_schedule_peaks_thread_auch_ohne_event_loop(tmp_path, eng, monkeypatch):
         s.commit()
         rid = rec.id
 
-    monkeypatch.setattr(svc, "_compute_peaks", lambda data: [0.25, 0.5, 0.75])
+    monkeypatch.setattr(svc, "_compute_peaks_path", lambda path: [0.25, 0.5, 0.75])
 
     # Aus einem Plain-Thread aufrufen — genau wie der Starlette-Threadpool:
     # dort existiert kein asyncio-Event-Loop.
@@ -85,13 +85,13 @@ def test_schedule_peaks_inflight_guard_kein_doppelthread(tmp_path, eng, monkeypa
 
     gate = _th.Event()
 
-    def slow_peaks(data: bytes):  # blockiert bis Gate geoeffnet
+    def slow_peaks(path):  # blockiert bis Gate geoeffnet
         calls.append("start")
         gate.wait(timeout=5)
         calls.append("end")
         return [1.0]
 
-    monkeypatch.setattr(svc, "_compute_peaks", slow_peaks)
+    monkeypatch.setattr(svc, "_compute_peaks_path", slow_peaks)
 
     rec_routes._schedule_peaks(rid)
     rec_routes._schedule_peaks(rid)  # zweiter Aufruf: Guard greift
