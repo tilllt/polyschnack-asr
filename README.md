@@ -346,6 +346,27 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 | `--profile crispr-moonshine-de` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d` | + crispr-moonshine-de | ✅ |
 | `--profile crispr-canary` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d` | + crispr-canary | ✅ |
 
+### Backends aktivieren/deaktivieren (mit `polyschnack-manage.sh`)
+
+Das Manage-Skript provisioniert standardmäßig **alle** optionalen Backends.
+Die aktive Auswahl steuert `POLYSCHNACK_BACKENDS` in der `.env` neben dem
+Skript (Space-getrennt, gültig: `pk-cpp qwen3 ark moonshine-de canary`):
+
+```bash
+# .env neben polyschnack-manage.sh
+POLYSCHNACK_BACKENDS="pk-cpp qwen3"   # nur diese zwei Backends
+```
+
+Nur aktive Backends werden provisioniert (Profile) und ihre Modelle geladen.
+`./polyschnack-manage.sh status` zeigt die aktive Auswahl an.
+
+> **Wichtig:** Nach dem Aktivieren eines Backends (`POLYSCHNACK_BACKENDS`
+> erweitert) einmal `./polyschnack-manage.sh models` ausführen (oder direkt
+> `update`) — die GGUF-Modelle liegen nicht im Image, sondern im gemeinsamen
+> Ordner `./DATA/models` und fehlen sonst beim Start (Backend crasht mit
+> „failed to open GGUF file"). `models` lädt nur die Modelle aktiver
+> Backends und überspringt vorhandene Dateien.
+
 ### Adapter-URLs (jedes Backend hat seine eigene!)
 
 Das Backend wird über die Adapter-Auswahl gesteuert — **jeder Adapter hat

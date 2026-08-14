@@ -18,7 +18,14 @@
 #   down        Entfernt die Container (Volumes bleiben erhalten).
 #   status      Zeigt den Zustand aller Services (docker compose ps).
 #   logs [SVC]  Folgt den Logs (alle Services oder nur SVC).
-#   update      git pull + pull + start  (kompletter Deploy-Workflow).
+#   models      Laedt fehlende GGUF-Modelle der AKTIVEN Backends nach
+#               ./DATA/models (idempotent). Aktive Backends steuert
+#               POLYSCHNACK_BACKENDS in .env (Default: alle; gueltig:
+#               pk-cpp qwen3 ark moonshine-de canary). Nach dem Aktivieren
+#               eines Backends models (oder update) ausfuehren — die
+#               Backends mounten ./DATA/models als /models und starten
+#               ohne ihre Modelle nicht.
+#   update      git pull + pull + models + start  (kompletter Deploy-Workflow).
 #   selfupdate  Aktualisiert DIESES Skript aus dem Repo (GitLab-API, Token
 #               aus POLYSCHNACK_GITLAB_TOKEN oder .env daneben).
 #   help        Diese Hilfe.
@@ -40,13 +47,30 @@ if [ -z "${REGISTRY:-}" ] && [ -f .env ]; then
     export REGISTRY
 fi
 COMPOSE=(docker compose -f compose.yml -f compose.backends.yml)
-PROFILES=(
-    --profile crispr-pk-cpp
-    --profile crispr-qwen3
-    --profile crispr-ark
-    --profile crispr-moonshine-de
-    --profile crispr-canary
-)
+
+# --- Optionale Backends: welche sind aktiv? ---------------------------------
+# Default: alle. Steuerbar per POLYSCHNACK_BACKENDS in .env (Space-getrennt):
+#   POLYSCHNACK_BACKENDS="pk-cpp qwen3"
+# Gueltige Namen: pk-cpp qwen3 ark moonshine-de canary.
+# Nur aktive Backends werden provisioniert (Profile) und ihre Modelle gezogen
+# (./polyschnack-manage.sh models). Neu aktivierte Backends brauchen danach
+# ein `models` (oder `update`) — sonst fehlen die GGUFs beim Start.
+BACKENDS_ALL="pk-cpp qwen3 ark moonshine-de canary"
+if [ -z "${POLYSCHNACK_BACKENDS:-}" ] && [ -f .env ]; then
+    POLYSCHNACK_BACKENDS="$(grep -E '^POLYSCHNACK_BACKENDS=' .env | head -1 | cut -d= -f2- | tr -d '\"' )"
+fi
+BACKENDS="${POLYSCHNACK_BACKENDS:-$BACKENDS_ALL}"
+PROFILES=()
+for _b in $BACKENDS; do
+    case "$_b" in
+        pk-cpp)       PROFILES+=(--profile crispr-pk-cpp) ;;
+        qwen3)        PROFILES+=(--profile crispr-qwen3) ;;
+        ark)          PROFILES+=(--profile crispr-ark) ;;
+        moonshine-de) PROFILES+=(--profile crispr-moonshine-de) ;;
+        canary)       PROFILES+=(--profile crispr-canary) ;;
+        *)            echo "! Unbekanntes Backend in POLYSCHNACK_BACKENDS: $_b (gueltig: $BACKENDS_ALL)" >&2 ;;
+    esac
+done
 
 # --- Overlays (nur für Start-Kommandos relevant) ---------------------------
 OVERLAYS=()
@@ -62,6 +86,61 @@ if [ -f compose.oidc.yml ] && ! grep -qE 'dummy|auth\.example\.com|example\.com'
 elif [ -f compose.oidc.yml ]; then
     echo "! compose.oidc.yml enthaelt Dummy-Werte - OIDC uebersprungen"
 fi
+
+# --- Modelle: nur fuer konfigurierte Backends -------------------------------
+# Helper: traegt fehlende Modelle in die Download-Liste ein (idempotent).
+MODELS_SCRIPT=""
+MODEL_FILES=""
+_model_req() {
+    local file="$1" url="$2"
+    if [ -s "DATA/models/$file" ]; then
+        echo "  ok   $file"
+    else
+        echo "  fehlt $file -> lade ..."
+        MODELS_SCRIPT="$MODELS_SCRIPT [ -s /models/$file ] || wget -qO /models/$file '$url' || true;"
+        MODEL_FILES="$MODEL_FILES $file"
+    fi
+}
+
+cmd_models() {
+    mkdir -p DATA/models
+    echo "-> Pruefe Backend-Modelle in ./DATA/models (aktive Backends: $BACKENDS)"
+    MODELS_SCRIPT=""
+    MODEL_FILES=""
+    for _b in $BACKENDS; do
+        case "$_b" in
+            pk-cpp)
+                _model_req parakeet-tdt-0.6b-v3-q8_0.gguf "https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf" ;;
+            qwen3)
+                _model_req qwen3-asr-0.6b-q8_0.gguf "https://huggingface.co/OpenVoiceOS/qwen3-asr-0.6b-q8-0/resolve/main/qwen3-asr-0.6b-q8_0.gguf"
+                _model_req qwen3-forced-aligner-0.6b-f16.gguf "https://huggingface.co/OpenVoiceOS/qwen3-forced-aligner-0.6b-f16/resolve/main/qwen3-forced-aligner-0.6b-f16.gguf" ;;
+            ark)
+                _model_req ark-asr-3b-q8_0.gguf "https://huggingface.co/cstr/ark-asr-3b-GGUF/resolve/main/ark-asr-3b-q8_0.gguf" ;;
+            moonshine-de)
+                echo "  ! moonshine-de: Modell ist CC-BY-NC-SA-4.0 (nicht-kommerziell)"
+                _model_req moonshine-base-de-fidoriel-q4_k.gguf "https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/moonshine-base-de-fidoriel-q4_k.gguf"
+                _model_req tokenizer.bin "https://huggingface.co/cstr/moonshine-base-de-fidoriel-GGUF/resolve/main/tokenizer.bin" ;;
+            canary)
+                _model_req canary-1b-v2-q4_k.gguf "https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf" ;;
+        esac
+    done
+    if [ -n "$MODELS_SCRIPT" ]; then
+        echo "-> Lade fehlende Modelle (einmalig docker run alpine) ..."
+        docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c "$MODELS_SCRIPT ls -lh /models" || true
+    fi
+    local missing=0
+    for f in $MODEL_FILES; do
+        if [ ! -s "DATA/models/$f" ]; then
+            echo "  FEHLER: $f konnte nicht geladen werden (Netz/HuggingFace?)" >&2
+            missing=1
+        fi
+    done
+    if [ "$missing" != 0 ]; then
+        echo "! Modelle unvollstaendig - Start der betroffenen Backends wird fehlschlagen" >&2
+        return 1
+    fi
+    echo "-> Modelle fertig."
+}
 
 cmd_start() {
     "${COMPOSE[@]}" "${OVERLAYS[@]}" up -d
@@ -86,6 +165,10 @@ cmd_status() {
     else
         echo "GPU: NEIN (keine NVIDIA-Runtime — Stack läuft CPU-only)"
     fi
+    echo
+    echo "=== Backends (POLYSCHNACK_BACKENDS) ==="
+    echo "  Aktiv: $BACKENDS"
+    echo "  (Modelle: ./polyschnack-manage.sh models)"
     echo
     echo "=== Container ==="
     "${COMPOSE[@]}" "${PROFILES[@]}" ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null \
@@ -124,6 +207,9 @@ case "$CMD" in
     status|ps)
         "${COMPOSE[@]}" "${PROFILES[@]}" ps
         ;;
+    models)
+        cmd_models
+        ;;
     logs)
         shift
         "${COMPOSE[@]}" "${PROFILES[@]}" logs -f --tail=100 "$@"
@@ -139,6 +225,7 @@ case "$CMD" in
         fi
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
         "${COMPOSE[@]}" "${PROFILES[@]}" pull
+        cmd_models
         cmd_start
         ;;
     selfupdate)

@@ -8,6 +8,18 @@ nur über die Env-Variablen (`CPP_ASR_MODEL`, `DIAR_MODEL`, …) gesteuert.
 Der **diar-Service lädt sein Modell automatisch** beim ersten Start
 (siehe `diar-service/entrypoint.sh`). Für die Backends muss geladen werden:
 
+## Automatisch mit dem Manage-Skript (empfohlen)
+
+`./polyschnack-manage.sh models` lädt **nur die Modelle der aktiven
+Backends** (Auswahl: `POLYSCHNACK_BACKENDS` in `.env`, siehe README
+„Backends aktivieren/deaktivieren"). Vorhandene Dateien werden übersprungen
+(idempotent). `./polyschnack-manage.sh update` ruft das automatisch mit auf.
+
+> **Wichtig:** Für ein neu aktiviertes Backend einmal `models` (oder
+> `update`) ausführen — sonst fehlen die GGUFs beim Start.
+
+Manuell (ohne Manage-Skript) je Backend:
+
 ## parakeet.cpp (~640 MB)
 
 **Dasselbe Modell nutzt auch der diar-Service — nur einmal laden!**
