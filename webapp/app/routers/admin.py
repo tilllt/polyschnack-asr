@@ -10,6 +10,7 @@ Decisions 7 & 8:
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -308,3 +309,43 @@ def put_config(payload: ConfigPut, request: Request) -> Dict[str, Any]:
 def reset_config() -> Dict[str, Any]:
     app_config.delete("default_backend")
     return {"default_backend": settings.POLYSCHNACK_DEFAULT_BACKEND}
+
+
+# ---------------------------------------------------------------------------
+# Wartung: SQLite-VACUUM (Datenschutz — gelöschte Seiten physisch freigeben)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/vacuum")
+def admin_vacuum() -> Dict[str, Any]:
+    """SQLite-VACUUM — kompaktiert die DB-Datei.
+
+    Gibt den Platz von gelöschten Zeilen (Recordings, Transkript-Versionen,
+    Shares) physisch frei, damit die Daten nicht mehr in der DB-Datei
+    wiederherstellbar sind. Läuft mit eigener Verbindung und
+    busy_timeout=60s, da VACUUM exklusiven Zugriff braucht und nicht in
+    einer offenen Transaktion laufen darf.
+    """
+    import sqlite3
+
+    db_path = Path(settings.DB_PATH)
+    before = db_path.stat().st_size if db_path.exists() else 0
+    try:
+        con = sqlite3.connect(str(db_path), timeout=60)
+        try:
+            con.execute("PRAGMA busy_timeout=60000")
+            con.execute("VACUUM")
+        finally:
+            con.close()
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"VACUUM fehlgeschlagen (DB beschäftigt?): {exc}",
+        ) from exc
+    after = db_path.stat().st_size if db_path.exists() else 0
+    return {
+        "ok": True,
+        "before_bytes": before,
+        "after_bytes": after,
+        "freed_bytes": max(0, before - after),
+    }

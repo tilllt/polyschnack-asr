@@ -499,6 +499,19 @@ export async function fetchAdminConfig(): Promise<AdminConfig> {
   return res.json() as Promise<AdminConfig>;
 }
 
+export interface VacuumResult {
+  ok: boolean;
+  before_bytes: number;
+  after_bytes: number;
+  freed_bytes: number;
+}
+
+/** SQLite-VACUUM manuell triggern (nur Admin) — gibt gelöschten Platz physisch frei. */
+export async function adminVacuum(): Promise<VacuumResult> {
+  const res = await fetch("/api/admin/vacuum", { method: "POST" }).then(checkOk);
+  return res.json() as Promise<VacuumResult>;
+}
+
 export async function putAdminConfig(defaultBackend: string): Promise<{ default_backend: string }> {
   const res = await fetch("/api/admin/config", {
     method: "PUT",

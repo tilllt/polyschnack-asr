@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { AdminConfig, AdminService, EnvSetting, ModelMatrixEntry } from "../api";
+import type { AdminConfig, AdminService, EnvSetting, ModelMatrixEntry, VacuumResult } from "../api";
 import {
   adminServiceAction,
+  adminVacuum,
   fetchAdminConfig,
   fetchAdminServices,
   fetchEnvSettings,
@@ -14,10 +15,10 @@ import { useT } from "../useLocale";
 /* ============================================================
    AdminPanel (Task 8/10) — nur für Admins (me.is_admin).
    Tabs: Services (Start/Stop mit Ressourcen-Status + Stop-Schutz),
-   Config (Default-Backend mit Auto-Start), Modell-Matrix.
+   Config (Default-Backend mit Auto-Start), Modell-Matrix, Wartung (VACUUM).
    ============================================================ */
 
-type Tab = "services" | "config" | "matrix";
+type Tab = "services" | "config" | "matrix" | "vacuum";
 
 function statusColor(status: string): string {
   switch (status) {
@@ -37,6 +38,20 @@ export function AdminPanel() {
   const [envSettings, setEnvSettings] = useState<EnvSetting[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [vacResult, setVacResult] = useState<VacuumResult | null>(null);
+
+  async function runVacuum() {
+    setBusy("vacuum");
+    setErr(null);
+    setVacResult(null);
+    try {
+      setVacResult(await adminVacuum());
+    } catch (e) {
+      setErr(`vacuum: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function reload() {
     try {
@@ -103,7 +118,7 @@ export function AdminPanel() {
     <div className="bg-panel border border-border rounded-card px-3 py-3 mb-3 text-[12px]">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <span className="font-bold text-txt text-[13px]">🛠 {t("admin")}</span>
-        {(["services", "config", "matrix"] as Tab[]).map((tb) => (
+        {(["services", "config", "matrix", "vacuum"] as Tab[]).map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
@@ -265,6 +280,44 @@ export function AdminPanel() {
           </table>
         </div>
       )}
+      {tab === "vacuum" && (
+        <div className="space-y-2">
+          <div className="text-[11px] text-muted leading-snug max-w-[520px] space-y-1">
+            <div>🔒 {t("vacuum_note_1")}</div>
+            <div>⏱️ {t("vacuum_note_2")}</div>
+            <div>✅ {t("vacuum_note_3")}</div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => void runVacuum()}
+              disabled={busy !== null}
+              className="btn-ghost-sm text-accent disabled:opacity-40"
+            >
+              {t("vacuum_run")}
+            </button>
+            {busy === "vacuum" && (
+              <span className="flex items-center gap-2 text-muted">
+                <span className="inline-block h-1.5 w-28 bg-accent/25 rounded-full overflow-hidden">
+                  <span className="block h-full bg-accent animate-pulse" style={{ width: "45%" }} />
+                </span>
+                {t("vacuum_running")}…
+              </span>
+            )}
+            {vacResult && (
+              <span className="text-txt">
+                {vacResult.freed_bytes > 0
+                  ? t("vacuum_freed").replace("{mb}", fmtMb(vacResult.freed_bytes))
+                  : t("vacuum_nothing")}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function fmtMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
 }
