@@ -6,11 +6,12 @@ endpoint.  Subtitle/text export helpers are also housed here.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess as sp
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlmodel import Session
 
@@ -27,9 +28,16 @@ import os
 # the functions so the module imports fast and the CI test job stays light.
 
 
-def _trim_silence(audio_bytes: bytes) -> bytes:
-    from .vad import trim_silence
-    return trim_silence(audio_bytes)
+def _trim_silence(audio_bytes: bytes) -> Tuple[bytes, float]:
+    """VAD-Trim: entfernt führende/trailing Stille.
+
+    Returns (getrimmte_bytes, offset_s) — offset_s sind die am Anfang
+    entfernten Sekunden (0.0 ohne Trim). Der Offset ist nötig, um die
+    Timestamps am Ende auf die Original-Zeitbasis zu schieben (das
+    Playback nutzt die Originaldatei). (2026-08-14)
+    """
+    from .vad import trim_silence_with_offset
+    return trim_silence_with_offset(audio_bytes)
 
 
 def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
@@ -73,6 +81,30 @@ def _pick_ts(d: dict) -> tuple:
     if e is None:
         e = _normalize_ts(d.get("end_ms"), "ms")
     return s, e
+
+
+def _shift_segments(segments: list, offset_s: float) -> None:
+    """Schiebt alle Segment-/Wort-Timestamps um offset_s Sekunden nach vorn.
+
+    VAD-Trim-Kompensation: ASR/Aligner liefen auf dem getrimmten Audio, das
+    Playback nutzt die Originaldatei → ohne Verschiebung spielt ein Klick
+    auf ein Wort den Ton einer früheren Stelle ab. Behandelt start/end UND
+    start_ms/end_ms. (2026-08-14)
+    """
+    def _shift_one(d: dict) -> None:
+        if d.get("start") is not None:
+            d["start"] = float(d["start"]) + offset_s
+        elif d.get("start_ms") is not None:
+            d["start_ms"] = float(d["start_ms"]) + offset_s * 1000.0
+        if d.get("end") is not None:
+            d["end"] = float(d["end"]) + offset_s
+        elif d.get("end_ms") is not None:
+            d["end_ms"] = float(d["end_ms"]) + offset_s * 1000.0
+
+    for seg in segments:
+        _shift_one(seg)
+        for w in seg.get("words") or []:
+            _shift_one(w)
 
 
 def _build_word_stream(segments: list, total_duration: Optional[float]) -> Optional[list]:
@@ -612,6 +644,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
     try:
         audio_bytes = audio_path.read_bytes()
+        trim_offset_s = 0.0
 
         # Mark progress: 10% — loaded
         with Session(engine) as session:
@@ -621,10 +654,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         if _VAD_TRIM and enable_vad:
             with Session(engine) as session:
                 set_progress(session, rec_id, 12, note="vad")
-            trimmed = _trim_silence(audio_bytes)
-            if len(trimmed) < len(audio_bytes):
-                log.info("VAD trim: rec_id=%s %d→%d bytes (%.1fs saved)", rec_id, len(audio_bytes), len(trimmed), (len(audio_bytes) - len(trimmed)) / (2 * 16000))
-            audio_bytes = trimmed
+            audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
+            if trim_offset_s > 0:
+                log.info("VAD trim: rec_id=%s offset=%.2fs", rec_id, trim_offset_s)
 
         # Optional audio enhancement (ffmpeg filters before ASR)
         if enable_enhance and enable_enhance != "off":
@@ -710,9 +742,20 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
             with Session(engine) as session:
                 set_progress(session, rec_id, 96, note="diarization")
+            # Zeitbasis: Bei VAD-Trim arbeiten ASR/Aligner auf dem getrimmten
+            # Audio — die Diarization muss DASSELBE Audio bekommen, sonst sind
+            # die Speaker-Zeiten um trim_offset_s versetzt und die Zuordnung
+            # über Wort-Überlappung wird falsch. (2026-08-14)
+            diar_path = str(audio_path)
+            _tmp_wav = None
             try:
+                if trim_offset_s > 0:
+                    _tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    _tmp_wav.write(audio_bytes)
+                    _tmp_wav.close()
+                    diar_path = _tmp_wav.name
                 diar = _run_diarization(
-                    str(audio_path),
+                    diar_path,
                     num_speakers=rec.diarize_num_speakers,
                     min_duration_off=rec.diarize_min_duration_off,
                     method=rec.diarize_method,
@@ -726,6 +769,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
                 log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
                 diar = None
             finally:
+                if _tmp_wav is not None:
+                    try:
+                        os.unlink(diar_path)
+                    except OSError:
+                        pass
                 # Diarization-Phase beendet — Hinweis zurücksetzen (97% = fertig)
                 from .models import Recording as _Rec
 
@@ -758,6 +806,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
             segments = _run_align_phase(
                 rec_id, segments, audio_bytes, audio_path.name, language
             )
+
+        # VAD-Trim-Offset kompensieren: ASR/Aligner liefen auf dem getrimmten
+        # Audio, das Playback nutzt die Originaldatei → alle Timestamps um die
+        # entfernten Anfangs-Sekunden nach hinten schieben (Wort-Klick spielt
+        # sonst den Ton einer früheren Stelle). (2026-08-14)
+        if trim_offset_s > 0:
+            _shift_segments(segments, trim_offset_s)
+            if duration is not None:
+                duration = duration + trim_offset_s
+            log.info("Trim-Offset kompensiert: rec_id=%s +%.2fs auf %d Segmente",
+                     rec_id, trim_offset_s, len(segments))
 
         # Waveform-Peaks: bewusst NICHT hier — der synchrone Voll-Decode
         # (bis zu 600 s bei langen Dateien) haengte den Job nach der

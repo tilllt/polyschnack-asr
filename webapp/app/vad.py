@@ -11,7 +11,7 @@ import io
 import logging
 import subprocess
 import wave
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -91,9 +91,28 @@ def trim_silence(
     speech_pad_ms: int = 120,
 ) -> bytes:
     """Remove leading/trailing silence. Returns trimmed WAV bytes."""
+    return trim_silence_with_offset(
+        audio_bytes, threshold, min_silence_ms, speech_pad_ms
+    )[0]
+
+
+def trim_silence_with_offset(
+    audio_bytes: bytes,
+    threshold: float = 0.5,
+    min_silence_ms: int = 400,
+    speech_pad_ms: int = 120,
+) -> Tuple[bytes, float]:
+    """Remove leading/trailing silence and return (trimmed_wav, offset_s).
+
+    offset_s = Sekunden, die am ANFANG entfernt wurden (0.0 wenn nichts
+    getrimmt). Wichtig für die Timestamp-Kompensation: ASR/Aligner laufen
+    auf dem getrimmten Audio — die Wort-Zeiten müssen danach um offset_s
+    nach hinten geschoben werden, damit sie zur Originaldatei passen, die
+    das Playback nutzt. (2026-08-14, User-Befund „Klick spielt falschen Ton")
+    """
     regions = detect_speech_regions(audio_bytes, threshold, min_silence_ms, speech_pad_ms)
     if not regions:
-        return audio_bytes
+        return audio_bytes, 0.0
 
     wav = _decode_to_wav(audio_bytes)
     total = wav.size
@@ -102,7 +121,7 @@ def trim_silence(
     last_end = int(regions[-1]["end"] * TARGET_SR)
 
     if first_start <= 0 and last_end >= total:
-        return audio_bytes
+        return audio_bytes, 0.0
 
     trimmed = wav[first_start:last_end]
     s16 = (trimmed * 32767).astype("<i2").tobytes()
@@ -112,4 +131,4 @@ def trim_silence(
         w.setsampwidth(2)
         w.setframerate(TARGET_SR)
         w.writeframes(s16)
-    return buf.getvalue()
+    return buf.getvalue(), regions[0]["start"]
