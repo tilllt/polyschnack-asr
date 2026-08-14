@@ -220,14 +220,39 @@ def update_result(
 # ---------------------------------------------------------------------------
 
 
+def _delete_recording_children(session: Session, rec: Recording) -> None:
+    """Abhängige Zeilen einer Aufnahme löschen (Datenschutz: „mit allen Daten").
+
+    TranscriptVersion (komplette Transkript-Texte + Segmente) und
+    RecordingShare (Zugriffs-Zuordnungen) hängen ohne CASCADE an der
+    Recording — ohne diesen Aufruf blieben die Inhalte nach dem Löschen
+    in der DB zurück.
+    """
+    from .models import RecordingShare, TranscriptVersion
+
+    for v in session.exec(
+        select(TranscriptVersion).where(TranscriptVersion.rec_id == rec.id)
+    ).all():
+        session.delete(v)
+    for sh in session.exec(
+        select(RecordingShare).where(RecordingShare.rec_id == rec.id)
+    ).all():
+        session.delete(sh)
+
+
 def delete_recording(session: Session, rec_id: int) -> Optional[Recording]:
     """Delete the row for *rec_id* and return it (for file cleanup).
+
+    Löscht auch alle abhängigen Zeilen (Transkript-Versionen, Shares) —
+    Datenschutz: Löschen entfernt die Daten vollständig aus der DB, nicht
+    nur die Aufnahme selbst.
 
     Returns ``None`` if the row does not exist.
     """
     rec = session.get(Recording, rec_id)
     if rec is None:
         return None
+    _delete_recording_children(session, rec)
     session.delete(rec)
     session.commit()
     return rec

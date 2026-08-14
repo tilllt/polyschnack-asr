@@ -6,7 +6,8 @@ import datetime as dt
 from sqlmodel import Session, select
 
 from .config import settings
-from .models import Recording, RecordingShare, TranscriptVersion, User
+from .crud import delete_recording
+from .models import Recording, RecordingShare, User
 
 
 def sweep(session: Session) -> int:
@@ -26,9 +27,6 @@ def sweep(session: Session) -> int:
         )
     ).all()
     for u in users:
-        rec_ids = [
-            r.id for r in session.exec(select(Recording).where(Recording.user_id == u.id)).all()
-        ]
         for r in session.exec(select(Recording).where(Recording.user_id == u.id)).all():
             try:
                 from pathlib import Path
@@ -36,17 +34,13 @@ def sweep(session: Session) -> int:
                 Path(r.stored_path).unlink(missing_ok=True)
             except Exception:
                 pass
-            session.delete(r)
+            # löscht Row + Transkript-Versionen + Shares (rec_id) + Datei-Cleanup
+            delete_recording(session, r.id)
+        # Shares, bei denen der gelöschte User Empfänger ist (nicht rec_id-basiert)
         for sh in session.exec(
-            select(RecordingShare).where(
-                (RecordingShare.user_id == u.id) | RecordingShare.rec_id.in_(rec_ids or [-1])
-            )
+            select(RecordingShare).where(RecordingShare.user_id == u.id)
         ).all():
             session.delete(sh)
-        for v in session.exec(
-            select(TranscriptVersion).where(TranscriptVersion.rec_id.in_(rec_ids or [-1]))
-        ).all():
-            session.delete(v)
         from . import models as _models
 
         ApiKey = getattr(_models, "ApiKey", None)
