@@ -61,16 +61,9 @@ build-qwen3:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
     # Hybrid-Image (Weg 1): CUDA-Build mit CPU-Fallback — läuft auf GPU
     # (compose.gpu.yml-Overlay) UND CPU (Default), kein :cpu-Tag mehr.
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-qwen3:${CI_COMMIT_SHORT_SHA} \
-      qwen3-asr-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-qwen3:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-qwen3" "qwen3-asr-cpp/"
   only:
     - main
   tags:
@@ -84,16 +77,9 @@ build-ark:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-ark:${CI_COMMIT_SHORT_SHA} \
-      ark-asr-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-ark:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-ark" "ark-asr-cpp/"
   only:
     - main
   tags:
@@ -107,14 +93,7 @@ build-diar:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-diar:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-diar:${CI_COMMIT_SHORT_SHA} \
-      diar-service/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-diar:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-diar:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-diar" "diar-service/"
   only:
     - main
   tags:
@@ -132,14 +111,7 @@ build-aligner:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-aligner:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-aligner:${CI_COMMIT_SHORT_SHA} \
-      aligner-service/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-aligner:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-aligner:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-aligner" "aligner-service/"
   only:
     - main
   tags:
@@ -155,16 +127,9 @@ build-cpp:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-cpp:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-cpp:${CI_COMMIT_SHORT_SHA} \
-      pk-asr-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-cpp:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-cpp:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-cpp" "pk-asr-cpp/"
   only:
     - main
   tags:
@@ -181,14 +146,7 @@ build-moonshine-de:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:${CI_COMMIT_SHORT_SHA} \
-      moonshine-de-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-moonshine-de:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-moonshine-de" "moonshine-de-cpp/"
   only:
     - main
   tags:
@@ -204,14 +162,7 @@ build-canary:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-canary:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-canary:${CI_COMMIT_SHORT_SHA} \
-      canary-asr-cpp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-canary:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-canary:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-canary" "canary-asr-cpp/"
   only:
     - main
   tags:
@@ -228,15 +179,7 @@ build-asr:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA} \
-      -f approach-a/Dockerfile \
-      approach-a/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}" "approach-a/" "approach-a/Dockerfile"
   only:
     - main
   tags:
@@ -252,14 +195,7 @@ build-webapp:
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
-
-    docker build \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest \
-      -t registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA} \
-      webapp/
-
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:latest
-    docker push registry.example.com/public/${CI_PROJECT_NAME}-webapp:${CI_COMMIT_SHORT_SHA}
+    bash scripts/ci_smart_build.sh "registry.example.com/public" "${CI_PROJECT_NAME}-webapp" "webapp/"
   only:
     - main
   tags:
@@ -289,14 +225,23 @@ compose-validate:
   only:
     - main
 
-# GitHub-Mirror: spiegelt JEDE Änderung an main nach github.com/tilllt/polyschnack-asr
-# (public). Der Push triggert dort die GitHub-Actions-CI (.github/workflows/ci.yml).
+# ---------------------------------------------------------------------------
+# GitHub-Sync: erst NACH erfolgreicher GitLab-CI (alle Test- + Build-Jobs
+# gruen). Die mirror-Jobs haengen per needs an jedem Job der Pipeline.
+# ---------------------------------------------------------------------------
+
+# GitHub-Mirror: spiegelt main nach github.com/tilllt/polyschnack-asr (public).
+# Der Push triggert dort die GitHub-Actions-CI (.github/workflows/ci.yml).
 # Token: CI-Variable GH_MIRROR_TOKEN (GitHub-PAT mit repo-Scope).
+# Image: alpine + git per apk (alpine/git hat ENTRYPOINT ["git"], was den
+# Runner-Script-Start als "git sh -c …" brechen wuerde).
 mirror-github:
   stage: build
-  image: alpine/git:latest
+  image: alpine:latest
   variables:
     GIT_DEPTH: 0
+  before_script:
+    - apk add --no-cache git > /dev/null 2>&1
   script: |
     git remote add github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git" 2>/dev/null \
       || git remote set-url github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git"
@@ -305,11 +250,26 @@ mirror-github:
     - main
   tags:
     - shared
-  needs: []
+  needs:
+    - test-core
+    - test-webapp
+    - test-frontend
+    - compose-validate
+    - build-asr
+    - build-webapp
+    - build-qwen3
+    - build-ark
+    - build-diar
+    - build-aligner
+    - build-cpp
+    - build-moonshine-de
+    - build-canary
 
 # GHCR-Mirror: spiegelt alle 9 Images von Harbor nach ghcr.io/tilllt/…
 # (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
-# Harbor bleibt die private Dev-Registry (compose-Default). Tags: latest + SHA.
+# Harbor bleibt die private Dev-Registry. Tags: latest + SHA. Die Builds sind
+# idempotent (ci_smart_build.sh: SHA-Guard) — ein Re-Run derselben Pipeline
+# baut nichts neu, der Mirror pusht nur die vorhandenen Tags erneut.
 # Token: CI-Variablen GHCR_USER=tilllt + GHCR_TOKEN (GitHub-PAT write:packages);
 # Paket-Sichtbarkeit ist per GitHub-API auf public gesetzt.
 mirror-ghcr:
@@ -333,6 +293,10 @@ mirror-ghcr:
   tags:
     - shared
   needs:
+    - test-core
+    - test-webapp
+    - test-frontend
+    - compose-validate
     - build-asr
     - build-webapp
     - build-qwen3
@@ -342,5 +306,3 @@ mirror-ghcr:
     - build-cpp
     - build-moonshine-de
     - build-canary
-
-
