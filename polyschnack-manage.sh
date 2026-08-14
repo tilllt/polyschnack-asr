@@ -113,6 +113,10 @@ cmd_models() {
     echo "-> Pruefe Backend-Modelle in ./DATA/models (aktive Backends: $BACKENDS)"
     MODELS_SCRIPT=""
     MODEL_FILES=""
+    if [ -z "$BACKENDS" ]; then
+        echo "! Keine aktiven Backends (POLYSCHNACK_BACKENDS leer) - nichts zu laden."
+        return 0
+    fi
     for _b in $BACKENDS; do
         case "$_b" in
             pk-cpp)
@@ -130,7 +134,9 @@ cmd_models() {
                 _model_req canary-1b-v2-q4_k.gguf "https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf" ;;
         esac
     done
-    if [ -n "$MODELS_SCRIPT" ]; then
+    if [ -z "$MODELS_SCRIPT" ]; then
+        echo "-> Alle Modelle vorhanden - nichts zu laden."
+    elif [ -n "$MODELS_SCRIPT" ]; then
         echo "-> Lade fehlende Modelle (einmalig docker run alpine) ..."
         docker run --rm -v "$PWD/DATA/models:/models" alpine sh -c "$MODELS_SCRIPT ls -lh /models" || true
     fi
@@ -193,6 +199,7 @@ case "$CMD" in
     pull)
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
         "${COMPOSE[@]}" "${PROFILES[@]}" pull
+        echo "-> Pull abgeschlossen (Images aktuell oder gezogen)."
         ;;
     start)
         cmd_start
@@ -202,13 +209,16 @@ case "$CMD" in
         ;;
     stop)
         "${COMPOSE[@]}" "${PROFILES[@]}" stop
+        echo "-> Alle Container gestoppt."
         ;;
     restart)
         "${COMPOSE[@]}" "${PROFILES[@]}" stop
+        echo "-> Alle Container gestoppt."
         cmd_start
         ;;
     down)
         "${COMPOSE[@]}" "${PROFILES[@]}" down
+        echo "-> Stack entfernt (Volumes bleiben erhalten)."
         ;;
     status|ps)
         "${COMPOSE[@]}" "${PROFILES[@]}" ps
