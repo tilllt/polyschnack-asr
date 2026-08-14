@@ -254,7 +254,13 @@ def stitch(windows_or_ranges, results: List[Any]) -> Dict[str, Any]:
         info = extract(res)
         if not info["text"]:
             continue
-        offset = w.emit_start / TARGET_SR
+        # Decoder-Timestamps sind relativ zum FENSTER-KONTEXT (slice_chunks
+        # schneidet wav[w.start:w.end]) — NICHT zum emit-Bereich. Mit
+        # emit_start als Offset drifteten alle Zeiten um (emit_start - start)
+        # nach hinten; beim letzten Fenster wurden die letzten echten Wörter
+        # über emit_end (= Datei-Ende) hinaus projiziert und vom Emit-Filter
+        # verworfen → letzter Satz fehlte. (2026-08-15, fix)
+        offset = w.start / TARGET_SR
         seg, words = _segment_from(info, offset)
 
         emit_start_s = w.emit_start / TARGET_SR
@@ -364,7 +370,7 @@ async def stream_wav(worker, wav: np.ndarray, model_name: str) -> AsyncIterator[
                 "final": idx == total - 1,
             }
             continue
-        seg, _words = _segment_from(info, w.emit_start / TARGET_SR)
+        seg, _words = _segment_from(info, w.start / TARGET_SR)
         yield {
             "text": info["text"],
             "chunk_index": idx,

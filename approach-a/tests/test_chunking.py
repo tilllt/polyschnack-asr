@@ -215,3 +215,70 @@ def test_stitch_seam_dedup_across_windows():
     words = [w["word"] for w in out["words"]]
     assert words.count("next") == 1
     assert "again" in words
+
+
+# ---------------------------------------------------------------------------
+# stitch — Zeit-Offset: Fenster-Kontext (w.start), NICHT emit_start
+# ---------------------------------------------------------------------------
+def test_stitch_offset_uses_window_start_not_emit_start():
+    """Decoder-Timestamps sind relativ zum Fenster-KONTEXT (w.start).
+
+    Vor dem Fix (offset = emit_start) drifteten alle Zeiten eines Fensters
+    um (emit_start - start) nach hinten. Beim letzten Fenster wurden die
+    letzten echten Wörter über emit_end (= Datei-Ende) hinaus projiziert
+    und vom Emit-Filter verworfen — der letzte Satz fehlte. (2026-08-15,
+    reproduziert das Produktions-Muster: start=3675, emit=3689.6-3776)
+    """
+    sr = TARGET_SR
+    wins = [
+        ChunkWindow(int(3675 * sr), int(3776 * sr),
+                    int(3689.6 * sr), int(3776 * sr)),
+    ]
+    # Decoder liefert "Und wenn sie" relativ zum Fenster-Anfang (3675 s):
+    # echt bei 3761.9/3762.1/3762.3 s — knapp vor Datei-Ende (3776).
+    res = _FakeResult("Und wenn sie",
+                      ["▁Und", "▁wenn", "▁sie"],
+                      [86.9, 87.1, 87.3])
+    out = stitch(wins, [res])
+    starts = [w["start"] for w in out["words"]]
+    # Vor dem Fix: offset=3689.6 → 3776.5/3776.7/3776.9 ≥ emit_end (3776)
+    # → alle Wörter verworfen. Nach Fix: offset=3675 → 3761.9/3762.1/3762.3.
+    assert starts == [3761.9, 3762.1, 3762.3]
+    assert [w["word"] for w in out["words"]] == ["Und", "wenn", "sie"]
+
+
+def test_stitch_multi_window_offsets_are_window_start():
+    """Jedes Fenster bekommt seinen w.start als Offset — keine Drift über
+    mehrere Fenster, keine Lücken durch weggeworfene Overlap-Wörter."""
+    sr = TARGET_SR
+    wins = [
+        ChunkWindow(0, int(120 * sr), 0, int(114 * sr)),
+        ChunkWindow(int(105 * sr), int(225 * sr),
+                    int(114 * sr), int(213.6 * sr)),
+    ]
+    res0 = _FakeResult("A", ["▁A"], [0.0])
+    # Window 1: Wort bei relativ 9.0 s → absolut 105 + 9 = 114.0 s
+    res1 = _FakeResult("B", ["▁B"], [9.0])
+    out = stitch(wins, [res0, res1])
+    starts = [w["start"] for w in out["words"]]
+    # Vor dem Fix: Window 1 offset=114 → B bei 123.0 s (9 s Drift)
+    assert starts == [0.0, 114.0]
+    assert [w["word"] for w in out["words"]] == ["A", "B"]
+
+
+def test_stitch_last_window_keeps_final_words():
+    """Der Inhalt des letzten Fensters bis zum Datei-Ende bleibt erhalten
+    (Emit-Filter verwirft nur Overlap-Wörter, nie das Fenster-Ende)."""
+    sr = TARGET_SR
+    wins = [
+        ChunkWindow(0, int(300 * sr), 0, int(285 * sr)),
+        ChunkWindow(int(285 * sr), int(3776 * sr),
+                    int(285 * sr), int(3776 * sr)),
+    ]
+    res0 = _FakeResult("hello", ["▁hello"], [0.0])
+    # Letztes Fenster: Wörter bis ganz ans Ende (relativ 3480.0 = absolut 3765)
+    res1 = _FakeResult("goodbye", ["▁goodbye"], [3480.0])
+    out = stitch(wins, [res0, res1])
+    assert [w["word"] for w in out["words"]] == ["hello", "goodbye"]
+    assert out["words"][-1]["start"] == 285.0 + 3480.0
+    assert out["words"][-1]["start"] < 3776.0
