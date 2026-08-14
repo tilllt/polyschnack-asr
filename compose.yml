@@ -100,8 +100,14 @@ services:
 
   ps-webapp:
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-webapp:latest
-    mem_limit: 2g
-    memswap_limit: 2g
+    # Speicher-Limit ueber deploy.limits (nicht mem_limit/memswap_limit):
+    # Overlays (z. B. OIDC mit eigenen Limits) koennen den Wert dann einfach
+    # ueberschreiben — mem_limit + deploy.limits gleichzeitig waere ein
+    # "invalid compose project"-Fehler (Regression 2026-08-14).
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     environment:
       PS_PK_ONNX_URL: "${PS_PK_ONNX_URL:-http://ps-pk-onnx:5092}"
       ASR_BACKEND: "${ASR_BACKEND:-ps-pk-onnx}"
@@ -147,7 +153,3 @@ services:
       crispr-diar:
         condition: service_started
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
