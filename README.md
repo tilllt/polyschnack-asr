@@ -522,6 +522,12 @@ Die Samples sind nach zwei unabhängigen Achsen kategorisiert (Definition in
 - **Edit** pro Sample → Referenztext ändern (in-place, `updated_at`)
 - Versions-History unter `/api/benchmark/versions`
 
+**Workflow:** Ablehnen/Editieren passiert **interaktiv in der GUI** — der
+nächste Messlauf (`./polyschnack-manage.sh benchmark` oder Cron) nutzt dann
+automatisch die neue aktive Manifest-Version. Der Messlauf selbst ist bewusst
+headless (Container, reproduzierbar) — die Kuratierung gehört in die
+Admin-GUI mit OIDC-Gate, nicht in den Mess-Container.
+
 ### Datenlayout (`benchmark_data`)
 
 ```
