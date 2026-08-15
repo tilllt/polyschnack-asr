@@ -25,7 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 RUN git clone --recursive https://github.com/predict-woo/qwen3-asr.cpp.git .
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
+# CUDA-Backend explizit aktivieren (Review/Fix 2026-08-15): ohne
+# -DGGML_CUDA=ON linkt ggml auf Linux NUR den CPU-Backend — der Aligner
+# lief trotz runtime: nvidia auf CPU (f16-Modell, 60-min-Datei = Stunden).
+# -DCMAKE_CUDA_ARCHITECTURES=86 deckt die RTX-3090 (sm_86) ab; weitere
+# Architekturen (z.B. 89/90) bei Bedarf ergänzen.
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_CUDA=ON \
+    -DGGML_CUDA_F16=ON \
+    -DCMAKE_CUDA_ARCHITECTURES=86 && \
     cmake --build build -j$(nproc)
 # Shared libraries EINSAMMELN (im Builder!): Upstream linkt CLI dynamisch
 # gegen libqwen3-asr.so UND die ggml-Familie (libggml.so.0,

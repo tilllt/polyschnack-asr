@@ -294,15 +294,27 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- routes --------------------------------------------------------
     def _device(self) -> str:
-        """cuda|cpu — tolerant: nvidia-smi im Container vorhanden?."""
+        """cuda|cpu — EHRLICHE Selbstauskunft (Fix 2026-08-15).
+
+        VORHER: nur nvidia-smi -L geprüft (GPU im Container sichtbar) —
+        das bewies NICHT, dass die ggml-Binary ein CUDA-Backend hat.
+        Konsequenz: CPU-only-Builds meldeten 'cuda' und 60-min-Alignments
+        dauerten Stunden. Jetzt: GPU sichtbar UND libggml-cuda.so vorhanden
+        (= CUDA-Backend wirklich kompiliert).
+        """
+        import glob
+
         try:
             out = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
                                  text=True, timeout=5)
-            if out.returncode == 0 and out.stdout.strip():
-                return "cuda"
+            gpu_visible = out.returncode == 0 and bool(out.stdout.strip())
         except Exception:
-            pass
-        return "cpu"
+            gpu_visible = False
+        if not gpu_visible:
+            return "cpu"
+        cuda_lib = bool(glob.glob("/usr/local/lib/libggml-cuda*")
+                        or glob.glob("/usr/local/lib/libggml_cuda*"))
+        return "cuda" if cuda_lib else "cpu"
 
     def do_GET(self) -> None:
         if self.path == "/health":

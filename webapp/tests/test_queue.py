@@ -115,7 +115,7 @@ def test_worker_processes_jobs_with_bound_backend(qm, monkeypatch):
     """Jeder Job läuft mit SEINEM Backend (get_client-Aufruf mit backend)."""
     seen: list = []
 
-    def fake_process(rec_id, backend=None):
+    def fake_process(rec_id, backend=None, job=None):
         seen.append((rec_id, backend))
 
     monkeypatch.setattr(queue_mod, "process_recording", fake_process)
@@ -135,7 +135,7 @@ def test_worker_respects_endpoint_capacity(qm, monkeypatch):
     concurrent = []
     lock = threading.Lock()
 
-    def slow_process(rec_id, backend=None):
+    def slow_process(rec_id, backend=None, job=None):
         with lock:
             concurrent.append(rec_id)
             n = len(concurrent)
@@ -176,18 +176,20 @@ def test_cancel_queued_job(qm, monkeypatch):
         time.sleep(0.02)
 
 
-def test_cancel_processing_not_allowed(qm, monkeypatch):
+def test_cancel_processing_setzt_flag(qm, monkeypatch):
+    # Seit 2026-08-15 (Job-Cancel): processing-Jobs sind ABBRECHBAR —
+    # cancel() setzt cancel_requested, der Worker stoppt nach der Phase.
     started = threading.Event()
     release = threading.Event()
 
-    def fake_process(rec_id, backend=None):
+    def fake_process(rec_id, backend=None, job=None):
         started.set()
         release.wait(timeout=5)
 
     monkeypatch.setattr(queue_mod, "process_recording", fake_process)
     qm.enqueue(1, None, "ps-pk-onnx")
     assert started.wait(timeout=5)
-    assert qm.cancel(1, user_id=None) is False  # processing ist nicht abbrechbar
+    assert qm.cancel(1, user_id=None) is True  # processing → Flag gesetzt
     release.set()
     deadline = time.time() + 5
     while qm.queued_count() > 0 and time.time() < deadline:

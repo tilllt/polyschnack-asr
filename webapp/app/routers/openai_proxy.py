@@ -13,29 +13,64 @@ ein Key, jede OpenAI-kompatible Client-Lib.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
+from sqlmodel import Session, select
 
 from ..db import get_session
-from ..identity import current_identity
+from ..identity import Identity
 from ..asr_client import get_client
-from sqlmodel import Session
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
 
-def _require_identity(
+def _require_api_key(
     request: Request,
     session: Session = Depends(get_session),
 ):
-    """API-Key/Session-Auth (wie /api/keys): 401 ohne gültigen Key."""
-    return current_identity(request, session)
+    """NUR echte API-Keys (Bearer) — anon-Sessions sind hier NICHT erlaubt.
+
+    Review 2026-08-15 (P0.2): Der Proxy ist offenes Compute für anonyme
+    Besucher, solange current_identity auf ensure_anonymous_user zurückfällt.
+    Ein OpenAI-kompatibler Endpoint gehört in die Hände von Key-Besitzern.
+    """
+    from ..models import ApiKey, User, hash_token
+
+    auth = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+    if not auth.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="API key required (Authorization: Bearer <key> — Settings → API-Keys)",
+        )
+    token = auth[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="invalid API key")
+    key = session.exec(
+        select(ApiKey).where(ApiKey.token_hash == hash_token(token))
+    ).first()
+    if not key:
+        raise HTTPException(status_code=401, detail="invalid API key")
+    if key.expires_at is not None:
+        exp = key.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="API key expired")
+    user = session.get(User, key.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid API key")
+    key.last_used_at = datetime.now(timezone.utc)
+    session.add(key)
+    session.commit()
+    return Identity(user, key.level)
 
 #: Modell → Backend-Mapping. Basis: backends.yaml. Zusätzlich erlaubt die
 #: Env-Variable PS_MODEL_BACKENDS eine JSON-Map zur Laufzeit zu überschreiben:
@@ -90,7 +125,7 @@ async def create_transcription(
     timestamp_granularities: Optional[str] = Form(None),
     temperature: Optional[float] = Form(None),
     prompt: Optional[str] = Form(None),
-    _identity=Depends(_require_identity),
+    _identity=Depends(_require_api_key),
 ) -> Any:
     """OpenAI-kompatible Transkription — routet ans Backend laut ``model``.
 
@@ -136,9 +171,17 @@ async def create_transcription(
     await file.close()
 
     # ---- An den Adapter weiterleiten ----
+    # Review 2026-08-15 (P0.2): client.transcribe ist SYNCHRON (httpx mit
+    # Timeout bis 3600 s). Im async-Handler würde ein langer Call den
+    # Event-Loop einfrieren — jeder andere Request wartet. asyncio.to_thread
+    # hält den Loop frei; der Adapter-Timeout bleibt als Rest-Schutz.
     try:
         client = get_client(target)
-        result = client.transcribe(raw, filename, mime)
+
+        def _do_transcribe():
+            return client.transcribe(raw, filename, mime)
+
+        result = await asyncio.to_thread(_do_transcribe)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — Proxy muss Fehler sauber melden

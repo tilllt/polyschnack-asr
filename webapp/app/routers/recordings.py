@@ -513,16 +513,19 @@ async def upload_recording(
 
     # Compute content hash for duplicate detection
     content_hash = hashlib.blake2b(raw, digest_size=16).hexdigest()
+    current_user_id = _current_user(request, session)
     existing = session.exec(
         select(Recording).where(Recording.content_hash == content_hash)
     ).first()
 
-    # Duplikat nur melden, wenn die Datei des Treffers auch wirklich noch auf
-    # der Platte liegt. Sonst (Upload → gelöscht → wieder hochgeladen) wäre
-    # der „Upload again"-Kopier-Pfad tot (409 source file missing) — dann
-    # legen wir stattdessen einfach ein neues Recording an.
+    # Duplikat nur melden, wenn der Treffer DEM OWNER gehört (Review
+    # 2026-08-15, P1): die Query war nicht auf den Owner gescoped — wer eine
+    # Datei hochlädt, die ein anderer schon hochgeladen hat, bekam DESSEN
+    # Transkript (text/segments/uid) zurück. url_import.py macht es bereits
+    # korrekt — gleiches Owner-Prädikat hier.
     if (
         existing
+        and existing.user_id == current_user_id
         and not (request.query_params.get("force") == "true")
         and Path(existing.stored_path).is_file()
     ):
@@ -537,6 +540,18 @@ async def upload_recording(
     # (ffmpeg-Decode) können sie nativ. Nur exotische Formate → 16-kHz-mono-WAV.
     audio_data, new_ext, conv_note = prepare_storage(raw, file.filename)
 
+    # Review 2026-08-15 (P1): Quota-Check VOR dem Write — der bisherige
+    # Ablauf schrieb die Datei zuerst und prüfte dann, so blieben bei
+    # über-Quota-Uploads Orphan-Dateien auf der Platte liegen. Größe +
+    # Disk-Summe werden vor dem Schreiben geprüft (die exakte Dauer kommt
+    # nach dem Write per ffprobe; schlägt der Dauer-Check fehl, wird die
+    # frisch geschriebene Datei sofort wieder entfernt).
+    uid = _current_user(request, session)
+    from ..anon_limits import enforce_anon_limits
+
+    anon_user = session.get(User, uid) if uid is not None else None
+    enforce_anon_limits(session, anon_user, len(audio_data), duration_s=None)
+
     stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
     stored.write_bytes(audio_data)
 
@@ -548,16 +563,15 @@ async def upload_recording(
     # hätte Long-Audio-Grenzen/Quota falsch ausgelöst).
     est_duration_s = probe_duration_path(stored) or (len(raw) / 8000)
 
-    # Task B5: harte Limits für anonyme User (Dauer, Upload-Größe, Disk-Quota)
-    uid = _current_user(request, session)
-    from ..anon_limits import enforce_anon_limits
-
-    enforce_anon_limits(
-        session,
-        session.get(User, uid) if uid is not None else None,
-        len(audio_data),
-        est_duration_s,
-    )
+    # Dauer-Limit NACH dem ffprobe — bei Fehlschlag Datei aufräumen.
+    try:
+        enforce_anon_limits(session, anon_user, len(audio_data), est_duration_s)
+    except HTTPException:
+        try:
+            stored.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
     # Append conversion note to original name so the user knows
     display_name = file.filename
@@ -932,6 +946,7 @@ def get_audio_preview(
 @router.get("/recordings/{rid}/download")
 def download_transcript(
     rid: str,
+    request: Request,
     format: str = "txt",
     session: Session = Depends(get_session),
 ) -> Response:
@@ -942,6 +957,12 @@ def download_transcript(
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
+
+    # Review 2026-08-15 (P1): fehlender Access-Check — jeder der die uid
+    # kennt konnte Transkripte laden, auch nach Widerruf des Share-Links.
+    # Gleicher Guard wie alle Nachbar-Routen.
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
 
     if rec.status != "done":
         raise HTTPException(status_code=409, detail="transcription not complete yet")

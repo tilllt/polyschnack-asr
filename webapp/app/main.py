@@ -217,7 +217,10 @@ def robots_txt() -> str:
 # secure → https_only is the only moved knob.
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.SESSION_SECRET or secrets.token_urlsafe(32),
+    # Review 2026-08-15 (P1.5): kein Zufalls-Key mehr pro Prozess — das
+    # verwaiste bei jedem Restart alle anon-User. settings.SESSION_SECRET
+    # ist persistiert (Env oder DATA_DIR/.session_secret).
+    secret_key=settings.SESSION_SECRET,
     max_age=86400 * 7,
     https_only=settings.BASE_URL.startswith("https"),
 )

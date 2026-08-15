@@ -989,12 +989,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     if tpl is None:
                         raise RuntimeError("prompt template not found")
                     text = llm_mod.chat(tpl.prompt, text or "", endpoint=endpoint)
-                elif enable_llm_enhance:
-                    text, segments = run_llm_enhance(text, segments)
-                    if endpoint:
-                        text = llm_mod.chat(
-                            "Verbessere folgenden Transkript-Text (keine Einleitung):",
-                            text or "", endpoint=endpoint)
+                elif enable_llm_enhance and endpoint:
+                    # run_llm_enhance lief bereits oben (Review 2026-08-15,
+                    # P1: Doppel-Aufruf = doppelte Latenz + Token-Kosten).
+                    # Hier nur noch der optionale Endpoint-Polish.
+                    text = llm_mod.chat(
+                        "Verbessere folgenden Transkript-Text (keine Einleitung):",
+                        text or "", endpoint=endpoint)
     except DiarizationError as exc_d:
         # Präzise Diarization-Fehlermeldung (gated, no-token, …) —
         # ohne TypeName-Prefix, damit der User den Admin-Hinweis direkt liest.

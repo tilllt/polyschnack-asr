@@ -18,7 +18,7 @@ from sqlmodel import Session
 from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..queue import queue_manager
-from .recordings import _current_user, _ensure_audio_present, ensure_access, _key_cap
+from .recordings import _current_user, ensure_access, _key_cap
 
 router = APIRouter(prefix="/api")
 
@@ -38,7 +38,10 @@ def cancel_recording(rid: str, request: Request,
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
-    _ensure_audio_present(rec)
+
+    # Datei-Existenz nicht hart prüfen: Cancel muss auch ohne Audio-Datei
+    # funktionieren (Job stoppen). Fehlt die Datei, ist der Abbruch trotzdem
+    # der richtige Weg.
 
     from ..identity import current_identity
 

@@ -234,15 +234,31 @@ class QueueManager:
                 continue
             with self._lock:
                 job = self._jobs.get(rec_id)
-            if job is None:
-                self._fifo.task_done()
-                continue
+                # Review 2026-08-15 (P1): Cancel-Race — cancel() (queued →
+                # aus _jobs entfernt) kann zwischen Dequeue und status=
+                # "processing" liegen. Unter dem Lock nachprüfen: Wurde der
+                # Job inzwischen gecancelt oder ganz entfernt, NICHT starten
+                # (sonst läuft die Transkription trotz Cancel weiter, und
+                # ein Re-Enqueue könnte denselben Job doppelt ausführen).
+                if job is None or job.cancel_requested or rec_id not in self._jobs:
+                    self._fifo.task_done()
+                    continue
             sem = self._semaphore_for(job.backend)
             sem.acquire()
+            skip = False
             try:
-                job.status = "processing"
-                job.started_at = time.time()
-                self._attach_limits(job)
+                with self._lock:
+                    # Zweiter Recheck nach dem Semaphore-Wait: während der
+                    # Worker auf Kapazität wartete, kann der User gecancelt
+                    # haben. Dann nicht starten.
+                    if job.cancel_requested or rec_id not in self._jobs:
+                        skip = True
+                    else:
+                        job.status = "processing"
+                        job.started_at = time.time()
+                        self._attach_limits(job)
+                if skip:
+                    continue
                 with Session(engine) as session:
                     crud.set_processing(session, rec_id)
                 process_recording(rec_id, backend=job.backend, job=job)

@@ -34,20 +34,34 @@ class _FakeClient:
 
 @pytest.fixture()
 def client():
-    # Auth durchstechen: dependency_overrides ersetzt _require_identity —
+    # Auth durchstechen: dependency_overrides ersetzt _require_api_key —
     # der echte API-Key-Flow ist in test_apikey_access abgedeckt.
     class _FakeId:
         pass
 
     from starlette.middleware.sessions import SessionMiddleware
 
-    from app.routers.openai_proxy import _require_identity
+    from app.routers.openai_proxy import _require_api_key
 
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-secret")
-    app.dependency_overrides[_require_identity] = lambda: _FakeId()
+    app.dependency_overrides[_require_api_key] = lambda: _FakeId()
     app.include_router(proxy_router)
     return TestClient(app)
+
+
+def test_proxy_ohne_api_key_401():
+    """Review P0.2: Der Proxy darf anon-Sessions NICHT akzeptieren —
+    ohne gültigen Bearer-Key kommt 401 (kein offenes Compute)."""
+    from app.main import app as _main_app
+    from fastapi.testclient import TestClient
+
+    tc = TestClient(_main_app)
+    resp = tc.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", b"x", "audio/wav")},
+    )
+    assert resp.status_code == 401
 
 
 def _patch_get_client(client):

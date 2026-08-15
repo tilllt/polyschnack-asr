@@ -1,6 +1,7 @@
 """POST /api/recordings/from-url — download audio from a URL via yt-dlp."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import mimetypes
@@ -9,6 +10,7 @@ import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel import Session, select
@@ -17,6 +19,7 @@ from ..audio_utils import prepare_storage, probe_duration_path
 from ..config import settings
 from ..crud import create_recording
 from ..db import get_session
+from ..llm_url import validate_llm_url
 from ..models import Recording
 from .recordings import _current_user, _recording_to_dict, _schedule_peaks
 
@@ -56,24 +59,50 @@ async def import_from_url(
     if not url or not url.strip():
         raise HTTPException(status_code=400, detail="no URL provided")
 
+    # ── SSRF-Schutz (Review 2026-08-15, P0.1) ──
+    # yt-dlp läuft IM CONTAINER-NETZWERK: ohne Validierung könnte die URL
+    # interne Hosts ansprechen (docker-proxy, ASR-Container, Cloud-Metadata).
+    # https-only + Host-Allowlist via validate_llm_url (private/loopback/
+    # link-local werden abgelehnt). Reuse des BYOK-Guards.
+    clean_url = url.strip()
+    try:
+        parsed = urlparse(clean_url)
+        if parsed.scheme != "https":
+            raise HTTPException(status_code=422, detail="only https URLs are allowed")
+        validate_llm_url(clean_url)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"invalid URL: {exc}")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir) / "audio.%(ext)s"
         out_template = str(tmp)
 
-        try:
-            proc = subprocess.run(
+        def _run_ytdlp() -> subprocess.CompletedProcess:
+            # `--` vor dem Positionsargument: eine URL, die mit `-` beginnt,
+            # wird sonst von yt-dlp als Option geparst (Argument-Injection,
+            # z.B. --config-location → beliebige Datei-Lesevorgänge).
+            return subprocess.run(
                 [
                     "yt-dlp",
                     "-f", "ba/b",  # nur Audio-Stream laden (ba=best audio, b=Fallback)
                     "-x",          # extrahieren, natives Format behalten (kein WAV-Zwang)
                     "-o", out_template,
                     "--no-playlist",
-                    url.strip(),
+                    "--",
+                    clean_url,
                 ],
                 capture_output=True,
                 text=True,
                 timeout=600,
             )
+
+        # Event-Loop-Fix (Review P0.1): yt-dlp + ffmpeg laufen bis zu 600 s
+        # synchron — im async-Handler blockiert das JEDEN anderen Request.
+        # asyncio.to_thread hält den Loop frei.
+        try:
+            proc = await asyncio.to_thread(_run_ytdlp)
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=400, detail="URL download timed out (10 min)")
         except FileNotFoundError:
@@ -83,19 +112,7 @@ async def import_from_url(
         # Ein Fehlschlag ist meist in <2 s fertig — ein zweiter Versuch hat
         # gute Erfolgschancen und macht den Import spürbar robuster.
         if proc.returncode != 0:
-            retry_proc = subprocess.run(
-                [
-                    "yt-dlp",
-                    "-f", "ba/b",
-                    "-x",
-                    "-o", out_template,
-                    "--no-playlist",
-                    url.strip(),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
+            retry_proc = await asyncio.to_thread(_run_ytdlp)
             if retry_proc.returncode == 0:
                 proc = retry_proc
 

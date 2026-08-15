@@ -6,7 +6,43 @@ All values are resolved once at import time — no side effects.
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
+
+
+def _load_or_create_session_secret(data_dir: Path) -> str:
+    """Persistierter SESSION_SECRET (Review 2026-08-15, P1.4/P1.5).
+
+    Ohne Env-Var wurde bisher (a) crypto.py auf sha256('dev') zurückfallen —
+    ein öffentlich bekannter Schlüssel für BYOK-Credentials — und (b) main.py
+    pro Prozess ein ZUFÄLLIGER Key erzeugen, wodurch jeder Restart alle
+    anon-User von ihren Aufnahmen trennte. Ab jetzt: einmal erzeugen, in
+    DATA_DIR/.session_secret ablegen, dauerhaft wiederverwenden.
+    """
+    env = os.getenv("SESSION_SECRET", "").strip()
+    if env:
+        return env
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        secret_file = data_dir / ".session_secret"
+        if secret_file.exists():
+            val = secret_file.read_text().strip()
+            if val:
+                return val
+        val = secrets.token_urlsafe(48)
+        secret_file.write_text(val)
+        try:
+            os.chmod(secret_file, 0o600)
+        except OSError:
+            pass
+        return val
+    except OSError:
+        # DATA_DIR nicht beschreibbar (z.B. read-only Tests) — dann lieber
+        # hart abbrechen als mit 'dev' zu signieren (s. crypto.py Guard).
+        raise RuntimeError(
+            "SESSION_SECRET ist nicht gesetzt und DATA_DIR ist nicht "
+            "beschreibbar — bitte SESSION_SECRET als Env-Var setzen."
+        )
 
 
 class _Settings:
@@ -45,7 +81,9 @@ class _Settings:
     OIDC_CLIENT_SECRET: str = os.getenv("OIDC_CLIENT_SECRET", "")
     OIDC_ISSUER: str = os.getenv("OIDC_ISSUER", "")
     OIDC_SCOPE: str = os.getenv("OIDC_SCOPE", "openid profile email")
-    SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
+    #: Review 2026-08-15 (P1.4/P1.5): persistiert statt 'dev' oder Zufall pro
+    #: Prozess — siehe _load_or_create_session_secret.
+    SESSION_SECRET: str = _load_or_create_session_secret(Path(os.getenv("DATA_DIR", "/data")))
     BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8088").rstrip("/")
 
     #: Public-space retention in minutes; 0 = off
