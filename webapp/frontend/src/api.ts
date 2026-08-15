@@ -432,6 +432,7 @@ export async function recordFromMic(
   enableStreaming = false,
   enableNoiseReduce = true,
   enableEnhance = "off",
+  onProgress?: (pct: number) => void,
 ): Promise<Recording> {
   const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
   const fd = new FormData();
@@ -443,8 +444,27 @@ export async function recordFromMic(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
-  const res = await fetch("/api/recordings", { method: "POST", body: fd }).then(checkOk);
-  return res.json() as Promise<Recording>;
+  const url = "/api/recordings";
+  if (!onProgress) {
+    const res = await fetch(url, { method: "POST", body: fd }).then(checkOk);
+    return res.json() as Promise<Recording>;
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        reject(new Error(`upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(fd);
+  });
 }
 
 export async function deleteRecording(id: string): Promise<void> {

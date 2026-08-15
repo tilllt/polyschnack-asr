@@ -506,6 +506,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [showHelp, setShowHelp] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
+  const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -624,6 +626,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       //    passieren kann. Netzabriss/Serverfehler dürfen die Aufnahme
       //    nicht mehr vernichten: der Blob überlebt, bis der Upload
       //    nachweislich erfolgreich war.
+      setUploadPhase("saving");
       const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
       const pending: PendingRecording = {
         id: crypto.randomUUID(),
@@ -641,20 +644,28 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       setPendingCount((await loadPendingRecordings()).length);
 
       try {
-        // Peak-normalize to -1 dBFS — boosts quiet recordings, leaves loud ones alone
+        // 2) Peak-normalize (kann bei langen Aufnahmen dauern — Feedback zeigen)
+        setUploadPhase("processing");
         const normBlob = await normalizePeak(blob);
         const batchId = pending.id;
-        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel);
+
+        // 3) Upload mit sichtbarem Fortschritt
+        setUploadPhase("uploading");
+        setUploadPct(0);
+        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, (pct) => setUploadPct(pct));
         await deletePendingRecording(pending.id); // Upload bestätigt → Puffer leeren
         setPendingCount((await loadPendingRecordings()).length);
+        setUploadPhase("done");
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {
         // Upload fehlgeschlagen — Aufnahme bleibt sicher im IndexedDB-Puffer.
+        setUploadPhase("done");
         toast(`Upload failed — Aufnahme lokal gesichert: ${(e as Error).message}`, "err");
       } finally {
         setIsUploading(false);
         onRecordingChange(false);
+        setTimeout(() => setUploadPhase("idle"), 2500); // Status noch kurz zeigen
       }
     });
 
@@ -877,6 +888,33 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       )}
 
       <div className="text-[22px] sm:text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
+
+      {/* Sichtbares Upload-Feedback — direkt nach Stop, kein stummes Warten */}
+      {uploadPhase !== "idle" && (
+        <div className="w-full max-w-[500px] bg-panel2 border border-border rounded-sm px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2 text-[12px] text-txt">
+            {uploadPhase !== "done" ? (
+              <span className="inline-block w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            ) : (
+              <span>✅</span>
+            )}
+            <span className="flex-1">
+              {uploadPhase === "saving" && t("upload_phase_saving")}
+              {uploadPhase === "processing" && t("upload_phase_processing")}
+              {uploadPhase === "uploading" && t("upload_phase_uploading")}
+              {uploadPhase === "done" && t("upload_phase_done")}
+            </span>
+          </div>
+          {uploadPhase === "uploading" && (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+                <div className="h-full bg-accent rounded-full transition-all duration-200" style={{ width: `${uploadPct}%` }} />
+              </div>
+              <span className="text-[10px] text-muted2 tabular-nums w-8 text-right">{uploadPct}%</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {wakelock && (
         <div className="text-[11px] text-muted2 flex items-center gap-1">
