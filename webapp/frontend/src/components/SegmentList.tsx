@@ -256,7 +256,16 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 }
               }}
               onBlur={() => {
-                if (editText !== segments[i].text) handleSave(i);
+                // Review-Fix 2026-08-15: Klick nach außen beendet den
+                // Edit-Mode IMMER. VORHER: nur bei Textänderung wurde
+                // handleSave gerufen — bei unverändertem Text blieb
+                // editingIdx gesetzt und der Mode war nicht mehr
+                // beendbar (handleClick blockiert während des Editierens).
+                if (editText !== segments[i].text) {
+                  handleSave(i);
+                } else {
+                  setEditingIdx(null);
+                }
               }}
               ref={editAreaRef}
             />
