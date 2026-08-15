@@ -935,12 +935,17 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                         </button>
                       </div>
                       {linkCopied && <p className="text-[10px] text-emerald-400">{t("link_copied")}</p>}
-                      <p className="text-[10px] text-amber-300/90 leading-snug">
-                        ⚠️{" "}
-                        {t("anon_link_expiry")
-                          .replace("{expiry}", formatExpiry(anonLink.expiresAt, anonLink.retentionMinutes))
-                          .replace("{minutes}", String(anonLink.retentionMinutes))}
-                      </p>
+                      {/* Fix 2026-08-15 (User): Retention-Warnung nur für
+                          anonyme Nutzer — OIDC-Konten haben keine Ablauf-
+                          Frist, der Hinweis wäre dort irreführend. */}
+                      {!isOidc && (
+                        <p className="text-[10px] text-amber-300/90 leading-snug">
+                          ⚠️{" "}
+                          {t("anon_link_expiry")
+                            .replace("{expiry}", formatExpiry(anonLink.expiresAt, anonLink.retentionMinutes))
+                            .replace("{minutes}", String(anonLink.retentionMinutes))}
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <p className="text-[10px] text-muted2 leading-snug">{t("anon_link_hint")}</p>
