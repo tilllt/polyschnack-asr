@@ -510,6 +510,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
+  const [micDeviceId, setMicDeviceId] = useState<string>(() =>
+    localStorage.getItem("ps_mic_device") ?? ""
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const recordRef = useRef<RecordPlugin | null>(null);
@@ -590,10 +594,18 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     if (prewarmInFlight.current) return prewarmInFlight.current; // dedupe
     prewarmInFlight.current = (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: true },
-        });
+        const audio: MediaTrackConstraints = {
+          noiseSuppression: false,
+          echoCancellation: false,
+          autoGainControl: true,
+        };
+        if (micDeviceId) {
+          audio.deviceId = { exact: micDeviceId };
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio });
         micStreamRef.current = stream;
+        // Geräteliste nachführen (IDs sind erst nach Permission sichtbar)
+        void refreshMicDevices();
       } catch {
         // Kein Zugriff — startRecording zeigt dann den Fehler-Toast.
       } finally {
@@ -603,6 +615,35 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     return prewarmInFlight.current;
   }
 
+  // Verfügbare Mikrofon-Inputs auflisten (nur audioinput, mit Label wenn
+  // erlaubt). Nach Permission-Aufruf erneut aufrufen — erst dann sind die
+  // deviceLabels sichtbar.
+  async function refreshMicDevices() {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const mics = all.filter((d) => d.kind === "audioinput");
+      setMicDevices(mics);
+      // Auswahl validieren: gewählte ID noch vorhanden? Sonst Default ("").
+      if (micDeviceId && !mics.some((m) => m.deviceId === micDeviceId)) {
+        setMicDeviceId("");
+        localStorage.removeItem("ps_mic_device");
+      }
+    } catch {
+      // enumerateDevices nicht verfügbar — kein Dropdown anzeigen.
+    }
+  }
+
+  function onMicDeviceChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const id = e.target.value;
+    setMicDeviceId(id);
+    if (id) localStorage.setItem("ps_mic_device", id);
+    else localStorage.removeItem("ps_mic_device");
+    // Laufenden Stream mit neuem Gerät ersetzen → nächster Start nutzt es
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    void prewarmMic();
+  }
+
   // Beim ersten Betreten des Record-Tabs den Stream vorab anfordern —
   // damit Permission-Prompt/Stream-Start NICHT beim ersten Knopfdruck
   // passieren (das war der spürbare Delay).
@@ -610,6 +651,14 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     void prewarmMic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Bei Änderung der gewählten deviceId: neu prewarmen (Wechsel + Erstwahl)
+  useEffect(() => {
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    void prewarmMic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micDeviceId]);
 
   async function startRecording() {
     acquireWakeLock();
@@ -921,6 +970,25 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           </button>
         )}
       </div>
+
+      {/* Mikrofon-Auswahl — nur wenn mehrere Inputs existieren */}
+      {micDevices.length > 1 && !recording && (
+        <label className="flex items-center gap-2 text-[12px] text-muted">
+          <span>🎙 {t("mic_select_label")}</span>
+          <select
+            value={micDeviceId}
+            onChange={onMicDeviceChange}
+            className="bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt max-w-[220px]"
+          >
+            <option value="">{t("mic_select_default")}</option>
+            {micDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `${t("mic_select_unnamed")} ${d.deviceId.slice(0, 4)}…`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {/* Statuszeile für Mobile-Modus */}
       {isTouch && recording && (
