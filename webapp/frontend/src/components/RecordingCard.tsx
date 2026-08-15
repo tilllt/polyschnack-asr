@@ -16,6 +16,7 @@ import { activeSegmentIndex } from "../karaoke";
 import { resegmentByDuration } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
+import { VersionDiff } from "./VersionDiff";
 
 /** ETA aus der beobachteten Fortschrittsrate (ms pro Prozentpunkt).
  *  Die alte Formel extrapolierte linear ueber created_at (Upload-Zeit!) —
@@ -101,12 +102,8 @@ interface Props {
   defaultCollapsed?: boolean;
 }
 
-/* Diff-Array [{type: same|add|del, text}] → Text-Darstellung */
-function renderDiff(diff: unknown[]): string {
-  return (diff as { type: string; text: string }[])
-    .map((l) => (l.type === "add" ? `+ ${l.text}` : l.type === "del" ? `- ${l.text}` : `  ${l.text}`))
-    .join("\n");
-}
+/* Diff-Array [{type: same|add|del, text}] wird in VersionDiff.tsx als
+ * GitHub-artige Ansicht gerendert (Zeilennummern, Hunks, Wort-Highlight). */
 
 const KIND_LABEL: Record<string, string> = {
   transcribe: "Transcribe",
@@ -188,8 +185,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [linkCopied, setLinkCopied] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
   const [versions, setVersions] = useState<VersionItem[]>([]);
-  const [diffText, setDiffText] = useState("");
-  const [diffInfo, setDiffInfo] = useState("");
+  const [diffData, setDiffData] = useState<{ type: string; text: string }[]>([]);
+  const [diffFrom, setDiffFrom] = useState<number | null>(null);
+  const [diffTo, setDiffTo] = useState<number | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
 
   // Dropdown-Flip für Download/Share/Versionen (Mobile: nach oben klappen)
   const dlFlip = useFlipUp(dlOpen);
@@ -305,14 +304,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     try {
       const vs = await fetchVersions(r.uid);
       setVersions(vs);
-      setDiffText("");
-      setDiffInfo("");
+      setDiffData([]);
+      setDiffFrom(null);
+      setDiffTo(null);
       if (vs.length >= 2) {
+        // Sofort der Diff der letzten gegen die vorletzte Version (GitHub-Stil)
         const last = vs[vs.length - 1];
         const prev = vs[vs.length - 2];
-        const d = await fetchVersionDiff(r.uid, last.version_no, prev.version_no);
-        setDiffInfo(`V${d.from ?? "—"} → V${d.to}`);
-        setDiffText(renderDiff(d.diff));
+        setDiffLoading(true);
+        try {
+          const d = await fetchVersionDiff(r.uid, last.version_no, prev.version_no);
+          setDiffFrom(d.from);
+          setDiffTo(d.to);
+          setDiffData(d.diff as { type: string; text: string }[]);
+        } finally {
+          setDiffLoading(false);
+        }
       }
     } catch (e) {
       toast(`Versionen: ${(e as Error).message}`, "err");
@@ -321,11 +328,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   async function showDiff(v: VersionItem) {
     try {
-      setDiffInfo(`V${v.version_no}`);
+      setDiffLoading(true);
+      setDiffData([]);
       const d = await fetchVersionDiff(r.uid, v.version_no);
-      setDiffText(renderDiff(d.diff));
+      setDiffFrom(d.from);
+      setDiffTo(d.to);
+      setDiffData(d.diff as { type: string; text: string }[]);
     } catch (e) {
       toast(`Diff: ${(e as Error).message}`, "err");
+    } finally {
+      setDiffLoading(false);
     }
   }
 
@@ -1007,11 +1019,20 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     </div>
                   ))}
                 </div>
-                {diffText && (
-                  <pre className="bg-panel2 border border-border rounded-sm p-1.5 text-[10px] leading-[1.4] text-txt max-h-[160px] overflow-y-auto whitespace-pre-wrap">
-                    <span className="text-muted2 block mb-0.5">{diffInfo}</span>
-                    {diffText}
-                  </pre>
+                {(diffLoading || diffData.length > 0) && (
+                  <div className="mb-1">
+                    {diffLoading ? (
+                      <p className="text-[10px] text-muted2 px-1 py-1 animate-pulse">
+                        {t("diff_loading")}
+                      </p>
+                    ) : (
+                      <VersionDiff
+                        diff={diffData}
+                        fromLabel={diffFrom !== null ? `V${diffFrom}` : undefined}
+                        toLabel={diffTo !== null ? `V${diffTo}` : undefined}
+                      />
+                    )}
+                  </div>
                 )}
               </div>
             )}
