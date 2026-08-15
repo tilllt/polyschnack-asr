@@ -10,14 +10,35 @@ Backend-Wechsel) setzt OIDC zwingend voraus — ohne Login gibt es keine Admins.
 
 ## Aktivierung
 
-**Fertiges Compose-Overlay mit Dummy-Werten:** `compose.oidc.yml`
+**Fertiges Compose-Overlay:** `compose.oidc.yml`
 
 ```bash
 docker compose -f compose.yml -f compose.oidc.yml up -d
 ```
 
-Alle Werte dort sind DUMMY (Client-ID/Secret, `auth.example.com`,
-`admin@example.com`) — vor Produktion ersetzen.
+Alle Werte im Overlay werden aus der **`.env`-Datei im Repo-Root interpoliert**
+(docker compose liest sie automatisch). Die im Overlay hinterlegten Defaults
+sind DUMMY-Werte — die echten Werte gehören in die `.env`:
+
+```bash
+# .env (Repo-Root, neben compose.yml)
+OIDC_CLIENT_ID=polyschnack
+OIDC_CLIENT_SECRET=…
+OIDC_ISSUER=https://auth.example.com
+SESSION_SECRET=…
+BASE_URL=https://polyschnack.example.org
+POLYSCHNACK_ADMINS=<sub-oder-email>
+POLYSCHNACK_ADMIN_GROUPS=
+```
+
+!!! warning "Warum wirkt meine .env nicht?"
+    Eine Variable aus der `.env` erreicht den Container **nur**, wenn sie im
+    `environment:`-Block eines compose-Files referenziert wird
+    (`${VAR:-default}`). Reine `.env`-Einträge ohne Referenz werden ignoriert —
+    deshalb standen die OIDC-/Admin-Werte früher hart im Overlay. Seit der
+    Umstellung auf Interpolation genügt es, die Werte in die `.env` zu
+    schreiben und `docker compose -f compose.yml -f compose.oidc.yml up -d`
+    neu auszuführen.
 
 | Variable | Beispiel | Bedeutung |
 |----------|----------|-----------|
@@ -49,6 +70,12 @@ Alle Werte dort sind DUMMY (Client-ID/Secret, `auth.example.com`,
 - `POLYSCHNACK_ADMINS` — Komma-Liste von `sub`-IDs **oder** E-Mails
 - `POLYSCHNACK_ADMIN_GROUPS` — Komma-Liste von OIDC-Gruppennamen
 
+!!! tip "Die Variable heißt `POLYSCHNACK_ADMINS` — nicht `SUB`"
+    Die Env-Variable für die Admin-Liste heißt exakt `POLYSCHNACK_ADMINS`.
+    Ein Eintrag wie `SUB=<wert>` in der `.env` wird vom Code **nie gelesen**.
+    Richtig: `POLYSCHNACK_ADMINS=<sub-oder-email>`. Den eigenen `sub` findet
+    man eingeloggt über `GET /auth/me` (Feld `sub`).
+
 Beide wirken **unabhängig voneinander** (ODER-Verknüpfung):
 
 1. **sub/email-Liste:** Beim Login wird der User in der DB angelegt bzw.
@@ -58,6 +85,8 @@ Beide wirken **unabhängig voneinander** (ODER-Verknüpfung):
    `userinfo["groups"]` und der Komma-Liste. Ist sie nicht leer → Admin.
 
 !!! warning "Änderungen an Admin-Variablen"
-    `is_admin` wird einmalig beim Login berechnet und in der Session gecacht.
-    Nach Änderungen der Admin-Variablen **neu einloggen** (Logout → Login).
-    Ohne aktives OIDC liefert `require_admin` immer 403.
+    `is_admin` wird beim Login berechnet und in der Session gecacht, aber
+    **bei jedem `/auth/me`-Aufruf frisch gegen die Env nachgezogen** — eine
+    Änderung der Admin-Variablen wirkt also nach einem Seiten-Reload (bzw.
+    nach `docker compose up -d` für Env-Änderungen, die den Container neu
+    erstellen). Ohne aktives OIDC liefert `require_admin` immer 403.

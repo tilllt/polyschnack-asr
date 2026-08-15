@@ -1,30 +1,18 @@
-import { useEffect, useState } from "react";
 import { useT } from "../useLocale";
 import { TemplatesSection, TargetsSection, LlmEndpointsSection } from "./PostProcessPanel";
-import { fetchStats, type Stats, type UserInfo } from "../api";
-import { fmtBytes, fmtTotalDur } from "../format";
+import type { UserInfo } from "../api";
 
 interface Props {
   user: UserInfo | null;
 }
 
-/** User-Settings-Seite: Konto-Basisinfos, Statistik, Postprocessing,
+/** User-Settings-Seite: Konto-Basisinfos, Postprocessing,
  * Targets, BYOK. Nur für eingeloggte User — das Backend-Gate
  * (require_authenticated) erzwingt das auch serverseitig.
+ * Statistik liegt im Header (StatsBar) — hier bewusst nicht dupliziert.
  */
 export function UserSettingsPage({ user }: Props) {
   const { t } = useT();
-  const [stats, setStats] = useState<Stats | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetchStats()
-      .then((s) => alive && setStats(s))
-      .catch(() => alive && setStats(null));
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   if (!user?.authenticated) return null;
   const groups = user.groups ?? [];
@@ -60,18 +48,6 @@ export function UserSettingsPage({ user }: Props) {
               {g}
             </span>
           ))}
-        </div>
-      </section>
-
-      <section className="bg-panel border border-border rounded-card px-3 py-3">
-        <h3 className="font-bold text-[13px] mb-2">📊 {t("stats")}</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[12px]">
-          <StatCell val={stats?.total ?? "—"} lbl={t("recordings")} />
-          <StatCell val={stats?.done ?? "—"} lbl={t("done")} />
-          <StatCell val={stats?.processing ?? "—"} lbl={t("processing")} />
-          <StatCell val={stats?.uploaded ?? "—"} lbl="uploaded" />
-          <StatCell val={fmtTotalDur(stats?.total_audio_s)} lbl={t("total_audio")} />
-          <StatCell val={fmtBytes(stats?.total_size_bytes)} lbl={t("storage")} />
         </div>
       </section>
 
@@ -113,19 +89,6 @@ function InfoRow({
       >
         {value}
       </dd>
-    </div>
-  );
-}
-
-function StatCell({ val, lbl }: { val: string | number; lbl: string }) {
-  return (
-    <div className="flex flex-col items-start">
-      <span className="text-[14px] font-semibold text-txt leading-none">
-        {val}
-      </span>
-      <span className="text-[10px] text-muted uppercase tracking-[.05em]">
-        {lbl}
-      </span>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { Stats } from "../api";
-import { fmtTotalDur } from "../format";
+import { fmtBytes, fmtTotalDur } from "../format";
 
 import { useT } from "../useLocale";
 
@@ -17,6 +17,7 @@ export function StatsBar({ stats, device }: Props) {
       <StatItem val={stats?.uploaded ?? "—"} lbl={"uploaded"} />
       <StatItem val={stats?.processing ?? "—"} lbl={t("processing")} />
       <StatItem val={fmtTotalDur(stats?.total_audio_s)} lbl={t("total_audio")} />
+      <StatItem val={fmtBytes(stats?.total_size_bytes)} lbl={t("storage")} />
       {device && (
         <div
           className={[

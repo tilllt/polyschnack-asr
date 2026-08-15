@@ -7,28 +7,31 @@
 # gesetzt sind (siehe webapp/app/config.py). Beim Identity Provider muss die
 # Redirect-URI <BASE_URL>/auth/callback registriert sein.
 #
-# ALLE WERTE SIND DUMMY-WERTE — vor Produktion ersetzen:
-#   - OIDC_CLIENT_ID / OIDC_CLIENT_SECRET  → echte Credentials vom IdP
-#   - OIDC_ISSUER                          → https://auth.example.com  (Keycloak/Authentik)
-#   - SESSION_SECRET                       → `openssl rand -hex 32`
-#   - BASE_URL                             → öffentliche URL der Webapp
-#   - POLYSCHNACK_ADMINS                   → echte E-Mails/Subs der Admins
+# ALLE Werte hier werden aus der .env interpoliert (docker compose liest die
+# .env-Datei im Repo-Root automatisch). Die Defaults sind DUMMY-Werte — die
+# echten Werte gehören in die .env:
+#   OIDC_CLIENT_ID / OIDC_CLIENT_SECRET  → echte Credentials vom IdP
+#   OIDC_ISSUER                          → https://auth.example.com  (Keycloak/Authentik)
+#   SESSION_SECRET                       → `openssl rand -hex 32`
+#   BASE_URL                             → öffentliche URL der Webapp
+#   POLYSCHNACK_ADMINS                   → echte E-Mails/Subs der Admins
 #
 # Ohne dieses Overlay läuft die App wie bisher OHNE Login (anonym).
 
 services:
   ps-webapp:
     environment:
-      # ── OIDC (DUMMY) ──────────────────────────────────────────────────
-      OIDC_CLIENT_ID: "polyschnack-dev-client"
-      OIDC_CLIENT_SECRET: "dummy-client-secret-change-me"
-      OIDC_ISSUER: "https://auth.example.com"
-      OIDC_SCOPE: "openid profile email"
+      # ── OIDC ───────────────────────────────────────────────────────────
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-polyschnack-dev-client}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-dummy-client-secret-change-me}"
+      OIDC_ISSUER: "${OIDC_ISSUER:-https://auth.example.com}"
+      OIDC_SCOPE: "${OIDC_SCOPE:-openid profile email}"
       # ── Session ───────────────────────────────────────────────────────
       # Signiert die Session-Cookies — NIE den Dummy-Wert produktiv lassen!
-      SESSION_SECRET: "dummy-session-secret-change-me"
-      BASE_URL: "https://polyschnack.example.com"
+      SESSION_SECRET: "${SESSION_SECRET:-dummy-session-secret-change-me}"
+      BASE_URL: "${BASE_URL:-https://polyschnack.example.com}"
       # ── Admins (Admin-Bereich + Benchmark-Reject/Edit) ────────────────
-      # Admin-Match per E-Mail (aus OIDC-claims) ODER per OIDC-Gruppe.
-      POLYSCHNACK_ADMINS: "admin@example.com"
-      POLYSCHNACK_ADMIN_GROUPS: "polyschnack-admins"
+      # Admin-Match per E-Mail (aus OIDC-claims) ODER per sub ODER per
+      # OIDC-Gruppe. Werte aus der .env (POLYSCHNACK_ADMINS="sub1,mail@x").
+      POLYSCHNACK_ADMINS: "${POLYSCHNACK_ADMINS:-}"
+      POLYSCHNACK_ADMIN_GROUPS: "${POLYSCHNACK_ADMIN_GROUPS:-}"

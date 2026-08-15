@@ -94,7 +94,7 @@ function AppContent() {
         "
       >
         {/* Row 1: Brand + Lang/Login */}
-        <div className="flex items-center justify-between gap-2 sm:gap-4 mb-2 sm:mb-0">
+        <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 mb-2 sm:mb-0">
           <a
             href="/"
             title={t("home")}
@@ -121,7 +121,7 @@ function AppContent() {
               Benchmark
             </a>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
             {user && user.oidc_enabled && !user.authenticated && (
               <a href="/auth/login" className="btn-ghost-sm text-[12px]">
                 Login

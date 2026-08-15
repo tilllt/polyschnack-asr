@@ -22,15 +22,16 @@ docker compose -f compose.yml -f compose.gpu.yml up -d
 
 ## Optional: Login + Admin-Bereich (OIDC)
 
-Über das Dummy-Overlay:
-
 ```bash
-docker compose -f compose.yml -f compose.oidc.yml up -d   # Werte ersetzen!
+# Werte in die .env schreiben (Repo-Root) — das Overlay interpoliert sie:
+#   OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_ISSUER / SESSION_SECRET /
+#   BASE_URL / POLYSCHNACK_ADMINS (sub ODER email, kommagetrennt)
+docker compose -f compose.yml -f compose.oidc.yml up -d
 ```
 
-Alle Werte in `compose.oidc.yml` sind Platzhalter — vor Produktion
-`OIDC_CLIENT_ID/SECRET`, `OIDC_ISSUER`, `SESSION_SECRET`, `BASE_URL` und
-`POLYSCHNACK_ADMINS` ersetzen. Details: [OIDC-Auth](configuration/oidc.md).
+Die Defaults in `compose.oidc.yml` sind DUMMY-Werte — die echten Werte
+gehören in die `.env` (nicht ins Overlay!). Details:
+[OIDC-Auth](configuration/oidc.md).
 
 ## Optional: Weitere Backends
 
