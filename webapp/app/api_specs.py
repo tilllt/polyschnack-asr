@@ -326,6 +326,20 @@ def build_specs() -> dict[str, dict[str, Any]]:
             },
         ),
         "crispr-align": ALIGNER_SPEC,
+        # OpenAI-kompatibler Proxy der Webapp (Backend-Hopping via model).
+        "ps-webapp-openai": _transcription_spec(
+            "PolySchnack OpenAI-Proxy (Webapp)",
+            (
+                "OpenAI-kompatibler Transkriptions-Endpoint der Webapp — "
+                "Backend-Hopping über den model-Parameter (ps-pk-onnx, "
+                "crispr-qwen3, …). Auth: API-Key aus den Settings "
+                "(Authorization: Bearer <key>). Nutzbar mit dem OpenAI SDK: "
+                "OpenAI(base_url='https://<host>/v1', api_key='<key>')."
+            ),
+            "https://<host>/v1",
+            ["parakeet-tdt-0.6b-v3", "qwen3-asr-0.6b", "moonshine-de",
+             "ark", "canary", "parakeet-cpp"],
+        ),
     }
 
 
