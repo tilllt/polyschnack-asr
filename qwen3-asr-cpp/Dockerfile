@@ -29,10 +29,13 @@ COPY --from=builder /src/build/qwen3-asr-server /usr/local/bin/
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
 # Shared library: Upstream linkt Server+CLI dynamisch gegen libqwen3-asr.so;
-# ohne sie scheitert der Start ("error while loading shared libraries",
-# Regression 2026-08-14). Wo die .so landet, variiert mit dem Upstream-Build
-# -> per find einsammeln und im ldconfig-Cache registrieren.
-RUN find /src/build -name 'libqwen3-asr.so*' -exec cp -a {} /usr/local/lib/ \; ; ldconfig
+# ohne sie scheitert der Start ("error while loading shared libraries").
+# WICHTIG: direkt aus der Builder-Stage kopieren — die Runtime-Stage hat
+# KEIN /src/build (dort war der frühere find-Befehl wirkungslos: find auf
+# nicht-existentem Pfad + ldconfig-Exit 0 = Build "erfolgreich" ohne Lib,
+# Regression 2026-08-14).
+COPY --from=builder /src/build/libqwen3-asr.so* /usr/local/lib/
+RUN ldconfig
 
 # GGUF model volume — mount ASR + ForcedAligner here
 RUN mkdir -p /models

@@ -39,9 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
 # Shared library: Upstream linkt die CLI dynamisch gegen libqwen3-asr.so;
-# ohne sie scheitert jeder Aufruf ("error while loading shared libraries",
+# ohne sie scheitert jeder Aufruf ("error while loading shared libraries").
+# WICHTIG: direkt aus der Builder-Stage kopieren — die Runtime-Stage hat
+# KEIN /src/build (dort war der frühere find-Befehl wirkungslos: find auf
+# nicht-existentem Pfad + ldconfig-Exit 0 = Build "erfolgreich" ohne Lib,
 # Regression 2026-08-14, gleicher Fix wie im qwen3-Backend-Image).
-RUN find /src/build -name 'libqwen3-asr.so*' -exec cp -a {} /usr/local/lib/ \; ; ldconfig
+COPY --from=builder /src/build/libqwen3-asr.so* /usr/local/lib/
+RUN ldconfig
 
 # Forced-Aligner-Modell (GGUF, ~1,8 GB) — fehlt die Datei, lädt der
 # Entrypoint sie automatisch von HuggingFace nach (Volume ':rw' nötig).
