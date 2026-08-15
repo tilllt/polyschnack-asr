@@ -528,7 +528,10 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
             if s1 is not None and ws >= s1:
                 break
             if ws >= s0 - 1e-3:
-                seg_words.append({"word": w.get("word") or "", "start": ws, "end": we})
+                item: Dict[str, Any] = {"word": w.get("word") or "", "start": ws, "end": we}
+                if w.get("confidence") is not None:
+                    item["confidence"] = w.get("confidence")
+                seg_words.append(item)
         if seg_words:
             ns["words"] = seg_words
         out.append(ns)

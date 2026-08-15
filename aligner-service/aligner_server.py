@@ -57,43 +57,74 @@ def _to_wav16k(src: str, dst: str) -> None:
 
 
 def _parse_alignment(out_json: str) -> list[dict]:
-    """Tolerant parsen: JSON (words/segments/Liste) oder Zeilen 'start end word'."""
+    """Tolerant parsen: JSON (words/segments/Liste) oder Zeilen 'start end word'.
+
+    Reicht confidence durch (falls die CLI es liefert) und löst
+    0-Dauer-Wörter auf (start==end → nächste Wortgrenze bzw. min. 80 ms).
+    """
+    words: list[dict] = []
     try:
         with open(out_json, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
             data = data.get("words") or data.get("segments") or data.get("word_timestamps") or []
         if isinstance(data, list):
-            words = []
             for w in data:
                 if not isinstance(w, dict):
                     continue
-                words.append({
+                item = {
                     "start": w.get("start"),
                     "end": w.get("end"),
                     "word": w.get("word") or w.get("text") or "",
-                })
-            return words
-        return []
+                }
+                if w.get("confidence") is not None:
+                    item["confidence"] = w.get("confidence")
+                words.append(item)
+        else:
+            words = []
     except Exception:
         pass
-    words = []
-    try:
-        with open(out_json, encoding="utf-8") as fh:
-            for line in fh:
-                parts = line.split()
-                if len(parts) >= 3:
-                    try:
-                        words.append({
-                            "start": float(parts[0]),
-                            "end": float(parts[1]),
-                            "word": " ".join(parts[2:]),
-                        })
-                    except ValueError:
-                        continue
-    except OSError:
-        pass
-    return words
+    if not words:
+        try:
+            with open(out_json, encoding="utf-8") as fh:
+                for line in fh:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        try:
+                            words.append({
+                                "start": float(parts[0]),
+                                "end": float(parts[1]),
+                                "word": " ".join(parts[2:]),
+                            })
+                        except ValueError:
+                            continue
+        except OSError:
+            pass
+    return _resolve_zero_duration(words)
+
+
+def _resolve_zero_duration(words: list[dict]) -> list[dict]:
+    """Text-Overflow-Artefakte auflösen: start==end (0-Dauer) bekommt die
+    nächste Wortgrenze als end bzw. mindestens eine 80-ms-Zeitklasse
+    (qwen3-forced-aligner-Auflösung: 5000 Klassen × 80 ms = 400 s).
+
+    Ohne diesen Schritt wären Karaoke-Wort-Klicks auf solche Wörter
+    wirkungslos (0-ms-Abspielbereich).
+    """
+    out: list[dict] = []
+    for i, w in enumerate(words):
+        item = dict(w)
+        s, e = item.get("start"), item.get("end")
+        if s is None:
+            s = 0.0
+        if e is None or e <= s:
+            nxt = None
+            if i + 1 < len(words):
+                nxt = words[i + 1].get("start")
+            e = nxt if (nxt is not None and nxt > s) else s + 0.08
+        item["start"], item["end"] = s, e
+        out.append(item)
+    return out
 
 
 def _run_aligner(cli: str, model: str, wav: str, text: str, lang: str) -> str:
