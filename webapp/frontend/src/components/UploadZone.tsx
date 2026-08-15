@@ -800,6 +800,9 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   // Swipe ↑ = Daueraufnahme · Swipe ↓ = Stop + Upload
 
   function onTouchStart(e: React.TouchEvent) {
+    // Default verhindern: Der Browser darf den Touch nicht als Scroll-Geste
+    // interpretieren (sonst hüpft die Seite beim Drücken des Buttons).
+    e.preventDefault();
     touchStartY.current = e.touches[0]?.clientY ?? null;
     touchStartT.current = Date.now();
     gestureDone.current = false;
@@ -872,10 +875,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
 
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      {/* WaveSurfer waveform container — only visible during recording */}
+      {/* WaveSurfer waveform container — only visible during recording.
+          Höhe IMMER reservieren (min-h), damit der Layout-Shift beim Start
+          entfällt: ohne feste Höhe schiebt das Sichtbarwerden den Button
+          nach unten und die Seite wirkt, als würde sie hochscrollen. */}
       <div
         ref={containerRef}
-        className={`w-full max-w-[500px] px-2 sm:px-0 ${recording ? "" : "hidden"}`}
+        className={`w-full max-w-[500px] px-2 sm:px-0 min-h-[60px] ${recording ? "" : "invisible"}`}
       />
 
       {/* Offline-Puffer: lokal gesicherte Aufnahmen, deren Upload noch aussteht */}
