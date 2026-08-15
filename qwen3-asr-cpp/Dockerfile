@@ -14,6 +14,13 @@ WORKDIR /src
 RUN git clone --recursive https://github.com/predict-woo/qwen3-asr.cpp.git .
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build -j$(nproc)
+# Shared libraries EINSAMMELN (im Builder!): Upstream linkt Server+CLI
+# dynamisch gegen libqwen3-asr.so UND die ggml-Familie (libggml.so.0,
+# libggml-base.so.0, libggml-cpu.so.0 …) — sie liegen verstreut im
+# Build-Output (ggml-Submodule). Die Runtime-Stage hat KEIN /src/build;
+# deshalb hier bündeln und per COPY übernehmen (Regression 2026-08-14:
+# find lief in der Runtime-Stage ins Leere → „erfolgreicher" Build ohne Lib).
+RUN mkdir -p /src/libs && find /src/build -name '*.so*' -exec cp -a {} /src/libs/ \;
 
 # ==============================================================
 # Runtime stage
@@ -28,15 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /src/build/qwen3-asr-server /usr/local/bin/
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
-# Shared libraries: Upstream linkt Server+CLI dynamisch gegen libqwen3-asr.so
-# UND die ggml-Familie (libggml.so.0, libggml-base.so.0, libggml-cpu.so.0 …).
-# Ohne sie scheitert der Start ("error while loading shared libraries").
-# WICHTIG: alle .so direkt aus der Builder-Stage einsammeln — die
-# Runtime-Stage hat KEIN /src/build (dort war der frühere find-Befehl
-# wirkungslos: find auf nicht-existentem Pfad + ldconfig-Exit 0 = Build
-# "erfolgreich" ohne Lib, Regression 2026-08-14; der Nachfolge-Fix kopierte
-# nur libqwen3-asr.so, ggml fehlte → libggml-base.so.0-Fehler 2026-08-15).
-RUN mkdir -p /src/libs && find /src/build -name '*.so*' -exec cp -a {} /src/libs/ \;
+# Shared libraries aus der Builder-Stage übernehmen (dort gebündelt in
+# /src/libs; die Runtime-Stage hat kein /src/build — siehe Builder oben).
 COPY --from=builder /src/libs/ /usr/local/lib/
 RUN ldconfig
 
