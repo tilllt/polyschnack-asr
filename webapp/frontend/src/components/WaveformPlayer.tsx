@@ -30,6 +30,30 @@ interface Props {
 
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 
+/* ============================================================
+   AUDIO-EXKLUSIVITÄT — immer nur EIN Player spielt app-weit.
+   Modul-Singleton: der zuletzt gestartete Player pausiert den
+   vorherigen (auch über mehrere RecordingCards/Benchmark-Samples
+   hinweg). User-Anforderung 2026-08-15: „Wenn ein neues angeklickt
+   wird, hört eins, das schon spielt, auf."
+   ============================================================ */
+type Playable = { pause: () => void; isPlaying: () => boolean };
+export type { Playable };
+let activePlayer: Playable | null = null;
+
+/** Registriert `me` als aktiven Player und pausiert den vorherigen. */
+export function claimExclusivePlayback(me: Playable): void {
+  if (activePlayer && activePlayer !== me && activePlayer.isPlaying()) {
+    activePlayer.pause();
+  }
+  activePlayer = me;
+}
+
+/** Gibt die Exklusivität frei, wenn `me` noch der aktive Player ist. */
+export function releaseExclusivePlayback(me: Playable): void {
+  if (activePlayer === me) activePlayer = null;
+}
+
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
   function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -158,9 +182,27 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       });
 
       ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
-      ws.on("play", () => { setPlaying(true); onPlayStateRef.current?.(true); startSync(); });
-      ws.on("pause", () => { setPlaying(false); onPlayStateRef.current?.(false); });
-      ws.on("finish", () => { setPlaying(false); onPlayStateRef.current?.(false); });
+      // Audio-Exklusivität: Start dieses Players pausiert jeden anderen.
+      const me: Playable = {
+        pause: () => ws.pause(),
+        isPlaying: () => ws.isPlaying(),
+      };
+      ws.on("play", () => {
+        claimExclusivePlayback(me);
+        setPlaying(true);
+        onPlayStateRef.current?.(true);
+        startSync();
+      });
+      ws.on("pause", () => {
+        releaseExclusivePlayback(me);
+        setPlaying(false);
+        onPlayStateRef.current?.(false);
+      });
+      ws.on("finish", () => {
+        releaseExclusivePlayback(me);
+        setPlaying(false);
+        onPlayStateRef.current?.(false);
+      });
 
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
@@ -190,6 +232,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       return () => {
         cancelled = true;
         if (rafId != null) cancelAnimationFrame(rafId);
+        releaseExclusivePlayback(me);
         ws.destroy();
       };
     }, [audioUrl]);
