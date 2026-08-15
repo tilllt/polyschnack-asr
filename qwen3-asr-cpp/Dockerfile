@@ -15,10 +15,15 @@ RUN git clone --recursive https://github.com/predict-woo/qwen3-asr.cpp.git .
 # CUDA-Backend explizit aktivieren (Fix 2026-08-15, identisch zum
 # aligner-service): ohne -DGGML_CUDA=ON linkt ggml auf Linux nur CPU —
 # trotz runtime: nvidia lief der ASR-Server auf CPU (q8_0, langsamer).
+# Linker-Flags (llama.cpp#23357): INTERFACE-Propagation der CUDA-Driver-
+# Dependency fehlt bei BUILD_SHARED_LIBS=ON → Stub-libcuda auf die Link-
+# Linien; die NVIDIA-Runtime mountet zur Laufzeit den echten Treiber.
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
     -DGGML_CUDA=ON \
     -DGGML_CUDA_F16=ON \
-    -DCMAKE_CUDA_ARCHITECTURES=86 && \
+    -DCMAKE_CUDA_ARCHITECTURES=86 \
+    -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
     cmake --build build -j$(nproc)
 # Shared libraries EINSAMMELN (im Builder!): Upstream linkt Server+CLI
 # dynamisch gegen libqwen3-asr.so UND die ggml-Familie (libggml.so.0,
