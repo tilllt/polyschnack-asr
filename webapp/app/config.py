@@ -76,6 +76,11 @@ class _Settings:
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
     DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")
 
+    #: Chunk-Sekunden für den diar-Server (parakeet Longform-Fix 2026-08-15):
+    #: Ohne explizites Chunking bricht CrispASR lange Audios nach ~165 s ab
+    #: (Memory-Cap, CrispASR-Issue #257). 30 s ist der Server-Default.
+    DIARIZE_CHUNK_SECONDS: int = int(os.getenv("DIARIZE_CHUNK_SECONDS", "30"))
+
     #: OIDC (optional — when unset, no auth)
     OIDC_CLIENT_ID: str = os.getenv("OIDC_CLIENT_ID", "")
     OIDC_CLIENT_SECRET: str = os.getenv("OIDC_CLIENT_SECRET", "")

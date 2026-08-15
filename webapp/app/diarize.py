@@ -55,7 +55,19 @@ def _normalise_speaker(label: str) -> str:
 #: Whitelist der CrispASR-Diarization-Methoden (Server-Feld diarize_method).
 #: Unbekannte Werte werden bewusst abgelehnt (ValueError) statt still auf
 #: den Default zu fallen — ein Tippfehler darf nicht lautlos pyannote sein.
-DIARIZE_METHODS = ("pyannote", "foxnose", "energy", "xcorr", "vad-turns")
+#: Methoden-Übersicht (CrispASR docs/cli.md):
+#:   pyannote   mono — pyannote-seg-3.0-GGUF, läuft global über die volle
+#:              Audio; mit --diarize-embedder auto (TitaNet) = Sherpa-
+#:              Äquivalent nativ (global stabile Speaker-IDs)
+#:   foxnose    mono, empfohlen — WeSpeaker-Embeddings + Clustering
+#:   vad-turns  mono — pausenbasierte Turn-Erkennung (kein Modell)
+#:   energy     NUR Stereo (Kanal-Vergleich) — auf Mono wirkungslos!
+#:   xcorr      NUR Stereo (Kreuzkorrelation) — auf Mono wirkungslos!
+#:   (sherpa/ecapa nicht gelistet: brauchen externes sherpa-onnx-Binary,
+#:    das im Container fehlt — pyannote+Embedder deckt das nativ ab)
+DIARIZE_METHODS = (
+    "pyannote", "foxnose", "energy", "xcorr", "vad-turns",
+)
 
 
 def diarize(
@@ -92,6 +104,13 @@ def diarize(
         "response_format": "diarized_json",
         "diarize": "true",
         "diarize_method": method or settings.DIARIZE_METHOD,
+        # Fix 2026-08-15: parakeet (Full-Attention-FastConformer) bekommt ohne
+        # chunk_seconds den ganzen Clip — bei langem Audio greift das
+        # Server-Memory-Cap und die Transkription bricht nach ~165 s ab
+        # (CrispASR-Doku: „one coherent segment (or the silence-split
+        # longform above the memory cap)"). Explizites Chunking aktiviert die
+        # parakeet-interne Segmentierung über die volle Länge (Issue #257).
+        "chunk_seconds": str(settings.DIARIZE_CHUNK_SECONDS),
     }
     if num_speakers is not None:
         data["diarize_max_speakers"] = str(num_speakers)

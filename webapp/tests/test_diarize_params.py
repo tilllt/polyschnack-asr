@@ -85,6 +85,20 @@ def test_diarize_reicht_explizite_methode_durch(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["diarize_method"] == "foxnose"
 
 
+def test_diarize_chunk_seconds_wird_mitgesendet(monkeypatch, tmp_path):
+    """Fix 2026-08-15: chunk_seconds behebt den Longform-Abbruch (~165 s).
+
+    parakeet (Full-Attention-FastConformer) bekommt ohne explizites
+    Chunking den ganzen Clip — bei langem Audio greift das Server-
+    Memory-Cap und die Transkription bricht ab (CrispASR-Issue #257).
+    """
+    fc = _patch(monkeypatch)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p))
+    assert fc.last_kwargs["data"]["chunk_seconds"] == str(settings.DIARIZE_CHUNK_SECONDS)
+
+
 def test_diarize_invalid_method_wirft_valueerror(monkeypatch, tmp_path):
     """Unbekannte Methode → Whitelist-Fehler statt stiller Default.
 

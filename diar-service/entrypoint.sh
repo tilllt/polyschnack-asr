@@ -13,12 +13,19 @@
 #                   (Default: cstr/parakeet-tdt-0.6b-v3-GGUF)
 #   HF_TOKEN        optional, für gated Repos
 #   DIAR_PORT       Server-Port (Default: 5098)
+#   DIARIZE_METHOD  Diarisierungs-Methode (Default: foxnose)
+#                   foxnose = WeSpeaker-Embeddings + Clustering (empfohlen,
+#                   mono-tauglich, Auto-Download des 24-MB-Embedder-GGUF)
+#                   pyannote = pyannote-seg-3.0-GGUF (Auto-Download)
+#                   vad-turns = pausenbasierte Turn-Erkennung (kein Modell)
+#                   energy/xcorr = NUR Stereo (auf Mono wirkungslos!)
 # ==============================================================
 set -u
 
 DIAR_MODEL="${DIAR_MODEL:-/models/parakeet-tdt-0.6b-v3-q8_0.gguf}"
 HF_MODEL_REPO="${HF_MODEL_REPO:-cstr/parakeet-tdt-0.6b-v3-GGUF}"
 DIAR_PORT="${DIAR_PORT:-5098}"
+DIARIZE_METHOD="${DIARIZE_METHOD:-foxnose}"
 
 is_valid_gguf() {
     # Datei existiert, ist nicht leer und trägt die GGUF-Magic.
@@ -71,5 +78,36 @@ EOF
     fi
 fi
 
-echo "[diar] Starte CrispASR-Server (Port ${DIAR_PORT})"
-exec crispasr --server -m "$DIAR_MODEL" --host 0.0.0.0 --port "$DIAR_PORT" "$@"
+echo "[diar] Starte CrispASR-Server (Port ${DIAR_PORT}, Diarize-Methode: ${DIARIZE_METHOD})"
+
+# Diarize-Modell-Downloads (pyannote-seg / WeSpeaker-Embedder) laufen über den
+# CrispASR-eigenen Auto-Download (--sherpa-segment-model auto / --diarize-
+# embedder auto). CACHE-DIR aufs Modell-Volume legen, damit die Downloads
+# Container-Neustarts überleben (Fix 2026-08-15: Diarize lieferte keine
+# Speaker, weil der Server ohne --diarize + Segmentierungs-/Embedder-Modell
+# gestartet wurde — CrispASR-Doku docs/server.md, docs/cli.md).
+export CRISPASR_CACHE_DIR="${CRISPASR_CACHE_DIR:-/models/.crispasr-cache}"
+
+# energy/xcorr brauchen Stereo — unser Client liefert Mono (16 kHz).
+# Auf Mono sind sie wirkungslos; deshalb Default auf mono-taugliche Methoden.
+case "${DIARIZE_METHOD}" in
+  vad-turns)
+    DIARIZE_ARGS="--diarize --diarize-method vad-turns"
+    ;;
+  energy|xcorr)
+    echo "[diar] WARNUNG: ${DIARIZE_METHOD} funktioniert nur auf Stereo-Audio — Mono-Aufnahmen erhalten keine Speaker." >&2
+    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD}"
+    ;;
+  *)
+    # pyannote (Default) und foxnose: Auto-Download der Modelle.
+    # pyannote + TitaNet-Embedder = Sherpa-Äquivalent NATIV in CrispASR
+    # (0.6.6+, Issue #107/#110): pyannote-seg läuft EINMAL über die volle
+    # Audio (konsistente IDs über Chunks), der Embedder verankert die
+    # lokalen Tracks global. foxnose = WeSpeaker-Embeddings + Clustering.
+    # Beide Modell-Flags IMMER setzen, damit Webapp-Requests zwischen
+    # den Methoden wechseln können (Request-Feld diarize_method gewinnt).
+    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD} --sherpa-segment-model auto --diarize-embedder auto"
+    ;;
+esac
+
+exec crispasr --server -m "$DIAR_MODEL" --host 0.0.0.0 --port "$DIAR_PORT" ${DIARIZE_ARGS} "$@"
