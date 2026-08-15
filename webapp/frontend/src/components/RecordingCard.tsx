@@ -60,14 +60,16 @@ function fmtTime(sec: number): string {
 
 /** Dropdown-Flip: öffnet nach unten, aber wenn das Menü unter den Viewport
  *  ragen würde (Mobile!), klappt es nach oben auf. Zusätzlich horizontal:
- *  right-0-verankerte Menüs (240 px breit) ragen auf schmalen Screens links
- *  aus dem Viewport, wenn der Trigger-Button nicht ganz rechts steht —
- *  dann wird auf left-0 umgestellt (Fix 2026-08-15, User-Befund „Teilen-
- *  Dialog auf Mobile links abgeschnitten"). */
+ *  right-0-verankerte Menüs ragen auf schmalen Screens links aus dem
+ *  Viewport, wenn der Trigger-Button nicht ganz rechts steht. Statt nur
+ *  left/right zu tauschen (verschiebt das Problem nur auf die andere
+ *  Seite) wird per translateX exakt geklemmt: dx > 0 schiebt das Menü
+ *  nach rechts, bis es komplett sichtbar ist (Fix 2026-08-15, User-
+ *  Befund „abgeschnittene Modals bei allen Buttons"). */
 function useFlipUp(open: boolean) {
   const ref = useRef<HTMLDivElement>(null);
   const [up, setUp] = useState(false);
-  const [left, setLeft] = useState(false);
+  const [dx, setDx] = useState(0);
   useEffect(() => {
     if (!open) return;
     const id = requestAnimationFrame(() => {
@@ -76,12 +78,18 @@ function useFlipUp(open: boolean) {
       const r = el.getBoundingClientRect();
       setUp(r.bottom > window.innerHeight - 8);
       // Menü ist right-0 verankert: ragt es links aus dem Viewport
-      // (r.left < 0), gehört es an den linken Rand des Triggers.
-      setLeft(r.left < 0);
+      // (r.left < 0), schiebe es um exakt den Überstand nach rechts.
+      let shift = 0;
+      if (r.left < 8) shift = 8 - r.left;
+      // Sicherheitsnetz rechts (min-w kann breiter als der Platz sein).
+      if (r.right > window.innerWidth - 8) {
+        shift = Math.min(shift, window.innerWidth - 8 - r.right);
+      }
+      setDx(shift);
     });
     return () => cancelAnimationFrame(id);
   }, [open]);
-  return { ref, up, left };
+  return { ref, up, dx };
 }
 
 interface Props {
@@ -809,9 +817,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             {dlOpen && (
               <div
                 ref={dlFlip.ref}
+                style={{ transform: dlFlip.dx ? `translateX(${dlFlip.dx}px)` : undefined }}
                 className={`
                   dl-menu-enter
-                  absolute ${dlFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${dlFlip.left ? "left-0" : "right-0"}
+                  absolute ${dlFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0
                   bg-panel3 border border-border2 rounded-sm
                   p-1 min-w-[110px] max-w-[calc(100vw-16px)] z-50
                   shadow-[0_8px_24px_rgba(0,0,0,.4)]
@@ -873,7 +882,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               🔗 {t("share")}
             </button>
             {shareOpen && (
-              <div ref={shareFlip.ref} className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${shareFlip.left ? "left-0" : "right-0"} bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
+              <div
+                ref={shareFlip.ref}
+                style={{ transform: shareFlip.dx ? `translateX(${shareFlip.dx}px)` : undefined }}
+                className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}
+              >
                 <div className="space-y-1 max-h-[150px] overflow-y-auto mb-1.5">
                   {shares.length === 0 && <p className="text-muted2 text-[11px]">{t("no_shares")}</p>}
                   {shares.map((sh) => (
@@ -966,7 +979,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               🕘 {t("versions")}
             </button>
             {versOpen && (
-              <div ref={versFlip.ref} className={`dl-menu-enter absolute ${versFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${versFlip.left ? "left-0" : "right-0"} bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
+              <div
+                ref={versFlip.ref}
+                style={{ transform: versFlip.dx ? `translateX(${versFlip.dx}px)` : undefined }}
+                className={`dl-menu-enter absolute ${versFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}
+              >
                 <div className="space-y-1 max-h-[140px] overflow-y-auto mb-1.5">
                   {versions.length === 0 && <p className="text-muted2 text-[11px]">{t("no_versions")}</p>}
                   {[...versions].reverse().map((v) => (
