@@ -513,6 +513,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const recordRef = useRef<RecordPlugin | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null); // Pre-Warm (2026-08-15)
+  const prewarmInFlight = useRef<Promise<void> | null>(null);
   const timerRef = useRef<number>(0);
   const chunksRef = useRef<Blob[]>([]);
   const touchStartY = useRef<number | null>(null);
@@ -577,6 +579,38 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     setWakelock(null);
   }
 
+  // ── Mikrofon-Pre-Warm (2026-08-15) ──
+  // Der Delay zwischen Knopfdruck und Aufnahme kam von getUserMedia():
+  // Der Browser musste den Mikrofon-Stream JEDES MAL neu aushandeln
+  // (Permission-Check + Stream-Start, auf Mobil oft 300–800 ms). Ab jetzt
+  // wird der Stream beim Betreten des Record-Tabs und nach jedem Stop
+  // vorab geholt und gecacht — startRecording() nutzt ihn direkt.
+  async function prewarmMic() {
+    if (micStreamRef.current) return; // schon warm
+    if (prewarmInFlight.current) return prewarmInFlight.current; // dedupe
+    prewarmInFlight.current = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: true },
+        });
+        micStreamRef.current = stream;
+      } catch {
+        // Kein Zugriff — startRecording zeigt dann den Fehler-Toast.
+      } finally {
+        prewarmInFlight.current = null;
+      }
+    })();
+    return prewarmInFlight.current;
+  }
+
+  // Beim ersten Betreten des Record-Tabs den Stream vorab anfordern —
+  // damit Permission-Prompt/Stream-Start NICHT beim ersten Knopfdruck
+  // passieren (das war der spürbare Delay).
+  useEffect(() => {
+    void prewarmMic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function startRecording() {
     acquireWakeLock();
     onRecordingChange(true);
@@ -618,6 +652,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       ws.destroy();
       wsRef.current = null;
       recordRef.current = null;
+      // Stream freigeben (Safety Net) — nächster Start prewarmt neu
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+      void prewarmMic();
 
       releaseWakeLock();
       setIsUploading(true);
@@ -675,6 +713,12 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     });
 
     try {
+      // Pre-Warmed Stream direkt verwenden (kein erneutes getUserMedia) —
+      // der Delay zwischen Druck und Aufnahme entfällt. Der Recorder übernimmt
+      // den Stream via renderMicStream, startRecording startet sofort.
+      if (micStreamRef.current) {
+        record.renderMicStream(micStreamRef.current);
+      }
       await record.startRecording({
         noiseSuppression: false,
         echoCancellation: false,
@@ -693,6 +737,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   async function stopRecording() {
     recordRef.current?.stopRecording();
     recordRef.current?.stopMic();
+    // Stream freigeben + sofort neu prewarmen → nächster Start ohne Delay
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    void prewarmMic();
     setRecording(false);
     setPaused(false);
     setContinuous(false);
