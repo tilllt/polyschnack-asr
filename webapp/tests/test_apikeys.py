@@ -44,6 +44,55 @@ def test_create_returns_token_once(db):
         assert r["name"] == "mein-skript"
 
 
+def test_create_default_expiry_one_year(db):
+    from datetime import datetime, timezone
+
+    with Session(db) as s:
+        r = keys.create_key(keys.KeyCreate(name="x", level="read"), _req(1), s)
+        exp = datetime.fromisoformat(r["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)  # SQLite: naive → UTC
+        now = datetime.now(timezone.utc)
+        assert exp > now
+        delta_days = (exp - now).total_seconds() / 86400
+        assert 364 <= delta_days <= 366
+        assert r["expired"] is False
+
+
+def test_create_custom_expiry_and_description(db):
+    from datetime import datetime, timedelta, timezone
+
+    future = datetime.now(timezone.utc) + timedelta(days=30)
+    with Session(db) as s:
+        r = keys.create_key(
+            keys.KeyCreate(name="ci", description="CI-Build-Token",
+                           level="full", expires_at=future),
+            _req(1), s)
+        assert r["description"] == "CI-Build-Token"
+        got = datetime.fromisoformat(r["expires_at"])
+        if got.tzinfo is None:
+            got = got.replace(tzinfo=timezone.utc)  # SQLite: naive → UTC
+        assert abs((got - future).total_seconds()) < 5
+        row = s.exec(select(ApiKey)).first()
+        assert row.description == "CI-Build-Token"
+        assert row.expires_at is not None
+
+
+def test_list_marks_expired(db):
+    from datetime import datetime, timedelta, timezone
+
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    with Session(db) as s:
+        keys.create_key(keys.KeyCreate(name="a", level="read"), _req(1), s)
+        s.add(ApiKey(user_id=1, name="alt", level="read",
+                     token_hash=hash_token("alt-token"), expires_at=past))
+        s.commit()
+        lst = keys.list_keys(_req(1), s)
+        by_name = {k["name"]: k for k in lst}
+        assert by_name["a"]["expired"] is False
+        assert by_name["alt"]["expired"] is True
+
+
 def test_create_stores_hash_only(db):
     with Session(db) as s:
         r = keys.create_key(keys.KeyCreate(name="x", level="read"), _req(1), s)

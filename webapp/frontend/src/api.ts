@@ -708,3 +708,45 @@ export async function restoreVersion(recUid: string, vNo: number): Promise<{ res
   const res = await fetch(`/api/recordings/${recUid}/versions/${vNo}/restore`, { method: "POST" }).then(checkOk);
   return res.json() as Promise<{ restored: number }>;
 }
+
+/* ============================================================
+   API-Keys (programmatische Nutzung)
+   ============================================================ */
+
+export interface ApiKeyItem {
+  key_id: number;
+  name: string;
+  description: string | null;
+  level: "read" | "write" | "full";
+  expires_at: string | null;
+  expired: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiKeyCreated extends ApiKeyItem {
+  token: string; // nur beim Erstellen sichtbar
+}
+
+export async function fetchApiKeys(): Promise<ApiKeyItem[]> {
+  const res = await fetch("/api/keys").then(checkOk);
+  return res.json() as Promise<ApiKeyItem[]>;
+}
+
+export async function createApiKey(body: {
+  name: string;
+  description?: string;
+  level: "read" | "write" | "full";
+  expires_at?: string | null; // ISO oder null → Default 1 Jahr
+}): Promise<ApiKeyCreated> {
+  const res = await fetch("/api/keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(checkOk);
+  return res.json() as Promise<ApiKeyCreated>;
+}
+
+export async function deleteApiKey(keyId: number): Promise<void> {
+  await fetch(`/api/keys/${keyId}`, { method: "DELETE" }).then(checkOk);
+}

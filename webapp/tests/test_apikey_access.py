@@ -94,6 +94,34 @@ def test_revoked_key_401(db):
         assert ei.value.status_code == 401
 
 
+def test_expired_key_401(db):
+    from datetime import datetime, timedelta, timezone
+
+    with Session(db) as s:
+        k = s.get(ApiKey, 1)
+        k.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+        s.add(k)
+        s.commit()
+    with Session(db) as s:
+        with pytest.raises(HTTPException) as ei:
+            recordings.get_recording_endpoint("r1", _bearer("tok-read"), s)
+        assert ei.value.status_code == 401
+        assert ei.value.detail == "API key expired"
+
+
+def test_future_key_ok(db):
+    from datetime import datetime, timedelta, timezone
+
+    with Session(db) as s:
+        k = s.get(ApiKey, 1)
+        k.expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        s.add(k)
+        s.commit()
+    with Session(db) as s:
+        d = recordings.get_recording_endpoint("r1", _bearer("tok-read"), s)
+        assert d["uid"] == "r1"
+
+
 def test_no_token_falls_back_to_session(db):
     # Ohne Bearer: OIDC-Session-Owner hat full (kein Cap)
     with Session(db) as s:

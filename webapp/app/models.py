@@ -188,12 +188,16 @@ class ApiKey(SQLModel, table=True):
 
     Der Klartext-Token wird genau einmal angezeigt; in der DB liegt nur der
     SHA-256-Hash. ``level`` ∈ read|write|full (gleiche Ebenen wie Shares).
+    ``expires_at`` begrenzt die Gültigkeit (Default: 1 Jahr ab Erstellung);
+    abgelaufene Keys werden von der Authentifizierung abgelehnt.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     name: str = "default"
+    description: Optional[str] = None
     level: str = "read"
     token_hash: str = Field(index=True, unique=True)
+    expires_at: Optional[dt.datetime] = None
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )

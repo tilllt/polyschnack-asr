@@ -7,6 +7,7 @@ als das Key-Level (Cap in ``permissions.get_access_level``).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -33,10 +34,16 @@ def current_identity(request, session: Session) -> Identity:
         ).first()
         if not key:
             raise HTTPException(status_code=401, detail="invalid API key")
+        if key.expires_at is not None:
+            exp = key.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)  # SQLite: naive → UTC
+            if exp <= datetime.now(timezone.utc):
+                raise HTTPException(status_code=401, detail="API key expired")
         user = session.get(User, key.user_id)
         if user is None:
             raise HTTPException(status_code=401, detail="invalid API key")
-        key.last_used_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+        key.last_used_at = datetime.now(timezone.utc)
         session.add(key)
         session.commit()
         return Identity(user, key.level)

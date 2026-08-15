@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,10 +14,14 @@ from ..models import ApiKey, User, hash_token
 
 router = APIRouter(prefix="/api")
 
+DEFAULT_KEY_TTL_DAYS = 365
+
 
 class KeyCreate(BaseModel):
     name: str = "default"
+    description: Optional[str] = None
     level: Literal["read", "write", "full"] = "read"
+    expires_at: Optional[datetime] = None  # None → Default 1 Jahr
 
 
 class KeyUpdate(BaseModel):
@@ -29,11 +34,24 @@ def _current_user(request, session=None) -> Optional[int]:
     return current_uid(request, session)
 
 
+def _is_expired(key: ApiKey) -> bool:
+    """Tz-tolerant: SQLite liefert naive datetimes — als UTC interpretieren."""
+    if key.expires_at is None:
+        return False
+    exp = key.expires_at
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp <= datetime.now(timezone.utc)
+
+
 def _key_response(key: ApiKey) -> dict:
     return {
         "key_id": key.id,
         "name": key.name,
+        "description": key.description,
         "level": key.level,
+        "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+        "expired": _is_expired(key),
         "created_at": key.created_at.isoformat(),
         "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
     }
@@ -53,8 +71,12 @@ def create_key(body: KeyCreate, request: Request,
     if uid is None:
         raise HTTPException(status_code=401, detail="login required")
     token = secrets.token_urlsafe(32)
-    key = ApiKey(user_id=uid, name=body.name, level=body.level,
-                 token_hash=hash_token(token))
+    expires_at = body.expires_at
+    if expires_at is None:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=DEFAULT_KEY_TTL_DAYS)
+    key = ApiKey(user_id=uid, name=body.name, description=body.description,
+                 level=body.level, token_hash=hash_token(token),
+                 expires_at=expires_at)
     session.add(key)
     session.commit()
     session.refresh(key)

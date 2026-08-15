@@ -1,5 +1,6 @@
 import { useT } from "../useLocale";
 import { TemplatesSection, TargetsSection, LlmEndpointsSection } from "./PostProcessPanel";
+import { ApiKeysSection } from "./ApiKeysSection";
 import type { UserInfo } from "../api";
 
 interface Props {
@@ -59,6 +60,12 @@ export function UserSettingsPage({ user }: Props) {
       <section className="bg-panel border border-border rounded-card px-3 py-3">
         <h3 className="font-bold text-[13px] mb-2">📦 {t("targets")}</h3>
         <TargetsSection />
+      </section>
+
+      <section className="bg-panel border border-border rounded-card px-3 py-3">
+        <h3 className="font-bold text-[13px] mb-2">🔑 {t("api_keys")}</h3>
+        <p className="text-muted2 text-[11px] mb-2">{t("api_keys_hint")}</p>
+        <ApiKeysSection />
       </section>
 
       <section className="bg-panel border border-border rounded-card px-3 py-3">
