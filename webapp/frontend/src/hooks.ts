@@ -11,6 +11,7 @@ import {
   uploadRecording,
   deleteRecording,
   retranscribeRecording,
+  cancelRecording,
   type Recording,
   type Stats,
   type ModelStatus,
@@ -131,6 +132,20 @@ export function useRetranscribe() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+/** Laufende/wartende Transkription abbrechen (2026-08-15). */
+export function useCancelRecording() {
+  const qc = useQueryClient();
+
+  return useMutation<{ cancelled: boolean }, Error, { id: string }>({
+    mutationFn: ({ id }) => cancelRecording(id),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["recordings"] });
+      void qc.invalidateQueries({ queryKey: ["stats"] });
+      void qc.invalidateQueries({ queryKey: ["queue"] });
     },
   });
 }

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -40,19 +41,38 @@ class QueueFullError(QueueError):
 
 @dataclass
 class Job:
+    """Queue-Eintrag für ein Recording.
+
+    ``cancel_requested`` (2026-08-15): Wird vom Cancel-Endpoint gesetzt —
+    der Worker prüft das Flag zwischen den Phasen und bricht ab. Damit
+    lassen sich auch LAUFENDE Jobs abbrechen, nicht nur queued.
+    """
     rec_id: int
     user_id: Optional[int]
     backend: str
     status: str = "queued"  # queued | processing
     seq: int = 0            # FIFO order
     priority: int = 0       # 0 = registriert, 1 = anonym (Task B6)
+    cancel_requested: bool = False  # 2026-08-15: Cancel für laufende Jobs
+    started_at: Optional[float] = None  # epoch-s, für Job-Timeout
+
+    @property
+    def running_s(self) -> float:
+        if self.started_at is None:
+            return 0.0
+        import time
+        return time.time() - self.started_at
 
 
 class QueueManager:
     """FIFO queue with one semaphore per endpoint (Task B6: Prioritäten)."""
 
-    def __init__(self, max_queue_len: int = 20):
+    def __init__(self, max_queue_len: int = 20, max_processing_s: int = 3600):
         self._max_queue_len = max_queue_len
+        #: Job-Timeout (2026-08-15): Ein hängender Job (z.B. Aligner-Call)
+        #: darf die Queue nie dauerhaft blockieren. Läuft ein Job länger,
+        #: wird er als failed markiert und das Semaphore freigegeben.
+        self._max_processing_s = max_processing_s
         self._lock = threading.Lock()
         self._jobs: Dict[int, Job] = {}
         self._fifo: "queue.PriorityQueue" = queue.PriorityQueue()
@@ -119,22 +139,38 @@ class QueueManager:
         return self.position(rec_id)
 
     def cancel(self, rec_id: int, user_id: Optional[int], is_admin: bool = False) -> bool:
-        """Cancel a *queued* job. Returns False when not cancellable."""
+        """Cancel a job — queued ODER processing.
+
+        Queued: aus der Warteschlange entfernen, Status → uploaded.
+        Processing (2026-08-15): ``cancel_requested`` setzen — der Worker
+        prüft das Flag zwischen den Phasen und bricht ab (Status → failed
+        mit klarer Meldung, Datei bleibt).
+        Returns False when not cancellable.
+        """
         with self._lock:
             job = self._jobs.get(rec_id)
-            if job is None or job.status != "queued":
+            if job is None:
                 return False
             if not is_admin and job.user_id != user_id:
                 return False
-            del self._jobs[rec_id]
-        # Reset the DB row so the user can re-transcribe.
-        with Session(engine) as session:
-            rec = crud.get_recording(session, rec_id)
-            if rec is not None:
-                rec.status = "uploaded"
-                session.add(rec)
-                session.commit()
-        return True
+            if job.status == "queued":
+                del self._jobs[rec_id]
+                # Reset the DB row so the user can re-transcribe.
+                with Session(engine) as session:
+                    rec = crud.get_recording(session, rec_id)
+                    if rec is not None:
+                        rec.status = "uploaded"
+                        session.add(rec)
+                        session.commit()
+                return True
+            if job.status == "processing":
+                job.cancel_requested = True
+                return True
+            return False
+
+    def _attach_limits(self, job: Job) -> None:
+        """Job-Limits an den Job hängen (Cancel/Timeout-Prüfung in service)."""
+        job._max_processing_s = self._max_processing_s  # type: ignore[attr-defined]
 
     def position(self, rec_id: int) -> int:
         """1-based position among queued jobs on the same endpoint.
@@ -205,9 +241,11 @@ class QueueManager:
             sem.acquire()
             try:
                 job.status = "processing"
+                job.started_at = time.time()
+                self._attach_limits(job)
                 with Session(engine) as session:
                     crud.set_processing(session, rec_id)
-                process_recording(rec_id, backend=job.backend)
+                process_recording(rec_id, backend=job.backend, job=job)
             except Exception:
                 log.exception("queue worker failed for rec_id=%s", rec_id)
             finally:

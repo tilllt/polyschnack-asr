@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
 import type { ModelMatrixEntry, Recording } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, type ShareItem, type VersionItem } from "../api";
-import { useDelete, useRetranscribe } from "../hooks";
+import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -324,6 +324,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
+  const cancelMut = useCancelRecording();
+
+  function handleCancelJob() {
+    cancelMut.mutate(
+      { id: r.uid },
+      {
+        onSuccess: (res: { cancelled: boolean }) =>
+          toast(res.cancelled ? t("cancel_started") : t("cancel_no_job"), res.cancelled ? "ok" : "err"),
+        onError: (e: Error) => toast(`${t("cancel_error")}: ${e.message}`, "err"),
+      }
+    );
+  }
 
   // ──── Segment time tracking ────
   const segments = r.segments;
@@ -889,14 +901,29 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           </div>
         )}
 
-        <button
-          onClick={handleRetranscribe}
-          disabled={retranscribeMut.isPending}
-          className={`btn-ghost-sm flex items-center gap-1 ${reArmed ? "text-accent" : ""}`}
-        >
-          <RotateCcw size={12} className={retranscribeMut.isPending ? "animate-spin" : ""} />
-          {t("retranscribe")}
-        </button>
+        {/* Re-Transcribe — während processing/queued wird der Button zum
+            „Abbrechen" (Job-Cancel, 2026-08-15): läuft der Aligner/ASR
+            hängt, kann der User den Job stoppen statt ewig zu warten. */}
+        {r.status === "processing" || r.status === "queued" ? (
+          <button
+            onClick={handleCancelJob}
+            disabled={cancelMut.isPending}
+            className="btn-danger-sm flex items-center gap-1"
+            title={t("cancel_title")}
+          >
+            <XCircle size={12} className={cancelMut.isPending ? "animate-pulse" : ""} />
+            {cancelMut.isPending ? t("cancel_pending") : t("cancel")}
+          </button>
+        ) : (
+          <button
+            onClick={handleRetranscribe}
+            disabled={retranscribeMut.isPending}
+            className={`btn-ghost-sm flex items-center gap-1 ${reArmed ? "text-accent" : ""}`}
+          >
+            <RotateCcw size={12} className={retranscribeMut.isPending ? "animate-spin" : ""} />
+            {t("retranscribe")}
+          </button>
+        )}
 
         <button
           onClick={handleDelete}
