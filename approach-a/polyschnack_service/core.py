@@ -18,31 +18,62 @@ from .config import MAX_WINDOWS_IN_FLIGHT, TARGET_SR, logger
 # Seam-dedup constants (achetronic seam.go: 3 frames x 80 ms = 240 ms tolerance,
 # keep at most 3 tail words for comparison).
 SEAM_TOLERANCE_S = 0.24
+# Fix 2026-08-15: Jitter-Toleranz für den Überlappungs-Test. Der Decoder
+# liefert an der Naht leicht verschobene Timestamps (±~30 ms). Die alte
+# Regel verglich h.start gegen p.end mit 0.24 s Toleranz und verwarf damit
+# LEGITIME Nachfolger: in fließender Sprache folgen Wörter oft schon nach
+# 0.05–0.2 s („…gegen" → „weiße?" mit 0.06 s Abstand wurde verschluckt).
+# Jetzt: nur Wörter verwerfen, deren start IM Bereich des Vorgänger-Wortes
+# liegt (echte Überlappung = Duplikat/Kollision), + kleiner Timestamp-Jitter.
+SEAM_JITTER_S = 0.03
 SEAM_MAX_WORDS = 3
 
 
 def dedup_seam(prev_words: List[Dict[str, Any]], head_words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Drop head words that collide with the previous window's tail at a seam.
 
-    A word is dropped when its start time is within SEAM_TOLERANCE_S of the
-    start or end of any of the last SEAM_MAX_WORDS previous words. That single
-    rule covers both failure modes from achetronic issue #18:
-    - same text at (nearly) the same time: a duplicate ("to to") → drop it;
-    - different text at (nearly) the same time: a collision → the previous
-      window wins (its decoder is fully warmed up at the seam).
+    Zwei getrennte Fälle (achetronic issue #18), bewusst unterschiedlich
+    behandelt:
+
+    1. Duplikat: GLEICHER Text an (fast) gleicher Zeit → droppen.
+       Toleranz SEAM_TOLERANCE_S (0.24 s) — beide Fenster haben dasselbe
+       Wort transkribiert, das zweite Vorkommen ist redundant.
+
+    2. Kollision: VERSCHIEDENER Text, aber der head-Wort-Start liegt IM
+       Zeitbereich eines Vorgänger-Wortes (echte Überlappung) → droppen,
+       der Vorgänger gewinnt (sein Decoder ist an der Naht eingelaufen).
+
+    Fix 2026-08-15: Die alte Regel war eine einzige
+    ``abs(start - p.end) <= 0.24``-Bedingung — die verwarf auch LEGITIME
+    Nachfolger: in fließender Sprache folgen Wörter oft schon nach
+    0.05–0.2 s („…gegen\" → „weiße?\" mit 0.06 s Abstand wurde verschluckt).
+    Jetzt: verschiedene Wörter werden nur bei echter zeitlicher Überlappung
+    verworfen (+ kleiner Decoder-Jitter), gleiche Wörter bei Naht-Nähe.
     """
     if not prev_words or not head_words:
         return list(head_words)
     tail = prev_words[-SEAM_MAX_WORDS:]
     survivors: List[Dict[str, Any]] = []
     for h in head_words:
-        if any(
-            abs(h.get("start", 0.0) - p.get("end", 0.0)) <= SEAM_TOLERANCE_S
-            or abs(h.get("start", 0.0) - p.get("start", 0.0)) <= SEAM_TOLERANCE_S
-            for p in tail
-        ):
-            continue
-        survivors.append(h)
+        hs = h.get("start", 0.0)
+        ht = str(h.get("word") or "").strip().lower()
+        drop = False
+        for p in tail:
+            ps, pe = p.get("start", 0.0), p.get("end", 0.0)
+            pt = str(p.get("word") or "").strip().lower()
+            # Kollision: verschiedener Text, start überlappt Vorgänger-Wort.
+            if (ps - SEAM_JITTER_S) <= hs <= (pe + SEAM_JITTER_S):
+                drop = True
+                break
+            # Duplikat: gleicher Text in Naht-Nähe (start oder end).
+            if ht and ht == pt and (
+                abs(hs - ps) <= SEAM_TOLERANCE_S
+                or abs(hs - pe) <= SEAM_TOLERANCE_S
+            ):
+                drop = True
+                break
+        if not drop:
+            survivors.append(h)
     return survivors
 
 

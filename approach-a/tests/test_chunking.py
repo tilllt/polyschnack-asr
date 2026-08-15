@@ -144,6 +144,24 @@ def test_dedup_seam_keeps_distinct():
     assert [w["word"] for w in dedup_seam(prev, head)] == ["next"]
 
 
+def test_dedup_seam_keeps_fast_successor_at_seam():
+    """User-Report 2026-08-15: '…gegen' (end 113.64) → 'weiße?' (start 113.7,
+    Abstand 0.06 s) wurde verschluckt. In fließender Sprache folgen Wörter
+    mit 0.05–0.2 s Abstand — das ist KEIN Duplikat/Kollision, nur eine
+    normale Wortgrenze. Nur echte Überlappung verwerfen."""
+    prev = [{"start": 113.12, "end": 113.64, "word": "gegen"}]
+    head = [{"start": 113.7, "end": 114.05, "word": "weiße?"}]
+    out = dedup_seam(prev, head)
+    assert [w["word"] for w in out] == ["weiße?"]
+
+
+def test_dedup_seam_drops_true_overlap_different_text():
+    """Anderes Wort an (fast) gleicher Zeit = Kollision → Vorgänger gewinnt."""
+    prev = [{"start": 10.0, "end": 11.0, "word": "alt"}]
+    head = [{"start": 10.8, "end": 11.5, "word": "neu"}]  # start IM Vorgänger
+    assert dedup_seam(prev, head) == []
+
+
 def test_dedup_seam_empty():
     assert dedup_seam([], [{"start": 1, "end": 2, "word": "x"}])[0]["word"] == "x"
     assert dedup_seam([{"start": 1, "end": 2, "word": "x"}], []) == []
