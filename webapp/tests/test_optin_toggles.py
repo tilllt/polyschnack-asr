@@ -198,12 +198,16 @@ def test_retranscribe_speichert_diarize_params(db, qm):
             enable_diarize=True,
             diarize_num_speakers=2,
             diarize_min_duration_off=0.4,
+            diarize_method="foxnose",
         )
         recordings.retranscribe("r1", params, _req(1), s)
         rec = s.get(Recording, 1)
         assert rec.enable_diarize is True
         assert rec.diarize_num_speakers == 2
         assert rec.diarize_min_duration_off == 0.4
+        # Bugfix 2026-08-15: Methode wurde vorher nie persistiert (stiller
+        # Fallback auf Server-Default) — Regressionstest.
+        assert rec.diarize_method == "foxnose"
 
 
 def test_retranscribe_diarize_params_default_none(db, qm):

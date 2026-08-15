@@ -1153,6 +1153,7 @@ def retranscribe(
     rec.enable_diarize = params.enable_diarize
     rec.diarize_num_speakers = params.diarize_num_speakers
     rec.diarize_min_duration_off = params.diarize_min_duration_off
+    rec.diarize_method = params.diarize_method  # Bugfix 2026-08-15: Methode wurde nie persistiert
     rec.enable_streaming = params.enable_streaming
     rec.enable_noise_reduce = params.enable_noise_reduce
     rec.enable_enhance = params.enable_enhance
