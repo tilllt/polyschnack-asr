@@ -242,7 +242,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                           }}
                           className={`cursor-pointer transition-colors duration-[100ms] ${
                             isActive
-                              ? "text-accent font-semibold underline decoration-accent/40 underline-offset-2"
+                              ? "karaoke-active"
                               : `${confidenceClass(w.confidence)} hover:text-accent/70`
                           }`}
                         >

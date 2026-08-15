@@ -61,6 +61,18 @@ audio {
   border-left-color: #5b8cff !important;
 }
 
+/* Aktives Karaoke-Wort: Textmarker statt Fettdruck.
+   font-weight/underline ändern die Wortbreite → der Browser reflowt bei
+   jedem Wortwechsel die Zeilen (Layout-Shift, Text springt). Nur
+   background-color + color ändern ist layout-neutral (Repaint only) —
+   das Highlight kommt bei schneller Sprache flüssiger mit. Bewusst KEIN
+   padding: das würde das Wort wieder um px verschieben. (2026-08-15) */
+.karaoke-active {
+  background-color: rgba(253, 224, 71, 0.9) !important; /* gelb, ~Textmarker */
+  color: #1a1a1a !important; /* dunkler Text auf Gelb = klassischer Marker */
+  border-radius: 2px;
+}
+
 /* ============================================================
    SPINNER (for non-Tailwind contexts)
    ============================================================ */
