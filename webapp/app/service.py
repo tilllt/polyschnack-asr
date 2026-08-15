@@ -255,6 +255,23 @@ def _merge_diarization(segments: list, diar: list,
             "words": seg_words,
             "speaker": d.get("speaker", "SPEAKER_00"),
         })
+
+    # Härtung (2026-08-15): Wörter, die in KEIN Diarization-Segment fielen
+    # (Service deckte nur einen Teil ab / Lücken im Mapping), hängen am
+    # letzten Segment an — sonst verschwindet Transkriptions-Text aus der
+    # Segment-Liste (Karaoke/Anzeige), obwohl der Gesamttext vollständig ist.
+    if words and merged:
+        mapped_ids = {id(w) for seg_words in by_seg for w in seg_words}
+        leftover = [w for w in words if id(w) not in mapped_ids]
+        if leftover:
+            last = merged[-1]
+            last["end"] = round(max(
+                (w.get("end") or w.get("start") or 0) for w in leftover
+            ), 2)
+            last["text"] = (last.get("text") or "") + " " + " ".join(
+                w.get("word", "") for w in leftover
+            )
+            last["words"] = (last.get("words") or []) + leftover
     return merged
 
 
