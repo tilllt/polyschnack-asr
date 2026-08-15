@@ -38,13 +38,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Nur der CLI wird gebraucht (Alignment ist CLI-Modus: --align / -o)
 COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
 
-# Shared library: Upstream linkt die CLI dynamisch gegen libqwen3-asr.so;
-# ohne sie scheitert jeder Aufruf ("error while loading shared libraries").
-# WICHTIG: direkt aus der Builder-Stage kopieren — die Runtime-Stage hat
-# KEIN /src/build (dort war der frühere find-Befehl wirkungslos: find auf
-# nicht-existentem Pfad + ldconfig-Exit 0 = Build "erfolgreich" ohne Lib,
-# Regression 2026-08-14, gleicher Fix wie im qwen3-Backend-Image).
-COPY --from=builder /src/build/libqwen3-asr.so* /usr/local/lib/
+# Shared libraries: Upstream linkt CLI dynamisch gegen libqwen3-asr.so UND
+# die ggml-Familie (libggml.so.0, libggml-base.so.0, libggml-cpu.so.0 …).
+# Ohne sie scheitert jeder Aufruf ("error while loading shared libraries").
+# WICHTIG: alle .so direkt aus der Builder-Stage einsammeln — die
+# Runtime-Stage hat KEIN /src/build (dort war der frühere find-Befehl
+# wirkungslos: find auf nicht-existentem Pfad + ldconfig-Exit 0 = Build
+# "erfolgreich" ohne Lib, Regression 2026-08-14; der Nachfolge-Fix kopierte
+# nur libqwen3-asr.so, ggml fehlte → libggml-base.so.0-Fehler 2026-08-15).
+RUN mkdir -p /src/libs && find /src/build -name '*.so*' -exec cp -a {} /src/libs/ \;
+COPY --from=builder /src/libs/ /usr/local/lib/
 RUN ldconfig
 
 # Forced-Aligner-Modell (GGUF, ~1,8 GB) — fehlt die Datei, lädt der
