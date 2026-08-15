@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel import Session, select
