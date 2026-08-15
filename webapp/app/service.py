@@ -541,7 +541,7 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
 
 
 def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: bytes,
-                     audio_name: str, language: Optional[str]) -> List[Dict[str, Any]]:
+                     audio_name: str, language: Optional[str], job=None) -> List[Dict[str, Any]]:
     """Forced-Alignment-Phase: ersetzt Word-Timestamps durch akustisch
     verifizierte Grenzen (crispr-align). Failt der Aligner (Container down,
     Chunk > 400 s), bleiben die Backend-Timestamps — nie ein Job-Fail.
@@ -576,6 +576,11 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
 
         groups = build_align_groups(segments)
         for gi, (g_start, g_end, g_text) in enumerate(groups):
+            # Cancel/Timeout zwischen den Gruppen prüfen — nicht erst nach
+            # dem letzten align()-Call (der bis zu 15 min blockieren kann).
+            if _cancelled(job, rec_id):
+                _abort_recording(rec_id, "Abgebrochen (User-Cancel)")
+                return segments
             try:
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tfh2:
                     chunk_wav = tfh2.name
@@ -622,7 +627,22 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                 hb = threading.Thread(target=_heartbeat, daemon=True, name=f"align-hb-{gi}")
                 hb.start()
                 try:
-                    words = client.align(chunk_bytes, g_text, lang=language or "de")
+                    # Rest-Budget: verbleibende Job-Zeit — ein hängender
+                    # align()-Call bricht spätestens hier ab (Queue frei).
+                    budget = 900.0
+                    if job is not None:
+                        max_s = getattr(job, "_max_processing_s", None)
+                        if max_s:
+                            budget = max(30.0, min(900.0, max_s - job.running_s))
+                    words = client.align(chunk_bytes, g_text, lang=language or "de",
+                                         timeout_s=budget)
+                except RuntimeError as exc_rt:
+                    # Cancel/Timeout: nicht als Gruppenfehler schlucken,
+                    # sondern den Job sauber beenden (Queue freigeben).
+                    if _cancelled(job, rec_id):
+                        _abort_recording(rec_id, "Abgebrochen (User-Cancel)")
+                        return segments
+                    raise
                 finally:
                     stop.set()
                     hb.join(timeout=1.0)
@@ -664,7 +684,43 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     return segments
 
 
-def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
+def _cancelled(job, rec_id: int) -> bool:
+    """True, wenn der Job abgebrochen werden soll (Cancel oder Timeout).
+
+    Timeout: hängende Calls (Aligner, Backends) dürfen die Queue nie
+    dauerhaft blockieren — nach max_processing_s wird abgebrochen.
+    """
+    if job is None:
+        return False
+    if getattr(job, "cancel_requested", False):
+        return True
+    max_s = getattr(job, "_max_processing_s", None)
+    if max_s is None:
+        # Fallback: Modul-Konstante (nicht perfekt, aber sicher)
+        max_s = 7200
+    return job.running_s > max_s
+
+
+def _abort_recording(rec_id: int, message: str) -> None:
+    """Job abgebrochen (Cancel/Timeout) → Status failed mit klarer Meldung.
+
+    Die Audiodatei bleibt erhalten; der User kann Re-Transcribe nutzen.
+    """
+    try:
+        with Session(engine) as session:
+            rec = crud.get_recording(session, rec_id)
+            if rec is not None:
+                rec.status = "failed"
+                rec.error = message
+                rec.progress_pct = 100
+                rec.progress_note = None
+                session.add(rec)
+                session.commit()
+    except Exception:
+        log.exception("abort: Status-Update fehlgeschlagen (rec_id=%s)", rec_id)
+
+
+def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> None:
     """Load row → read audio → call ASR → persist result.
 
     Designed to run in a background thread (queue worker, Task 6). The
@@ -672,6 +728,12 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
     ``backend`` field. All exceptions are caught so a transient failure
     cannot crash the worker; the row is updated to status='failed' with the
     error message.
+
+    Cancel (2026-08-15): *job* ist der Queue-Job (optional). Zwischen den
+    Phasen wird ``_cancelled(job, rec_id)`` geprüft — bei Abbruch wird der
+    Status auf failed mit klarer Meldung gesetzt (Datei bleibt). Zusätzlich
+    greift ein Job-Timeout (max_processing_s), damit ein hängender Call die
+    Queue nie dauerhaft blockiert.
     """
     with Session(engine) as session:
         rec = crud.get_recording(session, rec_id)
@@ -801,6 +863,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
         language = result["language"]
         segments = result["segments"]
 
+        # Cancel-Prüfung nach ASR: teuerste Phasen (Diar/Align) nicht starten
+        if _cancelled(job, rec_id):
+            _abort_recording(rec_id, "Abgebrochen (User-Cancel)")
+            return
+
         # Optional speaker diarization — merge labels into segments
         if enable_diarize:
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
@@ -869,7 +936,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None) -> None:
 
         if ALIGN_WORDS_ENABLED and segments:
             segments = _run_align_phase(
-                rec_id, segments, audio_bytes, audio_path.name, language
+                rec_id, segments, audio_bytes, audio_path.name, language, job=job
             )
 
         # VAD-Trim-Offset kompensieren: ASR/Aligner liefen auf dem getrimmten

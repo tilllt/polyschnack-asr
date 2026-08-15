@@ -56,15 +56,26 @@ class AlignerClient:
             pass
         return {}
 
-    def align(self, audio_bytes: bytes, text: str, lang: str = "de") -> List[Dict[str, Any]]:
-        """Aligne Audio + Referenztext → [{start, end, word}, ...] (Sekunden, relativ)."""
+    def align(self, audio_bytes: bytes, text: str, lang: str = "de",
+              timeout_s: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Aligne Audio + Referenztext → [{start, end, word}, ...] (Sekunden, relativ).
+
+        *timeout_s* (2026-08-15): begrenzt die Wartezeit auf den Aligner —
+        die Webapp übergibt das verbleibende Job-Budget, damit ein hängender
+        Call spätestens beim Job-Timeout abbricht und die Queue freigibt.
+        """
+        to = self._timeout
+        if timeout_s is not None:
+            to = httpx.Timeout(connect=5.0, read=timeout_s, write=timeout_s, pool=5.0)
         try:
             r = httpx.post(
                 f"{self.url}/v1/audio/align",
                 files={"file": ("audio.wav", audio_bytes, "audio/wav")},
                 data={"text": text, "lang": lang},
-                timeout=self._timeout,
+                timeout=to,
             )
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(f"Aligner-Timeout nach {timeout_s or '900'}s") from exc
         except Exception as exc:
             raise RuntimeError(f"Aligner nicht erreichbar ({type(exc).__name__})") from exc
         if r.status_code != 200:

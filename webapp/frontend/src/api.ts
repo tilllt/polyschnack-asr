@@ -494,6 +494,16 @@ export async function retranscribeRecording(id: string, opts?: {
   return res.json() as Promise<Recording>;
 }
 
+/** Laufende/wartende Transkription abbrechen (2026-08-15):
+ *  POST /api/recordings/{rid}/cancel — queued → uploaded,
+ *  processing → Worker stoppt nach aktueller Phase (Status failed). */
+export async function cancelRecording(id: string): Promise<{ cancelled: boolean }> {
+  const res = await fetch(`/api/recordings/${id}/cancel`, {
+    method: "POST",
+  }).then(checkOk);
+  return res.json() as Promise<{ cancelled: boolean }>;
+}
+
 /* ============================================================
    QUEUE (Task 7)
    ============================================================ */
