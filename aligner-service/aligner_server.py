@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_AUDIO_S = 400.0
@@ -62,6 +63,63 @@ _SWAGGER_HTML = """<!DOCTYPE html>
 """
 
 _lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Live-Job-Status (2026-08-15): ECHTE Lebenszeichen für die Webapp-UI.
+# Der Aligner-CLI läuft blockierend; /status zeigt, dass der Prozess lebt
+# (seit wann, letzte CLI-Zeile, ggml-Progress %). Kein Fake-Fortschritt:
+# ohne CLI-Zeilen melden wir die vergangene Zeit — nie erfundene Prozente.
+# ---------------------------------------------------------------------------
+_JOB_STATUS: dict = {
+    "active": False,
+    "started_at": None,      # epoch-s (float) — für 'aktiv seit Xs'
+    "last_beat_at": None,    # epoch-s — letzte CLI-Zeile (Herzschlag)
+    "last_line": "",         # letzte ausgegebene CLI-Zeile (Live-Fenster)
+    "progress_pct": None,    # nur wenn die CLI selbst % meldet
+    "error": None,           # letzter Fehler (für Diagnose)
+}
+_JOB_LOCK = threading.Lock()
+
+
+def _job_start() -> None:
+    with _JOB_LOCK:
+        _JOB_STATUS.update(
+            active=True, started_at=time.time(), last_beat_at=time.time(),
+            last_line="", progress_pct=None, error=None,
+        )
+
+
+def _job_beat(line: str) -> None:
+    with _JOB_LOCK:
+        _JOB_STATUS["last_beat_at"] = time.time()
+        _JOB_STATUS["last_line"] = line[-160:]  # nur Tail, kein Speicherleck
+
+
+def _job_progress(pct: int) -> None:
+    with _JOB_LOCK:
+        _JOB_STATUS["progress_pct"] = pct
+
+
+def _job_finish(error: str | None = None) -> None:
+    with _JOB_LOCK:
+        _JOB_STATUS["active"] = False
+        if error:
+            _JOB_STATUS["error"] = error
+
+
+def _job_snapshot() -> dict:
+    """Kopierter Status für /status — nie die Live-Dict-Referenz rausgeben."""
+    with _JOB_LOCK:
+        snap = dict(_JOB_STATUS)
+        snap["elapsed_s"] = (
+            round(time.time() - snap["started_at"], 1)
+            if snap["started_at"] and snap["active"] else 0
+        )
+        snap["last_beat_ago_s"] = (
+            round(time.time() - snap["last_beat_at"], 1)
+            if snap["last_beat_at"] and snap["active"] else None
+        )
+        return snap
 
 
 def _probe_duration_s(path: str) -> float:
@@ -156,24 +214,58 @@ def _resolve_zero_duration(words: list[dict]) -> list[dict]:
 
 
 def _run_aligner(cli: str, model: str, wav: str, text: str, lang: str) -> str:
-    """Führt den CLI-Aufruf aus, liefert Pfad zur Output-Datei."""
+    """Führt den CLI-Aufruf aus, liefert Pfad zur Output-Datei.
+
+    Läuft als Popen mit LIVE-stderr-Lesen: Jede ausgegebene Zeile wird in
+    ``_JOB_STATUS`` registriert (echtes Lebenszeichen — die Webapp pollt
+    /status, damit die UI keinen Fake-Progress zeigt). ggml-CLIs geben oft
+    ``main: processing ...`` / ``progress = N%`` aus — wir parsen beides,
+    sind aber tolerant: auch ohne Progress-Zeilen meldet /status die
+    vergangene Zeit ('aktiv seit Xs').
+    """
+    import re
+
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
         out_json = tf.name
     try:
         with _lock:
-            subprocess.run(
+            _job_start()
+            proc = subprocess.Popen(
                 [cli, "-m", model, "-f", wav, "--align",
                  "--text", text, "--lang", lang, "-o", out_json],
-                check=True, capture_output=True, text=True, timeout=CLI_TIMEOUT_S,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
             )
+            assert proc.stdout is not None
+            prog_re = re.compile(r"(?:progress\s*[:=]?\s*(\d{1,3})\s*%|(\d{1,3})\s*%)")
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                _job_beat(line)
+                m = prog_re.search(line)
+                if m:
+                    pct = int(m.group(1) or m.group(2) or 0)
+                    _job_progress(min(pct, 100))
+            rc = proc.wait(timeout=CLI_TIMEOUT_S)
+            if rc != 0:
+                _job_finish(error=f"CLI exit {rc}")
+                raise RuntimeError(f"Aligner-CLI exit {rc}")
+        _job_finish()
         return out_json
     except subprocess.TimeoutExpired:
+        _job_finish(error="timeout")
         os.unlink(out_json)
         raise RuntimeError(f"Aligner-Timeout nach {CLI_TIMEOUT_S}s")
     except subprocess.CalledProcessError as exc:
+        _job_finish(error="calledprocess")
         os.unlink(out_json)
         detail = (exc.stderr or "").strip()[-500:] or f"exit {exc.returncode}"
         raise RuntimeError(f"Aligner fehlgeschlagen: {detail}")
+    except Exception:
+        _job_finish(error="exception")
+        os.unlink(out_json)
+        raise
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -235,6 +327,12 @@ class Handler(BaseHTTPRequestHandler):
                 "device": self._device(),
                 "max_upload_bytes": MAX_BODY_BYTES,
             })
+        elif self.path == "/status":
+            # Live-Lebenszeichen des Aligner-Prozesses (2026-08-15): die
+            # Webapp pollt hier, damit die UI echten Fortschritt zeigt —
+            # kein animierter Fake, sondern: aktiv seit Xs, letzte CLI-Zeile,
+            # ggml-Progress % (falls die CLI es ausgibt).
+            self._send(200, _job_snapshot())
         elif self.path == "/openapi.json":
             # OpenAPI-Spec für die Swagger-Doku (Dockerfile kopiert die
             # Datei nach /app/openapi.json — single source of truth).

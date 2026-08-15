@@ -417,6 +417,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const phaseKey = note.startsWith("alignment")
     ? "aligning"
     : NOTE_LABELS[note] ?? "transcribing";
+  // Live-Details aus der alignment-note: "alignment Gruppe 3/12 — aktiv
+  // seit 42s — CLI 45%" → "Gruppe 3/12 — aktiv seit 42s — CLI 45%"
+  const phaseDetail =
+    note.startsWith("alignment") && note.length > "alignment".length
+      ? note.slice("alignment".length).trim()
+      : "";
 
   function handleEdited(newSegs: typeof segments, newText: string) {
     // Update cache for all recordings queries (with and without search)
@@ -635,9 +641,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         )}
         {r.status === "processing" && (
           <div className="px-4 pb-2">
-            <div className="flex items-center justify-between text-[12px] mb-[6px]">
-              <span className="text-muted">{t(phaseKey)}</span>
-              <span className="text-muted2 tabular-nums">{r.progress_pct}% · {updateEta(etaRef, r.progress_pct)}</span>
+            <div className="flex items-center justify-between gap-2 text-[12px] mb-[6px]">
+              <span className="text-muted">
+                {phaseDetail ? (
+                  <span className="text-accent" title={note}>
+                    ⚙ {t(phaseKey)} · {phaseDetail}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                    {t(phaseKey)}
+                  </span>
+                )}
+              </span>
+              <span className="text-muted2 tabular-nums shrink-0">
+                {r.progress_pct}%{phaseDetail ? "" : ` · ${updateEta(etaRef, r.progress_pct)}`}
+              </span>
             </div>
             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
               <div

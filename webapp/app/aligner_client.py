@@ -41,6 +41,21 @@ class AlignerClient:
         except Exception:
             return False
 
+    def status(self) -> dict:
+        """Live-Status des Aligner-Prozesses (Herzschlag).
+
+        Liefert z.B. ``{active, started_at, last_beat_at, last_line,
+        progress_pct, elapsed_s, last_beat_ago_s}`` — oder ``{}`` wenn der
+        Container /status nicht kennt (ältere Version).
+        """
+        try:
+            r = httpx.get(f"{self.url}/status", timeout=3.0)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        return {}
+
     def align(self, audio_bytes: bytes, text: str, lang: str = "de") -> List[Dict[str, Any]]:
         """Aligne Audio + Referenztext → [{start, end, word}, ...] (Sekunden, relativ)."""
         try:

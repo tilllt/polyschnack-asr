@@ -9,6 +9,7 @@ import logging
 import os
 import subprocess as sp
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -544,6 +545,14 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     """Forced-Alignment-Phase: ersetzt Word-Timestamps durch akustisch
     verifizierte Grenzen (crispr-align). Failt der Aligner (Container down,
     Chunk > 400 s), bleiben die Backend-Timestamps — nie ein Job-Fail.
+
+    Live-Feedback (2026-08-15): Jeder align()-Call blockiert bis zu 15 min
+    (ein ggml-Forward-Pass). Ohne Zwischen-Updates zeigt die UI stundenlang
+    „96 %, ETA 1 s" — Fake-Progress. Deshalb läuft während jedes Calls ein
+    Heartbeat-Thread, der /status des Aligners pollt (alle 3 s) und echte
+    Lebenszeichen schreibt: „alignment 3/12 — aktiv seit 42 s" + ggml-%
+    (falls die CLI es ausgibt). Nie erfundene Werte: ohne Status-Infos
+    bleibt die letzte echte Gruppe stehen.
     """
     from .aligner_client import AlignerClient
     from .models import Recording as _Rec
@@ -581,7 +590,43 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                         chunk_bytes = fh.read()
                 finally:
                     os.unlink(chunk_wav)
-                words = client.align(chunk_bytes, g_text, lang=language or "de")
+
+                # ---- Heartbeat-Poller für DIESEN align()-Call ----
+                # align() blockiert; der Thread meldet echte Lebenszeichen
+                # vom Aligner (/status) an die DB → UI zeigt Live-Fortschritt.
+                stop = threading.Event()
+
+                def _heartbeat():
+                    while not stop.is_set():
+                        st = client.status()
+                        if st.get("active"):
+                            elapsed = st.get("elapsed_s")
+                            pct = st.get("progress_pct")
+                            last = (st.get("last_line") or "").strip()
+                            parts = [f"Gruppe {gi + 1}/{len(groups)}"]
+                            if elapsed is not None:
+                                parts.append(f"aktiv seit {int(elapsed)}s")
+                            if pct is not None:
+                                parts.append(f"CLI {pct}%")
+                            if last:
+                                parts.append(f"· {last[:60]}")
+                            note = "alignment " + " — ".join(parts)
+                            with Session(engine) as s2:
+                                set_progress(
+                                    s2, rec_id,
+                                    96 + int((gi + 1) / len(groups) * 3.99),
+                                    note=note,
+                                )
+                        stop.wait(3.0)
+
+                hb = threading.Thread(target=_heartbeat, daemon=True, name=f"align-hb-{gi}")
+                hb.start()
+                try:
+                    words = client.align(chunk_bytes, g_text, lang=language or "de")
+                finally:
+                    stop.set()
+                    hb.join(timeout=1.0)
+
                 if words:
                     segments = apply_aligned_words(segments, words, g_start)
                     aligned_any = True
