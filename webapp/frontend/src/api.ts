@@ -36,6 +36,8 @@ export interface Recording {
   language: string | null;
   segments: Segment[] | null;
   audio_url: string;
+  /** Schlanke Playback-Preview (64-kbps-MP3) — null solange nicht generiert. */
+  audio_preview_url: string | null;
   download_url: string;
   batch_id: string | null;
   recorded_at: string | null;

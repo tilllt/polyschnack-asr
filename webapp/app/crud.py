@@ -114,6 +114,36 @@ def list_recordings(
     return list(session.exec(stmt).all())
 
 
+def list_recordings_missing_peaks(session: Session, limit: int = 3) -> list[Recording]:
+    """Älteste Recordings OHNE Waveform-Peaks ODER OHNE Playback-Preview —
+    über ALLE User (auch anon).
+
+    Für den periodischen Peaks-/Preview-Backfill (2026-08-15): der frühere
+    Nachzug bei GET /recordings startete für jede peaks-lose Aufnahme einen
+    eigenen ffmpeg-Thread → bei vielen alten Dateien feuerten Dutzende
+    Voll-Decodes gleichzeitig (CPU/RAM-Kollaps, Seite ewig langsam). Der
+    Backfill-Loop arbeitet seriell mit kleinem Limit pro Durchlauf.
+
+    SQLite speichert die JSON-Spalte als Text `'null'` (nicht SQL-NULL) —
+    deshalb cast-Vergleich statt ``.is_(None)``. Leere Listen (`[]`) sind
+    der „versucht, keine Peaks möglich"-Marker und werden NICHT erneut
+    gefunden (kein Endlos-Retry bei kaputten Dateien).
+    """
+    from sqlalchemy import cast, or_, String
+
+    stmt = (
+        select(Recording)
+        .where(or_(
+            cast(Recording.waveform_peaks, String) == "null",
+            Recording.waveform_peaks.is_(None),  # type: ignore[union-attr]
+            Recording.preview_path.is_(None),  # type: ignore[union-attr]
+        ))
+        .order_by(Recording.id.asc())  # type: ignore[arg-type]
+        .limit(limit)
+    )
+    return list(session.exec(stmt).all())
+
+
 # ---------------------------------------------------------------------------
 # Update
 # ---------------------------------------------------------------------------

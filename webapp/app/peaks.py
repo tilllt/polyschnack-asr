@@ -229,3 +229,45 @@ def compute_peaks_path(path: Path) -> List[float]:
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+PREVIEW_BITRATE = "64k"
+PREVIEW_SR = 16000
+
+
+def compute_preview_path(src: Path) -> Optional[Path]:
+    """Erzeugt eine schlanke Playback-Preview (64 kbps MP3, 16 kHz mono)
+    NEBEN der Originaldatei: ``<stem>_preview.mp3``.
+
+    Wiedereinführung der Sidecar-Pipeline (2026-08-15): der Browser-Player
+    lädt nur diese kleine Datei fürs Playback — WebAudio muss sonst die
+    komplette WAV dekodieren (60 min = 60-380 MB, Play erst nach
+    Minuten). Transkription läuft unverändert mit dem vollen Audio.
+
+    Rückgabe: Pfad zur Preview, oder None bei Fehler/Timeout. Idempotent:
+    existiert die Preview bereits, wird sie zurückgegeben ohne Neucodierung.
+    """
+    if src is None or not Path(src).exists():
+        return None
+    preview_p = Path(src).with_name(Path(src).stem + "_preview.mp3")
+    if preview_p.exists() and preview_p.stat().st_size > 0:
+        return preview_p
+    try:
+        sp.run(
+            [
+                "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+                "-i", str(src),
+                "-c:a", "libmp3lame", "-b:a", PREVIEW_BITRATE,
+                "-ar", str(PREVIEW_SR), "-ac", "1",
+                str(preview_p),
+            ],
+            capture_output=True, timeout=600, check=True,
+        )
+    except Exception:
+        log.warning("preview: ffmpeg failed für %s", src, exc_info=True)
+        preview_p.unlink(missing_ok=True)
+        return None
+    if preview_p.exists() and preview_p.stat().st_size > 0:
+        return preview_p
+    preview_p.unlink(missing_ok=True)
+    return None

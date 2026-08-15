@@ -148,3 +148,117 @@ def test_diarize_download_stub_unreachable():
     # kein Download-Stub mehr, daher die neue Meldung statt "diar-models".
     assert "Diar-Service nicht erreichbar" in body["message"]
     assert "./DATA/models" in body["message"]
+
+
+# ---------------------------------------------------------------------------
+# _aligner_diagnosis: Aligner-Service (crispr-align)
+# ---------------------------------------------------------------------------
+
+
+def test_aligner_diagnosis_ok():
+    from app.routers import models as m
+
+    resp = MagicMock(status_code=200)
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = {"status": "ok", "service": "aligner",
+                              "model": "qwen3-forced-aligner-0.6b-f16",
+                              "max_duration_s": 400.0, "word_timestamps": True}
+    with patch("httpx.get", return_value=resp) as mock_get, \
+         patch("app.routers.models.os.getenv",
+               return_value="http://crispr-align:5099"):
+        d = m._aligner_diagnosis()
+    assert d["available"] is True
+    assert d["code"] == "ok"
+    assert d["features"]["max_duration_s"] == 400.0
+    assert d["features"]["word_timestamps"] is True
+    assert mock_get.call_args[0][0].endswith("/health")
+
+
+def test_aligner_diagnosis_unreachable():
+    from app.routers import models as m
+
+    with patch("httpx.get", side_effect=Exception("connection refused")), \
+         patch("app.routers.models.os.getenv", return_value="http://crispr-align:5099"):
+        d = m._aligner_diagnosis()
+    assert d["available"] is False
+    assert d["code"] == "aligner-unreachable"
+    assert "nicht erreichbar" in d["message"]
+
+
+def test_aligner_diagnosis_disabled():
+    """POLYSCHNACK_ALIGN_WORDS=false → bewusst deaktiviert (kein Health-Call)."""
+    from app.routers import models as m
+    from app import aligner_client as ac
+
+    # Der Import passiert IN der Funktion (from ..aligner_client import …),
+    # deshalb das Quell-Modul patchen, nicht models.
+    with patch.object(ac, "ALIGN_WORDS_ENABLED", False), \
+         patch("httpx.get") as mock_get:
+        d = m._aligner_diagnosis()
+    assert d["available"] is False
+    assert d["code"] == "aligner-disabled"
+    mock_get.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# /api/models/status: Aligner-Diagnose-Felder
+# ---------------------------------------------------------------------------
+
+
+def test_status_endpoint_has_aligner_fields():
+    from app.routers import models as m
+
+    with patch.object(m, "_diarize_diagnosis", return_value={
+            "available": True, "code": "ok", "service": "http://crispr-diar:5098",
+            "message": "ok", "features": {}, "components": []}), \
+         patch.object(m, "_aligner_diagnosis", return_value={
+            "available": True, "code": "ok", "service": "http://crispr-align:5099",
+            "message": "ok", "features": {"word_timestamps": True},
+            "components": []}), \
+         patch("app.routers.models.httpx.get") as mock_httpx:
+        resp = MagicMock(status_code=200)
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"device": "cuda"}
+        mock_httpx.return_value = resp
+
+        r = client.get("/api/models/status")
+        assert r.status_code == 200
+        body = r.json()
+        assert "align_available" in body
+        assert "align_service" in body
+        assert "aligner_diag" in body
+        assert body["aligner_diag"]["code"] == "ok"
+        assert body["features"]["word_timestamps"] is not None
+
+
+# ---------------------------------------------------------------------------
+# /api/models/services: Service-Matrix (Feature-Matrix-Basis)
+# ---------------------------------------------------------------------------
+
+
+def test_services_endpoint_matrix():
+    from app.routers import models as m
+
+    with patch.object(m, "_diarize_diagnosis", return_value={
+            "available": True, "code": "ok", "service": "http://crispr-diar:5098",
+            "message": "ok", "features": {"method": "pyannote"}, "components": []}), \
+         patch.object(m, "_aligner_diagnosis", return_value={
+            "available": True, "code": "ok", "service": "http://crispr-align:5099",
+            "message": "ok", "features": {"word_timestamps": True,
+                                          "max_duration_s": 400.0},
+            "components": []}), \
+         patch.object(m, "_check_vad", return_value=True), \
+         patch.object(m, "asr_device_ok", return_value=True), \
+         patch.object(m, "asr_device_name", return_value="cuda"):
+        r = client.get("/api/models/services")
+    assert r.status_code == 200
+    body = r.json()
+    # Alle vier Services sind im Matrix-Schlüssel vorhanden
+    for key in ("asr", "vad", "diar", "aligner"):
+        assert key in body, f"Service {key} fehlt in Matrix"
+    assert body["asr"]["available"] is True
+    assert body["asr"]["features"]["device"] == "cuda"
+    assert body["vad"]["available"] is True
+    assert body["diar"]["code"] == "ok"
+    assert body["aligner"]["code"] == "ok"
+    assert body["aligner"]["features"]["max_duration_s"] == 400.0

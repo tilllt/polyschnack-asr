@@ -124,9 +124,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     threading.Thread(target=_sweep_loop, daemon=True, name="retention-sweep").start()
 
+    # --- Peaks-Backfill (2026-08-15): fehlende Waveform-Peaks über alle
+    # --- User seriell nachberechnen (2 pro Durchlauf, alle 30 s). Ersetzt
+    # --- das frühere Feuerwerk bei GET /recordings (Dutzende parallele
+    # --- ffmpeg-Decodes → CPU/RAM-Kollaps).
+    from .routers.recordings import _backfill_peaks_batch
+
+    _peaks_stop = threading.Event()
+
+    def _peaks_loop():
+        while not _peaks_stop.wait(30):
+            try:
+                n = _backfill_peaks_batch(limit=2)
+                if n:
+                    log.info("peaks backfill: %d Aufnahme(n) nachgezogen", n)
+            except Exception:
+                log.exception("peaks backfill failed")
+
+    threading.Thread(target=_peaks_loop, daemon=True, name="peaks-backfill").start()
+
     yield
 
     _sweep_stop.set()
+    _peaks_stop.set()
     queue_manager.stop()
 
 

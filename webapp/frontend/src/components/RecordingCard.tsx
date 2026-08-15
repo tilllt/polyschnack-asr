@@ -11,6 +11,7 @@ import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
+import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
@@ -115,6 +116,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Collapse-Default steuert die Liste (nur erste Transkription offen);
   // Toggle bleibt pro Karte möglich.
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // Lazy-Loading (2026-08-15): Waveform/Audio laden nur, wenn die Karte
+  // (a) uncollapsed ist UND (b) in Viewport-Nähe gerät ODER der User sie
+  // gerade expandiert. Einmal geladen = bleibt geladen (Hook-Flag).
+  const { ref: cardRef, near: nearViewport } = useNearViewport<HTMLDivElement>();
+  const [expandedOnce, setExpandedOnce] = useState(false);
+  const loadWaveform = !collapsed && (nearViewport || expandedOnce);
 
   // ──── Task 9: inline feature toggles + backend, armed re-transcribe ────
   const [feat, setFeat] = useState<FeatureValues>({
@@ -423,6 +430,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   return (
     <div
+      ref={cardRef}
       className={`
         ${r.shared_with_me ? "bg-amber-500/5 border-amber-400/40" : "bg-panel border-border"}
         border rounded-card
@@ -433,7 +441,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       {/* ── Header ── */}
       <div className="px-3 sm:px-4 pt-[10px] sm:pt-[14px] pb-[8px] sm:pb-[10px] flex items-start gap-2 sm:gap-[10px]">
         <button
-          onClick={() => setCollapsed((v) => !v)}
+          onClick={() => {
+            setCollapsed((v) => {
+              const nv = !v;
+              if (!nv) setExpandedOnce(true); // Expand → Waveform sofort laden
+              return nv;
+            });
+          }}
           className="flex-shrink-0 mt-[2px] text-muted2 hover:text-txt transition-colors"
           title={collapsed ? "Expand" : "Collapse"}
         >
@@ -497,17 +511,29 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         )}
       </div>
 
-      {/* ── Audio player ── */}
+      {/* ── Audio player (Lazy: nur bei Viewport-Nähe + uncollapsed) ── */}
       <div className={compact ? "px-4 pb-1" : "px-4 pb-[6px]"}>
-        <WaveformPlayer
-          ref={wsRef}
-          audioUrl={r.audio_url}
-          peaks={r.waveform_peaks}
-          durationHint={r.duration_s}
-          onTimeUpdate={handleTimeUpdate}
-          onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
-          onLoadError={() => setWaveformError(true)}
-        />
+        {loadWaveform ? (
+          <WaveformPlayer
+            ref={wsRef}
+            // Schlanke 64-kbps-MP3-Preview fürs Playback (kein Voll-Download
+            // der WAV); Fallback auf die volle Datei, solange die Preview
+            // noch nicht generiert ist.
+            audioUrl={r.audio_preview_url ?? r.audio_url}
+            peaks={r.waveform_peaks}
+            durationHint={r.duration_s}
+            onTimeUpdate={handleTimeUpdate}
+            onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
+            onLoadError={() => setWaveformError(true)}
+          />
+        ) : (
+          // Platzhalter mit fester Höhe — verhindert Layout-Springen beim
+          // Scrollen; der Player mountet erst, wenn die Karte in
+          // Viewport-Nähe kommt oder expandiert wird (2026-08-15).
+          <div className="flex items-center justify-center h-[84px] text-muted2 text-[12px] select-none" aria-hidden="true">
+            ⏳ {t("waveform_lazy_hint")}
+          </div>
+        )}
         {waveformError && (
           <div className="mt-2 text-center">
             <span className="text-[12px] text-err">ⓘ Try Re-transcribe to regenerate waveform data</span>

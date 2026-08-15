@@ -3,6 +3,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchRecordings,
   fetchStats,
@@ -53,6 +54,45 @@ export function useModelStatus() {
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
+}
+
+/* ============================================================
+   VIEWPORT-LAZY-LOADING (2026-08-15, User-Befund: „Seite lädt
+   bei langen Dateien ewig — alle Waveforms werden geladen")
+   ============================================================ */
+
+/**
+ * Liefert `true`, sobald das Element in die Nähe des Viewports
+ * (rootMargin, Standard 800px) gerät — und bleibt dann `true`
+ * (einmal geladen = geladen). Kein Unload beim Wegscrollen, damit
+ * WaveSurfer seine decodierte Audio behält (Play-Button reagiert
+ * sofort, statt die 60-min-Datei erneut zu laden).
+ */
+export function useNearViewport<T extends HTMLElement>(rootMargin = "800px 0px") {
+  const ref = useRef<T | null>(null);
+  const [near, setNear] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true); // Fallback: kein IO → immer laden
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNear(true);
+          obs.disconnect();
+        }
+      },
+      { rootMargin }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [rootMargin]);
+
+  return { ref, near };
 }
 
 /* ============================================================

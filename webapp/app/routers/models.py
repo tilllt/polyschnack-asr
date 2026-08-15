@@ -79,19 +79,74 @@ def _diarize_diagnosis() -> Dict[str, Any]:
     try:
         resp = httpx.get(f"{url}/health", timeout=5)
         resp.raise_for_status()
+        features = {}
+        try:
+            features = resp.json() or {}
+        except Exception:
+            features = {}
         return {"available": True, "code": "ok", "service": url,
                 "message": "Diar-Service erreichbar (CrispASR).",
+                "features": features,
                 "components": [{"repo": "diar-service", "status": 200,
                                 "code": "ok", "message": "health ok"}]}
     except httpx.HTTPStatusError as exc:
         return {"available": False, "code": "diar-error", "service": url,
                 "message": f"Diar-Service antwortete mit HTTP "
                            f"{exc.response.status_code}.",
-                "components": []}
+                "features": {}, "components": []}
     except Exception as exc:
         return {"available": False, "code": "diar-unreachable", "service": url,
                 "message": f"Diar-Service nicht erreichbar: {exc}",
-                "components": []}
+                "features": {}, "components": []}
+
+
+def _aligner_diagnosis() -> Dict[str, Any]:
+    """Diagnose des Forced-Aligner-Service (crispr-align).
+
+    Rückgabe: {available, code, message, service, features, components}
+      codes: ok | aligner-error | aligner-unreachable | aligner-disabled
+    Der Aligner ist OPTIONAL: POLYSCHNACK_ALIGN_WORDS=false deaktiviert die
+    Karaoke-Wort-Synchronisation bewusst. Der Health-Endpoint des Service
+    ist self-describing (Modell, max_duration_s, word_timestamps, device) —
+    genau das liest die Webapp hier aus.
+    """
+    from ..aligner_client import ALIGN_WORDS_ENABLED
+
+    if not ALIGN_WORDS_ENABLED:
+        return {"available": False, "code": "aligner-disabled",
+                "service": None, "message": "Forced-Alignment deaktiviert "
+                "(POLYSCHNACK_ALIGN_WORDS=false).",
+                "features": {}, "components": []}
+    url = os.getenv("CRISP_ALIGN_URL", "http://crispr-align:5099").rstrip("/")
+    try:
+        resp = httpx.get(f"{url}/health", timeout=5)
+        resp.raise_for_status()
+        features = {}
+        try:
+            features = resp.json() or {}
+        except Exception:
+            features = {}
+        # Feature-Matrix-Basis: was der Aligner KANN (aus Health + Code).
+        features.setdefault("service", "aligner")
+        features.setdefault("word_timestamps", True)
+        features.setdefault("max_duration_s", 400.0)
+        return {"available": True, "code": "ok", "service": url,
+                "message": "Aligner-Service erreichbar (qwen3-forced-aligner).",
+                "features": features,
+                "components": [{"repo": "aligner-service", "status": 200,
+                                "code": "ok", "message": "health ok"}]}
+    except httpx.HTTPStatusError as exc:
+        return {"available": False, "code": "aligner-error", "service": url,
+                "message": f"Aligner-Service antwortete mit HTTP "
+                           f"{exc.response.status_code}.",
+                "features": {}, "components": []}
+    except Exception as exc:
+        return {"available": False, "code": "aligner-unreachable",
+                "service": url,
+                "message": f"Aligner-Service nicht erreichbar: {exc} — "
+                           f"Karaoke-Wort-Highlight fällt auf Backend-"
+                           f"Timestamps zurück.",
+                "features": {}, "components": []}
 
 
 def _download_vad():
@@ -136,6 +191,7 @@ def model_status() -> Dict[str, Any]:
 
     # Detaillierte Diagnose: warum lädt Diarization (nicht)?
     diag = _diarize_diagnosis()
+    align_diag = _aligner_diagnosis()
     vad_available = _check_vad()
     vad_diag = {
         "available": vad_available,
@@ -150,19 +206,80 @@ def model_status() -> Dict[str, Any]:
         "vad_available": vad_available,
         "diarize_available": diag["available"],
         "diar_service": diag["service"],
+        "align_available": align_diag["available"],
+        "align_service": align_diag["service"],
         "asr_device": asr_device,
         "backend": client.capabilities.label,
         "features": {
             "streaming": client.capabilities.streaming,
             "noise_reduce": client.capabilities.noise_reduce,
             "async_jobs": client.capabilities.async_jobs,
+            "word_timestamps": client.capabilities.word_timestamps,
+            "native_punctuation": client.capabilities.native_punctuation,
+            "languages": client.capabilities.languages,
+            "accepts_compressed": client.capabilities.accepts_compressed,
         },
         "downloading": _downloading,
         "download_progress": _download_progress,
         # Diagnose-Felder: präzise Fehlerursache statt nur bool
         "vad_diag": vad_diag,
         "diarize_diag": diag,
+        "aligner_diag": align_diag,
     }
+
+
+@router.get("/services")
+def services_status() -> Dict[str, Any]:
+    """Service-Matrix: welche Sidecar-Services laufen und welche Features
+    sie anbieten.
+
+    Liefert für jeden Service {available, code, service, features} — Basis
+    für die Feature-Matrix (Frontend) und Debugging („läuft der Aligner?").
+    Enthält bewusst KEINE Secrets, nur Health + self-describing Features.
+    """
+    client = get_client()
+    return {
+        "asr": {
+            "available": asr_device_ok(),
+            "service": settings.ASR_URL,
+            "features": {
+                "backend": client.capabilities.label,
+                "device": asr_device_name(),
+                "streaming": client.capabilities.streaming,
+                "noise_reduce": client.capabilities.noise_reduce,
+                "async_jobs": client.capabilities.async_jobs,
+                "word_timestamps": client.capabilities.word_timestamps,
+                "native_punctuation": client.capabilities.native_punctuation,
+                "languages": client.capabilities.languages,
+                "accepts_compressed": client.capabilities.accepts_compressed,
+            },
+        },
+        "vad": {
+            "available": _check_vad(),
+            "service": "local (silero_vad)",
+            "features": {"onnx": True},
+        },
+        "diar": _diarize_diagnosis(),
+        "aligner": _aligner_diagnosis(),
+    }
+
+
+def asr_device_ok() -> bool:
+    try:
+        resp = httpx.get(f"{settings.ASR_URL}/health", timeout=3)
+        resp.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+def asr_device_name() -> str:
+    try:
+        resp = httpx.get(f"{settings.ASR_URL}/health", timeout=3)
+        resp.raise_for_status()
+        return str(resp.json().get("device", "unknown"))
+    except Exception:
+        return "unreachable"
 
 
 class DownloadResponse(BaseModel):

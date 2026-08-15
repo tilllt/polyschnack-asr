@@ -81,6 +81,15 @@ class Recording(SQLModel, table=True):
     # --- waveform peaks (cached for fast WaveSurfer render) ---
     waveform_peaks: Optional[List[float]] = Field(default=None, sa_column=Column(JSON))
 
+    # --- Playback-Preview (schlanke Sidecar für WaveSurfer, 2026-08-15) ---
+    # Komprimierte 64-kbps-MP3 (16 kHz mono) NEBEN dem Original: der
+    # Browser-Player lädt NUR diese kleine Datei fürs Playback; die
+    # Transkription läuft weiter mit dem vollen Audio (stored_path).
+    # Wiedereinführung der Pipeline, die 665ba08 entfernte (MediaElement-
+    # Experiment brach → WebAudio braucht kleine Datei statt Voll-Decode).
+    preview_path: Optional[str] = Field(default=None)
+    preview_size_bytes: Optional[int] = Field(default=None)
+
     # --- notification URLs ---
     notification_urls: Optional[str] = Field(default=None)
 

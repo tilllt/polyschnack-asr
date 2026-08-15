@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 import pytest
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select
 
 from app import db as db_module
 from app import service as svc
@@ -39,6 +39,9 @@ def test_schedule_peaks_thread_auch_ohne_event_loop(tmp_path, eng, monkeypatch):
         rid = rec.id
 
     monkeypatch.setattr(svc, "_compute_peaks_path", lambda path: [0.25, 0.5, 0.75])
+    from app import peaks as peaks_module
+
+    monkeypatch.setattr(peaks_module, "compute_preview_path", lambda src: None)
 
     # Aus einem Plain-Thread aufrufen — genau wie der Starlette-Threadpool:
     # dort existiert kein asyncio-Event-Loop.
@@ -108,3 +111,83 @@ def test_schedule_peaks_inflight_guard_kein_doppelthread(tmp_path, eng, monkeypa
     with Session(eng) as s:
         r = s.get(Recording, rid)
     assert r is not None and r.waveform_peaks == [1.0]
+
+
+def test_backfill_peaks_batch_seriell_ueber_alle_user(tmp_path, eng, monkeypatch):
+    """Backfill-Loop: berechnet fehlende Peaks über ALLE User (auch anon),
+    lässt vorhandene unangetastet, limitiert pro Durchlauf."""
+    for uid, name in [("u1", "a.mp3"), (None, "anon.mp3"), ("u2", "b.mp3")]:
+        audio = tmp_path / name
+        audio.write_bytes(b"fake")
+        with Session(eng) as s:
+            rec = Recording(uid=uid, original_name=name, stored_path=str(audio),
+                            status="done")
+            s.add(rec)
+            s.commit()
+    # u2 hat schon Peaks + Preview — darf nicht angefasst werden
+    with Session(eng) as s:
+        rec = s.exec(
+            select(Recording).where(Recording.original_name == "b.mp3")
+        ).first()
+        rec.waveform_peaks = [0.1, 0.2]
+        rec.preview_path = str(tmp_path / "b_preview.mp3")
+        s.add(rec)
+        s.commit()
+
+    calls: list[str] = []
+    monkeypatch.setattr(svc, "_compute_peaks_path",
+                        lambda path: calls.append(str(path)) or [0.5, 0.75])
+    from app import peaks as peaks_module
+
+    def fake_preview(src):
+        p = Path(str(src).replace(".mp3", "") + "_preview.mp3")
+        p.write_bytes(b"ID3fake")  # existierende Datei für stat()
+        return p
+
+    monkeypatch.setattr(peaks_module, "compute_preview_path", fake_preview)
+
+    from app.routers import recordings as rec_routes
+
+    n = rec_routes._backfill_peaks_batch(limit=2)
+    assert n == 2  # nur die zwei ohne Assets, Limit greift
+    assert len(calls) == 2
+    assert any("a.mp3" in c for c in calls)
+    assert any("anon.mp3" in c for c in calls)
+
+    with Session(eng) as s:
+        a = s.exec(select(Recording).where(Recording.original_name == "a.mp3")).first()
+        anon = s.exec(select(Recording).where(Recording.original_name == "anon.mp3")).first()
+        b = s.exec(select(Recording).where(Recording.original_name == "b.mp3")).first()
+    assert a.waveform_peaks == [0.5, 0.75]
+    assert anon.waveform_peaks == [0.5, 0.75]
+    assert b.waveform_peaks == [0.1, 0.2]  # unangetastet
+    # Preview-Sidecars wurden mitgeneriert
+    assert a.preview_path and a.preview_path.endswith("a_preview.mp3")
+    assert anon.preview_path and anon.preview_path.endswith("anon_preview.mp3")
+    assert b.preview_path == str(tmp_path / "b_preview.mp3")
+
+
+def test_backfill_peaks_batch_leere_peaks_kein_commit(tmp_path, eng, monkeypatch):
+    """Decode-Fehler (leere Peaks) → kein Commit, kein Inflight-Hänger;
+    beim nächsten Durchlauf wird erneut versucht."""
+    audio = tmp_path / "kaputt.mp3"
+    audio.write_bytes(b"fake")
+    with Session(eng) as s:
+        rec = Recording(uid="u9", original_name="kaputt.mp3",
+                        stored_path=str(audio), status="done")
+        s.add(rec)
+        s.commit()
+
+    monkeypatch.setattr(svc, "_compute_peaks_path", lambda path: [])
+    from app import peaks as peaks_module
+
+    monkeypatch.setattr(peaks_module, "compute_preview_path", lambda src: None)
+
+    from app.routers import recordings as rec_routes
+
+    n = rec_routes._backfill_peaks_batch(limit=5)
+    assert n == 0
+    with Session(eng) as s:
+        r = s.get(Recording, 1)
+    assert r is not None and r.waveform_peaks is None
+    assert 1 not in rec_routes._peaks_inflight

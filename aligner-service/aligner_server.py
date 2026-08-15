@@ -142,9 +142,32 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length)
 
     # --- routes --------------------------------------------------------
+    def _device(self) -> str:
+        """cuda|cpu — tolerant: nvidia-smi im Container vorhanden?."""
+        try:
+            out = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                                 text=True, timeout=5)
+            if out.returncode == 0 and out.stdout.strip():
+                return "cuda"
+        except Exception:
+            pass
+        return "cpu"
+
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._send(200, {"status": "ok"})
+            # Self-describing: die Webapp liest hier die Aligner-Features
+            # für die Service-Diagnose (/api/services/status).
+            self._send(200, {
+                "status": "ok",
+                "service": "aligner",
+                "model": "qwen3-forced-aligner-0.6b-f16",
+                "max_duration_s": MAX_AUDIO_S,
+                "word_timestamps": True,
+                "confidence": True,
+                "languages": ["de", "en"],
+                "device": self._device(),
+                "max_upload_bytes": MAX_BODY_BYTES,
+            })
         else:
             self._send(404, {"error": "not found"})
 

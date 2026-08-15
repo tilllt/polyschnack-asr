@@ -264,6 +264,66 @@ def _check_long_audio(backend: str, rec) -> None:
 
 _peaks_inflight: set[int] = set()
 
+#: Wie viele peaks-lose Aufnahmen der GET /recordings-Abruf sofort nachzieht
+#: (nur die sichtbaren); der Rest kommt vom periodischen Backfill-Loop.
+_PEEKS_LIST_NAACHZUG = 5
+
+
+def _backfill_peaks_batch(limit: int = 2) -> int:
+    """Serieller Peaks-/Preview-Backfill: berechnet bis zu *limit* fehlende
+    Assets (Peaks UND Playback-Preview).
+
+    Läuft periodisch im Hintergrund-Loop (main.py) statt bei jedem
+    GET /recordings für alle Dateien Threads zu feuern (2026-08-15:
+    Dutzende parallele ffmpeg-Voll-Decodes bei vielen Alt-Aufnahmen →
+    CPU/RAM-Kollaps, Seite ewig langsam). Bewusst langsam: 1-2 Dateien
+    pro Durchlauf, dann Pause — der Viewport-Nachzug (Frontend) und der
+    Upload-Pfad bleiben unberührt.
+
+    Seit 2026-08-15 zusätzlich: fehlende Playback-Previews (64-kbps-MP3-
+    Sidecar) werden im selben seriellen Durchlauf erzeugt — der Player
+    lädt damit statt der vollen WAV nur die kleine Datei.
+    """
+    from ..crud import list_recordings_missing_peaks
+    from ..db import engine as _engine
+    from sqlmodel import Session as _Session
+    from ..peaks import compute_preview_path
+    from ..service import _compute_peaks_path
+
+    done = 0
+    try:
+        with _Session(_engine) as s:
+            for rec in list_recordings_missing_peaks(s, limit=limit):
+                rid = int(rec.id)
+                if rid in _peaks_inflight:
+                    continue
+                _peaks_inflight.add(rid)
+                try:
+                    src = Path(rec.stored_path)
+                    # 1) Preview-Sidecar (schlank fürs Browser-Playback)
+                    prev_path = getattr(rec, "preview_path", None)
+                    if not (prev_path and Path(prev_path).exists()):
+                        prev = compute_preview_path(src)
+                        if prev and Path(prev).exists():
+                            rec.preview_path = str(prev)
+                            rec.preview_size_bytes = Path(prev).stat().st_size
+                    # 2) Waveform-Peaks
+                    if not getattr(rec, "waveform_peaks", None):
+                        peaks = _compute_peaks_path(src)
+                        if peaks:
+                            rec.waveform_peaks = peaks
+                    if getattr(rec, "preview_path", None) or getattr(rec, "waveform_peaks", None):
+                        s.add(rec)
+                        s.commit()
+                        done += 1
+                    # beide leer (Decode-Fehler) → beim nächsten Durchlauf
+                    # erneut versuchen (kein Inflight-Block, kein Commit)
+                finally:
+                    _peaks_inflight.discard(rid)
+    except Exception:
+        log.exception("peaks: backfill batch failed")
+    return done
+
 
 def _schedule_peaks(rec_id: int) -> None:
     """Waveform-Peaks (Mini-Preview für WaveSurfer) direkt nach Upload/Import,
@@ -291,17 +351,31 @@ def _compute_peaks_background(rec_id: int) -> None:
 
         from ..crud import get_recording as _gr
         from ..db import engine as _engine
+        from ..peaks import compute_preview_path
         from ..service import _compute_peaks_path
 
         with _Session(_engine) as s:
             rec = _gr(s, rec_id)
-            if rec is None or getattr(rec, "waveform_peaks", None):
+            if rec is None:
                 return
-            # Pfad-basiert (statt read_bytes): 357-MB-Files würden sonst das
-            # RAM-Limit sprengen (OOM-Kill, s. peaks.compute_peaks_path).
-            peaks = _compute_peaks_path(Path(rec.stored_path))
-            if peaks:
-                rec.waveform_peaks = peaks
+            src = Path(rec.stored_path)
+            # 1) Playback-Preview-Sidecar (64-kbps-MP3) — fehlt sie, wird sie
+            #    hier erzeugt; der Player lädt damit statt der vollen WAV nur
+            #    die kleine Datei (2026-08-15).
+            prev_path = getattr(rec, "preview_path", None)
+            if not (prev_path and Path(prev_path).exists()):
+                prev = compute_preview_path(src)
+                if prev and Path(prev).exists():
+                    rec.preview_path = str(prev)
+                    rec.preview_size_bytes = Path(prev).stat().st_size
+            # 2) Waveform-Peaks
+            if not getattr(rec, "waveform_peaks", None):
+                # Pfad-basiert (statt read_bytes): 357-MB-Files würden sonst
+                # das RAM-Limit sprengen (OOM-Kill, s. peaks.compute_peaks_path).
+                peaks = _compute_peaks_path(src)
+                if peaks:
+                    rec.waveform_peaks = peaks
+            if getattr(rec, "preview_path", None) or getattr(rec, "waveform_peaks", None):
                 s.add(rec)
                 s.commit()
     except Exception:
@@ -342,6 +416,15 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "language": rec.language,
         "segments": rec.segments,
         "audio_url": f"/api/recordings/{uid}/audio",
+        # Schlanke Playback-Preview (64-kbps-MP3-Sidecar) — der Player lädt
+        # NUR diese kleine Datei; die volle Datei bleibt für Download und
+        # Transkription. Fehlt die Preview (noch nicht generiert), fällt
+        # das Frontend auf audio_url zurück.
+        "audio_preview_url": (
+            f"/api/recordings/{uid}/audio/preview"
+            if getattr(rec, "preview_path", None)
+            else None
+        ),
         "download_url": f"/api/recordings/{uid}/download",
         # WhatsApp / batch fields
         "batch_id": rec.batch_id,
@@ -679,11 +762,13 @@ def list_recordings_endpoint(
     """Return all recordings (newest first), optionally filtered by *q*."""
     uid = _current_user(request, session)
     rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
-    # Alt-Aufnahmen ohne Peaks (vor dem Peaks-Feature hochgeladen): Preview im
-    # Hintergrund nachziehen, damit die Karte nicht dauerhaft
-    # "Waveform data corrupted" zeigt (WaveSurfer muesste sonst die ganze
-    # Datei dekodieren).
-    for _rec in rows:
+    # Alt-Aufnahmen ohne Peaks (vor dem Peaks-Feature hochgeladen): nur die
+    # ERSTEN (sichtbaren) sofort nachziehen — nicht alle. Früher wurde für
+    # jede peaks-lose Aufnahme ein eigener ffmpeg-Thread gestartet; bei
+    # vielen Dateien feuerten Dutzende Voll-Decodes gleichzeitig (Seite ewig
+    # langsam, 2026-08-15). Den Rest füllt der periodische Backfill-Loop
+    # seriell auf (main.py, alle User).
+    for _rec in rows[:_PEEKS_LIST_NAACHZUG]:
         if not getattr(_rec, "waveform_peaks", None):
             _schedule_peaks(int(_rec.id))
     share_rec_ids = set()
@@ -805,6 +890,37 @@ def get_audio(
         media_type=mime,
         filename=rec.original_name,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@router.get("/recordings/{rid}/audio/preview")
+def get_audio_preview(
+    rid: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    """Stream die schlanke Playback-Preview (64-kbps-MP3-Sidecar).
+
+    Der WaveSurfer-Player lädt NUR diese kleine Datei fürs Playback —
+    WebAudio müsste sonst die komplette WAV dekodieren (60 min =
+    Minuten bis Play). Fehlt die Preview (noch nicht generiert), fällt
+    das Frontend auf die volle Audio-URL zurück.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+
+    preview = getattr(rec, "preview_path", None)
+    if not preview or not Path(preview).exists():
+        raise HTTPException(status_code=410, detail="preview not available yet")
+
+    return FileResponse(
+        str(preview),
+        media_type="audio/mpeg",
+        filename=Path(preview).name,
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
@@ -1069,6 +1185,10 @@ def delete_recording_endpoint(
 
     path = Path(rec.stored_path)
     path.unlink(missing_ok=True)
+    # Playback-Preview-Sidecar mitlöschen (falls vorhanden)
+    prev = getattr(rec, "preview_path", None)
+    if prev:
+        Path(prev).unlink(missing_ok=True)
     return {"deleted": rid}
 
 
