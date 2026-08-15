@@ -26,6 +26,7 @@ import { AdminPanel } from "./components/AdminPanel";
 import { UserSettingsPage } from "./components/UserSettingsPage";
 import { SearchBar } from "./components/SearchBar";
 import { RecordingList } from "./components/RecordingList";
+import { InstallBanner } from "./components/InstallBanner";
 
 function AppContent() {
   const [query, setQuery] = useState("");
@@ -170,6 +171,9 @@ function AppContent() {
         {/* Row 2: Stats — full width on mobile, inline on desktop */}
         <StatsBar stats={stats} device={modelStatusQuery.data?.asr_device} />
       </header>
+
+      {/* PWA-Install-Banner (nur wenn installierbar + nicht abgelehnt) */}
+      <InstallBanner />
 
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">

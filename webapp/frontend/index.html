@@ -6,9 +6,24 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>PolySchnack</title>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PolySchnack" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Service Worker nur registrieren, wenn HTTPS + unterstützt (nicht in Dev)
+      if ("serviceWorker" in navigator && window.location.protocol.startsWith("https")) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>
