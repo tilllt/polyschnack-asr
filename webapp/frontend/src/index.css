@@ -74,6 +74,18 @@ audio {
 }
 
 /* ============================================================
+   SEARCH-HIT HIGHLIGHT (Transkript-Suche, 2026-08-15)
+   Bewusst GRÜN statt gelb — der gelbe Textmarker gehört dem
+   Karaoke-Wort (Abspielposition). Layout-neutral wie karaoke-active:
+   nur background-color + color, kein padding/underline.
+   ============================================================ */
+.search-hit {
+  background-color: rgba(46, 204, 113, 0.8) !important; /* grün */
+  color: #0c1410 !important;
+  border-radius: 2px;
+}
+
+/* ============================================================
    SPINNER (for non-Tailwind contexts)
    ============================================================ */
 @keyframes spin {

@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
@@ -14,9 +15,13 @@ interface Props {
   recordingId?: string;
   onEdited?: (segments: Segment[], text: string) => void;
   currentTime?: number;
+  /** Review-Fix 2026-08-15 (Such-UI): Query für grüne Treffer-Hervorhebung
+   *  (bewusst ANDERS als der gelbe Karaoke-Marker) + Sprung-Ziel. */
+  searchQuery?: string;
+  searchJump?: { idx: number; nonce: number } | null;
 }
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime }: Props) {
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -29,6 +34,43 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [renameSaving, setRenameSaving] = useState(false);
   const { t } = useT();
   const { toast } = useToast();
+
+  // ── Such-Treffer (case-insensitive) ───────────────────────────────
+  // Nur Plain-Text-Seiten: Wörter-Karaoke wird wortweise unten geprüft.
+  const hasSearch = !!searchQuery && searchQuery.trim().length > 0;
+
+  function highlightText(text: string, q: string): ReactNode {
+    if (!q) return text;
+    const parts: React.ReactNode[] = [];
+    const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+    // split mit Capture-Gruppe: Treffer stehen auf ungeraden Indizes.
+    // KEIN re.test im Loop (global flag → lastIndex-Mutation!).
+    const spl = text.split(re);
+    for (let i = 0; i < spl.length; i++) {
+      const p = spl[i];
+      if (!p) continue;
+      if (i % 2 === 1) {
+        parts.push(<mark key={i} className="search-hit">{p}</mark>);
+      } else {
+        parts.push(<span key={i}>{p}</span>);
+      }
+    }
+    return parts;
+  }
+
+  // Wort-Trefferprüfung für die Karaoke-Wortspans.
+  function wordIsHit(w: string): boolean {
+    if (!hasSearch) return false;
+    return w.toLowerCase().includes(searchQuery!.trim().toLowerCase());
+  }
+
+  // Auto-scroll zum Such-Treffer (Review-Fix): der Klick auf ein
+  // Treffer-Segment in der Suchleiste springt hierher.
+  useEffect(() => {
+    if (!searchJump) return;
+    const el = rowRefs.current[searchJump.idx];
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [searchJump]);
 
   // Auto-scroll the active segment into view — nur wenn es NICHT vollständig
   // sichtbar ist (top UND bottom im Container). scrollIntoView mit
@@ -225,6 +267,14 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                     const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime) : -1;
                     return seg.words!.map((w, wi) => {
                       const isActive = wi === activeW;
+                      // Such-Treffer: grüner Marker (.search-hit) — bewusst
+                      // getrennt vom gelben Karaoke-Marker (Abspielposition).
+                      const isHit = wordIsHit(w.word);
+                      const cls = isHit
+                        ? "search-hit"
+                        : isActive
+                          ? "karaoke-active"
+                          : `${confidenceClass(w.confidence)} hover:text-accent/70`;
                       return (
                         <span
                           key={wi}
@@ -240,18 +290,16 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                               handleWordClick(i, w.start);
                             }
                           }}
-                          className={`cursor-pointer transition-colors duration-[100ms] ${
-                            isActive
-                              ? "karaoke-active"
-                              : `${confidenceClass(w.confidence)} hover:text-accent/70`
-                          }`}
+                          className={`cursor-pointer transition-colors duration-[100ms] ${cls}`}
                         >
                           {w.word}{wi < seg.words!.length - 1 ? " " : ""}
                         </span>
                       );
                     });
                   })()
-                : seg.text}
+                : hasSearch
+                  ? highlightText(seg.text, searchQuery!.trim())
+                  : seg.text}
             </span>
           )}
         </div>

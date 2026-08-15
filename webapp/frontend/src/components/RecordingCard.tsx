@@ -107,6 +107,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Review-Fix 2026-08-15 (Such-UI): Query + Sprung-Ziel liegen hier, damit
+  // SegmentSearch (eingeben) und SegmentList (hervorheben + scrollen) den
+  // gleichen Suchzustand teilen.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchJump, setSearchJump] = useState<{ idx: number; nonce: number } | null>(null);
   const [waveformError, setWaveformError] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -616,6 +621,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   segments={segments}
                   recordingId={r.uid}
                   onEdited={handleEdited}
+                  query={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  onNavigateHit={(idx) =>
+                    setSearchJump((s) => ({ idx, nonce: (s?.nonce ?? 0) + 1 }))
+                  }
                 />
               </div>
             )}
@@ -628,6 +638,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 recordingId={r.uid}
                 onEdited={handleEdited}
                 currentTime={currentTime}
+                searchQuery={searchQuery}
+                searchJump={searchJump}
               />
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
