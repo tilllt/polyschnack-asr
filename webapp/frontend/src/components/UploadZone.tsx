@@ -7,6 +7,13 @@ import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
 import { ImportToggles, IMPORT_DEFAULTS, type ImportFeatureValues } from "./ImportToggles";
 import { diarSensToMinDurationOff } from "./FeatureToggles";
+import {
+  PendingRecording,
+  deletePendingRecording,
+  loadPendingRecordings,
+  pendingToFormData,
+  savePendingRecording,
+} from "../offlineQueue";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 
@@ -497,6 +504,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -516,6 +525,42 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       localStorage.setItem("ps_pushtorecord_help_seen", "1");
     }
   }, [isTouch]);
+
+  // Offline-Puffer beim Start laden + offene Aufnahmen automatisch hochladen
+  useEffect(() => {
+    void loadPendingRecordings().then((recs) => {
+      setPendingCount(recs.length);
+      if (recs.length > 0 && navigator.onLine) {
+        void retryPending();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function retryPending() {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const recs = await loadPendingRecordings();
+      for (const rec of recs) {
+        try {
+          const res = await fetch("/api/recordings", { method: "POST", body: pendingToFormData(rec) }).then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r;
+          });
+          await res.json();
+          await deletePendingRecording(rec.id);
+          toast(`Upload ok: ${rec.fileName}`, "ok");
+        } catch (e) {
+          toast(`Retry fehlgeschlagen: ${(e as Error).message}`, "err");
+        }
+      }
+      setPendingCount((await loadPendingRecordings()).length);
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function acquireWakeLock() {
     try {
@@ -574,15 +619,39 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
 
       releaseWakeLock();
       setIsUploading(true);
+
+      // 1) SOFORT lokal sichern (IndexedDB) — bevor irgendetwas anderes
+      //    passieren kann. Netzabriss/Serverfehler dürfen die Aufnahme
+      //    nicht mehr vernichten: der Blob überlebt, bis der Upload
+      //    nachweislich erfolgreich war.
+      const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
+      const pending: PendingRecording = {
+        id: crypto.randomUUID(),
+        blob,
+        fileName: `recording_${Date.now()}${ext}`,
+        mime: blob.type,
+        createdAt: Date.now(),
+        vad: vadOn,
+        diarize: diarizeOn,
+        streaming: livePreview,
+        noiseReduce,
+        enhance: enhanceLevel,
+      };
+      await savePendingRecording(pending);
+      setPendingCount((await loadPendingRecordings()).length);
+
       try {
         // Peak-normalize to -1 dBFS — boosts quiet recordings, leaves loud ones alone
         const normBlob = await normalizePeak(blob);
-        const batchId = crypto.randomUUID();
+        const batchId = pending.id;
         await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel);
+        await deletePendingRecording(pending.id); // Upload bestätigt → Puffer leeren
+        setPendingCount((await loadPendingRecordings()).length);
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {
-        toast(`Upload failed: ${(e as Error).message}`, "err");
+        // Upload fehlgeschlagen — Aufnahme bleibt sicher im IndexedDB-Puffer.
+        toast(`Upload failed — Aufnahme lokal gesichert: ${(e as Error).message}`, "err");
       } finally {
         setIsUploading(false);
         onRecordingChange(false);
@@ -700,6 +769,22 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         ref={containerRef}
         className={`w-full max-w-[500px] px-2 sm:px-0 ${recording ? "" : "hidden"}`}
       />
+
+      {/* Offline-Puffer: lokal gesicherte Aufnahmen, deren Upload noch aussteht */}
+      {pendingCount > 0 && (
+        <div className="w-full max-w-[500px] bg-[rgba(217,158,43,.1)] border border-[#d99e2b]/40 rounded-sm px-3 py-2 flex items-center gap-2">
+          <span className="text-[12px] text-txt flex-1">
+            💾 {t("offline_pending")}: {pendingCount}
+          </span>
+          <button
+            onClick={() => void retryPending()}
+            disabled={retrying}
+            className="bg-[#d99e2b] text-white text-[11px] px-2.5 py-1 rounded-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+          >
+            {retrying ? t("offline_retrying") : t("offline_retry")}
+          </button>
+        </div>
+      )}
 
       {/* Mobile: animierte Gesten-Anleitung */}
       {isTouch && showHelp && (
