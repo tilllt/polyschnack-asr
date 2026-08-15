@@ -33,7 +33,7 @@ from ..db import get_session
 from ..models import Recording, RecordingShare, User
 from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
-from ..service import to_srt, to_txt, to_vtt, trim_audio
+from ..service import resegment_by_duration, to_srt, to_txt, to_vtt, trim_audio
 from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
@@ -948,9 +948,18 @@ def download_transcript(
     rid: str,
     request: Request,
     format: str = "txt",
+    max_duration_s: Optional[float] = None,
     session: Session = Depends(get_session),
 ) -> Response:
-    """Download the transcription as txt, srt, or vtt."""
+    """Download the transcription as txt, srt, or vtt.
+
+    ``max_duration_s`` (Feature 2026-08-15): optionale Re-Segmentierung
+    vor dem Export — die ASR-Segmente sind chunk-bedingt oft ~105 s lang
+    und damit für Untertitel unbrauchbar. Mit diesem Parameter teilt
+    ``resegment_by_duration`` die Wörter in Blöcke ≤ max_duration_s auf;
+    identisch zur Preview in der Transkriptionsansicht (gleiche Funktion,
+    gleiche Ausgabe).
+    """
     if format not in ("txt", "srt", "vtt"):
         raise HTTPException(status_code=400, detail="format must be txt, srt, or vtt")
 
@@ -973,16 +982,24 @@ def download_transcript(
     if format == "txt":
         content = to_txt(rec.text or "")
         media_type = "text/plain"
-    elif format == "srt":
-        content = to_srt(rec.segments or [])
-        media_type = "application/x-subrip"
-    else:  # vtt
-        content = to_vtt(rec.segments or [])
-        media_type = "text/vtt"
+    else:
+        segments = rec.segments or []
+        if max_duration_s is not None and max_duration_s > 0:
+            segments = resegment_by_duration(segments, max_duration_s)
+        if format == "srt":
+            content = to_srt(segments)
+            media_type = "application/x-subrip"
+        else:  # vtt
+            content = to_vtt(segments)
+            media_type = "text/vtt"
 
+    # Fix 2026-08-15 (User-Report): Umlaute als Sonderzeichen im TXT-Download.
+    # Ohne charset im Content-Type rät der Browser das Encoding (häufig
+    # Windows-1252/Latin-1) → „ä/ö/ü/ß" wurden zu „Ã¤"-Artefakten. Explizites
+    # charset=utf-8 gilt für alle drei Exportformate (Texte sind Unicode).
     return Response(
         content=content,
-        media_type=media_type,
+        media_type=f"{media_type}; charset=utf-8",
         headers={"Content-Disposition": disposition},
     )
 

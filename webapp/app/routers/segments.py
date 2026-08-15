@@ -138,3 +138,74 @@ def update_segment(
     snapshot(session, rec, "edit", user_id=uid)
 
     return {"segments": rec.segments, "text": rec.text}
+
+
+class SegmentListUpdate(BaseModel):
+    """Komplette Segmentliste (Feature 2026-08-15: Segmentlängen).
+
+    Vom Frontend nach Re-Segmentierung (frei wählbare Dauer) oder
+    manuell verschobenen Grenzen (draggable Timecode-Marker) gesendet.
+    Die Wörter bleiben erhalten — nur start/end/text/Speaker dürfen
+    abweichen. Persistiert wird die Liste; der Export (SRT/VTT) und die
+    Preview nutzen damit dieselben Grenzen.
+    """
+
+    segments: list[dict[str, Any]]
+
+
+@router.put("/recordings/{rid}/segments")
+def replace_segments(
+    rid: str,
+    body: SegmentListUpdate,
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Ersetzt die komplette Segmentliste einer fertigen Aufnahme.
+
+    Auth + Zugriff wie beim Segment-Edit (write). Der Gesamt-Text wird
+    aus den Segment-Texten neu zusammengesetzt. Voraussetzung: mindestens
+    ein Segment; jedes Segment braucht start/end/text. Wörter sind
+    optional, bleiben aber für Karaoke + Wort-für-Wort-Verschiebung
+    erhalten.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    from ..identity import current_identity
+
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
+
+    if rec.status != "done":
+        raise HTTPException(status_code=409, detail="transcription not complete yet")
+
+    segs = body.segments
+    if not segs:
+        raise HTTPException(status_code=400, detail="segments must not be empty")
+    for i, s in enumerate(segs):
+        if "start" not in s or "end" not in s:
+            raise HTTPException(
+                status_code=400, detail=f"segment {i} missing start/end"
+            )
+        if not str(s.get("text") or "").strip():
+            raise HTTPException(status_code=400, detail=f"segment {i} empty text")
+
+    # Tiefe Kopie → SQLAlchemy erkennt die Zuweisung als Änderung.
+    import json as _json
+
+    stored = _json.loads(_json.dumps(segs))
+    rec.segments = stored
+    rec.text = " ".join(str(s["text"]).strip() for s in stored)
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+
+    from ..versions import snapshot
+
+    snapshot(session, rec, "edit", user_id=uid)
+
+    return {"segments": rec.segments, "text": rec.text}

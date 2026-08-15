@@ -262,6 +262,21 @@ export async function updateSegment(recordingId: string, segmentIdx: number, tex
   return res.json();
 }
 
+/** Feature 2026-08-15: komplette Segmentliste persistieren (Re-Segmentierung
+ *  / verschobene Grenzen) — Export nutzt danach dieselben Segmente wie die
+ *  Preview. */
+export async function replaceSegments(
+  recordingId: string,
+  segments: Segment[],
+): Promise<{ segments: Segment[]; text: string }> {
+  const res = await fetch(`/api/recordings/${recordingId}/segments`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ segments }),
+  }).then(checkOk);
+  return res.json();
+}
+
 export interface SpeakerRenameResult {
   segments: Segment[];
   text: string;

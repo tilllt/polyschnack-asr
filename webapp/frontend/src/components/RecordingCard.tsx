@@ -1,8 +1,8 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
-import type { ModelMatrixEntry, Recording } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, type ShareItem, type VersionItem } from "../api";
+import type { ModelMatrixEntry, Recording, Segment } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, type ShareItem, type VersionItem } from "../api";
 import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
@@ -13,6 +13,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
+import { resegmentByDuration } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 
@@ -58,10 +59,15 @@ function fmtTime(sec: number): string {
 }
 
 /** Dropdown-Flip: öffnet nach unten, aber wenn das Menü unter den Viewport
- *  ragen würde (Mobile!), klappt es nach oben auf. */
+ *  ragen würde (Mobile!), klappt es nach oben auf. Zusätzlich horizontal:
+ *  right-0-verankerte Menüs (240 px breit) ragen auf schmalen Screens links
+ *  aus dem Viewport, wenn der Trigger-Button nicht ganz rechts steht —
+ *  dann wird auf left-0 umgestellt (Fix 2026-08-15, User-Befund „Teilen-
+ *  Dialog auf Mobile links abgeschnitten"). */
 function useFlipUp(open: boolean) {
   const ref = useRef<HTMLDivElement>(null);
   const [up, setUp] = useState(false);
+  const [left, setLeft] = useState(false);
   useEffect(() => {
     if (!open) return;
     const id = requestAnimationFrame(() => {
@@ -69,10 +75,13 @@ function useFlipUp(open: boolean) {
       if (!el) return;
       const r = el.getBoundingClientRect();
       setUp(r.bottom > window.innerHeight - 8);
+      // Menü ist right-0 verankert: ragt es links aus dem Viewport
+      // (r.left < 0), gehört es an den linken Rand des Triggers.
+      setLeft(r.left < 0);
     });
     return () => cancelAnimationFrame(id);
   }, [open]);
-  return { ref, up };
+  return { ref, up, left };
 }
 
 interface Props {
@@ -112,6 +121,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // gleichen Suchzustand teilen.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchJump, setSearchJump] = useState<{ idx: number; nonce: number } | null>(null);
+  // Feature 2026-08-15: Segmentlänge in der Transkriptionsansicht wählbar.
+  // null = Original-Segmente (ASR-Chunks, oft ~105 s); Zahl = max. Dauer in
+  // Sekunden für die Re-Segmentierung. Preview UND Export nutzen dieselbe
+  // Aufteilung (resegment.ts ←→ service.resegment_by_duration).
+  const [segMaxDuration, setSegMaxDuration] = useState<number | null>(null);
   const [waveformError, setWaveformError] = useState(false);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -345,6 +359,42 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // ──── Segment time tracking ────
   const segments = r.segments;
   const hasSegments = segments && segments.length > 0;
+  // Feature 2026-08-15: Anzeige-Segmente — bei gewählter Max-Dauer werden
+  // die ASR-Segmente (oft ~105 s) in Wort-Buckets ≤ Dauer aufgeteilt.
+  // Strukturell identisch zu Segment[] (resegment.ts garantiert start/end/text).
+  // Während/ nach einem Grenz-Drag gewinnt die manuell angepasste Liste
+  // (dragSegments) — die Anzeige bleibt mit der Preview identisch.
+  const [dragSegments, setDragSegments] = useState<Segment[] | null>(null);
+  const displaySegments = useMemo(
+    () =>
+      dragSegments ??
+      (segMaxDuration != null && segments
+        ? (resegmentByDuration(segments, segMaxDuration) as Segment[])
+        : (segments ?? [])),
+    [segments, segMaxDuration, dragSegments],
+  );
+
+  // Grenz-Drag: Preview sofort aktualisieren (Wort für Wort), speichern
+  // erst beim Loslassen (onBoundaryDragEnd) — Export nutzt danach dieselben
+  // Segmente (PUT /segments persistiert die Liste).
+  function handleBoundaryMoved(next: Segment[]) {
+    setDragSegments(next);
+  }
+
+  async function handleBoundaryDragEnd() {
+    if (!dragSegments || !r.uid) return;
+    try {
+      const result = await replaceSegments(r.uid, dragSegments);
+      handleEdited(result.segments, result.text);
+      setDragSegments(null); // Cache ist jetzt die Quelle → Anzeige = gespeichert
+      toast(t("boundary_saved"), "ok");
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : t("boundary_save_error"),
+        "err",
+      );
+    }
+  }
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
@@ -630,17 +680,50 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             )}
             {hasSegments && segments ? (
-              <SegmentList
-                segments={segments}
-                activeIdx={activeSegIdx}
-                onActiveChange={setActiveSegIdx}
-                onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
-                recordingId={r.uid}
-                onEdited={handleEdited}
-                currentTime={currentTime}
-                searchQuery={searchQuery}
-                searchJump={searchJump}
-              />
+              <>
+                {/* Feature 2026-08-15: Segmentlänge wählbar (freies
+                    Zahlenfeld, Sekunden) — Preview zeigt die re-segmentierten
+                    Segmente; der Export nutzt dieselben (persistiert über
+                    PUT /segments beim Beenden des Drags). */}
+                <div className="mb-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-muted2 text-[11px]">📐 {t("seg_len")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={segMaxDuration ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? null : Number(e.target.value);
+                      setSegMaxDuration(v != null && v > 0 ? v : null);
+                    }}
+                    placeholder={t("seg_len_placeholder")}
+                    className="w-[64px] bg-panel border border-border rounded-sm px-1.5 py-[3px] text-[12px] outline-none focus:border-accent tabular-nums"
+                  />
+                  {segMaxDuration != null && (
+                    <span className="text-[11px] text-muted2">
+                      {displaySegments.length} × ≤ {segMaxDuration} s
+                    </span>
+                  )}
+                  {segMaxDuration == null && (
+                    <span className="text-[11px] text-muted2">
+                      {t("boundary_drag_hint_short")}
+                    </span>
+                  )}
+                </div>
+                <SegmentList
+                  segments={displaySegments}
+                  activeIdx={activeSegIdx}
+                  onActiveChange={setActiveSegIdx}
+                  onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
+                  recordingId={r.uid}
+                  onEdited={handleEdited}
+                  currentTime={currentTime}
+                  searchQuery={searchQuery}
+                  searchJump={searchJump}
+                  onBoundaryMoved={handleBoundaryMoved}
+                  onBoundaryDragEnd={handleBoundaryDragEnd}
+                />
+              </>
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
                 {r.text}
@@ -728,7 +811,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 ref={dlFlip.ref}
                 className={`
                   dl-menu-enter
-                  absolute ${dlFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0
+                  absolute ${dlFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${dlFlip.left ? "left-0" : "right-0"}
                   bg-panel3 border border-border2 rounded-sm
                   p-1 min-w-[110px] max-w-[calc(100vw-16px)] z-50
                   shadow-[0_8px_24px_rgba(0,0,0,.4)]
@@ -790,7 +873,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               🔗 {t("share")}
             </button>
             {shareOpen && (
-              <div ref={shareFlip.ref} className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
+              <div ref={shareFlip.ref} className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${shareFlip.left ? "left-0" : "right-0"} bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
                 <div className="space-y-1 max-h-[150px] overflow-y-auto mb-1.5">
                   {shares.length === 0 && <p className="text-muted2 text-[11px]">{t("no_shares")}</p>}
                   {shares.map((sh) => (
@@ -878,7 +961,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               🕘 {t("versions")}
             </button>
             {versOpen && (
-              <div ref={versFlip.ref} className={`dl-menu-enter absolute ${versFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
+              <div ref={versFlip.ref} className={`dl-menu-enter absolute ${versFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} ${versFlip.left ? "left-0" : "right-0"} bg-panel3 border border-border2 rounded-sm p-2 min-w-[280px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto mb-1.5">
                   {versions.length === 0 && <p className="text-muted2 text-[11px]">{t("no_versions")}</p>}
                   {[...versions].reverse().map((v) => (

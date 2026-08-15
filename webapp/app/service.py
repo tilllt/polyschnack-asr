@@ -1106,6 +1106,75 @@ def to_txt(text: str) -> str:
     return text.strip() + "\n"
 
 
+def resegment_by_duration(
+    segments: List[Dict[str, Any]],
+    max_duration_s: float,
+) -> List[Dict[str, Any]]:
+    """Teilt die Wörter der Segmente in neue Segmente ≤ max_duration_s auf.
+
+    Feature 2026-08-15 (User): In der Transkriptionsansicht soll die
+    Segmentlänge wählbar sein; der Export (SRT/VTT) nutzt dieselbe
+    Aufteilung wie die Preview. Basis sind die vorhandenen Wort-
+    Timestamps — an Chunk-Grenzen entstandene Riesen-Segmente (~105 s)
+    werden für Untertitel in kurze Blöcke zerlegt.
+
+    Regeln:
+    - Nur Wörter mit Timestamps werden aufgeteilt; fehlen sie (kein
+      Karaoke), bleiben die Original-Segmente unverändert.
+    - Ein Bucket endet, sobald (a) die Ziel-Dauer überschritten würde
+      ODER (b) der Sprecher wechselt (Untertitel pro Sprecher sauber).
+    - Mindestens 1 Wort pro Bucket (ein einzelnes langes Wort sprengt
+      die Dauer bewusst nicht in zwei künstliche Hälften).
+    - Text = Wörter verbunden; start/end aus erstem/letztem Wort.
+    """
+    if not segments or max_duration_s <= 0:
+        return list(segments)
+
+    words: List[Dict[str, Any]] = []
+    for seg in segments:
+        speaker = seg.get("speaker") or ""
+        for w in (seg.get("words") or []):
+            item = dict(w)
+            item["_speaker"] = speaker
+            words.append(item)
+    if not words:
+        return list(segments)
+
+    buckets: List[List[Dict[str, Any]]] = []
+    cur: List[Dict[str, Any]] = []
+    for w in words:
+        ws = float(w.get("start") or 0.0)
+        we = float(w.get("end") or ws)
+        if cur:
+            first_s = float(cur[0].get("start") or 0.0)
+            cur_speaker = cur[0].get("_speaker", "")
+            overflow = (we - first_s) > max_duration_s
+            speaker_change = w.get("_speaker", "") != cur_speaker
+            if overflow or speaker_change:
+                buckets.append(cur)
+                cur = []
+        cur.append(w)
+    if cur:
+        buckets.append(cur)
+
+    out: List[Dict[str, Any]] = []
+    for b in buckets:
+        start = float(b[0].get("start") or 0.0)
+        end = float(b[-1].get("end") or start)
+        speaker = b[0].get("_speaker", "")
+        text = " ".join(str(x.get("word") or "") for x in b).strip()
+        seg: Dict[str, Any] = {
+            "start": start,
+            "end": end,
+            "text": text,
+            "words": [{k: v for k, v in x.items() if k != "_speaker"} for x in b],
+        }
+        if speaker:
+            seg["speaker"] = speaker
+        out.append(seg)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Audio trimming (for crop — uses ffmpeg)
 # ---------------------------------------------------------------------------

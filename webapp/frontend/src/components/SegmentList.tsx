@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect } from "react";
+import { Fragment, useRef, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, shouldScrollIntoView } from "../karaoke";
+import { moveBoundary } from "../resegment";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
 
@@ -19,9 +20,25 @@ interface Props {
    *  (bewusst ANDERS als der gelbe Karaoke-Marker) + Sprung-Ziel. */
   searchQuery?: string;
   searchJump?: { idx: number; nonce: number } | null;
+  /** Feature 2026-08-15: draggable Timecode-Marker zwischen den Segmenten.
+   *  Wird dieser Callback gesetzt, sind die Grenzen ziehbar: nach oben =
+   *  Grenze in der Zeit zurück (Segment N verliert am Ende Wörter, N+1
+   *  gewinnt vorne), nach unten = umgekehrt. Wort für Wort, nie geteilt.
+   *  Erster (Start) und letzter (Ende) Marker sind bewusst NICHT ziehbar. */
+  onBoundaryMoved?: (segments: Segment[]) => void;
+  /** Feature 2026-08-15: Drag begonnen/beendet (für Speichern + UI-Feedback). */
+  onBoundaryDragEnd?: () => void;
 }
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump }: Props) {
+// Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
+// Segment[] — die Optionals sind nur für die Typ-Kompatibilität mit dem
+// generischen Input nötig; zur Laufzeit sind start/end/text immer gesetzt.
+export type DisplaySegment = Segment;
+
+/** Wieviele Pixel Drag-Bewegung = 1 Wort (Grenz-Marker). */
+const PX_PER_WORD = 16;
+
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -32,6 +49,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+  // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const dragRef = useRef<{ idx: number; startY: number; lastWords: number } | null>(null);
   const { t } = useT();
   const { toast } = useToast();
 
@@ -114,6 +134,43 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     onSeekTo?.(seconds);
   }
 
+  // ── Feature 2026-08-15: draggable Grenz-Marker ─────────────────────
+  // Ziehen nach OBEN (dy < 0) = Grenze in der Zeit zurück → Segment N
+  // verliert am Ende Wörter, Segment N+1 gewinnt vorne (moveBoundary
+  // mit delta < 0). Nach unten = umgekehrt. Alle 16 px = 1 Wort.
+  // Der Grenz-Streifen liegt ZWISCHEN den Segment-Zeilen — der Klick
+  // auf die Zeile selbst (Seek) bleibt unberührt (stopPropagation).
+  function onBoundaryPointerDown(e: React.PointerEvent, idx: number) {
+    if (!onBoundaryMoved) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { idx, startY: e.clientY, lastWords: 0 };
+    setDragIdx(idx);
+  }
+
+  function onBoundaryPointerMove(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    const dy = e.clientY - d.startY;
+    const words = Math.round(dy / PX_PER_WORD);
+    if (words !== d.lastWords) {
+      const delta = words - d.lastWords;
+      d.lastWords = words;
+      const next = moveBoundary(segments, d.idx, delta) as Segment[];
+      onBoundaryMoved?.(next);
+    }
+  }
+
+  function onBoundaryPointerUp() {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    setDragIdx(null);
+    onBoundaryDragEnd?.();
+  }
+
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
     setSaving(true);
@@ -164,8 +221,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
       {segments.map((seg, i) => {
         const speaker = seg.speaker;
         return (
+        <Fragment key={i}>
         <div
-          key={i}
           ref={(el) => { rowRefs.current[i] = el; }}
           role="button"
           tabIndex={0}
@@ -323,6 +380,37 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             </span>
           )}
         </div>
+        {/* Feature 2026-08-15: draggable Timecode-Grenze zum nächsten
+            Segment. Erste Grenze (vor Segment 0) und letzte (nach dem
+            letzten) existieren nicht — die äußeren Marker sind fix. */}
+        {onBoundaryMoved && i < segments.length - 1 && (
+          <div
+            role="separator"
+            aria-label={`Grenze ${i + 1}`}
+            onPointerDown={(e) => onBoundaryPointerDown(e, i)}
+            onPointerMove={onBoundaryPointerMove}
+            onPointerUp={onBoundaryPointerUp}
+            onPointerCancel={onBoundaryPointerUp}
+            className={`
+              group flex items-center gap-1.5 px-3
+              select-none touch-none cursor-ns-resize
+              ${dragIdx === i ? "bg-[rgba(91,140,255,0.12)]" : "hover:bg-[rgba(91,140,255,0.05)]"}
+            `}
+            style={{ height: 22 }}
+            title={t("boundary_drag_hint")}
+          >
+            <span className="flex items-center gap-1">
+              <span className={`inline-block w-5 h-[3px] rounded-full ${dragIdx === i ? "bg-accent" : "bg-border2 group-hover:bg-accent/60"}`} />
+            </span>
+            <span className="text-[10px] tabular-nums text-muted2 group-hover:text-accent">
+              {fmtTimecode(segments[i].end)}
+            </span>
+            <span className="ml-auto text-[9px] text-muted2 opacity-0 group-hover:opacity-100">
+              ⇕
+            </span>
+          </div>
+        )}
+        </Fragment>
         );
       })}
     </div>
