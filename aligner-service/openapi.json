@@ -1,0 +1,105 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "PolySchnack Forced-Aligner",
+    "description": "Wort-Zeitstempel (Karaoke-Sync): aligniert den Referenztext gegen die Akustik (qwen3-forced-aligner). EIN Request gleichzeitig (ggml-Modell resident); max. 400 s Audio pro Request — längere Audios in Chunks schneiden und je Chunk den passenden Text senden.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://crispr-align:5099" }
+  ],
+  "paths": {
+    "/v1/audio/align": {
+      "post": {
+        "summary": "Forced Alignment",
+        "description": "Liefert Wort-für-Wort-Zeitstempel zum Referenztext.",
+        "operationId": "align",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file", "text"],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Audiodatei (max 400 s, max 512 MB)."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Referenztext zum Alignieren."
+                  },
+                  "lang": {
+                    "type": "string",
+                    "default": "de",
+                    "enum": ["de", "en"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Wort-Timestamps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "words": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "word": { "type": "string" },
+                          "start": { "type": "number" },
+                          "end": { "type": "number" },
+                          "confidence": { "type": "number", "nullable": true }
+                        }
+                      }
+                    },
+                    "language": { "type": "string" },
+                    "duration_s": { "type": "number" }
+                  }
+                }
+              }
+            }
+          },
+          "422": { "description": "file/text fehlt oder Audio > 400 s" },
+          "413": { "description": "Upload zu groß (> 512 MB)" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Liveness + Features",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Status, Modell, max_duration_s, confidence (ehrlich: false)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "service": { "type": "string" },
+                    "model": { "type": "string" },
+                    "max_duration_s": { "type": "number" },
+                    "word_timestamps": { "type": "boolean" },
+                    "confidence": { "type": "boolean" },
+                    "languages": { "type": "array", "items": { "type": "string" } },
+                    "device": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

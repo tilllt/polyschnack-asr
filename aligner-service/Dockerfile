@@ -55,6 +55,7 @@ RUN ldconfig
 ENV ALIGNER_MODEL=/models/qwen3-forced-aligner-0.6b-f16.gguf
 
 COPY aligner_server.py /aligner_server.py
+COPY openapi.json /app/openapi.json
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

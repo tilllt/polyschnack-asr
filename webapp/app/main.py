@@ -27,6 +27,7 @@ from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
 from .routers.recovery import router as recovery_router
+from .routers.api_docs import router as api_docs_router
 from .routers.models import router as models_router, _check_vad, _check_diarize
 from .routers.matrix import router as matrix_router
 from .routers.queue_api import router as queue_api_router
@@ -191,6 +192,7 @@ app.add_middleware(
 
 app.include_router(recordings_router)
 app.include_router(recovery_router)
+app.include_router(api_docs_router)
 app.include_router(models_router)
 app.include_router(matrix_router)
 app.include_router(queue_api_router)

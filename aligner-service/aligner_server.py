@@ -33,6 +33,34 @@ MAX_AUDIO_S = 400.0
 MAX_BODY_BYTES = 512 * 1024 * 1024  # 512 MB Upload-Limit
 CLI_TIMEOUT_S = 900
 
+#: Pfad der OpenAPI-Spec im Container (Dockerfile: COPY openapi.json /app/)
+_OPENAPI_PATH = "/app/openapi.json"
+
+#: Swagger-UI (CDN) — eingebettet, kein Node-Build nötig.
+_SWAGGER_HTML = """<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>PolySchnack Forced-Aligner — API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>body { margin: 0; background: #0f172a; }</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: "/openapi.json",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+    });
+  </script>
+</body>
+</html>
+"""
+
 _lock = threading.Lock()
 
 
@@ -207,6 +235,29 @@ class Handler(BaseHTTPRequestHandler):
                 "device": self._device(),
                 "max_upload_bytes": MAX_BODY_BYTES,
             })
+        elif self.path == "/openapi.json":
+            # OpenAPI-Spec für die Swagger-Doku (Dockerfile kopiert die
+            # Datei nach /app/openapi.json — single source of truth).
+            try:
+                with open(_OPENAPI_PATH, "r", encoding="utf-8") as fh:
+                    spec = fh.read()
+            except OSError:
+                self._send(404, {"error": "openapi.json nicht im Container"})
+                return
+            body = spec.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/docs":
+            # Swagger-UI (CDN) — eingebettet, kein Node-Build nötig.
+            html = _SWAGGER_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
         else:
             self._send(404, {"error": "not found"})
 
