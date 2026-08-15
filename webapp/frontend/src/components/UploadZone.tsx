@@ -494,6 +494,9 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
 
 function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel }: any) {
   const [recording, setRecording] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [continuous, setContinuous] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
   const [duration, setDuration] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -501,6 +504,18 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const recordRef = useRef<RecordPlugin | null>(null);
   const timerRef = useRef<number>(0);
   const chunksRef = useRef<Blob[]>([]);
+  const touchStartY = useRef<number | null>(null);
+  const touchStartT = useRef<number>(0);
+  const gestureDone = useRef(false);
+  const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+  // Anleitung beim ersten Besuch automatisch zeigen
+  useEffect(() => {
+    if (isTouch && !localStorage.getItem("ps_pushtorecord_help_seen")) {
+      setShowHelp(true);
+      localStorage.setItem("ps_pushtorecord_help_seen", "1");
+    }
+  }, [isTouch]);
 
   async function acquireWakeLock() {
     try {
@@ -551,6 +566,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     record.on("record-end", async (blob: Blob) => {
       clearInterval(timerRef.current);
       setDuration(0);
+      setPaused(false);
+      setContinuous(false);
       ws.destroy();
       wsRef.current = null;
       recordRef.current = null;
@@ -597,6 +614,73 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     recordRef.current?.stopRecording();
     recordRef.current?.stopMic();
     setRecording(false);
+    setPaused(false);
+    setContinuous(false);
+  }
+
+  // ── Mobile Push-to-Record Gesten ──
+  // Drücken = aufnehmen / fortsetzen · Loslassen = Pause (gleiche Datei!)
+  // Swipe ↑ = Daueraufnahme · Swipe ↓ = Stop + Upload
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStartY.current = e.touches[0]?.clientY ?? null;
+    touchStartT.current = Date.now();
+    gestureDone.current = false;
+
+    if (recording && paused) {
+      // Fortsetzen nach Pause — weiter in dieselbe Datei
+      recordRef.current?.resumeRecording();
+      setPaused(false);
+      timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
+    } else if (!recording && !paused) {
+      // Neue Aufnahme starten
+      void startRecording();
+    }
+    // Läuft bereits (continuous): nichts tun — Gesten entscheiden
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    if (touchStartY.current === null || gestureDone.current) return;
+    const dy = (e.touches[0]?.clientY ?? touchStartY.current) - touchStartY.current;
+    const dt = Date.now() - touchStartT.current;
+    // Nur echte Swipes (min. 60px) erkennen — kein Zittern
+    if (Math.abs(dy) < 60 || dt < 120) return;
+
+    if (dy < -60) {
+      // Swipe nach oben → Daueraufnahme: loslassen pausiert NICHT mehr
+      gestureDone.current = true;
+      setContinuous(true);
+      if (recording && paused) {
+        recordRef.current?.resumeRecording();
+        setPaused(false);
+      }
+    } else if (dy > 60) {
+      // Swipe nach unten → Stop + Upload
+      gestureDone.current = true;
+      if (recording) {
+        void stopRecording();
+      }
+    }
+  }
+
+  function onTouchEnd() {
+    // Loslassen ohne Swipe = Pause (nur wenn nicht Continuous-Modus)
+    if (!gestureDone.current && recording && !paused && !continuous) {
+      recordRef.current?.pauseRecording();
+      setPaused(true);
+      clearInterval(timerRef.current); // Timer pausiert mit
+    }
+    touchStartY.current = null;
+  }
+
+  function onTouchCancel() {
+    // Abgebrochene Geste (z. B. System-UI): pausieren statt weiterlaufen
+    if (recording && !paused && !continuous) {
+      recordRef.current?.pauseRecording();
+      setPaused(true);
+      clearInterval(timerRef.current);
+    }
+    touchStartY.current = null;
   }
 
   useEffect(() => {
@@ -617,17 +701,95 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         className={`w-full max-w-[500px] px-2 sm:px-0 ${recording ? "" : "hidden"}`}
       />
 
-      <button
-        onClick={recording ? stopRecording : startRecording}
-        className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full text-xl sm:text-2xl flex items-center justify-center transition-all shrink-0
-          ${recording
-            ? "bg-err text-white shadow-lg animate-pulse"
-            : "bg-accent text-white hover:bg-accent/90"
-          }
-        `}
-      >
-        {recording ? "⏹" : "🎤"}
-      </button>
+      {/* Mobile: animierte Gesten-Anleitung */}
+      {isTouch && showHelp && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6" onClick={() => setShowHelp(false)}>
+          <div className="bg-panel border border-border rounded-card p-5 max-w-[320px] w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center font-bold text-[14px]">📱 {t("push_record_help_title")}</div>
+
+            {/* Geste 1: Drücken & Loslassen = Pause */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[20px] animate-pulse shrink-0">🎤</div>
+              <div className="text-[12px] text-txt leading-snug">
+                <b>👆 {t("push_record_gesture_1a")}</b>
+                <div className="text-muted2">{t("push_record_gesture_1b")}</div>
+              </div>
+            </div>
+
+            {/* Geste 2: Swipe ↑ = Daueraufnahme */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[20px] shrink-0 animate-bounce">⬆️</div>
+              <div className="text-[12px] text-txt leading-snug">
+                <b>{t("push_record_gesture_2a")}</b>
+                <div className="text-muted2">{t("push_record_gesture_2b")}</div>
+              </div>
+            </div>
+
+            {/* Geste 3: Swipe ↓ = Stop */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-err/20 border border-err/40 flex items-center justify-center text-[20px] shrink-0 animate-pulse">⬇️</div>
+              <div className="text-[12px] text-txt leading-snug">
+                <b>{t("push_record_gesture_3a")}</b>
+                <div className="text-muted2">{t("push_record_gesture_3b")}</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowHelp(false)}
+              className="w-full bg-accent text-white text-[12px] py-2 rounded-sm font-semibold"
+            >
+              {t("push_record_help_close")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher */}
+      <div className="relative">
+        <button
+          onClick={isTouch ? undefined : (recording ? stopRecording : startRecording)}
+          onTouchStart={isTouch ? onTouchStart : undefined}
+          onTouchMove={isTouch ? onTouchMove : undefined}
+          onTouchEnd={isTouch ? onTouchEnd : undefined}
+          onTouchCancel={isTouch ? onTouchCancel : undefined}
+          className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full text-xl sm:text-2xl flex items-center justify-center transition-all shrink-0 select-none touch-none
+            ${recording
+              ? continuous
+                ? "bg-accent text-white shadow-lg animate-pulse"
+                : paused
+                  ? "bg-[#d99e2b] text-white shadow-lg"
+                  : "bg-err text-white shadow-lg animate-pulse"
+              : "bg-accent text-white hover:bg-accent/90"
+            }
+          `}
+        >
+          {recording ? (paused ? "⏸" : continuous ? "🔴" : "⏹") : "🎤"}
+        </button>
+
+        {/* Help-Button (mobile) */}
+        {isTouch && (
+          <button
+            onClick={() => setShowHelp(true)}
+            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-panel2 border border-border text-[11px] text-muted hover:text-txt flex items-center justify-center"
+            title={t("push_record_help_title")}
+          >
+            ?
+          </button>
+        )}
+      </div>
+
+      {/* Statuszeile für Mobile-Modus */}
+      {isTouch && recording && (
+        <div className="text-[12px] text-center">
+          {paused ? (
+            <span className="text-[#d99e2b] font-semibold">⏸ {t("push_record_paused")}</span>
+          ) : continuous ? (
+            <span className="text-accent font-semibold">🔴 {t("push_record_continuous")}</span>
+          ) : (
+            <span className="text-muted">{t("push_record_hold_hint")}</span>
+          )}
+        </div>
+      )}
 
       <div className="text-[22px] sm:text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
 
