@@ -74,3 +74,35 @@ def test_webapp_openapi_schema_komplett():
     schema = app.openapi()
     assert "/api-docs" not in schema["paths"]  # nicht im Schema (include_in_schema=False)
     assert "/api/specs/{name}.json" in schema["paths"]
+
+
+def test_webapp_openapi_hat_api_key_security():
+    """Der OpenAI-Proxy verlangt den API-Key — das OpenAPI-Schema muss das
+    Security-Scheme + die Operation-Security dokumentieren (Swagger-Button)."""
+    from app.main import app
+
+    schema = app.openapi()
+    schemes = schema["components"]["securitySchemes"]
+    assert "ApiKeyAuth" in schemes
+    assert schemes["ApiKeyAuth"]["scheme"] == "bearer"
+    op = schema["paths"]["/v1/audio/transcriptions"]["post"]
+    assert op.get("security") == [{"ApiKeyAuth": []}]
+
+
+def test_proxy_spec_vollstaendig():
+    specs = build_specs()
+    spec = specs["ps-webapp-openai"]
+    # Auth dokumentiert
+    assert "ApiKeyAuth" in spec["components"]["securitySchemes"]
+    assert spec["security"] == [{"ApiKeyAuth": []}]
+    # Modell-Enum + backend-Feld
+    props = spec["paths"]["/audio/transcriptions"]["post"]["requestBody"][
+        "content"]["multipart/form-data"]["schema"]["properties"]
+    models = props["model"]["enum"]
+    for m in ["parakeet-tdt-0.6b-v3", "qwen3-asr-0.6b", "moonshine-de", "canary"]:
+        assert m in models
+    assert "backend" in props
+    # Fehler-Responses dokumentiert
+    responses = spec["paths"]["/audio/transcriptions"]["post"]["responses"]
+    for code in ["200", "400", "401", "413", "502"]:
+        assert code in responses

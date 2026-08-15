@@ -155,6 +155,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="PolySchnack Web UI", lifespan=lifespan)
 
+# --------------------------------------------------------------------------
+# OpenAPI-Security-Scheme: API-Key als Bearer (Settings → API-Keys). Der
+# OpenAI-Proxy verlangt ihn; Swagger-UI zeigt den Authorize-Button. Das
+# Scheme wird per custom openapi() ergänzt, weil FastAPI es nicht aus der
+# Dependency-Auth ableiten kann.
+# --------------------------------------------------------------------------
+
+
+def _custom_openapi():
+    if app.openapi_schema is not None:
+        return app.openapi_schema
+    schema = _base_openapi()
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})[
+        "ApiKeyAuth"
+    ] = {
+        "type": "http",
+        "scheme": "bearer",
+        "description": (
+            "API-Key aus den Einstellungen (Settings → API-Keys). "
+            "Wird als 'Authorization: Bearer <key>' übertragen."
+        ),
+    }
+    schema.setdefault("security", [{"ApiKeyAuth": []}])
+    # Die Proxy-Operation verlangt den Key explizit (Swagger-Authorize-Button)
+    for path in ("/v1/audio/transcriptions",):
+        op = schema.get("paths", {}).get(path, {}).get("post")
+        if op is not None:
+            op.setdefault("security", [{"ApiKeyAuth": []}])
+    app.openapi_schema = schema
+    return schema
+
+
+_base_openapi = app.openapi
+app.openapi = _custom_openapi
+
 # ------------------------------------------------------------------
 # SEO-Schutz: KEINE Seite (inkl. Anon-Share-Links unter /r/:uid) darf
 # von Suchmaschinen indiziert werden. X-Robots-Tag auf allen Responses.

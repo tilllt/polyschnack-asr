@@ -327,19 +327,164 @@ def build_specs() -> dict[str, dict[str, Any]]:
         ),
         "crispr-align": ALIGNER_SPEC,
         # OpenAI-kompatibler Proxy der Webapp (Backend-Hopping via model).
-        "ps-webapp-openai": _transcription_spec(
-            "PolySchnack OpenAI-Proxy (Webapp)",
-            (
-                "OpenAI-kompatibler Transkriptions-Endpoint der Webapp — "
-                "Backend-Hopping über den model-Parameter (ps-pk-onnx, "
-                "crispr-qwen3, …). Auth: API-Key aus den Settings "
-                "(Authorization: Bearer <key>). Nutzbar mit dem OpenAI SDK: "
-                "OpenAI(base_url='https://<host>/v1', api_key='<key>')."
-            ),
-            "https://<host>/v1",
-            ["parakeet-tdt-0.6b-v3", "qwen3-asr-0.6b", "moonshine-de",
-             "ark", "canary", "parakeet-cpp"],
-        ),
+        "ps-webapp-openai": {
+            "openapi": "3.0.0",
+            "info": {
+                "title": "PolySchnack OpenAI-Proxy (Webapp)",
+                "description": (
+                    "OpenAI-kompatibler Transkriptions-Endpoint der Webapp — "
+                    "Backend-Hopping über den model-Parameter. EIN Endpoint, "
+                    "ein API-Key, jede OpenAI-Client-Lib.\n\n"
+                    "Auth: API-Key aus den Einstellungen (Settings → API-Keys) "
+                    "als 'Authorization: Bearer <key>' — identisch zu den "
+                    "/api/keys-Endpoints.\n\n"
+                    "Beispiel (OpenAI Python SDK):\n"
+                    "  from openai import OpenAI\n"
+                    "  client = OpenAI(base_url='https://<host>/v1', "
+                    "api_key='<key>')\n"
+                    "  r = client.audio.transcriptions.create(\n"
+                    "      model='qwen3-asr-0.6b',  # → crispr-qwen3\n"
+                    "      file=open('audio.ogg','rb'))\n\n"
+                    "Modell-Mapping (PS_MODEL_BACKENDS übersteuert zur "
+                    "Laufzeit): parakeet-tdt-0.6b-v3 / istupakov/…-onnx / "
+                    "grikdotnet/…-fp16 → ps-pk-onnx; parakeet-cpp → "
+                    "crispr-pk-cpp; qwen3-asr-0.6b / qwen3 → crispr-qwen3; "
+                    "moonshine-de → crispr-moonshine-de; ark → crispr-ark; "
+                    "canary / canary-1b-v2 → crispr-canary. Alternativ das "
+                    "explizite Feld backend=<name>."
+                ),
+                "version": "1.0.0",
+            },
+            "servers": [{"url": "https://<host>/v1"}],
+            "security": [{"ApiKeyAuth": []}],
+            "components": {
+                "securitySchemes": {
+                    "ApiKeyAuth": {
+                        "type": "http",
+                        "scheme": "bearer",
+                        "description": "API-Key aus den Settings (Settings → API-Keys).",
+                    }
+                }
+            },
+            "paths": {
+                "/audio/transcriptions": {
+                    "post": {
+                        "summary": "Transcribe Audio (Backend-Hopping)",
+                        "description": (
+                            "OpenAI-kompatible Audio-Transkription. Das "
+                            "Modell wählt das Backend; Antworten in allen "
+                            "OpenAI-Formaten (json/text/verbose_json/srt/vtt)."
+                        ),
+                        "operationId": "create_transcription",
+                        "security": [{"ApiKeyAuth": []}],
+                        "requestBody": {
+                            "required": True,
+                            "content": {
+                                "multipart/form-data": {
+                                    "schema": {
+                                        "type": "object",
+                                        "required": ["file"],
+                                        "properties": {
+                                            "file": {
+                                                "type": "string",
+                                                "format": "binary",
+                                                "description": "Audiodatei (max Upload-Limit).",
+                                            },
+                                            "model": {
+                                                "type": "string",
+                                                "default": "parakeet-tdt-0.6b-v3",
+                                                "enum": [
+                                                    "parakeet-tdt-0.6b-v3",
+                                                    "istupakov/parakeet-tdt-0.6b-v3-onnx",
+                                                    "grikdotnet/parakeet-tdt-0.6b-fp16",
+                                                    "parakeet-cpp",
+                                                    "qwen3-asr-0.6b",
+                                                    "moonshine-de",
+                                                    "ark",
+                                                    "canary",
+                                                ],
+                                                "description": (
+                                                    "Modell → Backend: parakeet-* → "
+                                                    "ps-pk-onnx, parakeet-cpp → "
+                                                    "crispr-pk-cpp, qwen3* → "
+                                                    "crispr-qwen3, moonshine-de → "
+                                                    "crispr-moonshine-de, ark → "
+                                                    "crispr-ark, canary* → crispr-canary."
+                                                ),
+                                            },
+                                            "backend": {
+                                                "type": "string",
+                                                "description": (
+                                                    "Explizites Backend (überschreibt "
+                                                    "model-Mapping): ps-pk-onnx, "
+                                                    "crispr-pk-cpp, crispr-qwen3, "
+                                                    "crispr-moonshine-de, crispr-ark, "
+                                                    "crispr-canary, crispr-diar."
+                                                ),
+                                            },
+                                            "language": {
+                                                "type": "string",
+                                                "description": "Sprachcode (de/en/…) — optional.",
+                                            },
+                                            "response_format": {
+                                                "type": "string",
+                                                "default": "json",
+                                                "enum": ["json", "text", "verbose_json", "srt", "vtt"],
+                                            },
+                                            "timestamp_granularities": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                                "description": "['word'] für Wort-Zeitstempel (verbose_json).",
+                                            },
+                                        },
+                                    }
+                                }
+                            },
+                        },
+                        "responses": {
+                            "200": {
+                                "description": "Transkriptionsergebnis (Format je response_format)",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "oneOf": [
+                                                {"type": "object", "properties": {"text": {"type": "string"}}},
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "text": {"type": "string"},
+                                                        "language": {"type": "string"},
+                                                        "duration": {"type": "number"},
+                                                        "segments": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "id": {"type": "integer"},
+                                                                    "start": {"type": "number"},
+                                                                    "end": {"type": "number"},
+                                                                    "text": {"type": "string"},
+                                                                    "words": {"type": "array", "items": {"type": "object"}},
+                                                                },
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                            ]
+                                        }
+                                    },
+                                    "text/plain": {"schema": {"type": "string"}},
+                                },
+                            },
+                            "400": {"description": "unbekanntes Modell/Backend oder ungültiges response_format"},
+                            "401": {"description": "fehlender/ungültiger API-Key"},
+                            "413": {"description": "Datei zu groß"},
+                            "502": {"description": "Backend-Fehler"},
+                        },
+                    }
+                }
+            },
+        },
     }
 
 
