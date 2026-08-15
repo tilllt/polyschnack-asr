@@ -188,13 +188,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             # Self-describing: die Webapp liest hier die Aligner-Features
             # für die Service-Diagnose (/api/services/status).
+            # Ehrliche Selbstauskunft (verifiziert 08/2026): die
+            # qwen3-forced-aligner-CLI (predict-woo/qwen3-asr.cpp,
+            # cli/main.cpp -> alignment_to_json()) gibt NUR
+            # {word, start, end} aus — KEIN confidence. Deshalb False,
+            # nicht True: eine falsche Angabe hier hat die Diagnose
+            # wiederholt in die Irre geführt. Der Parser reicht
+            # confidence trotzdem durch, falls eine spätere CLI-Version
+            # es liefert (defensiv, schadet nicht).
             self._send(200, {
                 "status": "ok",
                 "service": "aligner",
                 "model": "qwen3-forced-aligner-0.6b-f16",
                 "max_duration_s": MAX_AUDIO_S,
                 "word_timestamps": True,
-                "confidence": True,
+                "confidence": False,
                 "languages": ["de", "en"],
                 "device": self._device(),
                 "max_upload_bytes": MAX_BODY_BYTES,
