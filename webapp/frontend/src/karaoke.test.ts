@@ -44,16 +44,18 @@ describe("activeWordIndex (lückenlose Karaoke-Markierung — Glitch-Fix)", () =
     { word: "hier", start: 1.0, end: 2.0 },
     { word: "spricht", start: 2.0, end: 3.0 },
   ];
+  // leadS: 0 = reine Glitch-Logik ohne Vorlauf (die alten Erwartungen);
+  // der Vorlauf selbst wird separat getestet.
 
-  it("wandert nahtlos durch aufeinanderfolgende Wörter", () => {
-    expect(activeWordIndex(words, 0.0)).toBe(0);
-    expect(activeWordIndex(words, 0.99)).toBe(0);
-    expect(activeWordIndex(words, 1.0)).toBe(1); // exakte Grenze → nächstes
-    expect(activeWordIndex(words, 2.0)).toBe(2);
-    expect(activeWordIndex(words, 5.0)).toBe(2); // nach dem Ende → letztes
+  it("wandert nahtlos durch aufeinanderfolgende Wörter (leadS=0)", () => {
+    expect(activeWordIndex(words, 0.0, 0)).toBe(0);
+    expect(activeWordIndex(words, 0.99, 0)).toBe(0);
+    expect(activeWordIndex(words, 1.0, 0)).toBe(1); // exakte Grenze → nächstes
+    expect(activeWordIndex(words, 2.0, 0)).toBe(2);
+    expect(activeWordIndex(words, 5.0, 0)).toBe(2); // nach dem Ende → letztes
   });
 
-  it("KEIN Glitch bei Timestamp-Lücken (kein Wort-Ausfall)", () => {
+  it("KEIN Glitch bei Timestamp-Lücken (kein Wort-Ausfall, leadS=0)", () => {
     // w[0].end=1.0, w[1].start=1.2 → Lücke 1.0–1.2
     const gappy = [
       { word: "a", start: 0.0, end: 1.0 },
@@ -63,11 +65,11 @@ describe("activeWordIndex (lückenlose Karaoke-Markierung — Glitch-Fix)", () =
     expect(isWordActive(gappy[0], 1.1)).toBe(false);
     expect(isWordActive(gappy[1], 1.1)).toBe(false);
     // Neue Logik: das letzte gestartete Wort bleibt aktiv → kein Sprung
-    expect(activeWordIndex(gappy, 1.1)).toBe(0);
-    expect(activeWordIndex(gappy, 1.2)).toBe(1);
+    expect(activeWordIndex(gappy, 1.1, 0)).toBe(0);
+    expect(activeWordIndex(gappy, 1.2, 0)).toBe(1);
   });
 
-  it("KEIN Doppel-Highlight bei Überlappungen (neueres Wort gewinnt)", () => {
+  it("KEIN Doppel-Highlight bei Überlappungen (neueres Wort gewinnt, leadS=0)", () => {
     // w[0].end=1.5, w[1].start=1.2 → Überlappung 1.2–1.5
     const overlap = [
       { word: "a", start: 0.0, end: 1.5 },
@@ -76,16 +78,31 @@ describe("activeWordIndex (lückenlose Karaoke-Markierung — Glitch-Fix)", () =
     expect(isWordActive(overlap[0], 1.3)).toBe(true);
     expect(isWordActive(overlap[1], 1.3)).toBe(true);
     // Neue Logik: genau EIN aktives Wort
-    expect(activeWordIndex(overlap, 1.3)).toBe(1);
+    expect(activeWordIndex(overlap, 1.3, 0)).toBe(1);
   });
 
-  it("vor dem ersten Wort → -1 (nichts aktiv)", () => {
-    expect(activeWordIndex(words, -0.5)).toBe(-1);
+  it("vor dem ersten Wort → -1 (nichts aktiv, leadS=0)", () => {
+    expect(activeWordIndex(words, -0.5, 0)).toBe(-1);
   });
 
   it("leere/fehlende Wortliste → -1", () => {
-    expect(activeWordIndex([], 1.0)).toBe(-1);
-    expect(activeWordIndex(undefined, 1.0)).toBe(-1);
+    expect(activeWordIndex([], 1.0, 0)).toBe(-1);
+    expect(activeWordIndex(undefined, 1.0, 0)).toBe(-1);
+  });
+
+  it("Vorlauf (Default KARAOKE_LEAD_S=0.15): Highlight am ANFANG des Wortes", () => {
+    // Aligner-Timestamps liegen ~0.1–0.2 s nach dem akustischen Start —
+    // ohne Vorlauf sprang das Highlight erst, wenn das Wort fast vorbei war.
+    // t=0.85 → +0.15 = 1.0 → Wort 1 (start 1.0) wird schon VOR dem
+    // hörbaren Beginn markiert; t=1.0 → Wort 1 (nicht mehr Wort 0).
+    expect(activeWordIndex(words, 0.84)).toBe(0);
+    expect(activeWordIndex(words, 0.85)).toBe(1);
+    expect(activeWordIndex(words, 1.0)).toBe(1);
+    // Ein frei wählbarer, größerer Vorlauf (z.B. 0.3) verschiebt weiter.
+    expect(activeWordIndex(words, 1.7, 0.3)).toBe(2);
+    // Sehr früh (noch nicht mal der Vorlauf erreicht Wort 0) → -1.
+    expect(activeWordIndex(words, -0.16)).toBe(-1);
+    expect(activeWordIndex(words, -0.14)).toBe(0);
   });
 });
 

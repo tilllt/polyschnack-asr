@@ -40,18 +40,27 @@ export function isWordActive(w: KaraokeWord, currentTime: number): boolean {
  * Lücken (w[i].end < w[i+1].start) oder Überlappungen (w[i+1].start < w[i].end)
  * enthalten. Vor dem ersten Wort → -1 (nichts aktiv).
  *
+ * `leadS` (Review-Fix 2026-08-15): Vorlauf in Sekunden, mit dem das Wort
+ * aktiv wird, BEVOR `currentTime` den Wortstart erreicht. Der Aligner liefert
+ * 80-ms-Bins, die real oft ~0.1–0.2 s NACH dem akustischen Sprechbeginn
+ * liegen — ohne Vorlauf sprang das Highlight erst, wenn das Wort fast vorbei
+ * war. Mit KARAOKE_LEAD_S erscheint die Markierung am ANFANG des Wortes.
+ *
  * Beispiele:
  *   words = [{start:0,end:1},{start:1.2,end:2}]  (Lücke 1.0–1.2)
  *     t=0.9 → 0, t=1.1 → 0 (kein Glitch!), t=1.2 → 1
  *   words = [{start:0,end:1.5},{start:1.2,end:2}] (Überlappung)
  *     t=1.3 → 1 (das neuere Wort gewinnt, kein Doppel-Highlight)
  */
+export const KARAOKE_LEAD_S = 0.15; // Vorlauf: Markierung am Wortanfang
+
 export function activeWordIndex(
   words: KaraokeWord[] | undefined,
   currentTime: number,
+  leadS: number = KARAOKE_LEAD_S,
 ): number {
   if (!words || words.length === 0) return -1;
-  const t = currentTime;
+  const t = currentTime + leadS;
   if (t < words[0].start) return -1;
   let idx = 0;
   for (let i = 0; i < words.length; i++) {

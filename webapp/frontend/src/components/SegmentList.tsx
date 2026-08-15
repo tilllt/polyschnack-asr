@@ -276,6 +276,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                           ? "karaoke-active"
                           : `${confidenceClass(w.confidence)} hover:text-accent/70`;
                       return (
+                        <>
                         <span
                           key={wi}
                           role="button"
@@ -292,8 +293,18 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                           }}
                           className={`cursor-pointer transition-colors duration-[100ms] ${cls}`}
                         >
-                          {w.word}{wi < seg.words!.length - 1 ? " " : ""}
+                          {/* Review-Fix 2026-08-15: Space GEHÖRT KEINEM
+                              Wort-Span. Der Trenn-Space steht als separates
+                              Text-Node zwischen den Wort-Spans → die Markierung
+                              ist auf BEIDEN Seiten symmetrisch OHNE Space
+                              (User-Vorgabe: konsistent beide Seiten, nicht
+                              einseitig). Ein trailing space im Span würde am
+                              Zeilenumbruch kollabieren (Markierung abgeschnitten),
+                              ein leading space markierte einseitig mit. */}
+                          {w.word}
                         </span>
+                        {wi < seg.words!.length - 1 ? " " : ""}
+                        </>
                       );
                     });
                   })()
