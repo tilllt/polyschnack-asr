@@ -10,7 +10,13 @@
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
-ARG CRISPASR_VERSION=v0.8.25
+# CrispASR-Version: v0.8.28 (2026-08-16) — Longfile-Diarize-Fix.
+# v0.8.25 hatte den parakeet-Longform-Bug (#350: unified dispatch routet
+# chunked long-form in einen Single-Full-Length-Decode → ganze Spans
+# still verloren; Fix #352 "long-form drops whole spans on 30-300 s
+# non-JA audio", gemergt nach v0.8.25). Live-Befund 2026-08-16 mit
+# v0.8.25: 51-min-Datei bricht bei 636 s ab, 295-s-Clips bei 54-184 s.
+ARG CRISPASR_VERSION=v0.8.28
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget curl libopenblas0 \
