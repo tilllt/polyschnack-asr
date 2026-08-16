@@ -18,6 +18,17 @@ export default defineConfig({
         "./src/vendor/wavesurfer-record.js",
         import.meta.url
       ).pathname,
+      // Lokales Vendor-File statt node_modules: WaveSurfer TimelinePlugin
+      // initialisiert die Zeit-Labels einmal mit scrollWidth=0 (Wellenform
+      // noch nicht geladen) → defaultTimeInterval(0)=Infinity → nur die
+      // 0-Marke wird gerendert; "zoom"/"ready" führen nie zu einem Redraw
+      // (nur "redraw" ist abonniert, das beim Peaks-Load nicht feuert).
+      // Vendor-Patch: zusätzlich auf "zoom" + "ready" hören. Siehe
+      // src/vendor/wavesurfer-timeline.js.
+      "wavesurfer.js/dist/plugins/timeline.js": new URL(
+        "./src/vendor/wavesurfer-timeline.js",
+        import.meta.url
+      ).pathname,
     },
   },
   test: {
