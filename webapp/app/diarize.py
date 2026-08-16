@@ -70,23 +70,17 @@ DIARIZE_METHODS = (
 )
 
 
-def diarize(
+def _post_diarize(
     audio_path: str,
-    num_speakers: Optional[int] = None,
-    min_duration_off: Optional[float] = None,
-    method: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """Ruft den CrispASR-diar-Service und liefert {start, end, speaker}-Segmente.
+    num_speakers: Optional[int],
+    method: Optional[str],
+) -> "httpx.Response":
+    """Baut den Request und liefert die rohe httpx-Antwort (auch bei != 200).
 
-    Optionales Tuning (UI: „Sprecheranzahl"): ``num_speakers`` wird als
-    ``diarize_max_speakers`` übertragen. ``min_duration_off`` hat in
-    CrispASR keine direkte Entsprechung und wird bewusst nicht übertragen.
-    ``method`` (pyannote|foxnose|energy|xcorr|vad-turns) überschreibt die
-    Server-Methode pro Request; unbekannte Werte → ValueError (kein stiller
-    Fallback auf den Default).
-
-    Raises :class:`DiarizationError` (service-unreachable / Proxy-Fehler) —
-    nie eine stille leere Liste bei Service-Problemen.
+    Gemeinsame Basis für :func:`diarize` (parst Segmente) und
+    :func:`diarize_raw` (Debug: unveränderte Server-Antwort). Der
+    Dateiname wird IMMER auf .wav gezwungen (CrispASR dekodiert anhand der
+    Dateiendung, nicht des Content-Types — Live-Befund 2026-08-16).
     """
     if method is not None and method not in DIARIZE_METHODS:
         raise ValueError(f"unbekannte diarize_method {method!r} — erlaubt: {', '.join(DIARIZE_METHODS)}")
@@ -139,6 +133,28 @@ def diarize(
             "Der Diarization-Service ist nicht erreichbar. Bitte den "
             "Administrator informieren (Container 'diar' prüfen).",
         ) from exc
+    return resp
+
+
+def diarize(
+    audio_path: str,
+    num_speakers: Optional[int] = None,
+    min_duration_off: Optional[float] = None,
+    method: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Ruft den CrispASR-diar-Service und liefert {start, end, speaker}-Segmente.
+
+    Optionales Tuning (UI: „Sprecheranzahl"): ``num_speakers`` wird als
+    ``diarize_max_speakers`` übertragen. ``min_duration_off`` hat in
+    CrispASR keine direkte Entsprechung und wird bewusst nicht übertragen.
+    ``method`` (pyannote|foxnose|energy|xcorr|vad-turns) überschreibt die
+    Server-Methode pro Request; unbekannte Werte → ValueError (kein stiller
+    Fallback auf den Default).
+
+    Raises :class:`DiarizationError` (service-unreachable / Proxy-Fehler) —
+    nie eine stille leere Liste bei Service-Problemen.
+    """
+    resp = _post_diarize(audio_path, num_speakers, method)
 
     if resp.status_code != 200:
         detail = {}
@@ -163,3 +179,26 @@ def diarize(
             "speaker": _normalise_speaker(str(seg.get("speaker", "A"))),
         })
     return segments
+
+
+def diarize_raw(
+    audio_path: str,
+    num_speakers: Optional[int] = None,
+    method: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Debug-Basis: unveränderte Server-Antwort (Status + Body).
+
+    Bewusst KEINE Fehler-Raise bei HTTP != 200 — die Roh-Antwort ist genau
+    dann diagnostisch wertvoll (z. B. HTTP 500 mit detail-Code). Nur wenn der
+    Service gar nicht erreichbar ist, wirft :class:`DiarizationError`.
+    """
+    resp = _post_diarize(audio_path, num_speakers, method)
+    try:
+        body: Any = resp.json()
+    except Exception:
+        body = {"_raw_text": resp.text[:4000]}
+    return {
+        "status_code": resp.status_code,
+        "content_type": resp.headers.get("content-type", ""),
+        "json": body,
+    }

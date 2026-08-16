@@ -34,6 +34,9 @@ from .routers.models import router as models_router, _check_vad, _check_diarize
 from .routers.matrix import router as matrix_router
 from .routers.queue_api import router as queue_api_router
 from .routers.admin import router as admin_router
+# TEMPORÄR (2026-08-16): Debug-Endpunkte für die Diarize-Diagnose — nach
+# Abschluss der Diagnose diesen Import + include_router wieder entfernen.
+from .routers.debug import router as debug_router
 from .routers.auth import router as auth_router
 from .routers.benchmark import router as benchmark_router
 from .routers.segments import router as segments_router
@@ -239,6 +242,7 @@ app.include_router(models_router)
 app.include_router(matrix_router)
 app.include_router(queue_api_router)
 app.include_router(admin_router)
+app.include_router(debug_router)  # TEMPORÄR — nach Diarize-Diagnose entfernen
 app.include_router(segments_router)
 app.include_router(shares_router)
 app.include_router(versions_router)

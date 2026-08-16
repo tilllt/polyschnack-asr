@@ -114,6 +114,11 @@ class _Settings:
     #: Optional token the proxy requires (empty = no auth header).
     DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
 
+    #: TEMPORÄR (2026-08-16): Token für die Debug-Endpunkte unter /api/debug
+    #: (Diarize-Roh-Antwort + diar-Container-Logs). Leer = Endpunkte deaktiviert
+    #: (404). NACH ABSCHLUSS DER DIARIZE-DIAGNOSE WIEDER ENTFERNEN.
+    POLYSCHNACK_DEBUG_TOKEN: str = os.getenv("POLYSCHNACK_DEBUG_TOKEN", "")
+
     #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
     POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")
 
