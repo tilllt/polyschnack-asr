@@ -286,15 +286,17 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
 
   // Feature 2026-08-16 (Edit): Text-Markierung in einem Segment →
   // Split-Modal öffnen (Zeichen-Range aus der DOM-Selection).
-  function handleTextMouseUp(i: number, e: React.MouseEvent<HTMLElement>) {
+  function handleTextMouseUp(i: number, el: HTMLElement) {
     if (editingIdx !== null) return;
     const text = segments[i]?.text ?? "";
-    const r = selectionCharRange(e.currentTarget, text);
+    const r = selectionCharRange(el, text);
     if (!r) return;
     // Volle Segment-Selektion ist kein Split (nichts bliebe übrig)
     if (r.start === 0 && r.end >= text.length) return;
     setSplitCandidate({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end) });
     setSplitSpeaker("");
+    // Selection entfernen → das native Auswahlmenü (Copy/Suche) schließt
+    // sich damit auch auf Mobile, nur unser Split-Modal bleibt.
     window.getSelection()?.removeAllRanges();
   }
 
@@ -609,7 +611,14 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
           ) : (
             <span
               className="text-txt flex-1 min-w-0"
-              onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e) : undefined}
+              onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e.currentTarget) : undefined}
+              onTouchEnd={onSplitSegment ? (e) => {
+                // Mobile: Touch-Textauswahl feuert kein (zuverlässiges) mouseup —
+                // nach dem Loslassen die Selection prüfen. Verzögert, damit die
+                // Auswahl final ist; removeAllRanges schließt das native Menü.
+                const el = e.currentTarget;
+                setTimeout(() => handleTextMouseUp(i, el), 10);
+              } : undefined}
               data-split-container
             >
               {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
