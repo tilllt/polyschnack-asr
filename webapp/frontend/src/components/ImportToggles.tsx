@@ -61,7 +61,7 @@ export function ImportToggles({ values, onChange }: {
           <summary className="text-[11px] text-muted cursor-pointer select-none px-1 py-[2px] border border-border rounded-sm bg-panel2">
             {t("diarize_tuning")}
           </summary>
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-20 flex flex-col gap-2 bg-panel3 border border-border2 rounded-sm px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] min-w-[200px] max-w-[calc(100vw-16px)]">
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-[110] flex flex-col gap-2 bg-panel3 border border-border2 rounded-sm px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] min-w-[200px] max-w-[calc(100vw-16px)] max-h-[50vh] overflow-y-auto">
             <label className="flex flex-col gap-1 text-[11px]">
               {t("diarize_speakers")}
               <select

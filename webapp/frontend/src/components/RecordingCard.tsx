@@ -619,7 +619,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         transition-colors duration-200 hover:border-border2
         ${statusBorderClass}
         flex flex-col
-        ${focusMode ? "fixed inset-x-0 top-0 z-50 rounded-none h-[100dvh] overflow-hidden" : ""}
+        ${focusMode ? "fixed inset-x-0 top-0 z-[101] rounded-none h-[100dvh] overflow-hidden" : ""}
       `}
     >
       {/* ── Header ── */}
