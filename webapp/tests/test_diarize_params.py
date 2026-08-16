@@ -99,29 +99,29 @@ def test_diarize_chunk_seconds_wird_mitgesendet(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["chunk_seconds"] == str(settings.DIARIZE_CHUNK_SECONDS)
 
 
-def test_diarize_sendet_vad_aus_settings(monkeypatch, tmp_path):
-    """Longfile-Fix 2026-08-16: vad=true (Default) behebt den Server-Abbruch.
+def test_diarize_sendet_kein_vad_mit_default(monkeypatch, tmp_path):
+    """Seit v0.8.28-Bump (2026-08-16): Default DIARIZE_VAD=false.
 
-    CrispASR v0.8.25 setzt bei parakeet (CAP_INTERNAL_CHUNKING, kein VAD)
-    effective_chunk_seconds=0 → Full-Decode → Abbruch nach 20-60 % der
-    Eingabe (Live: 636 s von 3086 s). vad=true → VAD-Slices → volle Länge.
+    Der echte Longfile-Fix ist CrispASR #350/#352 (v0.8.26+) — live
+    verifiziert: 51-min-Datei ohne vad komplett (44.149 Zeichen, 201
+    Wechsel, feiner als mit vad). vad=true bleibt nur Notausstieg.
     """
     fc = _patch(monkeypatch)
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF....")
     diarize(str(p))
-    assert fc.last_kwargs["data"]["vad"] == settings.DIARIZE_VAD
-    assert fc.last_kwargs["data"]["vad"] == "true"
+    assert fc.last_kwargs["data"].get("vad") in (None, "false")
+    assert settings.DIARIZE_VAD == "false"
 
 
-def test_diarize_vad_abschaltbar(monkeypatch, tmp_path):
-    """DIARIZE_VAD=false → kein vad-Feld im Request (Notausstieg)."""
+def test_diarize_vad_notausstieg_aktivierbar(monkeypatch, tmp_path):
+    """DIARIZE_VAD=true → vad-Feld wird gesendet (Notausstieg für v0.8.25)."""
     fc = _patch(monkeypatch)
-    monkeypatch.setattr(settings, "DIARIZE_VAD", "false")
+    monkeypatch.setattr(settings, "DIARIZE_VAD", "true")
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF....")
     diarize(str(p))
-    assert "vad" not in fc.last_kwargs["data"]
+    assert fc.last_kwargs["data"]["vad"] == "true"
 
 
 def test_diarize_mp3_upload_bekommt_wav_dateinamen(monkeypatch, tmp_path):

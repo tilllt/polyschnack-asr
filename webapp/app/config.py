@@ -81,13 +81,14 @@ class _Settings:
     #: (Memory-Cap, CrispASR-Issue #257). 30 s ist der Server-Default.
     DIARIZE_CHUNK_SECONDS: int = int(os.getenv("DIARIZE_CHUNK_SECONDS", "30"))
 
-    #: VAD-Slicing für den diar-Server (Longfile-Diarize-Fix 2026-08-16).
-    #: CrispASR v0.8.25 setzt bei parakeet (CAP_INTERNAL_CHUNKING, kein VAD)
-    #: effective_chunk_seconds=0 → Full-Decode über die ganze Datei → Abbruch
-    #: nach 20-60 % (Live-Befund: 54 s/295 s, 184 s/295 s, 636 s/3086 s).
-    #: vad=true umgeht die Bedingung → VAD-begrenzte Slices → volle Länge.
-    #: „false" schaltet es ab (Notausstieg, falls VAD Probleme macht).
-    DIARIZE_VAD: str = os.getenv("DIARIZE_VAD", "true")
+    #: VAD-Slicing für den diar-Server (Longfile-Diarize 2026-08-16).
+    #: DEFAULT FALSE seit v0.8.28-Bump: Der echte Fix ist CrispASR #350/#352
+    #: (v0.8.26+, Longform-Chunks statt Single-Full-Length-Decode) — Live
+    #: verifiziert: 51-min-Datei komplett (44.149 Zeichen, 201 Wechsel),
+    #: ohne VAD und mit feinerer Segmentierung als der vad-Workaround.
+    #: vad=true war nur für v0.8.25 nötig und vergröbert die Wechsel
+    #: (10 statt 59 in den ersten 10 min) — bleibt als Notausstieg.
+    DIARIZE_VAD: str = os.getenv("DIARIZE_VAD", "false")
 
     #: OIDC (optional — when unset, no auth)
     OIDC_CLIENT_ID: str = os.getenv("OIDC_CLIENT_ID", "")
