@@ -202,6 +202,14 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   }, [renamingSpeakerIdx]);
   useEffect(() => {
     if (editingIdx !== null) editAreaRef.current?.focus({ preventScroll: true });
+    // Auto-Grow: Die Textarea soll exakt so hoch sein wie der (umgebrochene)
+    // Text — HTML-Default rows=2 würde den sichtbaren Bereich sonst auf zwei
+    // Zeilen quetschen (User 2026-08-16).
+    if (editingIdx !== null && editAreaRef.current) {
+      const el = editAreaRef.current;
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
   }, [editingIdx]);
 
   function handleClick(idx: number) {
@@ -567,9 +575,16 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
           )}
           {editingIdx === i ? (
             <textarea
-              className="flex-1 min-w-0 bg-panel2 border border-border rounded-sm px-2 py-1 text-[13px] resize-y leading-[1.4]"
+              className="flex-1 min-w-0 bg-panel2 border border-border rounded-sm px-2 py-1 text-[13px] leading-[1.4] overflow-hidden"
               value={editText}
-              onChange={(e) => setEditText(e.target.value)}
+              onChange={(e) => {
+                setEditText(e.target.value);
+                // Auto-Grow: Höhe an den (umgebrochenen) Inhalt anpassen,
+                // damit beim Tippen nichts abgeschnitten wird.
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = el.scrollHeight + "px";
+              }}
               onKeyDown={async (e) => {
                 if (e.key === "Escape") { setEditingIdx(null); return; }
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
