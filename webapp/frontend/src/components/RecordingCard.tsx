@@ -657,7 +657,15 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             bleiben oben gepinnt, die Transkription füllt den Rest). */}
         {hasSegments && segments && (
           <button
-            onClick={() => setFocusMode((v) => !v)}
+            onClick={() => {
+              // Kollabierte Transkription: vor dem Fullscreen automatisch
+              // expandieren (sonst zeigt der Vollbild nur die erste Zeile).
+              if (collapsed) {
+                setCollapsed(false);
+                setExpandedOnce(true); // Waveform sofort laden (wie Expand)
+              }
+              setFocusMode((v) => !v);
+            }}
             title={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
             aria-label={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
             className="flex-shrink-0 mt-[2px] p-1 -m-1 text-muted2 hover:text-accent transition-colors"
