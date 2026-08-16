@@ -16,7 +16,7 @@
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
-ARG CRISPASR_VERSION=v0.8.25
+ARG CRISPASR_VERSION=v0.8.28
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget curl libopenblas0 \
