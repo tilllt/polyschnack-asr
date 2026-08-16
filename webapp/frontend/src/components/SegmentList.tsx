@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, useEffect } from "react";
+import { Fragment, useRef, useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
@@ -56,6 +56,9 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+  // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
+  // offen für Segment-Index i; null = zu.
+  const [openSpeakerMenu, setOpenSpeakerMenu] = useState<number | null>(null);
   // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const dragRef = useRef<{
@@ -199,6 +202,30 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
       // keep edit open on error, user can retry
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Erkannte Sprecher dieser Aufnahme = unique speaker-Werte aller Segmente.
+  const speakerOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of segments) if (s.speaker) set.add(s.speaker);
+    return [...set];
+  }, [segments]);
+
+  // Feature 2026-08-16: Sprecher per Dropdown auf DIESES Segment setzen
+  // (PATCH /segments/{idx} mit speaker — Wörter/Timestamps bleiben).
+  async function handleSetSpeaker(idx: number, speaker: string) {
+    setOpenSpeakerMenu(null);
+    if (!recordingId || !onEdited) return;
+    try {
+      const result = await updateSegment(recordingId, idx, undefined, speaker);
+      onEdited(result.segments, result.text);
+      toast(t("speaker_set_saved"), "ok");
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : t("speaker_set_error"),
+        "err",
+      );
     }
   }
 
@@ -350,17 +377,16 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 ref={renameInputRef}
               />
             ) : (
-              <span className="flex items-center gap-0.5 flex-shrink-0">
+              <span className="relative flex items-center gap-0.5 flex-shrink-0">
                 <span
                   className="text-[11px] font-bold text-[#25d366] w-max uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
-                  title={t("rename_speaker_placeholder")}
+                  title={t("speaker_dropdown_hint")}
                   onClick={(e) => {
-                    // Ein-Klick auf den Speaker = Umbenennen-Modus (NICHT
-                    // Zeilen-Seek). Der Zeilen-Klick (Audio abspielen) gehört
-                    // zum Timecode/Text — der Speaker-Klick ist editierend.
+                    // Feature 2026-08-16: Klick auf den Namen öffnet das
+                    // Dropdown mit den erkannten Sprechern (Segment-weises
+                    // Setzen). Rename nur übers Stift-Icon daneben.
                     e.stopPropagation();
-                    setRenamingSpeaker(speaker);
-                    setRenameText(speaker.replace("SPEAKER_", ""));
+                    setOpenSpeakerMenu(openSpeakerMenu === i ? null : i);
                   }}
                   onDoubleClick={(e) => e.stopPropagation()}
                 >
@@ -378,6 +404,43 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 >
                   ✎
                 </button>
+                {openSpeakerMenu === i && (
+                  <>
+                    {/* Klick-Catcher: schließt das Menü bei Klick außerhalb */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenSpeakerMenu(null);
+                      }}
+                    />
+                    <div
+                      className="absolute top-full left-0 z-20 mt-0.5 min-w-[110px] max-h-[160px] overflow-y-auto bg-panel2 border border-border rounded-md shadow-xl py-0.5"
+                      onDoubleClick={(e) => e.stopPropagation()}
+                    >
+                      {speakerOptions.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (opt === speaker) {
+                              setOpenSpeakerMenu(null);
+                              return;
+                            }
+                            void handleSetSpeaker(i, opt);
+                          }}
+                          className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
+                            opt === speaker
+                              ? "text-[#25d366] font-bold"
+                              : "text-muted1"
+                          }`}
+                        >
+                          {opt.replace("SPEAKER_", "")}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </span>
             )
           )}
