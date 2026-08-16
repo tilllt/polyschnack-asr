@@ -618,6 +618,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         border rounded-card
         transition-colors duration-200 hover:border-border2
         ${statusBorderClass}
+        flex flex-col
+        ${focusMode ? "fixed inset-0 z-50 rounded-none overflow-hidden" : ""}
       `}
     >
       {/* ── Header ── */}
@@ -649,6 +651,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-sm px-1.5 py-[2px]" title={t("shared_badge")}>
             🔗 {t("shared_badge")}
           </span>
+        )}
+        {/* Feature 2026-08-16 (Edit-Vollbild): Icon rechts oben auf der
+            Karte — macht die GANZE Karte fullscreen (Waveform/Player
+            bleiben oben gepinnt, die Transkription füllt den Rest). */}
+        {hasSegments && segments && (
+          <button
+            onClick={() => setFocusMode((v) => !v)}
+            title={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
+            aria-label={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
+            className="flex-shrink-0 mt-[2px] text-muted2 hover:text-accent transition-colors"
+          >
+            {focusMode ? <X size={15} /> : <Maximize2 size={15} />}
+          </button>
         )}
         {r.status === "done" && (
           <button
@@ -771,7 +786,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       </div>
 
       {/* ── Transcript / Segments / Error ── */}
-      <div className="px-4 pb-[14px]">
+      <div className={`px-4 pb-[14px] ${focusMode ? "flex-1 min-h-0 flex flex-col overflow-hidden" : ""}`}>
         {r.status === "done" && (
           <>
             {searchOpen && hasSegments && segments && r.id && (
@@ -816,14 +831,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   <span className="text-[11px] text-muted2">
                     {t("boundary_drag_hint_short")}
                   </span>
-                  <button
-                    onClick={() => setFocusMode(true)}
-                    title={t("focus_edit_open")}
-                    className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                    {t("focus_edit_open")}
-                  </button>
                 </div>
                 <SegmentList
                   segments={displaySegments}
@@ -841,60 +848,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onSegmentInsert={handleSegmentInsert}
                   onSegmentDelete={handleSegmentDelete}
                   onSplitSegment={handleSplitSegment}
+                  fillHeight={!!focusMode}
                 />
-                {focusMode && (
-                  <div
-                    className="fixed inset-0 z-50 bg-app flex flex-col"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={t("focus_edit_open")}
-                  >
-                    {/* Kopfzeile: Playback-Steuerung (bestehender Player) + Schließen */}
-                    <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-panel flex-shrink-0">
-                      <span className="text-[13px] font-semibold truncate">
-                        {t("focus_edit_title")}
-                      </span>
-                      <span className="text-muted2 text-[11px] tabular-nums whitespace-nowrap">
-                        {fmtTime(currentTime)} /{" "}
-                        {fmtTime(displaySegments[displaySegments.length - 1]?.end ?? 0)}
-                      </span>
-                      <button
-                        onClick={() => wsRef.current?.playPause()}
-                        title="Play / Pause"
-                        className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
-                      >
-                        ▶ Play / Pause
-                      </button>
-                      <div className="flex-1" />
-                      <button
-                        onClick={() => setFocusMode(false)}
-                        className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
-                      >
-                        <X className="w-3 h-3" />
-                        {t("focus_edit_close")}
-                      </button>
-                    </div>
-                    {/* Nur diese Transkription — volle Fläche */}
-                    <div className="flex-1 min-h-0 px-4 py-3">
-                      <SegmentList
-                        segments={displaySegments}
-                        activeIdx={activeSegIdx}
-                        onActiveChange={setActiveSegIdx}
-                        onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
-                        onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
-                        recordingId={r.uid}
-                        onEdited={handleEdited}
-                        currentTime={currentTime}
-                        onBoundaryMoved={handleBoundaryMoved}
-                        onBoundaryDragEnd={handleBoundaryDragEnd}
-                        onSegmentInsert={handleSegmentInsert}
-                        onSegmentDelete={handleSegmentDelete}
-                        onSplitSegment={handleSplitSegment}
-                        fillHeight
-                      />
-                    </div>
-                  </div>
-                )}
               </>
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
