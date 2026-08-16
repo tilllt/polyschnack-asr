@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { LocaleProvider } from "../useLocale";
 import { AxesMatrix, BenchmarkCategory, PriceComparison, TestSetExplanation } from "./BenchmarkPage";
 import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing } from "../benchmark";
 
@@ -47,16 +48,18 @@ vi.mock("wavesurfer.js/dist/plugins/hover.js", () => ({
 
 function renderCat(open: boolean, onToggle: () => void) {
   return render(
-    <BenchmarkCategory
-      cat={CAT}
-      samples={SAMPLES}
-      open={open}
-      onToggle={onToggle}
-      showText
-      admin={false}
-      previewUrl={(id) => `/api/benchmark/preview/${id}`}
-      audioUrl={(id) => `/api/benchmark/audio/${id}`}
-    />,
+    <LocaleProvider>
+      <BenchmarkCategory
+        cat={CAT}
+        samples={SAMPLES}
+        open={open}
+        onToggle={onToggle}
+        showText
+        admin={false}
+        previewUrl={(id) => `/api/benchmark/preview/${id}`}
+        audioUrl={(id) => `/api/benchmark/audio/${id}`}
+      />
+    </LocaleProvider>,
   );
 }
 
@@ -81,17 +84,19 @@ describe("BenchmarkCategory", () => {
 
   test("Reject-Button sichtbar für Admin", () => {
     render(
-      <BenchmarkCategory
-        cat={CAT}
-        samples={SAMPLES}
-        open
-        onToggle={() => {}}
-        showText
-        admin
-        onReject={() => {}}
-        previewUrl={(id) => `/api/benchmark/preview/${id}`}
-        audioUrl={(id) => `/api/benchmark/audio/${id}`}
-      />,
+      <LocaleProvider>
+        <BenchmarkCategory
+          cat={CAT}
+          samples={SAMPLES}
+          open
+          onToggle={() => {}}
+          showText
+          admin
+          onReject={() => {}}
+          previewUrl={(id) => `/api/benchmark/preview/${id}`}
+          audioUrl={(id) => `/api/benchmark/audio/${id}`}
+        />
+      </LocaleProvider>,
     );
     expect(screen.getByText(/Ablehnen/)).toBeTruthy();
   });

@@ -3,6 +3,7 @@ import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
+import { useT } from "../useLocale";
 
 export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
@@ -100,6 +101,7 @@ export function toggleActivePlayback(): void {
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
   function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
+    const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
@@ -261,11 +263,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         isPlaying: () => ws.isPlaying(),
         isReady: () => canPlayRef.current,
       };
-      // Abspielbarkeit: echtes Audio dekodiert (WebAudio-Backend emittiert
-      // "canplay" nach decodeAudioData — auch im Peaks-Pfad). Optional
-      // chaining: Test-Mocks ohne getMediaElement dürfen nicht crashen.
-      const mediaEl = (ws.getMediaElement?.() ?? null) as unknown as { on?: (ev: string, cb: () => void) => void } | null;
-      mediaEl?.on?.("canplay", () => setCanPlay(true));
+      // Abspielbarkeit: eigener Audio-Fetch als Lade-Indikator (2026-08-16).
+      // WaveSurfer-Interna sind im Peaks-Pfad nicht aussagekräftig: `ready`/
+      // `decode` feuern sofort aus den Server-Peaks, bevor die Datei geladen
+      // ist, und `canplay`/readyState des WebAudio-Elements sind in Chromium
+      // unzuverlässig (feuern teils vor dem Laden bzw. gar nicht erneut).
+      // Der zweite Fetch wird vom HTTP-Cache bedient (WaveSurfer lädt die
+      // gleiche URL); `setCanPlay` öffnet Play + schließt die Meldung.
+      const readyFetch = fetch(audioUrl)
+        .then((r) => { if (!r.ok) throw new Error("audio load failed"); return r.arrayBuffer(); })
+        .then(() => { if (!cancelled) setCanPlay(true); })
+        .catch(() => { /* WaveSurfer meldet eigene Ladefehler */ });
       // Beim Mount als aktiven Player merken (zuletzt geöffnete Card) —
       // damit der globale Play/Stop-Shortcut (Space) ein Ziel hat, auch
       // bevor je ein Play lief. Cleanup gibt die Exklusivität frei.
@@ -318,6 +326,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       regionsRef.current = regions;
       return () => {
         cancelled = true;
+        readyFetch.catch(() => {}); // Unbenutztes Promise stillstellen
         if (rafId != null) cancelAnimationFrame(rafId);
         releaseExclusivePlayback(me);
         ws.destroy();
@@ -368,10 +377,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               onClick={() => wsRef.current?.playPause()}
               disabled={!canPlay}
               className="btn-ghost-sm text-[13px] flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
-              title={canPlay ? (playing ? "Pause" : "Play") : "Audio wird geladen…"}
+              title={canPlay ? (playing ? "Pause" : "Play") : t("loading_audio")}
             >
               {playing ? "⏸" : "▶"}
             </button>
+            {!canPlay && (
+              // Audio dekodiert noch (Waveform kann via Peaks schon stehen) —
+              // sichtbare Status-Meldung statt stiller Disabled-Button.
+              <span className="text-[12px] text-muted2 flex items-center gap-1.5">
+                <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+                {t("loading_audio")}
+              </span>
+            )}
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
