@@ -120,8 +120,13 @@ def _post_diarize(
     }
     if num_speakers is not None:
         data["diarize_max_speakers"] = str(num_speakers)
-    if vad is not None:
-        data["vad"] = vad
+    # VAD-Slicing (Longfile-Fix 2026-08-16): Default aus Settings, Debug-
+    # Endpunkt kann explizit overriden. Ohne VAD bricht der Server bei
+    # parakeet (CAP_INTERNAL_CHUNKING → effective_chunk_seconds=0) nach
+    # 20-60 % der Eingabe ab (Live-Befund 51-min-Datei: 636 s von 3086 s).
+    vad_value = vad if vad is not None else settings.DIARIZE_VAD
+    if vad_value and str(vad_value).lower() not in ("false", "0", "no", ""):
+        data["vad"] = vad_value
     if chunk_seconds is not None:
         data["chunk_seconds"] = str(chunk_seconds)
 

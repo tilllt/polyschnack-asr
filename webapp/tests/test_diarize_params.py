@@ -99,6 +99,31 @@ def test_diarize_chunk_seconds_wird_mitgesendet(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["chunk_seconds"] == str(settings.DIARIZE_CHUNK_SECONDS)
 
 
+def test_diarize_sendet_vad_aus_settings(monkeypatch, tmp_path):
+    """Longfile-Fix 2026-08-16: vad=true (Default) behebt den Server-Abbruch.
+
+    CrispASR v0.8.25 setzt bei parakeet (CAP_INTERNAL_CHUNKING, kein VAD)
+    effective_chunk_seconds=0 → Full-Decode → Abbruch nach 20-60 % der
+    Eingabe (Live: 636 s von 3086 s). vad=true → VAD-Slices → volle Länge.
+    """
+    fc = _patch(monkeypatch)
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p))
+    assert fc.last_kwargs["data"]["vad"] == settings.DIARIZE_VAD
+    assert fc.last_kwargs["data"]["vad"] == "true"
+
+
+def test_diarize_vad_abschaltbar(monkeypatch, tmp_path):
+    """DIARIZE_VAD=false → kein vad-Feld im Request (Notausstieg)."""
+    fc = _patch(monkeypatch)
+    monkeypatch.setattr(settings, "DIARIZE_VAD", "false")
+    p = tmp_path / "x.wav"
+    p.write_bytes(b"RIFF....")
+    diarize(str(p))
+    assert "vad" not in fc.last_kwargs["data"]
+
+
 def test_diarize_mp3_upload_bekommt_wav_dateinamen(monkeypatch, tmp_path):
     """Fix 2026-08-16: Dateiname muss .wav sein, auch wenn das Storage
     eine MP3 ist (CrispASR dekodiert anhand der Dateiendung).
