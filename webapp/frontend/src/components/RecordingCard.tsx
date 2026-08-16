@@ -619,11 +619,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         transition-colors duration-200 hover:border-border2
         ${statusBorderClass}
         flex flex-col
-        ${focusMode ? "fixed inset-0 z-50 rounded-none overflow-hidden" : ""}
+        ${focusMode ? "fixed inset-x-0 top-0 z-50 rounded-none h-[100dvh] overflow-y-auto" : ""}
       `}
     >
       {/* ── Header ── */}
-      <div className="px-3 sm:px-4 pt-[10px] sm:pt-[14px] pb-[8px] sm:pb-[10px] flex items-start gap-2 sm:gap-[10px]">
+      <div className="flex-shrink-0 px-3 sm:px-4 pt-[10px] sm:pt-[14px] pb-[8px] sm:pb-[10px] flex items-start gap-2 sm:gap-[10px]">
         <button
           onClick={() => {
             setCollapsed((v) => {
@@ -660,9 +660,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             onClick={() => setFocusMode((v) => !v)}
             title={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
             aria-label={focusMode ? t("focus_edit_close") : t("focus_edit_open")}
-            className="flex-shrink-0 mt-[2px] text-muted2 hover:text-accent transition-colors"
+            className="flex-shrink-0 mt-[2px] p-1 -m-1 text-muted2 hover:text-accent transition-colors"
           >
-            {focusMode ? <X size={15} /> : <Maximize2 size={15} />}
+            {focusMode ? <X size={18} /> : <Maximize2 size={18} />}
           </button>
         )}
         {r.status === "done" && (
@@ -786,7 +786,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       </div>
 
       {/* ── Transcript / Segments / Error ── */}
-      <div className={`px-4 pb-[14px] ${focusMode ? "flex-1 min-h-0 flex flex-col overflow-hidden" : ""}`}>
+      <div className={`px-4 pb-[14px] ${focusMode ? "flex-1 min-h-0 flex flex-col" : ""}`}>
         {r.status === "done" && (
           <>
             {searchOpen && hasSegments && segments && r.id && (
