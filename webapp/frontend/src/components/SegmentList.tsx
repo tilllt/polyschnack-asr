@@ -11,6 +11,8 @@ import { useToast } from "./Toasts";
 interface Props {
   segments: Segment[];
   onSeekTo?: (seconds: number) => void;
+  /** Seek OHNE Autoplay (2026-08-16: Cursor-Wort-Navigation). */
+  onSeekPaused?: (seconds: number) => void;
   activeIdx: number;
   onActiveChange: (idx: number) => void;
   recordingId?: string;
@@ -45,7 +47,7 @@ export type DisplaySegment = Segment;
 /** Wieviele Pixel Drag-Bewegung = 1 Wort (Grenz-Marker). */
 const PX_PER_WORD = 16;
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete }: Props) {
+export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -328,7 +330,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
               const w = segments[target.segIdx]?.words?.[target.wIdx];
               if (!w) return;
               onActiveChange?.(target.segIdx);
-              onSeekTo?.(typeof w.start === "number" ? w.start : 0);
+              // Cursor-Navigation: nur springen, NICHT abspielen
+              (onSeekPaused ?? onSeekTo)?.(typeof w.start === "number" ? w.start : 0);
             }
           }}
           className={`

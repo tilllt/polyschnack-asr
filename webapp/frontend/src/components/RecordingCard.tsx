@@ -794,6 +794,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   activeIdx={activeSegIdx}
                   onActiveChange={setActiveSegIdx}
                   onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
+                  onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
                   recordingId={r.uid}
                   onEdited={handleEdited}
                   currentTime={currentTime}

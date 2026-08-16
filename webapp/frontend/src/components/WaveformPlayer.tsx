@@ -6,6 +6,8 @@ import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 
 export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
+  /** Seek OHNE Autoplay (2026-08-16: Cursor-Wort-Navigation springt nur). */
+  seekToPaused: (seconds: number) => void;
   playPause: () => void;
   getCurrentTime: () => number;
   isPlaying: () => boolean;
@@ -259,6 +261,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => { wsRef.current?.setTime(s); wsRef.current?.play(); },
+      seekToPaused: (s: number) => { wsRef.current?.setTime(s); },
       playPause: () => wsRef.current?.playPause(),
       getCurrentTime: () => wsRef.current?.getCurrentTime() ?? 0,
       isPlaying: () => wsRef.current?.isPlaying() ?? false,
