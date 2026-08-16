@@ -22,12 +22,14 @@ FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 # cublas/curand/cufft mit, aber NICHT libcudnn.so.9 — ORT 1.21 verlangt
 # cuDNN 9 (1.19.x wollte cuDNN 8, fiel sonst still auf CPU zurück).
 # WICHTIG (CI-Fix 2026-08-16): das nvidia/cuda-Base-Image bringt bereits
-# eine eigene /etc/apt/sources.list.d/cuda-*.list mit → cuda-keyring würde
-# eine ZWEITE Repo-Liste anlegen → apt bricht mit "Conflicting values set
-# for option Signed-By" ab (exit 100). Vorher aufräumen:
+# eigene /etc/apt/sources.list.d/*.list-Einträge für das CUDA-Repo mit →
+# cuda-keyring würde eine ZWEITE Repo-Liste anlegen → apt bricht mit
+# "Conflicting values set for option Signed-By" ab (exit 100). Vorher alle
+# .list-Dateien entfernen (die Ubuntu-24.04-Basis nutzt .sources/deb822 in
+# /etc/apt/sources.list.d/ubuntu.sources — die bleibt unangetastet):
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget curl libopenblas0 \
-    && rm -f /etc/apt/sources.list.d/cuda-*.list /etc/apt/sources.list.d/nvidia-ml.list \
+    && rm -f /etc/apt/sources.list.d/*.list \
     && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
        -O /tmp/cuda-keyring.deb \
     && dpkg -i /tmp/cuda-keyring.deb && rm /tmp/cuda-keyring.deb \
