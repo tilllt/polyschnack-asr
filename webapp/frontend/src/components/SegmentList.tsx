@@ -106,16 +106,25 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // Treffer-Segment in der Suchleiste springt hierher.
   useEffect(() => {
     if (!searchJump) return;
+    // Nur den Transkriptions-Container scrollen (nicht scrollIntoView —
+    // das zöge die SEITE mit; siehe Auto-Scroll-Kommentar 2026-08-16).
+    const container = containerRef.current;
     const el = rowRefs.current[searchJump.idx];
-    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!container || !el) return;
+    const tRect = el.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const relTop = tRect.top - cRect.top + container.scrollTop;
+    const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
+    container.scrollTo({ top: targetTop, behavior: "smooth" });
   }, [searchJump]);
 
   // Auto-Scroll: das AKTIVE WORT ungefähr in die Mitte des Viewports der
   // Transkription zentrieren (User 2026-08-16: „Scroll soll immer so sein,
-  // dass das aktive Wort ungefähr in der Mitte ist"). Vorher block:"nearest"
-  // = minimal-sichtbar → erratisch (Wort am Rand, Sprünge je nach Richtung).
-  // block:"center" zentriert im scrollbaren Container; läuft das Playback,
-  // gleitet das aktive Wort bei jedem Wortwechsel sanft in die Mitte.
+  // dass das aktive Wort ungefähr in der Mitte ist"). WICHTIG: NICHT
+  // scrollIntoView — das scrollt ALLE scrollbaren Vorfahren (auch die
+  // SEITE!) und ließ die Seite während des Playbacks nach unten rutschen
+  // (User: „Wenn man Stop drückt, scrollt die Seite nach unten"). Statt-
+  // dessen container.scrollTo: nur der Transkriptions-Container bewegt sich.
   // Fallback: aktive Zeile, falls das aktive Wort nicht markiert ist.
   const activeW = activeIdx >= 0 && currentTime != null
     ? activeWordIndex(segments[activeIdx]?.words ?? [], currentTime)
@@ -124,12 +133,13 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     const container = containerRef.current;
     if (!container || activeIdx < 0) return;
     const activeWord = container.querySelector<HTMLElement>("[data-active-word=\"true\"]");
-    if (activeWord) {
-      activeWord.scrollIntoView({ block: "center", behavior: "smooth" });
-      return;
-    }
-    const activeEl = rowRefs.current[activeIdx];
-    if (activeEl) activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
+    const target = activeWord ?? rowRefs.current[activeIdx];
+    if (!target) return;
+    const tRect = target.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const relTop = tRect.top - cRect.top + container.scrollTop;
+    const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
+    container.scrollTo({ top: targetTop, behavior: "smooth" });
   }, [activeIdx, activeW]);
 
   // Auto-focus ohne Anker-Scroll: Das native focus()-Scrollen des Browsers
