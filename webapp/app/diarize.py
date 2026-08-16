@@ -96,7 +96,10 @@ def diarize(
     # Storage ist nativ (MP3/OGG/…) — der CrispASR-diar-Service bekommt eine
     # 16-kHz-mono-WAV on-the-fly (gleiche Policy wie bei den ASR-Backends).
     if Path(audio_path).suffix.lower() != ".wav":
-        from ..audio_utils import convert_to_wav_16k_mono
+        # EIN Punkt! (.. wäre Parent von app → ImportError bei jedem
+        # Nicht-WAV-Upload, verschluckt von service.py except Exception →
+        # 0 Speaker trotz Status done. Live-Befund 2026-08-16.)
+        from .audio_utils import convert_to_wav_16k_mono
 
         audio_bytes, _, _ = convert_to_wav_16k_mono(audio_bytes, Path(audio_path).name)
 
@@ -117,9 +120,16 @@ def diarize(
 
     try:
         with httpx.Client(timeout=1800) as client:
+            # Dateiname IMMER auf .wav zwingen: der CrispASR-Server dekodiert
+            # anhand der Dateiendung, nicht des Content-Types. Bei MP3-Uploads
+            # kam sonst der Originalname (xxx.mp3) mit WAV-Inhalt an → Audio
+            # kaputt → Transkription lief, aber 0 Speaker-Labels (Live-Befund
+            # 2026-08-16: WAV-Upload=SPEAKER_00, MP3-Upload=None). Gleiches
+            # Muster wie aligner_client.py ("audio.wav").
+            wav_name = os.path.splitext(os.path.basename(audio_path))[0] + ".wav"
             resp = client.post(
                 url,
-                files={"file": (os.path.basename(audio_path), audio_bytes, "audio/wav")},
+                files={"file": (wav_name, audio_bytes, "audio/wav")},
                 data=data,
             )
     except httpx.HTTPError as exc:

@@ -897,6 +897,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 # Kein stilles Verschlucken: gated/Token-Fehler müssen als
                 # failed mit Admin-Hinweis beim User ankommen.
                 raise
+            except ImportError as exc_d:
+                # Programmierfehler (z. B. falscher relativer Import) — NICHT
+                # als "diar=None" verschlucken, sonst wirkt Diarize deaktiviert
+                # (Live-Befund 2026-08-16: `from ..audio_utils` → ImportError
+                # bei jedem MP3-Upload → 0 Speaker, Status trotzdem done).
+                log.exception("Diarization ImportError rec_id=%s (Code-Fehler!): %s", rec_id, exc_d)
+                raise
             except Exception as exc_d:
                 log.exception("Diarization threw for rec_id=%s: %s", rec_id, exc_d)
                 diar = None

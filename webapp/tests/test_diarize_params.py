@@ -99,6 +99,31 @@ def test_diarize_chunk_seconds_wird_mitgesendet(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["chunk_seconds"] == str(settings.DIARIZE_CHUNK_SECONDS)
 
 
+def test_diarize_mp3_upload_bekommt_wav_dateinamen(monkeypatch, tmp_path):
+    """Fix 2026-08-16: Dateiname muss .wav sein, auch wenn das Storage
+    eine MP3 ist (CrispASR dekodiert anhand der Dateiendung).
+
+    Live-Befund: WAV-Upload → SPEAKER_00, MP3-Upload → 0 Speaker.
+    Ursache: diarize() konvertierte zwar den Inhalt nach 16k-mono-WAV,
+    schickte den Originalnamen (xxx.mp3) mit — Server sah die .mp3-
+    Endung, Audio war aber WAV → Diarize-Pipeline bekam kaputtes Audio.
+    """
+    fc = _patch(monkeypatch)
+    # Konvertierung mocken: hier zählt nur der Dateiname im Request
+    monkeypatch.setattr(
+        "app.audio_utils.convert_to_wav_16k_mono",
+        lambda raw, name: (b"RIFF-fake-wav", ".wav", None),
+    )
+    p = tmp_path / "aufnahme.mp3"
+    p.write_bytes(b"ID3....")
+    diarize(str(p))
+    fname = fc.last_kwargs["files"]["file"][0]
+    assert fname.endswith(".wav"), f"Dateiname muss .wav sein, war {fname!r}"
+    assert fname.startswith("aufnahme")
+    # Content-Type bleibt audio/wav
+    assert fc.last_kwargs["files"]["file"][2] == "audio/wav"
+
+
 def test_diarize_invalid_method_wirft_valueerror(monkeypatch, tmp_path):
     """Unbekannte Methode → Whitelist-Fehler statt stiller Default.
 
