@@ -154,7 +154,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           barGap: 1,
           barRadius: 2,
           height,
-          normalize: true,
+          // Kopfraum-Normalisierung statt normalize:true (2026-08-16):
+          // normalize skaliert die Peaks auf max=1.0 → Balken über die volle
+          // Canvas-Höhe → oberer Rand hart abgeschnitten (Pixel-Scan belegt).
+          // Die Server-Peaks (app/peaks.py) sind bereits absolut normalisiert
+          // (0..1); der Client normalisiert hier RELATIV mit 88 %-Kopfraum —
+          // leise Aufnahmen werden hochgezogen (alter „kaum Ausschlag"-Bug
+          // bleibt gefixt), laute nie abgeschnitten.
+          normalize: false,
           minPxPerSec: 1,
           plugins: [regions, timeline, hover],
         });
@@ -172,9 +179,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // skalieren — dann lieber selbst dekodieren).
       const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
       try {
+        // Kopfraum-Normalisierung (2026-08-16): Server-Peaks gehen bis exakt
+        // 1.0 (max|sample|/32767) — relativ auf 88 % skalieren → ~6 % Luft
+        // oben und unten, kein hart abgeschnittener Wellenform-Rand mehr.
+        const raw = (peaks as number[]) ?? [];
+        const mx = raw.length ? Math.max(...raw, 1e-6) : 1;
+        const headroom = (v: number) => (v / mx) * 0.88;
         ws.load(
           audioUrl,
-          hasPeaks ? [peaks as number[]] : undefined,
+          hasPeaks ? [raw.map(headroom)] : undefined,
           hasPeaks ? (durationHint as number) : undefined,
         );
       } catch (e) {
