@@ -99,14 +99,21 @@ case "${DIARIZE_METHOD}" in
     DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD}"
     ;;
   *)
-    # pyannote (Default) und foxnose: Auto-Download der Modelle.
+    # pyannote (Default) und foxnose: Modelle aus dem Image (Weg B) bzw.
+    # Auto-Download (foxnose-GGUF weiterhin via auto möglich).
     # pyannote + TitaNet-Embedder = Sherpa-Äquivalent NATIV in CrispASR
     # (0.6.6+, Issue #107/#110): pyannote-seg läuft EINMAL über die volle
     # Audio (konsistente IDs über Chunks), der Embedder verankert die
-    # lokalen Tracks global. foxnose = WeSpeaker-Embeddings + Clustering.
-    # Beide Modell-Flags IMMER setzen, damit Webapp-Requests zwischen
-    # den Methoden wechseln können (Request-Feld diarize_method gewinnt).
-    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD} --sherpa-segment-model auto --diarize-embedder auto"
+    # lokalen Tracks global. Mit ORT-Build (PR #364) sind die .onnx-Pfade
+    # gesetzt → pyannote-seg + TitaNet laufen auf CUDA (compose.gpu.yml);
+    # ohne GPU-Overlay fällt ORT still auf CPU zurück.
+    # Fallback auf "auto" (GGUF-Download) nur, wenn die ENV fehlt.
+    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD}"
+    if [ -n "${DIAR_SEG_MODEL}" ] && [ -n "${DIAR_EMBEDDER_MODEL}" ]; then
+        DIARIZE_ARGS="${DIARIZE_ARGS} --sherpa-segment-model ${DIAR_SEG_MODEL} --diarize-embedder ${DIAR_EMBEDDER_MODEL}"
+    else
+        DIARIZE_ARGS="${DIARIZE_ARGS} --sherpa-segment-model auto --diarize-embedder auto"
+    fi
     ;;
 esac
 
