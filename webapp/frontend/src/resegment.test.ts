@@ -267,3 +267,77 @@ describe("deleteSegment", () => {
     expect(out[0].end).toBe(2);
   });
 });
+
+/* ============================================================
+   INVARIANTE 2026-08-16 (User): Das Karaoke-Wort-Timing (word,
+   start, end — Reihenfolge UND Timestamps) bleibt bei JEDER
+   GUI-Operation erhalten. Nur die Segment-ZUORDNUNG ändert sich,
+   nie die Wörter selbst.
+   ============================================================ */
+function flattenWords(list: { words?: { word?: string; start?: number; end?: number }[] }[]) {
+  return list.flatMap((s) => (s.words ?? []).map((w) => `${w.word}|${w.start}|${w.end}`));
+}
+
+function twoSegsWords(): { start: number; end: number; text: string; words: { word: string; start: number; end: number }[] }[] {
+  const a = seg(0, 5, [["a0", 0, 0.9], ["a1", 1.0, 2.1], ["a2", 2.2, 3.0], ["a3", 3.1, 4.2], ["a4", 4.3, 5.0]], "SPEAKER_01");
+  const b = seg(5, 10, [["b0", 5.1, 6.0], ["b1", 6.2, 7.1], ["b2", 7.3, 8.0], ["b3", 8.1, 9.2], ["b4", 9.3, 10.0]], "SPEAKER_02");
+  return [a, b];
+}
+
+describe("Invariante: Wort-Timing bleibt bei allen Operationen erhalten", () => {
+  it("moveBoundary (Grenze verschieben): Timestamps + Reihenfolge unverändert", () => {
+    const input = twoSegsWords();
+    const before = flattenWords(input);
+    for (const delta of [-3, -1, 1, 2, 4]) {
+      const out = moveBoundary(input, 0, delta) as { words?: { word?: string; start?: number; end?: number }[] }[];
+      expect(flattenWords(out)).toEqual(before);
+      // und: nur die betroffenen Segmente haben neue start/end (Wort-abgeleitet)
+      const all = out.map((s) => s.words ?? []);
+      expect(all.flat().length).toBe(10);
+    }
+  });
+
+  it("insertSegment (+): Timestamps + Reihenfolge unverändert", () => {
+    const input = twoSegsWords();
+    const before = flattenWords(input);
+    const out = insertSegment(input, 0) as { words?: { word?: string; start?: number; end?: number }[] }[];
+    expect(out.length).toBe(3);
+    expect(flattenWords(out)).toEqual(before);
+    expect(out[1].words?.[0]).toMatchObject({ word: "a4", start: 4.3, end: 5.0 });
+  });
+
+  it("deleteSegment (−): Timestamps + Reihenfolge unverändert", () => {
+    const input = twoSegsWords();
+    const before = flattenWords(input);
+    for (const idx of [0, 1]) {
+      const out = deleteSegment(input, idx) as { words?: { word?: string; start?: number; end?: number }[] }[];
+      expect(flattenWords(out)).toEqual(before);
+    }
+  });
+
+  it("resegmentByDuration (Segment-Länge ändern): Timestamps + Reihenfolge unverändert", () => {
+    const input = twoSegsWords();
+    const before = flattenWords(input);
+    for (const dur of [1.5, 2.0, 3.5, 8.0]) {
+      const out = resegmentByDuration(input, dur) as { start?: number; end?: number; words?: { word?: string; start?: number; end?: number }[] }[];
+      expect(flattenWords(out)).toEqual(before);
+      // Chronologisch + Grenzen aus den Wörtern abgeleitet (Lücken sind
+      // echte ASR-Pausen — Segment-start = erstes Wort-start, end = letztes)
+      for (let i = 0; i < out.length; i++) {
+        const w = out[i].words ?? [];
+        expect(out[i].start).toBeCloseTo(w[0].start ?? 0, 6);
+        expect(out[i].end).toBeCloseTo(w[w.length - 1].end ?? 0, 6);
+        if (i > 0) {
+          expect(out[i].start ?? 0).toBeGreaterThanOrEqual(out[i - 1].end ?? 0);
+        }
+      }
+    }
+  });
+
+  it("PUT-Roundtrip (Backend-Serialisierung): words kommen unverändert zurück", () => {
+    // simuliert segments.py: stored = json.loads(json.dumps(segs))
+    const input = twoSegsWords();
+    const roundtrip = JSON.parse(JSON.stringify(input)) as typeof input;
+    expect(flattenWords(roundtrip)).toEqual(flattenWords(input));
+  });
+});

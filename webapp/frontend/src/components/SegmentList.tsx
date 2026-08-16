@@ -27,7 +27,7 @@ interface Props {
    *  Erster (Start) und letzter (Ende) Marker sind bewusst NICHT ziehbar. */
   onBoundaryMoved?: (segments: Segment[]) => void;
   /** Feature 2026-08-15: Drag begonnen/beendet (für Speichern + UI-Feedback). */
-  onBoundaryDragEnd?: () => void;
+  onBoundaryDragEnd?: (segments: Segment[]) => void;
   /** Feature 2026-08-16 (Mockup): "+" im Kreis zwischen den Segmenten —
    *  fügt nach Segment `afterIdx` ein neues Segment ein (gleicher Sprecher,
    *  letztes Wort wandert). Callback bekommt den neuen Segment-Index. */
@@ -66,6 +66,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     startY: number;
     lastWords: number;
     baseSegments: Segment[]; // eingefrorene Liste beim Drag-Start (Duplikat-Fix 2026-08-16)
+    currentList: Segment[]; // zuletzt an onBoundaryMoved gesendete Liste
   } | null>(null);
   const { t } = useT();
   const { toast } = useToast();
@@ -167,7 +168,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     // Prop-Liste kann zwischen zwei Pointer-Moves noch die alte sein (React
     // rendert asynchron) — Schritt-Deltas auf der alten Liste duplizieren
     // Wörter (Bug 2026-08-16: "Anton? Anton?", "Montag. Montag.").
-    dragRef.current = { idx, startY: e.clientY, lastWords: 0, baseSegments: segments };
+    dragRef.current = { idx, startY: e.clientY, lastWords: 0, baseSegments: segments, currentList: segments };
     setDragIdx(idx);
   }
 
@@ -179,6 +180,10 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     if (words !== d.lastWords) {
       d.lastWords = words;
       const next = moveBoundary(d.baseSegments, d.idx, words) as Segment[];
+      d.currentList = next; // für onBoundaryDragEnd: explizit die AKTUELLE
+      // Liste übergeben (kein Closure-State — der kann beim Loslassen noch
+      // den vorletzten Render-Stand enthalten, Bug 2026-08-16: „nicht
+      // gespeichert / springt zurück").
       onBoundaryMoved?.(next);
     }
   }
@@ -188,7 +193,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     if (!d) return;
     dragRef.current = null;
     setDragIdx(null);
-    onBoundaryDragEnd?.();
+    onBoundaryDragEnd?.(d.currentList);
   }
 
   async function handleSave(idx: number) {

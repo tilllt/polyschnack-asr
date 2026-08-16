@@ -401,10 +401,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     setDragSegments(next);
   }
 
-  async function handleBoundaryDragEnd() {
-    if (!dragSegments || !r.uid) return;
+  async function handleBoundaryDragEnd(next: Segment[]) {
+    // Fix 2026-08-16: `next` kommt EXPLIZIT vom Aufrufer (SegmentList gibt
+    // die aktuelle Liste aus ihrem dragRef mit). Der frühere Weg (dragSegments
+    // aus dem Closure lesen) speicherte beim Loslassen eine Liste, die den
+    // letzten Wort-Schritt noch nicht enthielt — React hatte bei pointerup im
+    // selben Frame wie dem letzten pointermove noch nicht neu gerendert → die
+    // Grenze sprang beim nächsten PUT zurück („nicht gespeichert").
+    if (!next || !r.uid) return;
     try {
-      const result = await replaceSegments(r.uid, dragSegments);
+      const result = await replaceSegments(r.uid, next);
       handleEdited(result.segments, result.text);
       // Fix 2026-08-16: NICHT auf null setzen! Bei gesetztem segMaxDuration
       // rechnet displaySegments sonst sofort resegmentByDuration() wieder
@@ -467,9 +473,15 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
-    const idx = activeSegmentIndex(segments ?? [], t);
+    // Fix 2026-08-16: gegen displaySegments (ANGEZEIGTE Segmentierung)
+    // rechnen, nicht gegen den Cache. Nach dem Verschieben einer Grenze
+    // oder einer anderen Segment-Länge zeigen die Segmente andere
+    // start/end als der Cache — activeSegmentIndex(Cache) lieferte sonst
+    // das falsche aktive Segment → Karaoke-Markierung + Auto-Scroll
+    // hingen am falschen Wort („Timing durcheinander").
+    const idx = activeSegmentIndex(displaySegments ?? [], t);
     setActiveSegIdx((prev) => (prev === idx ? prev : idx));
-  }, [hasSegments, segments]);
+  }, [displaySegments]);
 
   // ──── Close dl menu on outside click ────
   useEffect(() => {
