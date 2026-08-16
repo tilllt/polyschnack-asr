@@ -28,6 +28,13 @@ interface Props {
   onBoundaryMoved?: (segments: Segment[]) => void;
   /** Feature 2026-08-15: Drag begonnen/beendet (für Speichern + UI-Feedback). */
   onBoundaryDragEnd?: () => void;
+  /** Feature 2026-08-16 (Mockup): "+" im Kreis zwischen den Segmenten —
+   *  fügt nach Segment `afterIdx` ein neues Segment ein (gleicher Sprecher,
+   *  letztes Wort wandert). Callback bekommt den neuen Segment-Index. */
+  onSegmentInsert?: (afterIdx: number) => void;
+  /** Feature 2026-08-16 (Mockup): "−" im Kreis vor dem Timecode — löscht
+   *  Segment `idx` (Text wandert ans vorige Segment). */
+  onSegmentDelete?: (idx: number) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -38,7 +45,7 @@ export type DisplaySegment = Segment;
 /** Wieviele Pixel Drag-Bewegung = 1 Wort (Grenz-Marker). */
 const PX_PER_WORD = 16;
 
-export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd }: Props) {
+export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +58,12 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [renameSaving, setRenameSaving] = useState(false);
   // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const dragRef = useRef<{ idx: number; startY: number; lastWords: number } | null>(null);
+  const dragRef = useRef<{
+    idx: number;
+    startY: number;
+    lastWords: number;
+    baseSegments: Segment[]; // eingefrorene Liste beim Drag-Start (Duplikat-Fix 2026-08-16)
+  } | null>(null);
   const { t } = useT();
   const { toast } = useToast();
 
@@ -146,7 +158,13 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { idx, startY: e.clientY, lastWords: 0 };
+    // Basis-Liste einfrieren + kumulativen Wort-Offset speichern. moveBoundary
+    // wird bei JEDEM Pointer-Move mit dem kumulativen words-Wert auf DIESER
+    // Basis-Liste aufgerufen (nicht Schritt-für-Schritt auf dem Prop): die
+    // Prop-Liste kann zwischen zwei Pointer-Moves noch die alte sein (React
+    // rendert asynchron) — Schritt-Deltas auf der alten Liste duplizieren
+    // Wörter (Bug 2026-08-16: "Anton? Anton?", "Montag. Montag.").
+    dragRef.current = { idx, startY: e.clientY, lastWords: 0, baseSegments: segments };
     setDragIdx(idx);
   }
 
@@ -156,9 +174,8 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     const dy = e.clientY - d.startY;
     const words = Math.round(dy / PX_PER_WORD);
     if (words !== d.lastWords) {
-      const delta = words - d.lastWords;
       d.lastWords = words;
-      const next = moveBoundary(segments, d.idx, delta) as Segment[];
+      const next = moveBoundary(d.baseSegments, d.idx, words) as Segment[];
       onBoundaryMoved?.(next);
     }
   }
@@ -220,8 +237,35 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     >
       {segments.map((seg, i) => {
         const speaker = seg.speaker;
+        const prevHasWords = i > 0 && (segments[i - 1].words?.length ?? 0) > 0;
         return (
         <Fragment key={i}>
+        {i > 0 && onSegmentInsert && (
+          /* ── Grenz-Leiste (Feature 2026-08-16, Mockup): "+" im Kreis,
+             40 % Transparenz, daneben die Hairline als Segment-Trennung ── */
+          <div
+            className="flex items-center gap-1.5 px-3 py-[1px]"
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSegmentInsert(i - 1);
+              }}
+              disabled={!prevHasWords}
+              className="w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
+                text-[12px] leading-none text-accent/60 bg-accent/10 border border-accent/25
+                opacity-40 hover:opacity-100 hover:bg-accent/25 hover:text-accent
+                transition-opacity disabled:opacity-15 disabled:hover:opacity-15 disabled:cursor-not-allowed"
+              title={t("segment_insert_hint")}
+              aria-label={t("segment_insert_hint")}
+            >
+              +
+            </button>
+            <div className="h-px flex-1 bg-border/60" aria-hidden />
+          </div>
+        )}
         <div
           ref={(el) => { rowRefs.current[i] = el; }}
           role="button"
@@ -245,6 +289,23 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
+          {onSegmentDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSegmentDelete(i);
+              }}
+              disabled={segments.length <= 1}
+              className="w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
+                text-[12px] leading-none text-muted2 border border-border/70
+                opacity-40 hover:opacity-100 hover:text-err hover:bg-err/10 hover:border-err/40
+                transition-opacity disabled:opacity-15 disabled:hover:opacity-15 disabled:cursor-not-allowed"
+              title={t("segment_delete_hint")}
+              aria-label={t("segment_delete_hint")}
+            >
+              −
+            </button>
+          )}
           <span
             className={`
               text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0

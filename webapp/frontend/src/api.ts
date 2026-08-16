@@ -252,12 +252,22 @@ export async function startTranscription(
   return res.json() as Promise<Recording>;
 }
 
-export async function updateSegment(recordingId: string, segmentIdx: number, text: string):
-  Promise<{ segments: Segment[]; text: string }> {
+/** Feature 2026-08-16: Text- und/oder Sprecher-Update eines einzelnen Segments.
+ *  `speaker` setzt die Sprecher-Zuordnung NUR für dieses Segment (Dropdown);
+ *  `text` baut die Wort-Timestamps neu. Beide optional, mindestens eines. */
+export async function updateSegment(
+  recordingId: string,
+  segmentIdx: number,
+  text?: string,
+  speaker?: string,
+): Promise<{ segments: Segment[]; text: string }> {
+  const body: Record<string, string> = {};
+  if (text !== undefined) body.text = text;
+  if (speaker !== undefined) body.speaker = speaker;
   const res = await fetch(`/api/recordings/${recordingId}/segments/${segmentIdx}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   }).then(checkOk);
   return res.json();
 }

@@ -190,3 +190,79 @@ export function moveBoundary(
   }
   return out;
 }
+
+/**
+ * Fügt an der Grenze nach Segment `afterIdx` ein NEUES Segment ein
+ * (Feature 2026-08-16, Mockup: "+" im Kreis zwischen den Segmenten).
+ *
+ * Regeln (User):
+ * - Das neue Segment übernimmt den Sprecher des VORIGEN Segments.
+ * - Das LETZTE WORT des vorigen Segments wandert in das neue Segment
+ *   (start/end des neuen Segments = Wort-Timestamps).
+ * - Der Gesamttext ändert sich NICHT — nur die Segment-Aufteilung.
+ * - Ohne Wort-Timestamps (kein Karaoke) kann nicht eingefügt werden →
+ *   Liste unverändert (Button wird in der UI dann deaktiviert).
+ */
+export function insertSegment(
+  segments: ResegmentInput,
+  afterIdx: number,
+): ResegSegment[] {
+  if (!segments || segments.length === 0) return segments ? ([...segments] as ResegSegment[]) : [];
+  if (afterIdx < 0 || afterIdx >= segments.length) return [...segments] as ResegSegment[];
+  const segs = [...segments] as ResegSegment[];
+  const a = segs[afterIdx];
+  const aWords = (a.words ?? []) as _W[];
+  if (aWords.length === 0) return segs; // ohne Wörter nichts zu verschieben
+
+  const last = aWords[aWords.length - 1];
+  const aNew = aWords.slice(0, -1);
+  const next = buildSeg([last]);
+  if (a.speaker) next.speaker = a.speaker; // gleicher Sprecher wie voriges Segment
+  segs[afterIdx] = { ...a, ...buildSeg(aNew) };
+  segs.splice(afterIdx + 1, 0, next);
+  return segs;
+}
+
+/**
+ * Löscht Segment `idx` (Feature 2026-08-16, Mockup: "−" im Kreis vor dem
+ * Timecode). Der Text (die Wörter) bleibt erhalten und wird dem VORIGEN
+ * Segment zugeordnet; beim ersten Segment dem NACHFOLGENDEN. Mindestens
+ * ein Segment bleibt immer übrig. Ohne Wörter wird der Text-String einfach
+ * angehängt (start/end des Nachbarsegments bleiben).
+ */
+export function deleteSegment(
+  segments: ResegmentInput,
+  idx: number,
+): ResegSegment[] {
+  if (!segments || segments.length <= 1) return segments ? ([...segments] as ResegSegment[]) : [];
+  if (idx < 0 || idx >= segments.length) return [...segments] as ResegSegment[];
+  const segs = [...segments] as ResegSegment[];
+  const removed = segs.splice(idx, 1)[0];
+  const removedWords = ((removed.words ?? []) as _W[]).slice();
+
+  if (removedWords.length === 0) {
+    // Nur Text übertragen (keine Wort-Timestamps verfügbar)
+    const t = String(removed.text ?? "").trim();
+    if (!t) return segs;
+    if (idx === 0) {
+      const b = segs[0];
+      segs[0] = { ...b, text: `${t} ${String(b.text ?? "")}`.trim() };
+    } else {
+      const a = segs[idx - 1];
+      segs[idx - 1] = { ...a, text: `${String(a.text ?? "")} ${t}`.trim() };
+    }
+    return segs;
+  }
+
+  if (idx === 0) {
+    // Erstes Segment: Wörter an den Anfang des neuen ersten Segments
+    const b = segs[0];
+    const bWords = (b.words ?? []) as _W[];
+    segs[0] = { ...b, ...buildSeg([...removedWords, ...bWords]) };
+  } else {
+    const a = segs[idx - 1];
+    const aWords = (a.words ?? []) as _W[];
+    segs[idx - 1] = { ...a, ...buildSeg([...aWords, ...removedWords]) };
+  }
+  return segs;
+}

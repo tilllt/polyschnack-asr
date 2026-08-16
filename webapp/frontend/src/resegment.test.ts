@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -129,5 +129,141 @@ describe("moveBoundary", () => {
     // "ja" wandert zu A → A hat Speaker_01 (erster Bucket-Speaker bleibt)
     expect(out[0].text).toBe("hallo du ja");
     expect(out[1].text).toBe("klar");
+  });
+
+  it("REGRESSION 2026-08-16: kumulative Verschiebung dupliziert keine Wörter", () => {
+    // Frontend-Bug: moveBoundary wurde pro Pointer-Move mit Schritt-Delta auf
+    // der (noch alten) Prop-Liste aufgerufen → jedes Wort, das über eine
+    // Wortgrenze wandert, kam doppelt ("Anton? Anton?", "Montag. Montag.").
+    // Fix: Basis-Liste beim Drag-Start einfrieren + kumulatives Delta.
+    // Der Test bildet die Drag-Sequenz 0→1→2→1→0 mit kumulativem Delta auf
+    // derselben Basis ab und verlangt: Gesamtwortzahl konstant (keine
+    // Duplikate, keine Verluste), Wörter wandern deterministisch.
+    const base = twoSegs();
+    const countWords = (list: ReturnType<typeof moveBoundary>) =>
+      list.reduce((n, s) => n + (s.words?.length ?? 0), 0);
+    const text = (list: ReturnType<typeof moveBoundary>) =>
+      list.map((s) => s.text).join(" ");
+    const expected = "a0 a1 a2 a3 a4 b0 b1 b2 b3 b4";
+
+    const step1 = moveBoundary(base, 0, 1); // B → A: b0
+    expect(text(step1)).toBe(expected);
+    expect(countWords(step1)).toBe(10);
+
+    const step2 = moveBoundary(base, 0, 2); // B → A: b0 b1 (kumulativ!)
+    expect(text(step2)).toBe(expected);
+    expect(countWords(step2)).toBe(10);
+    expect(step2[0].text).toBe("a0 a1 a2 a3 a4 b0 b1");
+    expect(step2[1].text).toBe("b2 b3 b4");
+
+    const stepBack = moveBoundary(base, 0, 1); // zurück: nur b0 bei A
+    expect(text(stepBack)).toBe(expected);
+    expect(countWords(stepBack)).toBe(10);
+    expect(stepBack[0].text).toBe("a0 a1 a2 a3 a4 b0");
+    expect(stepBack[1].text).toBe("b1 b2 b3 b4");
+
+    const step0 = moveBoundary(base, 0, 0);
+    expect(text(step0)).toBe(expected);
+    expect(countWords(step0)).toBe(10);
+    // Wörter sind exakt die Original-Wörter (keine Duplikate in words[])
+    const all = step0.flatMap((s) => s.words ?? []);
+    expect(all.map((w) => w.word)).toEqual([
+      "a0", "a1", "a2", "a3", "a4", "b0", "b1", "b2", "b3", "b4",
+    ]);
+  });
+});
+
+describe("insertSegment", () => {
+  // A (SPEAKER_01): a0..a4, B (SPEAKER_02): b0..b4
+  function twoSegs() {
+    const wa: [string, number, number][] = [];
+    const wb: [string, number, number][] = [];
+    for (let i = 0; i < 5; i++) wa.push([`a${i}`, i, i + 1]);
+    for (let i = 0; i < 5; i++) wb.push([`b${i}`, 5 + i, 6 + i]);
+    return [seg(0, 5, wa, "SPEAKER_01"), seg(5, 10, wb, "SPEAKER_02")];
+  }
+
+  it("fügt nach Segment 0 ein: gleicher Sprecher, letztes Wort wandert", () => {
+    const out = insertSegment(twoSegs(), 0);
+    expect(out.length).toBe(3);
+    // A verliert das letzte Wort, das neue Segment hat es + Speaker von A
+    expect(out[0].text).toBe("a0 a1 a2 a3");
+    expect(out[0].speaker).toBe("SPEAKER_01");
+    expect(out[1].text).toBe("a4");
+    expect(out[1].speaker).toBe("SPEAKER_01");
+    expect(out[1].start).toBe(4);
+    expect(out[1].end).toBe(5);
+    // B unverändert
+    expect(out[2].text).toBe("b0 b1 b2 b3 b4");
+    expect(out[2].speaker).toBe("SPEAKER_02");
+    // Gesamttext + Wortzahl konstant (kein Textverlust)
+    expect(out.map((s) => s.text).join(" ")).toBe("a0 a1 a2 a3 a4 b0 b1 b2 b3 b4");
+    expect(out.reduce((n, s) => n + (s.words?.length ?? 0), 0)).toBe(10);
+  });
+
+  it("ohne Wort-Timestamps → unverändert", () => {
+    const plain = [
+      { start: 0, end: 5, text: "nur text" },
+      { start: 5, end: 10, text: "auch text" },
+    ];
+    expect(insertSegment(plain, 0)).toEqual(plain);
+  });
+
+  it("ungültiger Index → unverändert", () => {
+    const input = twoSegs();
+    expect(insertSegment(input, -1)).toEqual(input);
+    expect(insertSegment(input, 2)).toEqual(input);
+  });
+});
+
+describe("deleteSegment", () => {
+  function threeSegs() {
+    const w = (pre: string, off: number) => [[`${pre}0`, off, off + 1], [`${pre}1`, off + 1, off + 2]] as [string, number, number][];
+    return [
+      seg(0, 2, w("a", 0), "SPEAKER_01"),
+      seg(2, 4, w("b", 2), "SPEAKER_02"),
+      seg(4, 6, w("c", 4), "SPEAKER_01"),
+    ];
+  }
+
+  it("löscht mittleres Segment → Wörter ans vorige, Gesamttext konstant", () => {
+    const out = deleteSegment(threeSegs(), 1);
+    expect(out.length).toBe(2);
+    expect(out[0].text).toBe("a0 a1 b0 b1");
+    expect(out[0].speaker).toBe("SPEAKER_01"); // buildSeg nimmt Speaker des ersten Worts
+    expect(out[1].text).toBe("c0 c1");
+    expect(out.map((s) => s.text).join(" ")).toBe("a0 a1 b0 b1 c0 c1");
+  });
+
+  it("löscht erstes Segment → Wörter ans neue erste Segment", () => {
+    const out = deleteSegment(threeSegs(), 0);
+    expect(out.length).toBe(2);
+    expect(out[0].text).toBe("a0 a1 b0 b1");
+    expect(out[1].text).toBe("c0 c1");
+    expect(out.map((s) => s.text).join(" ")).toBe("a0 a1 b0 b1 c0 c1");
+  });
+
+  it("löscht letztes Segment → Wörter ans vorige", () => {
+    const out = deleteSegment(threeSegs(), 2);
+    expect(out.length).toBe(2);
+    expect(out[0].text).toBe("a0 a1");
+    expect(out[1].text).toBe("b0 b1 c0 c1");
+  });
+
+  it("einziger Segment → unverändert (mindestens 1 bleibt)", () => {
+    const single = [seg(0, 2, [["x", 0, 1]] as [string, number, number][], "SPEAKER_01")];
+    expect(deleteSegment(single, 0)).toEqual(single);
+  });
+
+  it("ohne Wörter: Text wandert, Grenzen des Nachbarn bleiben", () => {
+    const plain = [
+      { start: 0, end: 2, text: "hallo" },
+      { start: 2, end: 4, text: "welt" },
+    ];
+    const out = deleteSegment(plain, 1);
+    expect(out.length).toBe(1);
+    expect(out[0].text).toBe("hallo welt");
+    expect(out[0].start).toBe(0);
+    expect(out[0].end).toBe(2);
   });
 });

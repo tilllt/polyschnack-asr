@@ -13,7 +13,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { resegmentByDuration } from "../resegment";
+import { resegmentByDuration, insertSegment, deleteSegment } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
@@ -424,6 +424,39 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     }
   }
 
+  // ── Feature 2026-08-16: Segment einfügen/löschen (+/− im Mockup) ─────
+  // Die neue Liste wird sofort angezeigt (dragSegments) und persistiert
+  // (PUT /segments) — wie beim Grenz-Drag.
+  async function persistSegmentList(next: Segment[]) {
+    if (!r.uid) return;
+    try {
+      const result = await replaceSegments(r.uid, next);
+      handleEdited(result.segments, result.text);
+      setDragSegments(result.segments);
+      toast(t("boundary_saved"), "ok");
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : t("boundary_save_error"),
+        "err",
+      );
+    }
+  }
+
+  function handleSegmentInsert(afterIdx: number) {
+    if (!r.uid || !displaySegments) return;
+    const next = insertSegment(displaySegments, afterIdx) as Segment[];
+    if (next === displaySegments) return; // keine Wörter → nichts zu teilen
+    setDragSegments(next);
+    void persistSegmentList(next);
+  }
+
+  function handleSegmentDelete(idx: number) {
+    if (!r.uid || !displaySegments || displaySegments.length <= 1) return;
+    const next = deleteSegment(displaySegments, idx) as Segment[];
+    setDragSegments(next);
+    void persistSegmentList(next);
+  }
+
   // Manuelle Grenzen nur so lange aktiv, wie die zugrunde liegenden
   // Segmente identisch sind. Kommen nach Retranscribe/Reload ECHT neue
   // Server-Segmente (andere Referenz), verfällt die alte Drag-Liste —
@@ -756,6 +789,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   searchJump={searchJump}
                   onBoundaryMoved={handleBoundaryMoved}
                   onBoundaryDragEnd={handleBoundaryDragEnd}
+                  onSegmentInsert={handleSegmentInsert}
+                  onSegmentDelete={handleSegmentDelete}
                 />
               </>
             ) : hasText ? (
