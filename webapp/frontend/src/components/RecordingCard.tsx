@@ -682,7 +682,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
       {!collapsed && (<>
       {/* ── Meta chips ── */}
-      <div className="px-3 sm:px-4 pb-[10px] flex gap-[10px] sm:gap-[14px] flex-wrap text-muted text-[11px] sm:text-[12px]">
+      <div className={`px-3 sm:px-4 pb-[10px] flex gap-[10px] sm:gap-[14px] flex-wrap text-muted text-[11px] sm:text-[12px] ${focusMode ? "flex-shrink-0" : ""}`}>
         {r.size_bytes != null && (
           <span title={t("size")}>{fmtBytes(r.size_bytes)}</span>
         )}
@@ -709,7 +709,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       </div>
 
       {/* ── Audio player (Lazy: nur bei Viewport-Nähe + uncollapsed) ── */}
-      <div className={compact ? "px-4 pb-1" : "px-4 pb-[6px]"}>
+      <div className={`${compact ? "px-4 pb-1" : "px-4 pb-[6px]"} ${focusMode ? "flex-shrink-0" : ""}`}>
         {loadWaveform ? (
           <WaveformPlayer
             ref={wsRef}
@@ -903,7 +903,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       </div>
 
       {/* ── Actions ── */}
-      <div className="px-3 sm:px-4 pb-[14px] flex items-center gap-2 flex-wrap">
+      <div className={`px-3 sm:px-4 pb-[14px] flex items-center gap-2 flex-wrap ${focusMode ? "flex-shrink-0" : ""}`}>
         {r.status === "done" && cropRange && (
           <button
             onClick={() => handleTranscribeCrop(r.uid, cropRange.start, cropRange.end)}
