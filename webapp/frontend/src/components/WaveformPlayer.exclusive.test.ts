@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   claimExclusivePlayback,
   releaseExclusivePlayback,
+  toggleActivePlayback,
+  decidePlayPause,
   type Playable,
 } from "./WaveformPlayer";
 
@@ -32,6 +34,7 @@ function makePlayable(): Playable & { paused: boolean } {
       else p.play();
     },
     isPlaying: () => playing,
+    isReady: () => true,
   };
   return p;
 }
@@ -42,7 +45,7 @@ describe("audio exclusivity", () => {
     // sind "zerstört" — release mit einem frischen Objekt genügt nicht,
     // daher hier über den Export-Pfad: claim eines Dummy + release.
     // (Das Singleton ist pro Testdatei-Modul frisch, aber Tests teilen es.)
-    const dummy: Playable = { pause: () => {}, play: () => {}, playPause: () => {}, isPlaying: () => false };
+    const dummy: Playable = { pause: () => {}, play: () => {}, playPause: () => {}, isPlaying: () => false, isReady: () => false };
     claimExclusivePlayback(dummy);
     releaseExclusivePlayback(dummy);
   });
@@ -96,5 +99,47 @@ describe("audio exclusivity", () => {
     // a ist bereits released → b pausiert niemanden
     expect(a.paused).toBe(false);
     expect(b.paused).toBe(false);
+  });
+});
+
+describe("decidePlayPause (Play/Stop-Entscheidung, 2026-08-16)", () => {
+  it("spielt das Audio → pause (Stop lässt die Markierung stehen)", () => {
+    expect(decidePlayPause(true, false, true)).toBe("pause");
+    expect(decidePlayPause(true, true, true)).toBe("pause");
+  });
+  it("steht es am Ende → stay (kein Auto-Reset auf 0)", () => {
+    expect(decidePlayPause(false, true, true)).toBe("stay");
+    expect(decidePlayPause(false, true, false)).toBe("stay");
+  });
+  it("nicht abspielbar (Audio lädt noch) → noop", () => {
+    expect(decidePlayPause(false, false, false)).toBe("noop");
+  });
+  it("sonst → play", () => {
+    expect(decidePlayPause(false, false, true)).toBe("play");
+  });
+});
+
+describe("Space-Zyklus (toggleActivePlayback), 2026-08-16", () => {
+  it("Stop per Space lässt den Player aktiv — Space startet wieder", () => {
+    const p = makePlayable();
+    claimExclusivePlayback(p);
+    p.play();
+    expect(p.isPlaying()).toBe(true);
+    toggleActivePlayback(); // Space: Stop
+    expect(p.isPlaying()).toBe(false);
+    toggleActivePlayback(); // Space: Play wieder
+    expect(p.isPlaying()).toBe(true);
+  });
+  it("am Ende der Aufnahme togglet Space nicht auf 0 (bleibt stehen)", () => {
+    // makePlayable hat keine Ende-Semantik — hier nur sicherstellen, dass
+    // der Toggle auf einem pausierten, bereiten Player spielt.
+    const p = makePlayable();
+    claimExclusivePlayback(p);
+    p.pause();
+    toggleActivePlayback();
+    expect(p.isPlaying()).toBe(true);
+  });
+  it("ohne aktiven Player: no-op", () => {
+    expect(() => toggleActivePlayback()).not.toThrow();
   });
 });

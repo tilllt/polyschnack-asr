@@ -39,9 +39,34 @@ const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
    hinweg). User-Anforderung 2026-08-15: „Wenn ein neues angeklickt
    wird, hört eins, das schon spielt, auf."
    ============================================================ */
-type Playable = { pause: () => void; play: () => void; playPause: () => void; isPlaying: () => boolean };
+type Playable = {
+  pause: () => void;
+  play: () => void;
+  playPause: () => void;
+  isPlaying: () => boolean;
+  isReady: () => boolean;
+};
 export type { Playable };
 let activePlayer: Playable | null = null;
+
+/**
+ * Pure Entscheidung für Play/Stop-Toggles (2026-08-16).
+ *
+ * - spielt das Audio → "pause" (Stop: Markierung bleibt exakt stehen)
+ * - steht es am ENDE (finish) → "stay": Toggle lässt die Markierung am
+ *   Ende stehen, statt auf 0 zu springen (WaveSurfer-`_play()` resettet
+ *   sonst jede Position >= duration auf 0 — User: „beim Stoppen am Ende
+ *   springt die Markierung immer zurück")
+ * - nicht abspielbar (Audio noch nicht geladen/decodiert) → "noop"
+ * - sonst → "play"
+ */
+export type PlayPauseAction = "pause" | "stay" | "play" | "noop";
+export function decidePlayPause(playing: boolean, atEnd: boolean, canPlay: boolean): PlayPauseAction {
+  if (playing) return "pause";
+  if (atEnd) return "stay";
+  if (!canPlay) return "noop";
+  return "play";
+}
 
 /** Registriert `me` als aktiven Player und pausiert den vorherigen. */
 export function claimExclusivePlayback(me: Playable): void {
@@ -61,13 +86,14 @@ export function releaseExclusivePlayback(me: Playable): void {
 /**
  * Globaler Play/Stop (Feature 2026-08-16, Space-Taste): togglet den
  * zuletzt beanspruchten Player — spielt er, wird pausiert; steht er,
- * wird gestartet. Kein aktiver Player → no-op.
+ * wird gestartet. Am Ende der Aufnahme bleibt die Markierung stehen
+ * (kein Auto-Reset auf 0); ohne geladenes Audio kein Play. Kein
+ * aktiver Player → no-op.
  */
 export function toggleActivePlayback(): void {
   const p = activePlayer;
   if (!p) return;
-  if (p.isPlaying()) p.pause();
-  else p.play();
+  p.playPause();
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
@@ -92,6 +118,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
     const [playing, setPlaying] = useState(false);
+    // Play erst möglich, wenn das echte Audio dekodiert ist (2026-08-16):
+    // das `ready`-Event feuert mit Server-Peaks VOR dem Hintergrund-Decode
+    // der Audiodatei — Play war also drückbar, obwohl noch nichts hörbar
+    // war. `canplay` der Media-Quelle = echte Abspielbarkeit.
+    const [canPlay, setCanPlay] = useState(false);
+    const canPlayRef = useRef(false);
+    canPlayRef.current = canPlay;
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       const pps = ZOOM_STEPS[idx];
@@ -201,10 +234,24 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Audio-Exklusivität: Start dieses Players pausiert jeden anderen.
       const me: Playable = {
         pause: () => ws.pause(),
-        play: () => ws.play(),
-        playPause: () => ws.playPause(),
+        play: () => { if (canPlayRef.current) ws.play(); },
+        playPause: () => {
+          const playing = ws.isPlaying();
+          const atEnd = ws.getDuration() > 0 && ws.getCurrentTime() >= ws.getDuration() - 0.02;
+          const action = decidePlayPause(playing, atEnd, canPlayRef.current);
+          if (action === "pause") ws.pause();
+          else if (action === "stay") ws.setTime(ws.getDuration());
+          else if (action === "play") ws.play();
+          // "noop": Audio noch nicht abspielbar → nichts
+        },
         isPlaying: () => ws.isPlaying(),
+        isReady: () => canPlayRef.current,
       };
+      // Abspielbarkeit: echtes Audio dekodiert (WebAudio-Backend emittiert
+      // "canplay" nach decodeAudioData — auch im Peaks-Pfad). Optional
+      // chaining: Test-Mocks ohne getMediaElement dürfen nicht crashen.
+      const mediaEl = (ws.getMediaElement?.() ?? null) as unknown as { on?: (ev: string, cb: () => void) => void } | null;
+      mediaEl?.on?.("canplay", () => setCanPlay(true));
       // Beim Mount als aktiven Player merken (zuletzt geöffnete Card) —
       // damit der globale Play/Stop-Shortcut (Space) ein Ziel hat, auch
       // bevor je ein Play lief. Cleanup gibt die Exklusivität frei.
@@ -215,13 +262,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         onPlayStateRef.current?.(true);
         startSync();
       });
+      // WICHTIG (2026-08-16): pause/finish geben die Exklusivität NICHT
+      // frei — releaseExclusivePlayback würde activePlayer auf null setzen,
+      // und der globale Play/Stop-Shortcut (Space) hätte nach dem ersten
+      // Stop kein Ziel mehr („stop per space → space startet nicht wieder").
+      // claimExclusivePlayback beim play überschreibt den aktiven Player
+      // ohnehin; release bleibt nur fürs Unmount/destroy.
       ws.on("pause", () => {
-        releaseExclusivePlayback(me);
         setPlaying(false);
         onPlayStateRef.current?.(false);
       });
       ws.on("finish", () => {
-        releaseExclusivePlayback(me);
         setPlaying(false);
         onPlayStateRef.current?.(false);
       });
@@ -260,9 +311,22 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     }, [audioUrl]);
 
     useImperativeHandle(ref, () => ({
-      seekTo: (s: number) => { wsRef.current?.setTime(s); wsRef.current?.play(); },
+      seekTo: (s: number) => {
+        if (!canPlayRef.current) return;
+        wsRef.current?.setTime(s); wsRef.current?.play();
+      },
       seekToPaused: (s: number) => { wsRef.current?.setTime(s); },
-      playPause: () => wsRef.current?.playPause(),
+      playPause: () => {
+        const w = wsRef.current;
+        if (!w) return;
+        const playing = w.isPlaying();
+        const atEnd = w.getDuration() > 0 && w.getCurrentTime() >= w.getDuration() - 0.02;
+        const action = decidePlayPause(playing, atEnd, canPlayRef.current);
+        if (action === "pause") w.pause();
+        else if (action === "stay") w.setTime(w.getDuration());
+        else if (action === "play") w.playPause();
+        // "noop": Audio noch nicht abspielbar → nichts
+      },
       getCurrentTime: () => wsRef.current?.getCurrentTime() ?? 0,
       isPlaying: () => wsRef.current?.isPlaying() ?? false,
     }), []);
@@ -288,8 +352,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={() => wsRef.current?.playPause()}
-              className="btn-ghost-sm text-[13px] flex items-center gap-1"
-              title={playing ? "Pause" : "Play"}
+              disabled={!canPlay}
+              className="btn-ghost-sm text-[13px] flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
+              title={canPlay ? (playing ? "Pause" : "Play") : "Audio wird geladen…"}
             >
               {playing ? "⏸" : "▶"}
             </button>
