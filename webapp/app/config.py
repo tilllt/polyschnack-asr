@@ -81,15 +81,6 @@ class _Settings:
     #: (Memory-Cap, CrispASR-Issue #257). 30 s ist der Server-Default.
     DIARIZE_CHUNK_SECONDS: int = int(os.getenv("DIARIZE_CHUNK_SECONDS", "30"))
 
-    #: VAD-Slicing für den diar-Server (Longfile-Diarize 2026-08-16).
-    #: DEFAULT FALSE seit v0.8.28-Bump: Der echte Fix ist CrispASR #350/#352
-    #: (v0.8.26+, Longform-Chunks statt Single-Full-Length-Decode) — Live
-    #: verifiziert: 51-min-Datei komplett (44.149 Zeichen, 201 Wechsel),
-    #: ohne VAD und mit feinerer Segmentierung als der vad-Workaround.
-    #: vad=true war nur für v0.8.25 nötig und vergröbert die Wechsel
-    #: (10 statt 59 in den ersten 10 min) — bleibt als Notausstieg.
-    DIARIZE_VAD: str = os.getenv("DIARIZE_VAD", "false")
-
     #: OIDC (optional — when unset, no auth)
     OIDC_CLIENT_ID: str = os.getenv("OIDC_CLIENT_ID", "")
     OIDC_CLIENT_SECRET: str = os.getenv("OIDC_CLIENT_SECRET", "")
@@ -122,11 +113,6 @@ class _Settings:
     DOCKER_PROXY_URL: str = os.getenv("DOCKER_PROXY_URL", "http://docker-proxy:2375")
     #: Optional token the proxy requires (empty = no auth header).
     DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
-
-    #: TEMPORÄR (2026-08-16): Token für die Debug-Endpunkte unter /api/debug
-    #: (Diarize-Roh-Antwort + diar-Container-Logs). Leer = Endpunkte deaktiviert
-    #: (404). NACH ABSCHLUSS DER DIARIZE-DIAGNOSE WIEDER ENTFERNEN.
-    POLYSCHNACK_DEBUG_TOKEN: str = os.getenv("POLYSCHNACK_DEBUG_TOKEN", "")
 
     #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
     POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")

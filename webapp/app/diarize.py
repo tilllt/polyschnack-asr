@@ -74,22 +74,12 @@ def _post_diarize(
     audio_path: str,
     num_speakers: Optional[int],
     method: Optional[str],
-    vad: Optional[str] = None,
-    chunk_seconds: Optional[int] = None,
 ) -> "httpx.Response":
     """Baut den Request und liefert die rohe httpx-Antwort (auch bei != 200).
 
-    Gemeinsame Basis für :func:`diarize` (parst Segmente) und
-    :func:`diarize_raw` (Debug: unveränderte Server-Antwort). Der
-    Dateiname wird IMMER auf .wav gezwungen (CrispASR dekodiert anhand der
-    Dateiendung, nicht des Content-Types — Live-Befund 2026-08-16).
-
-    ``vad`` / ``chunk_seconds`` sind Debug-/Diagnose-Overrides (2026-08-16):
-    CrispASR v0.8.25 setzt bei parakeet (CAP_INTERNAL_CHUNKING) das
-    ``effective_chunk_seconds`` auf 0 und übergibt die ganze Datei als einen
-    Full-Decode — der bricht bei langem Audio nach 20-60 % ab (Live-Befund).
-    ``vad=true`` umgeht diese Bedingung (Server erzeugt dann VAD-begrenzte
-    Slices); Default bleibt None = unverändertes Server-Verhalten.
+    Gemeinsame Basis für :func:`diarize`. Der Dateiname wird IMMER auf .wav
+    gezwungen (CrispASR dekodiert anhand der Dateiendung, nicht des
+    Content-Types — Live-Befund 2026-08-16).
     """
     if method is not None and method not in DIARIZE_METHODS:
         raise ValueError(f"unbekannte diarize_method {method!r} — erlaubt: {', '.join(DIARIZE_METHODS)}")
@@ -120,15 +110,6 @@ def _post_diarize(
     }
     if num_speakers is not None:
         data["diarize_max_speakers"] = str(num_speakers)
-    # VAD-Slicing (Longfile-Fix 2026-08-16): Default aus Settings, Debug-
-    # Endpunkt kann explizit overriden. Ohne VAD bricht der Server bei
-    # parakeet (CAP_INTERNAL_CHUNKING → effective_chunk_seconds=0) nach
-    # 20-60 % der Eingabe ab (Live-Befund 51-min-Datei: 636 s von 3086 s).
-    vad_value = vad if vad is not None else settings.DIARIZE_VAD
-    if vad_value and str(vad_value).lower() not in ("false", "0", "no", ""):
-        data["vad"] = vad_value
-    if chunk_seconds is not None:
-        data["chunk_seconds"] = str(chunk_seconds)
 
     try:
         with httpx.Client(timeout=1800) as client:
@@ -197,29 +178,3 @@ def diarize(
             "speaker": _normalise_speaker(str(seg.get("speaker", "A"))),
         })
     return segments
-
-
-def diarize_raw(
-    audio_path: str,
-    num_speakers: Optional[int] = None,
-    method: Optional[str] = None,
-    vad: Optional[str] = None,
-    chunk_seconds: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Debug-Basis: unveränderte Server-Antwort (Status + Body).
-
-    Bewusst KEINE Fehler-Raise bei HTTP != 200 — die Roh-Antwort ist genau
-    dann diagnostisch wertvoll (z. B. HTTP 500 mit detail-Code). Nur wenn der
-    Service gar nicht erreichbar ist, wirft :class:`DiarizationError`.
-    """
-    resp = _post_diarize(audio_path, num_speakers, method, vad=vad,
-                         chunk_seconds=chunk_seconds)
-    try:
-        body: Any = resp.json()
-    except Exception:
-        body = {"_raw_text": resp.text[:4000]}
-    return {
-        "status_code": resp.status_code,
-        "content_type": resp.headers.get("content-type", ""),
-        "json": body,
-    }

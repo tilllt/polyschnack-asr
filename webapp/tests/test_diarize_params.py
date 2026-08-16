@@ -99,29 +99,20 @@ def test_diarize_chunk_seconds_wird_mitgesendet(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["chunk_seconds"] == str(settings.DIARIZE_CHUNK_SECONDS)
 
 
-def test_diarize_sendet_kein_vad_mit_default(monkeypatch, tmp_path):
-    """Seit v0.8.28-Bump (2026-08-16): Default DIARIZE_VAD=false.
+def test_diarize_sendet_kein_vad_feld(monkeypatch, tmp_path):
+    """Regressionssicherung Longfile-Diarize (2026-08-16).
 
-    Der echte Longfile-Fix ist CrispASR #350/#352 (v0.8.26+) — live
-    verifiziert: 51-min-Datei ohne vad komplett (44.149 Zeichen, 201
-    Wechsel, feiner als mit vad). vad=true bleibt nur Notausstieg.
+    Der vad-Workaround (nur für CrispASR v0.8.25 nötig, vergröbert die
+    Speaker-Wechsel) ist entfernt — der Request enthält kein vad-Feld.
+    Der echte Fix ist der CrispASR-Versions-Bump ≥ v0.8.26 (#350/#352),
+    live verifiziert mit v0.8.28: 51-min-Datei komplett (44.149 Zeichen,
+    201 Wechsel), ohne VAD.
     """
     fc = _patch(monkeypatch)
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF....")
     diarize(str(p))
-    assert fc.last_kwargs["data"].get("vad") in (None, "false")
-    assert settings.DIARIZE_VAD == "false"
-
-
-def test_diarize_vad_notausstieg_aktivierbar(monkeypatch, tmp_path):
-    """DIARIZE_VAD=true → vad-Feld wird gesendet (Notausstieg für v0.8.25)."""
-    fc = _patch(monkeypatch)
-    monkeypatch.setattr(settings, "DIARIZE_VAD", "true")
-    p = tmp_path / "x.wav"
-    p.write_bytes(b"RIFF....")
-    diarize(str(p))
-    assert fc.last_kwargs["data"]["vad"] == "true"
+    assert "vad" not in fc.last_kwargs["data"]
 
 
 def test_diarize_mp3_upload_bekommt_wav_dateinamen(monkeypatch, tmp_path):
