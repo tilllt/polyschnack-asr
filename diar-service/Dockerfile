@@ -46,12 +46,21 @@ RUN wget -q "${CRISPASR_ORT_ARTIFACT_URL}" -O /tmp/crispasr-ort.tar.gz \
     && tar xzf /tmp/crispasr-ort.tar.gz -C /opt \
     && rm /tmp/crispasr-ort.tar.gz \
     && ln -sf /opt/crispasr-ort/bin/crispasr /usr/local/bin/crispasr \
-    && chmod +x /usr/local/bin/crispasr
+    && chmod +x /usr/local/bin/crispasr \
+    # Das Release-Tarball enthält NUR libonnxruntime.so.1.21.0 (keine .so.1-
+    # Symlinks!) — der Dynamic Linker matcht exakt den SONAME .so.1 → ohne
+    # Link crasht das Binary trotz korrektem LD_LIBRARY_PATH. Link nach der
+    # höchsten Version anlegen (fix: ORT 1.21.0; sort -V robust bei Wechsel):
+    && ortlib="$(ls -1 /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.* 2>/dev/null | sort -Vr | head -1)" \
+    && [ -n "${ortlib}" ] \
+    && ln -sf "$(basename "${ortlib}")" /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.1
 
 ENV LD_LIBRARY_PATH=/opt/crispasr-ort/lib:/opt/crispasr-ort/lib/onnxruntime
 
-# Verify
-RUN crispasr --help 2>&1 | head -5
+# Verify — OHNE Pipe: der Exit-Code von crispasr muss durchschlagen
+# (2026-08-16: `crispasr --help | head -5` maskierte den Crash — Build
+#  wurde gruen, obwohl libonnxruntime.so.1 fehlte → kaputtes Image).
+RUN crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
 
 # Model volume — parakeet GGUF hier mounten (q8_0, ~640 MB). Fehlt die
 # Datei, lädt der Entrypoint sie automatisch von HuggingFace nach
