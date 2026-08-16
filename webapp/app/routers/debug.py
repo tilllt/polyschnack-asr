@@ -59,6 +59,8 @@ def debug_diar_raw(
     recording_id: str = Query(..., description="Recording-UID"),
     method: Optional[str] = Query(None, description="pyannote|foxnose|vad-turns|… (Default: Server-Methode)"),
     num_speakers: Optional[int] = Query(None, ge=1, le=8),
+    vad: Optional[str] = Query(None, description="Diagnose: 'true' erzwingt VAD-Slicing (umgeht Full-Decode-Abbruch bei parakeet)"),
+    chunk_seconds: Optional[int] = Query(None, ge=1, le=600, description="Diagnose: chunk_seconds-Override"),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Roh-Antwort des diar-Service für ein bestehendes Recording (kein Merge).
@@ -74,7 +76,8 @@ def debug_diar_raw(
     if not Path(rec.stored_path).exists():
         raise HTTPException(404, f"audio file missing: {rec.stored_path}")
     try:
-        return diarize_raw(rec.stored_path, num_speakers=num_speakers, method=method)
+        return diarize_raw(rec.stored_path, num_speakers=num_speakers, method=method,
+                           vad=vad, chunk_seconds=chunk_seconds)
     except Exception as exc:  # DiarizationError und unerwartete Fehler sichtbar machen
         raise HTTPException(502, f"diarize_raw failed: {exc}") from exc
 

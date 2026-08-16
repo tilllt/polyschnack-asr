@@ -65,7 +65,7 @@ def test_diar_raw_passthrough(client, monkeypatch, tmp_path):
         calls["uid"] = uid
         return _FakeRec()
 
-    def _fake_diarize_raw(path, num_speakers=None, method=None):
+    def _fake_diarize_raw(path, num_speakers=None, method=None, vad=None, chunk_seconds=None):
         calls["path"] = path
         calls["num_speakers"] = num_speakers
         calls["method"] = method
@@ -99,10 +99,34 @@ def test_diar_raw_header_token(client, monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "app.routers.debug.diarize_raw",
-        lambda path, num_speakers=None, method=None: {"status_code": 200, "json": {}},
+        lambda path, num_speakers=None, method=None, vad=None, chunk_seconds=None: {"status_code": 200, "json": {}},
     )
     r = client.get("/api/debug/diar/raw?recording_id=abc123", headers={"X-Debug-Token": "geheim"})
     assert r.status_code == 200
+
+
+def test_diar_raw_vad_chunk_overrides(client, monkeypatch, tmp_path):
+    """vad/chunk_seconds werden an diarize_raw durchgereicht."""
+    monkeypatch.setattr(settings, "POLYSCHNACK_DEBUG_TOKEN", "geheim")
+    audio = tmp_path / "x.wav"
+    audio.write_bytes(b"RIFF....")
+    sent = {}
+
+    class _FakeRec:
+        stored_path = str(audio)
+
+    monkeypatch.setattr("app.routers.debug.get_recording_by_uid", lambda session, uid: _FakeRec())
+
+    def _fake_raw(path, num_speakers=None, method=None, vad=None, chunk_seconds=None):
+        sent.update(vad=vad, chunk_seconds=chunk_seconds, method=method)
+        return {"status_code": 200, "json": {}}
+
+    monkeypatch.setattr("app.routers.debug.diarize_raw", _fake_raw)
+    r = client.get(
+        "/api/debug/diar/raw?recording_id=abc&vad=true&chunk_seconds=15&method=pyannote&token=geheim"
+    )
+    assert r.status_code == 200
+    assert sent == {"vad": "true", "chunk_seconds": 15, "method": "pyannote"}
 
 
 def test_datei_fallback_aktiviert(client, monkeypatch, tmp_path):
