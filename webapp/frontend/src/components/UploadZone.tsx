@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, mergeRecordings, type UserInfo } from "../api";
@@ -43,6 +43,60 @@ export function UploadZone({ user }: Props) {
   const noiseReduce = importFeat.noise;
   const enhanceLevel = importFeat.enhance;
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
+
+  // ── Offline-Puffer: Recovery in der IMMER gemounteten Komponente ──
+  // (2026-08-16: lag vorher im RecordTab und lief beim App-Start nicht,
+  //  weil der Start-Tab "upload" ist. Jetzt: Auto-Retry beim Start +
+  //  bei jedem online-Event, Banner in allen Tabs sichtbar.)
+  const [pendingCount, setPendingCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+
+  const refreshPending = useCallback(async () => {
+    setPendingCount((await loadPendingRecordings()).length);
+  }, []);
+
+  const retryPending = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const recs = await loadPendingRecordings();
+      for (const rec of recs) {
+        try {
+          const res = await fetch("/api/recordings", { method: "POST", body: pendingToFormData(rec) }).then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r;
+          });
+          await res.json();
+          await deletePendingRecording(rec.id);
+          toast(`Upload ok: ${rec.fileName}`, "ok");
+        } catch (e) {
+          toast(`Retry fehlgeschlagen: ${(e as Error).message}`, "err");
+        }
+      }
+      await refreshPending();
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } finally {
+      setRetrying(false);
+    }
+  }, [retrying, refreshPending, toast, qc]);
+
+  // Beim Start + bei jedem online-Event: nach Crash/Device-aus lokal
+  // gepufferte Aufnahmen automatisch hochladen.
+  useEffect(() => {
+    void loadPendingRecordings().then((recs) => {
+      setPendingCount(recs.length);
+      if (recs.length > 0 && navigator.onLine) void retryPending();
+    });
+    const onOnline = () => {
+      void loadPendingRecordings().then((recs) => {
+        setPendingCount(recs.length);
+        if (recs.length > 0) void retryPending();
+      });
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // merged-Modus: der Upload-Loop pausiert bei einem Duplikat und wartet auf
   // die Entscheidung im Dialog („Upload again" → uid, „Skip" → null).
   const dupWaitRef = useRef<((uid: string | null) => void) | null>(null);
@@ -253,6 +307,20 @@ export function UploadZone({ user }: Props) {
       </div>
 
       {/* Tab content */}
+      {pendingCount > 0 && (
+        <div className="w-full bg-[rgba(217,158,43,.1)] border border-[#d99e2b]/40 rounded-sm px-3 py-2 flex items-center gap-2 mt-2">
+          <span className="text-[12px] text-txt flex-1">
+            💾 {t("offline_pending")}: {pendingCount}
+          </span>
+          <button
+            onClick={() => void retryPending()}
+            disabled={retrying}
+            className="bg-[#d99e2b] text-white text-[11px] px-2.5 py-1 rounded-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+          >
+            {retrying ? t("offline_retrying") : t("offline_retry")}
+          </button>
+        </div>
+      )}
       {inputMode === "upload" && (
         <>
           <UploadTab
@@ -362,6 +430,7 @@ export function UploadZone({ user }: Props) {
           t={t}
           vadOn={vadOn} diarizeOn={diarizeOn}
           livePreview={livePreview} noiseReduce={noiseReduce} enhanceLevel={enhanceLevel}
+          refreshPending={refreshPending}
         />
       )}
       {inputMode === "url" && (
@@ -499,13 +568,11 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
 
 // ── Record tab ──
 
-function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel }: any) {
+function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, refreshPending }: any) {
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [retrying, setRetrying] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -526,6 +593,16 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const gestureDone = useRef(false);
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
+  // ── Periodischer Crash-Snapshot (2026-08-16) ──
+  // Ein zweiter MediaRecorder (Timeslice 5 s) auf demselben Stream
+  // schreibt den bisherigen Aufnahmestand regelmässig nach IndexedDB.
+  // Wenn die App während der Aufnahme crasht/abgeschaltet wird, bleibt
+  // der letzte Stand im Offline-Puffer und wird beim nächsten Start
+  // automatisch hochgeladen (statt die ganze Aufnahme zu verlieren).
+  const snapshotRecRef = useRef<MediaRecorder | null>(null);
+  const snapshotChunksRef = useRef<Blob[]>([]);
+  const snapshotPendingRef = useRef<PendingRecording | null>(null);
+
   // Anleitung beim ersten Besuch automatisch zeigen
   useEffect(() => {
     if (isTouch && !localStorage.getItem("ps_pushtorecord_help_seen")) {
@@ -533,42 +610,6 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       localStorage.setItem("ps_pushtorecord_help_seen", "1");
     }
   }, [isTouch]);
-
-  // Offline-Puffer beim Start laden + offene Aufnahmen automatisch hochladen
-  useEffect(() => {
-    void loadPendingRecordings().then((recs) => {
-      setPendingCount(recs.length);
-      if (recs.length > 0 && navigator.onLine) {
-        void retryPending();
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function retryPending() {
-    if (retrying) return;
-    setRetrying(true);
-    try {
-      const recs = await loadPendingRecordings();
-      for (const rec of recs) {
-        try {
-          const res = await fetch("/api/recordings", { method: "POST", body: pendingToFormData(rec) }).then((r) => {
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r;
-          });
-          await res.json();
-          await deletePendingRecording(rec.id);
-          toast(`Upload ok: ${rec.fileName}`, "ok");
-        } catch (e) {
-          toast(`Retry fehlgeschlagen: ${(e as Error).message}`, "err");
-        }
-      }
-      setPendingCount((await loadPendingRecordings()).length);
-      await qc.invalidateQueries({ queryKey: ["recordings"] });
-    } finally {
-      setRetrying(false);
-    }
-  }
 
   async function acquireWakeLock() {
     try {
@@ -665,6 +706,22 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     onRecordingChange(true);
     chunksRef.current = [];
 
+    // Crash-Snapshot: Grunddaten vorab festlegen — der finale Upload
+    // (record-end) nutzt dieselbe id und überschreibt den Snapshot.
+    snapshotChunksRef.current = [];
+    snapshotPendingRef.current = {
+      id: crypto.randomUUID(),
+      blob: new Blob([], { type: "audio/webm" }),
+      fileName: `recording_${Date.now()}.webm`,
+      mime: "audio/webm",
+      createdAt: Date.now(),
+      vad: vadOn,
+      diarize: diarizeOn,
+      streaming: livePreview,
+      noiseReduce,
+      enhance: enhanceLevel,
+    };
+
     // Create WaveSurfer with Record plugin
     const record = RecordPlugin.create({
       scrollingWaveform: true,
@@ -694,6 +751,15 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     });
 
     record.on("record-end", async (blob: Blob) => {
+      // Crash-Snapshot stoppen — ab jetzt wird kein Chunk mehr gesammelt
+      // (Guard oben), damit der letzte dataavailable den finalen Eintrag
+      // nicht überschreibt. Der finale Blob nutzt dieselbe id und ersetzt
+      // den letzten Snapshot im IndexedDB-Puffer.
+      const snapshotId = snapshotPendingRef.current?.id;
+      snapshotPendingRef.current = null;
+      snapshotRecRef.current?.stop();
+      snapshotRecRef.current = null;
+
       clearInterval(timerRef.current);
       setDuration(0);
       setPaused(false);
@@ -716,7 +782,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       setUploadPhase("saving");
       const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
       const pending: PendingRecording = {
-        id: crypto.randomUUID(),
+        id: snapshotId ?? crypto.randomUUID(),
         blob,
         fileName: `recording_${Date.now()}${ext}`,
         mime: blob.type,
@@ -728,7 +794,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         enhance: enhanceLevel,
       };
       await savePendingRecording(pending);
-      setPendingCount((await loadPendingRecordings()).length);
+      void refreshPending();
 
       try {
         // 2) Peak-normalize (kann bei langen Aufnahmen dauern — Feedback zeigen)
@@ -741,7 +807,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         setUploadPct(0);
         await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, (pct) => setUploadPct(pct));
         await deletePendingRecording(pending.id); // Upload bestätigt → Puffer leeren
-        setPendingCount((await loadPendingRecordings()).length);
+        void refreshPending();
         setUploadPhase("done");
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
@@ -773,6 +839,30 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         echoCancellation: false,
         autoGainControl: true,
       });
+
+      // Crash-Snapshot: zweiter MediaRecorder auf demselben Stream —
+      // alle 5 s wird der bisherige Stand nach IndexedDB geschrieben.
+      if (micStreamRef.current && typeof MediaRecorder !== "undefined") {
+        const snap = new MediaRecorder(micStreamRef.current, {
+          audioBitsPerSecond: 128000,
+        });
+        snap.ondataavailable = (e) => {
+          if (e.data.size === 0 || !snapshotPendingRef.current) return;
+          snapshotChunksRef.current.push(e.data);
+          const partial = new Blob(snapshotChunksRef.current, {
+            type: snap.mimeType || "audio/webm",
+          });
+          void savePendingRecording({
+            ...snapshotPendingRef.current!,
+            blob: partial,
+            mime: partial.type,
+          });
+        };
+        snap.start(5000);
+        snapshotRecRef.current = snap;
+      }
+      record.on("record-pause", () => snapshotRecRef.current?.pause());
+      record.on("record-resume", () => snapshotRecRef.current?.resume());
     } catch (e) {
       toast(`Mic access denied: ${(e as Error).message}`, "err");
       ws.destroy();
@@ -884,21 +974,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         className={`w-full max-w-[500px] px-2 sm:px-0 min-h-[60px] ${recording ? "" : "invisible"}`}
       />
 
-      {/* Offline-Puffer: lokal gesicherte Aufnahmen, deren Upload noch aussteht */}
-      {pendingCount > 0 && (
-        <div className="w-full max-w-[500px] bg-[rgba(217,158,43,.1)] border border-[#d99e2b]/40 rounded-sm px-3 py-2 flex items-center gap-2">
-          <span className="text-[12px] text-txt flex-1">
-            💾 {t("offline_pending")}: {pendingCount}
-          </span>
-          <button
-            onClick={() => void retryPending()}
-            disabled={retrying}
-            className="bg-[#d99e2b] text-white text-[11px] px-2.5 py-1 rounded-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
-          >
-            {retrying ? t("offline_retrying") : t("offline_retry")}
-          </button>
-        </div>
-      )}
+      {/* Offline-Puffer-Banner: liegt jetzt in der Hauptkomponente
+          (UploadZone), damit er in allen Tabs + beim App-Start sichtbar ist. */}
 
       {/* Mobile: animierte Gesten-Anleitung */}
       {isTouch && showHelp && (
