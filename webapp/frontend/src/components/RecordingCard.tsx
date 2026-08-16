@@ -406,7 +406,15 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     try {
       const result = await replaceSegments(r.uid, dragSegments);
       handleEdited(result.segments, result.text);
-      setDragSegments(null); // Cache ist jetzt die Quelle → Anzeige = gespeichert
+      // Fix 2026-08-16: NICHT auf null setzen! Bei gesetztem segMaxDuration
+      // rechnet displaySegments sonst sofort resegmentByDuration() wieder
+      // drüber → manuelle Grenze verschwindet aus der Anzeige, der nächste
+      // Drag startet von der Auto-Aufteilung und überschreibt die manuelle
+      // Grenze beim nächsten PUT (Regression „speichert nicht").
+      // result.segments ist referenz-gleich mit dem Cache (handleEdited) →
+      // das useEffect unten resettet dragSegments erst bei ECHT neuen
+      // Server-Segmenten (z. B. nach Retranscribe).
+      setDragSegments(result.segments);
       toast(t("boundary_saved"), "ok");
     } catch (err) {
       toast(
@@ -415,6 +423,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       );
     }
   }
+
+  // Manuelle Grenzen nur so lange aktiv, wie die zugrunde liegenden
+  // Segmente identisch sind. Kommen nach Retranscribe/Reload ECHT neue
+  // Server-Segmente (andere Referenz), verfällt die alte Drag-Liste —
+  // sonst bliebe eine veraltete manuelle Aufteilung stehen.
+  useEffect(() => {
+    setDragSegments((cur) => (cur && cur !== segments ? null : cur));
+  }, [segments]);
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
@@ -724,11 +740,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                       {displaySegments.length} × ≤ {segMaxDuration} s
                     </span>
                   )}
-                  {segMaxDuration == null && (
-                    <span className="text-[11px] text-muted2">
-                      {t("boundary_drag_hint_short")}
-                    </span>
-                  )}
+                  <span className="text-[11px] text-muted2">
+                    {t("boundary_drag_hint_short")}
+                  </span>
                 </div>
                 <SegmentList
                   segments={displaySegments}

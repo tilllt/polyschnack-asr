@@ -245,7 +245,27 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
-          <span className="text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0 opacity-85 tabular-nums">
+          <span
+            className={`
+              text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0
+              opacity-85 tabular-nums
+              ${i > 0 && onBoundaryMoved
+                ? `cursor-ns-resize touch-none select-none rounded-sm px-0.5 -mx-0.5 ${dragIdx === i - 1 ? "bg-[rgba(91,140,255,0.16)] text-accent" : "hover:bg-[rgba(91,140,255,0.08)]"}`
+                : ""}
+            `}
+            onClick={(e) => {
+              // Timecode = Drag-Handle der Grenze davor — kein Seek/Edit
+              if (i > 0 && onBoundaryMoved) e.stopPropagation();
+            }}
+            onDoubleClick={(e) => {
+              if (i > 0 && onBoundaryMoved) e.stopPropagation();
+            }}
+            onPointerDown={i > 0 && onBoundaryMoved ? (e) => onBoundaryPointerDown(e, i - 1) : undefined}
+            onPointerMove={i > 0 && onBoundaryMoved ? onBoundaryPointerMove : undefined}
+            onPointerUp={i > 0 && onBoundaryMoved ? onBoundaryPointerUp : undefined}
+            onPointerCancel={i > 0 && onBoundaryMoved ? onBoundaryPointerUp : undefined}
+            title={i > 0 && onBoundaryMoved ? t("boundary_drag_hint") : undefined}
+          >
             {fmtTimecode(seg.start)}
           </span>
           {speaker && (
@@ -380,36 +400,12 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             </span>
           )}
         </div>
-        {/* Feature 2026-08-15: draggable Timecode-Grenze zum nächsten
-            Segment. Erste Grenze (vor Segment 0) und letzte (nach dem
-            letzten) existieren nicht — die äußeren Marker sind fix. */}
-        {onBoundaryMoved && i < segments.length - 1 && (
-          <div
-            role="separator"
-            aria-label={`Grenze ${i + 1}`}
-            onPointerDown={(e) => onBoundaryPointerDown(e, i)}
-            onPointerMove={onBoundaryPointerMove}
-            onPointerUp={onBoundaryPointerUp}
-            onPointerCancel={onBoundaryPointerUp}
-            className={`
-              group flex items-center gap-1.5 px-3
-              select-none touch-none cursor-ns-resize
-              ${dragIdx === i ? "bg-[rgba(91,140,255,0.12)]" : "hover:bg-[rgba(91,140,255,0.05)]"}
-            `}
-            style={{ height: 22 }}
-            title={t("boundary_drag_hint")}
-          >
-            <span className="flex items-center gap-1">
-              <span className={`inline-block w-5 h-[3px] rounded-full ${dragIdx === i ? "bg-accent" : "bg-border2 group-hover:bg-accent/60"}`} />
-            </span>
-            <span className="text-[10px] tabular-nums text-muted2 group-hover:text-accent">
-              {fmtTimecode(segments[i].end)}
-            </span>
-            <span className="ml-auto text-[9px] text-muted2 opacity-0 group-hover:opacity-100">
-              ⇕
-            </span>
-          </div>
-        )}
+        {/* Feature 2026-08-15/16: draggable Grenze. Seit 2026-08-16 sind die
+            Start-Timecodes der Zeilen selbst die Drag-Handles (Grenze VOR
+            Segment i = Timecode von Segment i, i > 0) — die separaten
+            22-px-Streifen entfallen (User: „extra handles nerven"). Erste
+            Grenze (vor Segment 0) und letzte (nach dem letzten) existieren
+            nicht — die äußeren Marker sind fix. */}
         </Fragment>
         );
       })}
