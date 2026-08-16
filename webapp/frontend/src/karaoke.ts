@@ -106,6 +106,44 @@ export function isKaraokeReady(seg: KaraokeSegment): boolean {
 }
 
 /**
+ * Ziel-Wort für die Tastatur-Navigation (Cursor ←/→, Feature 2026-08-16).
+ *
+ * Gibt `{ segIdx, wIdx }` des Wortes NACH (`dir=1`) bzw. VOR (`dir=-1`)
+ * dem aktuell aktiven Wort zurück — segmentübergreifend. Basis ist das
+ * aktive Segment + aktives Wort (aus currentTime). Gibt null zurück, wenn
+ * es kein Ziel gibt (Anfang/Ende der Transkription erreicht).
+ */
+export function nextWordTarget(
+  segments: KaraokeSegment[],
+  activeIdx: number,
+  currentTime: number,
+  dir: 1 | -1,
+): { segIdx: number; wIdx: number } | null {
+  if (!segments || segments.length === 0 || activeIdx < 0) return null;
+  const seg = segments[activeIdx];
+  if (!seg) return null;
+  const words = seg.words ?? [];
+  if (words.length === 0) return null;
+  const aw = currentTime >= 0 ? activeWordIndex(words, currentTime) : -1;
+
+  if (dir === 1) {
+    // erstes Wort im selben Segment, sonst erstes Wort des nächsten Segments
+    if (aw + 1 < words.length) return { segIdx: activeIdx, wIdx: aw + 1 };
+    for (let i = activeIdx + 1; i < segments.length; i++) {
+      if ((segments[i].words ?? []).length > 0) return { segIdx: i, wIdx: 0 };
+    }
+    return null;
+  }
+  // dir === -1
+  if (aw > 0) return { segIdx: activeIdx, wIdx: aw - 1 };
+  for (let i = activeIdx - 1; i >= 0; i--) {
+    const w = segments[i].words ?? [];
+    if (w.length > 0) return { segIdx: i, wIdx: w.length - 1 };
+  }
+  return null;
+}
+
+/**
  * Soll der SegmentList-Container zum aktiven Segment scrollen?
  *
  * Ein Element gilt als sichtbar, wenn es VOLLSTÄNDIG im sichtbaren Bereich

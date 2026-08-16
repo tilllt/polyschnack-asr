@@ -23,10 +23,15 @@ function makePlayable(): Playable & { paused: boolean } {
       playing = false;
       p.paused = true;
     },
+    play: () => {
+      playing = true;
+      p.paused = false;
+    },
+    playPause: () => {
+      if (playing) p.pause();
+      else p.play();
+    },
     isPlaying: () => playing,
-  };
-  (p as unknown as { play: () => void }).play = () => {
-    playing = true;
   };
   return p;
 }
@@ -37,7 +42,7 @@ describe("audio exclusivity", () => {
     // sind "zerstört" — release mit einem frischen Objekt genügt nicht,
     // daher hier über den Export-Pfad: claim eines Dummy + release.
     // (Das Singleton ist pro Testdatei-Modul frisch, aber Tests teilen es.)
-    const dummy: Playable = { pause: () => {}, isPlaying: () => false };
+    const dummy: Playable = { pause: () => {}, play: () => {}, playPause: () => {}, isPlaying: () => false };
     claimExclusivePlayback(dummy);
     releaseExclusivePlayback(dummy);
   });

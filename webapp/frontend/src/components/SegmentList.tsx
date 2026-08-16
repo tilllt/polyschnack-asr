@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
-import { activeWordIndex, confidenceClass, hasConfidence, shouldScrollIntoView } from "../karaoke";
+import { activeWordIndex, confidenceClass, hasConfidence, shouldScrollIntoView, nextWordTarget } from "../karaoke";
 import { moveBoundary } from "../resegment";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -53,7 +53,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
-  const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
+  const [renamingSpeakerIdx, setRenamingSpeakerIdx] = useState<number | null>(null);
   const [renameText, setRenameText] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
@@ -131,9 +131,12 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
   // springt in der Segmentliste (Container max-h + overflow) wie zu einem
   // Anchor zur Zeile — auch wenn der Klick die Zeile schon sichtbar gemacht
   // hat. focus({preventScroll:true}) verhindert den Sprung. (2026-08-14)
+  // Fix 2026-08-16: renamingSpeakerIdx (SEGMENT-Index) statt Speaker-Name —
+  // der String-Zustand zeigte das Rename-Input in JEDEM Segment mit demselben
+  // Sprecher und fokussierte das LETZTE (Sprung ans Listenende).
   useEffect(() => {
-    if (renamingSpeaker) renameInputRef.current?.focus({ preventScroll: true });
-  }, [renamingSpeaker]);
+    if (renamingSpeakerIdx !== null) renameInputRef.current?.focus({ preventScroll: true });
+  }, [renamingSpeakerIdx]);
   useEffect(() => {
     if (editingIdx !== null) editAreaRef.current?.focus({ preventScroll: true });
   }, [editingIdx]);
@@ -238,14 +241,14 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
     if (renameSaving || !recordingId || !onEdited) return;
     const newName = renameText.trim();
     if (!newName || newName === speaker) {
-      setRenamingSpeaker(null);
+      setRenamingSpeakerIdx(null);
       return;
     }
     setRenameSaving(true);
     try {
       const result = await renameSpeaker(recordingId, speaker, newName);
       onEdited(result.segments, result.text);
-      setRenamingSpeaker(null);
+      setRenamingSpeakerIdx(null);
       toast(t("rename_speaker_saved"), "ok");
     } catch (err) {
       // Input offen lassen, User kann es erneut versuchen; Fehler sichtbar
@@ -309,7 +312,24 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             setEditText(seg.text);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") { handleClick(i); }
+            // Guard: Tasten in Edit-Feldern (Text-Edit, Sprecher-Rename)
+            // dürfen die Zeilen-Navigation NICHT auslösen (bubbeln sonst
+            // hierher: Enter im Textarea = Zeilen-Seek!).
+            const t = e.target as HTMLElement;
+            if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable) return;
+            if (e.key === "Enter") { handleClick(i); return; }
+            // Cursor ←/→: Wort-für-Wort-Navigation (Feature 2026-08-16).
+            // Space übernimmt der globale Play/Stop-Handler (capture).
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+              e.preventDefault();
+              e.stopPropagation();
+              const target = nextWordTarget(segments, activeIdx, currentTime ?? 0, e.key === "ArrowRight" ? 1 : -1);
+              if (!target) return;
+              const w = segments[target.segIdx]?.words?.[target.wIdx];
+              if (!w) return;
+              onActiveChange?.(target.segIdx);
+              onSeekTo?.(typeof w.start === "number" ? w.start : 0);
+            }
           }}
           className={`
             flex items-baseline gap-x-2 px-3 py-[6px]
@@ -362,7 +382,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
             {fmtTimecode(seg.start)}
           </span>
           {speaker && (
-            renamingSpeaker === speaker ? (
+            renamingSpeakerIdx === i ? (
               <input
                 className="text-[11px] font-bold text-[#25d366] min-w-[80px] max-w-[140px] flex-shrink-0 bg-panel2 border border-border rounded-sm px-1 py-0.5 uppercase tracking-[.04em]"
                 value={renameText}
@@ -371,7 +391,7 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => e.stopPropagation()}
                 onKeyDown={async (e) => {
-                  if (e.key === "Escape") { setRenamingSpeaker(null); return; }
+                  if (e.key === "Escape") { setRenamingSpeakerIdx(null); return; }
                   if (e.key === "Enter") {
                     e.preventDefault();
                     e.stopPropagation();
@@ -399,8 +419,12 @@ export function SegmentList({ segments, onSeekTo, activeIdx, onActiveChange, rec
                 </span>
                 <button
                   onClick={(e) => {
+                    // Fix 2026-08-16: Stift bearbeitet DIESES Segment (Index
+                    // i) — vorher zeigte der String-Zustand das Input in allen
+                    // Segmenten mit demselben Sprecher und der Fokus sprang ans
+                    // Ende der Liste.
                     e.stopPropagation();
-                    setRenamingSpeaker(speaker);
+                    setRenamingSpeakerIdx(i);
                     setRenameText(speaker.replace("SPEAKER_", ""));
                   }}
                   className="text-[11px] leading-none text-muted2 hover:text-accent px-0.5 cursor-pointer"

@@ -37,7 +37,7 @@ const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
    hinweg). User-Anforderung 2026-08-15: „Wenn ein neues angeklickt
    wird, hört eins, das schon spielt, auf."
    ============================================================ */
-type Playable = { pause: () => void; isPlaying: () => boolean };
+type Playable = { pause: () => void; play: () => void; playPause: () => void; isPlaying: () => boolean };
 export type { Playable };
 let activePlayer: Playable | null = null;
 
@@ -46,12 +46,26 @@ export function claimExclusivePlayback(me: Playable): void {
   if (activePlayer && activePlayer !== me && activePlayer.isPlaying()) {
     activePlayer.pause();
   }
+  // Immer merken (auch wenn nicht spielend): Space/Play-Shortcuts zielen
+  // auf den zuletzt beanspruchten Player (Feature 2026-08-16).
   activePlayer = me;
 }
 
 /** Gibt die Exklusivität frei, wenn `me` noch der aktive Player ist. */
 export function releaseExclusivePlayback(me: Playable): void {
   if (activePlayer === me) activePlayer = null;
+}
+
+/**
+ * Globaler Play/Stop (Feature 2026-08-16, Space-Taste): togglet den
+ * zuletzt beanspruchten Player — spielt er, wird pausiert; steht er,
+ * wird gestartet. Kein aktiver Player → no-op.
+ */
+export function toggleActivePlayback(): void {
+  const p = activePlayer;
+  if (!p) return;
+  if (p.isPlaying()) p.pause();
+  else p.play();
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
@@ -185,8 +199,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Audio-Exklusivität: Start dieses Players pausiert jeden anderen.
       const me: Playable = {
         pause: () => ws.pause(),
+        play: () => ws.play(),
+        playPause: () => ws.playPause(),
         isPlaying: () => ws.isPlaying(),
       };
+      // Beim Mount als aktiven Player merken (zuletzt geöffnete Card) —
+      // damit der globale Play/Stop-Shortcut (Space) ein Ziel hat, auch
+      // bevor je ein Play lief. Cleanup gibt die Exklusivität frei.
+      claimExclusivePlayback(me);
       ws.on("play", () => {
         claimExclusivePlayback(me);
         setPlaying(true);

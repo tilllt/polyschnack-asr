@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useRecordings, useStats, useModelStatus } from "./hooks";
+import { toggleActivePlayback } from "./components/WaveformPlayer";
 import { ToastProvider } from "./components/Toasts";
 import { useT, type Lang, LocaleProvider } from "./useLocale";
 import { parseSharePath } from "./share";
@@ -74,6 +75,27 @@ function AppContent() {
 
   useEffect(() => {
     fetchMe().then(setUser).catch(() => setUser({ anonymous: true }));
+  }, []);
+
+  // ── Globaler Play/Stop-Shortcut: Space (Feature 2026-08-16) ──
+  // Läuft im CAPTURE-Modus: verhindert den Zeilen-Space-Seek und das
+  // Button-Aktivieren. Greift NICHT, wenn ein Eingabefeld fokussiert ist
+  // (Edit-Mode: Text-Edit, Sprecher-Rename, Suche, Formulare).
+  useEffect(() => {
+    function isEditableTarget(t: EventTarget | null): boolean {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== "Space" || e.repeat) return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleActivePlayback();
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
   const recordingsQuery = useRecordings(query);

@@ -11,6 +11,7 @@ import {
   confidenceTier,
   confidenceClass,
   hasConfidence,
+  nextWordTarget,
   type KaraokeSegment,
 } from "./karaoke.ts";
 
@@ -223,5 +224,51 @@ describe("hasConfidence (Färbung nur bei echten Daten)", () => {
     expect(hasConfidence([])).toBe(false);
     expect(hasConfidence([{ word: "a", start: 0, end: 1 }])).toBe(false);
     expect(hasConfidence([{ word: "a", start: 0, end: 1, confidence: NaN }])).toBe(false);
+  });
+});
+
+describe("nextWordTarget (Cursor ←/→ Wort-Navigation)", () => {
+  const segs: KaraokeSegment[] = [
+    { start: 0, end: 5, text: "a b c", words: [
+      { word: "a", start: 0, end: 1 }, { word: "b", start: 1, end: 2 }, { word: "c", start: 2, end: 5 } ] },
+    { start: 5, end: 9, text: "d e", words: [
+      { word: "d", start: 5, end: 7 }, { word: "e", start: 7, end: 9 } ] },
+    { start: 9, end: 12, text: "f", words: [{ word: "f", start: 9, end: 12 }] },
+  ];
+  const empty: KaraokeSegment[] = [{ start: 0, end: 9, text: "leer" }]; // keine Wörter
+
+  it("ArrowRight: nächstes Wort im Segment", () => {
+    // t=1.2 → aktives Wort b (wIdx 1) → Ziel c (wIdx 2)
+    expect(nextWordTarget(segs, 0, 1.2, 1)).toEqual({ segIdx: 0, wIdx: 2 });
+  });
+  it("ArrowRight am Segmentende: erstes Wort des nächsten Segments", () => {
+    expect(nextWordTarget(segs, 0, 2.5, 1)).toEqual({ segIdx: 1, wIdx: 0 });
+  });
+  it("ArrowRight am Ende der Transkription: null", () => {
+    expect(nextWordTarget(segs, 2, 9.5, 1)).toBeNull();
+  });
+  it("ArrowLeft: vorheriges Wort im Segment", () => {
+    expect(nextWordTarget(segs, 0, 1.2, -1)).toEqual({ segIdx: 0, wIdx: 0 });
+  });
+  it("ArrowLeft am Segmentanfang: letztes Wort des vorherigen Segments", () => {
+    expect(nextWordTarget(segs, 1, 5.2, -1)).toEqual({ segIdx: 0, wIdx: 2 });
+  });
+  it("ArrowLeft am Anfang der Transkription: null", () => {
+    expect(nextWordTarget(segs, 0, 0.2, -1)).toBeNull();
+  });
+  it("vor dem ersten Wort (aw=-1): Right → erstes Wort, Left → voriges Segment", () => {
+    expect(nextWordTarget(segs, 0, -0.5, 1)).toEqual({ segIdx: 0, wIdx: 0 });
+    expect(nextWordTarget(segs, 1, -1, -1)).toEqual({ segIdx: 0, wIdx: 2 });
+  });
+  it("überspringt Segmente ohne Wörter", () => {
+    const mixed: KaraokeSegment[] = [segs[0], empty[0], segs[1]];
+    expect(nextWordTarget(mixed, 0, 2.5, 1)).toEqual({ segIdx: 2, wIdx: 0 });
+    expect(nextWordTarget(mixed, 2, 5.2, -1)).toEqual({ segIdx: 0, wIdx: 2 });
+  });
+  it("ungültige Eingaben → null", () => {
+    expect(nextWordTarget([], 0, 0, 1)).toBeNull();
+    expect(nextWordTarget(segs, -1, 0, 1)).toBeNull();
+    expect(nextWordTarget(segs, 99, 0, 1)).toBeNull();
+    expect(nextWordTarget(empty, 0, 0, 1)).toBeNull();
   });
 });
