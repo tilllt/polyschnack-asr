@@ -7,6 +7,19 @@ export default defineConfig({
   build: {
     outDir: "dist",
   },
+  resolve: {
+    alias: {
+      // Lokales Vendor-File statt node_modules: WaveSurfer RecordPlugin
+      // rendert die Scrolling-Waveform alle 10 ms (100×/s kompletter
+      // wavesurfer.load) — das blockiert den Main-Thread auf Tablets
+      // (Ruckeln der Rec-Button-Animation). Vendor-Patch: 100 ms (10 FPS,
+      // visuell gleichwertig). Siehe src/vendor/wavesurfer-record.js.
+      "wavesurfer.js/dist/plugins/record.js": new URL(
+        "./src/vendor/wavesurfer-record.js",
+        import.meta.url
+      ).pathname,
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
