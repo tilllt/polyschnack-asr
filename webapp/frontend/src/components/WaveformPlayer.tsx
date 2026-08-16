@@ -31,6 +31,8 @@ interface Props {
 }
 
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
+/** Vertikaler Kopfraum der Wellenform in px (oben+unten, 2026-08-16). */
+const WAVE_PAD = 5;
 
 /* ============================================================
    AUDIO-EXKLUSIVITÄT — immer nur EIN Player spielt app-weit.
@@ -153,14 +155,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           barWidth: 2,
           barGap: 1,
           barRadius: 2,
-          height,
-          // Kopfraum-Normalisierung statt normalize:true (2026-08-16):
-          // normalize skaliert die Peaks auf max=1.0 → Balken über die volle
-          // Canvas-Höhe → oberer Rand hart abgeschnitten (Pixel-Scan belegt).
-          // Die Server-Peaks (app/peaks.py) sind bereits absolut normalisiert
-          // (0..1); der Client normalisiert hier RELATIV mit 88 %-Kopfraum —
-          // leise Aufnahmen werden hochgezogen (alter „kaum Ausschlag"-Bug
-          // bleibt gefixt), laute nie abgeschnitten.
+          // Kopfraum auf Canvas-Ebene (2026-08-16): Der Container hat
+          // 5px vertikales Padding (siehe render), die Canvas-Höhe ist
+          // height-2*PAD. Dadurch berühren die Balken die Oberkante nie —
+          // egal ob WaveSurfer aus den Server-Peaks (Mini-Preview) oder
+          // nach dem Decode aus dem Audio zeichnet (WaveSurfer verwirft
+          // die Peaks nach erfolgreichem Decode! Der alte Ansatz, die
+          // Peaks clientseitig auf 88 % zu skalieren, wirkte nur im
+          // Preview und die Wellenform war nach dem Laden wieder hart
+          // abgeschnitten).
+          height: Math.max(20, height - 2 * WAVE_PAD),
           normalize: false,
           minPxPerSec: 1,
           plugins: [regions, timeline, hover],
@@ -179,15 +183,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // skalieren — dann lieber selbst dekodieren).
       const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
       try {
-        // Kopfraum-Normalisierung (2026-08-16): Server-Peaks gehen bis exakt
-        // 1.0 (max|sample|/32767) — relativ auf 88 % skalieren → ~6 % Luft
-        // oben und unten, kein hart abgeschnittener Wellenform-Rand mehr.
-        const raw = (peaks as number[]) ?? [];
-        const mx = raw.length ? Math.max(...raw, 1e-6) : 1;
-        const headroom = (v: number) => (v / mx) * 0.88;
+        // Peaks roh übergeben — der Kopfraum kommt aus dem Container-Padding
+        // (WaveSurfer zeichnet nach dem Decode ohnehin aus dem Audio, eine
+        // Client-Skalierung der Peaks wäre nach dem Decode wirkungslos).
         ws.load(
           audioUrl,
-          hasPeaks ? [raw.map(headroom)] : undefined,
+          hasPeaks ? [peaks as number[]] : undefined,
           hasPeaks ? (durationHint as number) : undefined,
         );
       } catch (e) {
@@ -358,7 +359,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             <span className="text-err">Waveform data corrupted</span>
           </div>
         )}
-        <div ref={containerRef} className={`w-full ${ready && !error ? "" : "hidden"}`} />
+        <div ref={containerRef} className={`w-full ${ready && !error ? "" : "hidden"}`} style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD }} />
         {/* Timeline ruler */}
         <div ref={timelineRef} className={`w-full ${ready && !error ? "mt-0" : "hidden"}`} />
         {ready && !error && (
