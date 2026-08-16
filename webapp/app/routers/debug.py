@@ -27,12 +27,30 @@ from ..docker_proxy import DockerProxyError, get_docker_client
 router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 
+def _debug_token() -> str:
+    """Token-Quelle: zuerst Env (POLYSCHNACK_DEBUG_TOKEN), sonst Datei.
+
+    Datei-Fallback (temporär): ``<DATA_DIR>/debug_token`` — erlaubt das
+    Aktivieren ohne compose.yml-Umbau/Restart (Host: ``echo <token> >
+    DATA/poc-data/debug_token``). Wird pro Request gelesen, Änderung wirkt
+    sofort; Datei löschen = deaktivieren.
+    """
+    if settings.POLYSCHNACK_DEBUG_TOKEN:
+        return settings.POLYSCHNACK_DEBUG_TOKEN
+    token_file = Path(settings.DATA_DIR) / "debug_token"
+    try:
+        return token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def require_debug_token(request: Request) -> None:
     """404 wenn deaktiviert, 403 bei falschem Token."""
-    if not settings.POLYSCHNACK_DEBUG_TOKEN:
+    expected = _debug_token()
+    if not expected:
         raise HTTPException(404, "debug endpoints disabled")
     token = request.query_params.get("token") or request.headers.get("X-Debug-Token", "")
-    if token != settings.POLYSCHNACK_DEBUG_TOKEN:
+    if token != expected:
         raise HTTPException(403, "invalid debug token")
 
 

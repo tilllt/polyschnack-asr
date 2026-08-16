@@ -10,6 +10,7 @@ Abgedeckt:
 """
 import pytest
 from fastapi.testclient import TestClient
+from pathlib import Path
 
 from app.config import settings
 from app.docker_proxy import DockerProxyError
@@ -102,6 +103,22 @@ def test_diar_raw_header_token(client, monkeypatch, tmp_path):
     )
     r = client.get("/api/debug/diar/raw?recording_id=abc123", headers={"X-Debug-Token": "geheim"})
     assert r.status_code == 200
+
+
+def test_datei_fallback_aktiviert(client, monkeypatch, tmp_path):
+    """Token aus <DATA_DIR>/debug_token — ohne Env, ohne Restart."""
+    monkeypatch.setattr(settings, "POLYSCHNACK_DEBUG_TOKEN", "")
+    token_file = Path(settings.DATA_DIR) / "debug_token"
+    token_file.write_text("datei-token\n", encoding="utf-8")
+    try:
+        r = client.get("/api/debug/diar/raw?recording_id=x&token=datei-token")
+        # Token ok → darf NICHT mehr 404/403 sein (Recording fehlt → 404 mit anderem Text)
+        assert r.status_code == 404
+        assert r.json().get("detail") == "recording not found"
+        r2 = client.get("/api/debug/diar/raw?recording_id=x&token=falsch")
+        assert r2.status_code == 403
+    finally:
+        token_file.unlink(missing_ok=True)
 
 
 def test_diar_raw_unbekannte_uid(client, monkeypatch):
