@@ -37,6 +37,13 @@ interface Props {
   /** Feature 2026-08-16 (Mockup): "−" im Kreis vor dem Timecode — löscht
    *  Segment `idx` (Text wandert ans vorige Segment). */
   onSegmentDelete?: (idx: number) => void;
+  /** Feature 2026-08-16 (Edit-Vollbild): true = Liste füllt die verfügbare
+   *  Höhe des Parents statt der kompakten 260px-Begrenzung. */
+  fillHeight?: boolean;
+  /** Feature 2026-08-16 (Edit): Text-Markierung in einem Segment →
+   *  eigenes Segment. Callback bekommt Segment-Index + Zeichen-Range +
+   *  den gewählten Sprecher (Persistenz macht der Parent via PUT). */
+  onSplitSegment?: (idx: number, charStart: number, charEnd: number, speaker: string) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -47,7 +54,39 @@ export type DisplaySegment = Segment;
 /** Wieviele Pixel Drag-Bewegung = 1 Wort (Grenz-Marker). */
 const PX_PER_WORD = 16;
 
-export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete }: Props) {
+/**
+ * Feature 2026-08-16 (Edit): Zeichen-Range einer DOM-Selection innerhalb
+ * eines Text-Containers → [start, end) im Segment-Text. Zählt die Längen
+ * aller Text-Nodes des Containers in DOM-Reihenfolge (die Wort-Spans +
+ * Trenn-Spaces ergeben exakt seg.text). Null bei kollabierter Selection
+ * oder wenn die Selection über den Container hinausragt.
+ */
+function selectionCharRange(container: HTMLElement, segText: string): { start: number; end: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  let n: Node | null;
+  while ((n = walker.nextNode())) nodes.push(n as Text);
+  const posOf = (node: Node, offset: number): number => {
+    let pos = 0;
+    for (const tn of nodes) {
+      if (tn === node) return pos + offset;
+      pos += tn.data?.length ?? 0;
+    }
+    return pos;
+  };
+  const s = posOf(range.startContainer, range.startOffset);
+  const e = posOf(range.endContainer, range.endOffset);
+  const start = Math.min(s, e);
+  const end = Math.max(s, e);
+  if (end - start < 1 || start >= segText.length) return null;
+  return { start, end: Math.min(end, segText.length) };
+}
+
+export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +100,15 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
   // offen für Segment-Index i; null = zu.
   const [openSpeakerMenu, setOpenSpeakerMenu] = useState<number | null>(null);
+  // Feature 2026-08-16 (Edit): Text-Markierung → Split-Modal.
+  const [splitCandidate, setSplitCandidate] = useState<{
+    idx: number;
+    charStart: number;
+    charEnd: number;
+    preview: string;
+  } | null>(null);
+  const [splitSpeaker, setSplitSpeaker] = useState("");
+  const [splitSpeakerOpen, setSplitSpeakerOpen] = useState(false);
   // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const dragRef = useRef<{
@@ -228,6 +276,32 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     }
   }
 
+  // Feature 2026-08-16 (Edit): Text-Markierung in einem Segment →
+  // Split-Modal öffnen (Zeichen-Range aus der DOM-Selection).
+  function handleTextMouseUp(i: number, e: React.MouseEvent<HTMLElement>) {
+    if (editingIdx !== null) return;
+    const text = segments[i]?.text ?? "";
+    const r = selectionCharRange(e.currentTarget, text);
+    if (!r) return;
+    // Volle Segment-Selektion ist kein Split (nichts bliebe übrig)
+    if (r.start === 0 && r.end >= text.length) return;
+    setSplitCandidate({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end) });
+    setSplitSpeaker("");
+    window.getSelection()?.removeAllRanges();
+  }
+
+  // Feature 2026-08-16 (Edit): Split bestätigen → Callback an den Parent
+  // (der persistiert). Default-Sprecher: der des Original-Segments.
+  function confirmSplit() {
+    if (!splitCandidate) return;
+    const orig = segments[splitCandidate.idx]?.speaker;
+    const spk = splitSpeaker || orig || "SPEAKER_00";
+    onSplitSegment?.(splitCandidate.idx, splitCandidate.charStart, splitCandidate.charEnd, spk);
+    setSplitCandidate(null);
+    setSplitSpeaker("");
+    setSplitSpeakerOpen(false);
+  }
+
   // Erkannte Sprecher dieser Aufnahme = unique speaker-Werte aller Segmente.
   const speakerOptions = useMemo(() => {
     const set = new Set<string>();
@@ -277,13 +351,15 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   }
 
   return (
+    <>
     <div
       ref={containerRef}
-      className="
+      className={`
         bg-seg-bg border border-border rounded-sm
-        max-h-[260px] overflow-y-auto scroll-smooth
+        overflow-y-auto scroll-smooth
         scrollbar-thin py-1
-      "
+        ${fillHeight ? "h-full max-h-none flex-1" : "max-h-[260px]"}
+      `}
     >
       {segments.map((seg, i) => {
         const speaker = seg.speaker;
@@ -516,7 +592,11 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
               ref={editAreaRef}
             />
           ) : (
-            <span className="text-txt flex-1 min-w-0">
+            <span
+              className="text-txt flex-1 min-w-0"
+              onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e) : undefined}
+              data-split-container
+            >
               {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
                     const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime) : -1;
@@ -580,5 +660,85 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
         );
       })}
     </div>
+    {/* Feature 2026-08-16 (Edit): Split-Modal nach Text-Markierung */}
+    {splitCandidate && onSplitSegment && (
+      <>
+        <div
+          className="fixed inset-0 z-30 bg-black/20"
+          onClick={() => {
+            setSplitCandidate(null);
+            setSplitSpeakerOpen(false);
+          }}
+        />
+        <div className="fixed z-40 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[340px] max-w-[90vw] bg-panel2 border border-border rounded-md shadow-xl p-4">
+          <div className="text-[13px] font-semibold mb-1">✂ {t("split_segment_title")}</div>
+          <div className="text-[12px] text-muted2 mb-2 leading-[1.5] break-words bg-panel rounded-sm px-2 py-1.5 max-h-[90px] overflow-y-auto scrollbar-thin">
+            „{splitCandidate.preview}“
+          </div>
+          <div className="mb-3">
+            <div className="text-[11px] text-muted2 mb-1">{t("split_speaker_label")}</div>
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSplitSpeakerOpen((o) => !o);
+                }}
+                className="w-full text-left px-2 py-1 text-[12px] bg-panel border border-border rounded-sm uppercase tracking-[.04em]"
+              >
+                {(splitSpeaker || segments[splitCandidate.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
+              </button>
+              {splitSpeakerOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSplitSpeakerOpen(false);
+                    }}
+                  />
+                  <div className="absolute top-full left-0 right-0 z-20 mt-0.5 max-h-[160px] overflow-y-auto bg-panel2 border border-border rounded-md shadow-xl py-0.5">
+                    {speakerOptions.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSplitSpeaker(opt);
+                          setSplitSpeakerOpen(false);
+                        }}
+                        className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
+                          opt === (splitSpeaker || segments[splitCandidate.idx]?.speaker)
+                            ? "text-[#25d366] font-bold"
+                            : "text-muted1"
+                        }`}
+                      >
+                        {opt.replace("SPEAKER_", "")}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setSplitCandidate(null);
+                setSplitSpeakerOpen(false);
+              }}
+              className="text-[12px] text-muted2 hover:text-txt border border-border rounded-sm px-3 py-1 transition-colors"
+            >
+              {t("split_segment_cancel")}
+            </button>
+            <button
+              onClick={confirmSplit}
+              className="text-[12px] text-white bg-accent rounded-sm px-3 py-1 font-semibold hover:opacity-90 transition-opacity"
+            >
+              {t("split_segment_confirm")}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }

@@ -266,3 +266,143 @@ export function deleteSegment(
   }
   return segs;
 }
+
+/* ============================================================
+   SPLIT SEGMENT AT RANGE — Text-Markierung → eigenes Segment
+   ============================================================
+   Feature 2026-08-16 (Edit): Der User markiert einen Textbereich
+   innerhalb EINES Segments → der markierte Teil wird ein eigenes
+   Segment (mit neuem `speaker`), die Teile davor/danach behalten den
+   ORIGINAL-Sprecher. Segment wird an der Stelle getrennt.
+
+   Invariante (wie insertSegment/deleteSegment): Wort-Reihenfolge und
+   Wort-Timestamps bleiben exakt erhalten — nur die Segment-Zuordnung
+   ändert sich. Ohne Wort-Timestamps wird die Zeit proportional zur
+   Zeichenposition interpoliert. Leere Teile (Selektion am Rand)
+   entfallen. ============================================================ */
+
+export function splitSegmentAtRange(
+  segments: ResegmentInput,
+  idx: number,
+  charStart: number,
+  charEnd: number,
+  speaker: string,
+): ResegSegment[] {
+  const segs = [...(segments as ResegSegment[])];
+  if (!segs.length || idx < 0 || idx >= segs.length) return segs;
+
+  const seg = segs[idx];
+  const text = typeof seg.text === "string" ? seg.text : "";
+  if (!text) return segs;
+
+  const cs = Math.max(0, Math.min(charStart, text.length));
+  const ce = Math.max(0, Math.min(charEnd, text.length));
+  if (cs >= ce) return segs; // kollabierte/leere Selektion
+
+  const words = Array.isArray(seg.words) ? (seg.words as ResegWord[]) : [];
+  const hasWords = words.length > 0;
+
+  let part1: ResegWord[] = [];
+  let part2: ResegWord[] = [];
+  let part3: ResegWord[] = [];
+  let midText: string;
+  let midStart: number;
+  let midEnd: number;
+
+  if (hasWords) {
+    // Wort-Char-Ranges rekonstruieren (Wort + Trenn-Space, wie im DOM
+    // gerendert — der Space gehört KEINEM Wort-Span).
+    let pos = 0;
+    const ranges: Array<[number, number]> = words.map((w) => {
+      const s = pos;
+      pos += typeof w.word === "string" ? w.word.length : 0;
+      const e = pos;
+      pos += 1; // Trenn-Space
+      return [s, e];
+    });
+    let w0 = -1;
+    let w1 = -1;
+    ranges.forEach(([s, e], wi) => {
+      if (e > cs && s < ce) {
+        if (w0 < 0) w0 = wi;
+        w1 = wi;
+      }
+    });
+    if (w0 < 0) return segs; // Selektion trifft kein Wort
+    part1 = words.slice(0, w0);
+    part2 = words.slice(w0, w1 + 1);
+    part3 = words.slice(w1 + 1);
+    midText = joinWords(part2);
+    const first = part2[0];
+    const last = part2[part2.length - 1];
+    midStart = typeof first.start === "number" ? first.start : seg.start ?? 0;
+    midEnd = typeof last.end === "number" ? last.end : seg.end ?? midStart;
+  } else {
+    // Keine Wort-Timestamps: proportional interpolieren.
+    const st = typeof seg.start === "number" ? seg.start : 0;
+    const en = typeof seg.end === "number" ? seg.end : st;
+    const f0 = cs / text.length;
+    const f1 = ce / text.length;
+    midText = text.slice(cs, ce);
+    midStart = st + (en - st) * f0;
+    midEnd = st + (en - st) * f1;
+  }
+
+  const originalSpeaker = seg.speaker;
+  const out: ResegSegment[] = [];
+
+  if (hasWords ? part1.length > 0 : cs > 0) {
+    const before: ResegSegment = { ...seg };
+    if (part1.length > 0) {
+      const first = part1[0];
+      const last = part1[part1.length - 1];
+      before.words = part1;
+      before.text = joinWords(part1);
+      before.start = typeof first.start === "number" ? first.start : seg.start;
+      before.end = typeof last.end === "number" ? last.end : midStart;
+    } else {
+      before.words = undefined;
+      before.text = text.slice(0, cs);
+      before.end = midStart;
+    }
+    if (originalSpeaker !== undefined) before.speaker = originalSpeaker;
+    out.push(before);
+  }
+
+  const mid: ResegSegment = { ...seg };
+  mid.words = part2.length > 0 ? part2 : undefined;
+  mid.text = midText;
+  mid.start = midStart;
+  mid.end = midEnd;
+  mid.speaker = speaker;
+  out.push(mid);
+
+  if (hasWords ? part3.length > 0 : ce < text.length) {
+    const after: ResegSegment = { ...seg };
+    if (part3.length > 0) {
+      const first = part3[0];
+      const last = part3[part3.length - 1];
+      after.words = part3;
+      after.text = joinWords(part3);
+      after.start = typeof first.start === "number" ? first.start : midEnd;
+      after.end = typeof last.end === "number" ? last.end : seg.end;
+    } else {
+      after.words = undefined;
+      after.text = text.slice(ce);
+      after.start = midEnd;
+    }
+    if (originalSpeaker !== undefined) after.speaker = originalSpeaker;
+    out.push(after);
+  }
+
+  segs.splice(idx, 1, ...out);
+  return segs;
+}
+
+/** Wörter mit genau einem Space verbinden (wie der DOM-Render). */
+function joinWords(words: ResegWord[]): string {
+  return words
+    .map((w) => (typeof w.word === "string" ? w.word : ""))
+    .join(" ")
+    .trim();
+}

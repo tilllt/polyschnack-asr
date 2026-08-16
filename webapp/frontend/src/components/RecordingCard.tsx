@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, type ShareItem, type VersionItem } from "../api";
 import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
@@ -13,7 +13,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { resegmentByDuration, insertSegment, deleteSegment } from "../resegment";
+import { resegmentByDuration, insertSegment, deleteSegment, splitSegmentAtRange } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
@@ -126,6 +126,23 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // gleichen Suchzustand teilen.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchJump, setSearchJump] = useState<{ idx: number; nonce: number } | null>(null);
+  // Feature 2026-08-16 (Edit-Vollbild): Zoom auf NUR diese Transkription.
+  // Overlay (fixed inset-0) — die SegmentList füllt die volle Höhe, Playback
+  // läuft über den bestehenden Player (Space/Play-Button, kein 2. Player).
+  const [focusMode, setFocusMode] = useState(false);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFocusMode(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [focusMode]);
   // Feature 2026-08-15: Segmentlänge in der Transkriptionsansicht wählbar.
   // null = Original-Segmente (ASR-Chunks, oft ~105 s); Zahl = max. Dauer in
   // Sekunden für die Re-Segmentierung. Preview UND Export nutzen dieselbe
@@ -463,6 +480,17 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     void persistSegmentList(next);
   }
 
+  // ── Feature 2026-08-16: Text-Markierung → Segment teilen ──────────────
+  // Markierter Teil wird eigenes Segment (mit gewähltem Sprecher), Rest
+  // behält den Originalsprecher. Gleiche Persistenz wie +/− (PUT + Cache).
+  function handleSplitSegment(idx: number, charStart: number, charEnd: number, speaker: string) {
+    if (!r.uid || !displaySegments) return;
+    const next = splitSegmentAtRange(displaySegments, idx, charStart, charEnd, speaker) as Segment[];
+    if (next === displaySegments || next.length === displaySegments.length) return; // nichts geändert
+    setDragSegments(next);
+    void persistSegmentList(next);
+  }
+
   // Manuelle Grenzen nur so lange aktiv, wie die zugrunde liegenden
   // Segmente identisch sind. Kommen nach Retranscribe/Reload ECHT neue
   // Server-Segmente (andere Referenz), verfällt die alte Drag-Liste —
@@ -788,6 +816,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   <span className="text-[11px] text-muted2">
                     {t("boundary_drag_hint_short")}
                   </span>
+                  <button
+                    onClick={() => setFocusMode(true)}
+                    title={t("focus_edit_open")}
+                    className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
+                  >
+                    <Maximize2 className="w-3 h-3" />
+                    {t("focus_edit_open")}
+                  </button>
                 </div>
                 <SegmentList
                   segments={displaySegments}
@@ -804,7 +840,61 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onBoundaryDragEnd={handleBoundaryDragEnd}
                   onSegmentInsert={handleSegmentInsert}
                   onSegmentDelete={handleSegmentDelete}
+                  onSplitSegment={handleSplitSegment}
                 />
+                {focusMode && (
+                  <div
+                    className="fixed inset-0 z-50 bg-app flex flex-col"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={t("focus_edit_open")}
+                  >
+                    {/* Kopfzeile: Playback-Steuerung (bestehender Player) + Schließen */}
+                    <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-panel flex-shrink-0">
+                      <span className="text-[13px] font-semibold truncate">
+                        {t("focus_edit_title")}
+                      </span>
+                      <span className="text-muted2 text-[11px] tabular-nums whitespace-nowrap">
+                        {fmtTime(currentTime)} /{" "}
+                        {fmtTime(displaySegments[displaySegments.length - 1]?.end ?? 0)}
+                      </span>
+                      <button
+                        onClick={() => wsRef.current?.playPause()}
+                        title="Play / Pause"
+                        className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
+                      >
+                        ▶ Play / Pause
+                      </button>
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => setFocusMode(false)}
+                        className="flex items-center gap-1 text-[11px] text-muted2 hover:text-accent border border-border rounded-sm px-2 py-[3px] transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                        {t("focus_edit_close")}
+                      </button>
+                    </div>
+                    {/* Nur diese Transkription — volle Fläche */}
+                    <div className="flex-1 min-h-0 px-4 py-3">
+                      <SegmentList
+                        segments={displaySegments}
+                        activeIdx={activeSegIdx}
+                        onActiveChange={setActiveSegIdx}
+                        onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
+                        onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
+                        recordingId={r.uid}
+                        onEdited={handleEdited}
+                        currentTime={currentTime}
+                        onBoundaryMoved={handleBoundaryMoved}
+                        onBoundaryDragEnd={handleBoundaryDragEnd}
+                        onSegmentInsert={handleSegmentInsert}
+                        onSegmentDelete={handleSegmentDelete}
+                        onSplitSegment={handleSplitSegment}
+                        fillHeight
+                      />
+                    </div>
+                  </div>
+                )}
               </>
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">

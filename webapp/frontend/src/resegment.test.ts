@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -339,5 +339,104 @@ describe("Invariante: Wort-Timing bleibt bei allen Operationen erhalten", () => 
     const input = twoSegsWords();
     const roundtrip = JSON.parse(JSON.stringify(input)) as typeof input;
     expect(flattenWords(roundtrip)).toEqual(flattenWords(input));
+  });
+});
+
+describe("splitSegmentAtRange (Edit: Markierung → eigenes Segment)", () => {
+  // text = "a b c d e", Wörter lückenlos 1 s ab 0. Wort-Char-Ranges:
+  // a[0,1) b[2,3) c[4,5) d[6,7) e[8,9)
+  function fiveWords() {
+    const words: [string, number, number][] = [
+      ["a", 0.0, 1.0],
+      ["b", 1.0, 2.0],
+      ["c", 2.0, 3.0],
+      ["d", 3.0, 4.0],
+      ["e", 4.0, 5.0],
+    ];
+    return [seg(0, 5, words, "SPEAKER_00")];
+  }
+
+  it("teilt mitten: 3 Segmente, markierter Teil bekommt neuen Sprecher", () => {
+    const input = fiveWords();
+    const before = flattenWords(input);
+    // Markiere "b c" (Zeichen 2..5)
+    const out = splitSegmentAtRange(input, 0, 2, 5, "SPEAKER_07");
+    expect(out.length).toBe(3);
+    expect(out[0].text).toBe("a");
+    expect(out[0].speaker).toBe("SPEAKER_00");
+    expect(out[0].start).toBeCloseTo(0, 6);
+    expect(out[0].end).toBeCloseTo(1, 6);
+    expect(out[1].text).toBe("b c");
+    expect(out[1].speaker).toBe("SPEAKER_07");
+    expect(out[1].start).toBeCloseTo(1, 6);
+    expect(out[1].end).toBeCloseTo(3, 6);
+    expect(out[2].text).toBe("d e");
+    expect(out[2].speaker).toBe("SPEAKER_00");
+    expect(out[2].start).toBeCloseTo(3, 6);
+    expect(out[2].end).toBeCloseTo(5, 6);
+    // Invariante: alle Wörter + Timestamps exakt erhalten
+    expect(flattenWords(out)).toEqual(before);
+  });
+
+  it("Selektion am Anfang → nur 2 Segmente (kein leeres Vorderteil)", () => {
+    const input = fiveWords();
+    const before = flattenWords(input);
+    // Markiere nur "a" (Zeichen 0..1)
+    const out = splitSegmentAtRange(input, 0, 0, 1, "SPEAKER_01");
+    expect(out.length).toBe(2);
+    expect(out[0].text).toBe("a");
+    expect(out[0].speaker).toBe("SPEAKER_01");
+    expect(out[1].text).toBe("b c d e");
+    expect(out[1].speaker).toBe("SPEAKER_00");
+    expect(flattenWords(out)).toEqual(before);
+  });
+
+  it("Selektion am Ende → nur 2 Segmente (kein leeres Hinterteil)", () => {
+    const input = fiveWords();
+    const before = flattenWords(input);
+    // Markiere "e" (Zeichen 8..9 = Ende)
+    const out = splitSegmentAtRange(input, 0, 8, 9, "SPEAKER_02");
+    expect(out.length).toBe(2);
+    expect(out[0].text).toBe("a b c d");
+    expect(out[0].speaker).toBe("SPEAKER_00");
+    expect(out[1].text).toBe("e");
+    expect(out[1].speaker).toBe("SPEAKER_02");
+    expect(flattenWords(out)).toEqual(before);
+  });
+
+  it("ohne Wort-Timestamps: Zeit proportional zur Zeichenposition", () => {
+    const input = [{ start: 0, end: 4, text: "abcd", speaker: "SPEAKER_00" }];
+    const out = splitSegmentAtRange(input, 0, 1, 3, "SPEAKER_09");
+    expect(out.length).toBe(3);
+    expect(out[0].text).toBe("a");
+    expect(out[0].start).toBeCloseTo(0, 6);
+    expect(out[0].end).toBeCloseTo(1, 6);
+    expect(out[1].text).toBe("bc");
+    expect(out[1].speaker).toBe("SPEAKER_09");
+    expect(out[1].start).toBeCloseTo(1, 6);
+    expect(out[1].end).toBeCloseTo(3, 6);
+    expect(out[2].text).toBe("d");
+    expect(out[2].start).toBeCloseTo(3, 6);
+    expect(out[2].end).toBeCloseTo(4, 6);
+  });
+
+  it("ungültige Selektion / Index → unverändert", () => {
+    const input = fiveWords();
+    expect(splitSegmentAtRange(input, -1, 0, 3, "S")).toEqual(input);
+    expect(splitSegmentAtRange(input, 5, 0, 3, "S")).toEqual(input);
+    expect(splitSegmentAtRange(input, 0, 3, 3, "S")).toEqual(input);
+    expect(splitSegmentAtRange(input, 0, 2, 2, "S")).toEqual(input);
+    expect(splitSegmentAtRange(input, 0, 9, 10, "S")).toEqual(input); // leerer Text
+  });
+
+  it("mehrere Segmente: teilt nur das Ziel-Segment, Rest bleibt unangetastet", () => {
+    const input = [seg(0, 5, [["a", 0, 1], ["b", 1, 2], ["c", 2, 3]], "SPEAKER_00"), seg(10, 12, [["x", 10, 11], ["y", 11, 12]], "SPEAKER_01")];
+    const before = flattenWords(input);
+    const out = splitSegmentAtRange(input, 1, 0, 2, "SPEAKER_05"); // nur "x"
+    expect(out.length).toBe(3);
+    expect(out[0].text).toBe("a b c");
+    expect(out[1].text).toBe("x");
+    expect(out[2].text).toBe("y");
+    expect(flattenWords(out)).toEqual(before);
   });
 });
