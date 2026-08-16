@@ -10,6 +10,16 @@
   "theme_color": "#0f172a",
   "lang": "de",
   "categories": ["productivity", "utilities"],
+  "share_target": {
+    "action": "/api/recordings?from=share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "files": [{ "name": "file", "accept": ["audio/*"] }]
+    }
+  },
   "icons": [
     {
       "src": "/icon-192.png",

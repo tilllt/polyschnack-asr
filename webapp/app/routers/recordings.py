@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, RedirectResponse
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -496,7 +496,7 @@ async def upload_recording(
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
     session: Session = Depends(get_session),
-) -> Dict[str, Any]:
+) -> Any:
     """Accept a multipart audio upload, persist it."""
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="no file provided")
@@ -529,6 +529,10 @@ async def upload_recording(
         and not (request.query_params.get("force") == "true")
         and Path(existing.stored_path).is_file()
     ):
+        # Share-Target (Android): direkt zur bestehenden Aufnahme springen
+        # statt JSON — der Browser öffnet die PWA auf /r/{uid}.
+        if request.query_params.get("from") == "share" and existing.uid:
+            return RedirectResponse(f"/r/{existing.uid}", status_code=303)
         return {
             "duplicate": True,
             "existing_id": existing.id,
@@ -601,6 +605,11 @@ async def upload_recording(
     )
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
+    # Share-Target (Android): nach dem Upload zur Aufnahme springen — der
+    # Browser folgt dem 303 und öffnet die PWA auf /r/{uid}. Ohne den
+    # Query-Parameter bleibt es beim JSON für die SPA (Upload-Formular).
+    if request.query_params.get("from") == "share" and rec.uid:
+        return RedirectResponse(f"/r/{rec.uid}", status_code=303)
     return _recording_to_dict(rec)
 
 
