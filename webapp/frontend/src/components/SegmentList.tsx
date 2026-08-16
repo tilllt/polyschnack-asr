@@ -224,6 +224,26 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     onSeekTo?.(seconds);
   }
 
+  // ── Klick-vs-Doppelklick (2026-08-16): Einzelklick = Playback-Start,
+  // Doppelklick = Edit-Modus. Der ERSTE Klick eines Doppelklicks darf kein
+  // Playback starten — der Playback-Start wird deshalb 280 ms verzögert und
+  // bei onDoubleClick gecancelt (Browser-Doppelklick-Fenster ~300–500 ms).
+  const clickTimer = useRef<number | null>(null);
+  function cancelClickTimer() {
+    if (clickTimer.current !== null) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+  }
+  function scheduleClick(fn: () => void) {
+    cancelClickTimer();
+    clickTimer.current = window.setTimeout(() => {
+      clickTimer.current = null;
+      fn();
+    }, 280);
+  }
+  useEffect(() => cancelClickTimer, []);
+
   // ── Feature 2026-08-15: draggable Grenz-Marker ─────────────────────
   // Ziehen nach OBEN (dy < 0) = Grenze in der Zeit zurück → Segment N
   // verliert am Ende Wörter, Segment N+1 gewinnt vorne (moveBoundary
@@ -406,9 +426,12 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
           ref={(el) => { rowRefs.current[i] = el; }}
           role="button"
           tabIndex={0}
-          onClick={() => handleClick(i)}
+          onClick={() => scheduleClick(() => handleClick(i))}
           onDoubleClick={() => {
             if (!recordingId) return;
+            // Erster Klick des Doppelklicks: Playback-Timer verwerfen —
+            // Doppelklick = Edit-Modus, KEIN Playback.
+            cancelClickTimer();
             setEditingIdx(i);
             setEditText(seg.text);
           }}
@@ -643,7 +666,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                           data-active-word={isActive ? "true" : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleWordClick(i, w.start);
+                            scheduleClick(() => handleWordClick(i, w.start));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
