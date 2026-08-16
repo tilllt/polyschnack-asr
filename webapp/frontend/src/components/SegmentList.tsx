@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
-import { activeWordIndex, confidenceClass, hasConfidence, shouldScrollIntoView, nextWordTarget } from "../karaoke";
+import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
 import { moveBoundary } from "../resegment";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -110,24 +110,27 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [searchJump]);
 
-  // Auto-scroll the active segment into view — nur wenn es NICHT vollständig
-  // sichtbar ist (top UND bottom im Container). scrollIntoView mit
-  // block:"nearest" scrollt minimal und verträgt sich mit scroll-smooth;
-  // die alte direkte scrollTop-Zuweisung scrollte unten abgeschnittene
-  // Segmente nie nach (nur top wurde geprüft).
+  // Auto-Scroll: das AKTIVE WORT ungefähr in die Mitte des Viewports der
+  // Transkription zentrieren (User 2026-08-16: „Scroll soll immer so sein,
+  // dass das aktive Wort ungefähr in der Mitte ist"). Vorher block:"nearest"
+  // = minimal-sichtbar → erratisch (Wort am Rand, Sprünge je nach Richtung).
+  // block:"center" zentriert im scrollbaren Container; läuft das Playback,
+  // gleitet das aktive Wort bei jedem Wortwechsel sanft in die Mitte.
+  // Fallback: aktive Zeile, falls das aktive Wort nicht markiert ist.
+  const activeW = activeIdx >= 0 && currentTime != null
+    ? activeWordIndex(segments[activeIdx]?.words ?? [], currentTime)
+    : -1;
   useEffect(() => {
     const container = containerRef.current;
-    const activeEl = rowRefs.current[activeIdx];
-    if (!container || !activeEl || activeIdx < 0) return;
-
-    const top = activeEl.offsetTop - container.offsetTop;
-    const bottom = top + activeEl.offsetHeight;
-    if (
-      shouldScrollIntoView(container.scrollTop, container.clientHeight, top, bottom)
-    ) {
-      activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!container || activeIdx < 0) return;
+    const activeWord = container.querySelector<HTMLElement>("[data-active-word=\"true\"]");
+    if (activeWord) {
+      activeWord.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
     }
-  }, [activeIdx]);
+    const activeEl = rowRefs.current[activeIdx];
+    if (activeEl) activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeIdx, activeW]);
 
   // Auto-focus ohne Anker-Scroll: Das native focus()-Scrollen des Browsers
   // springt in der Segmentliste (Container max-h + overflow) wie zu einem
@@ -523,6 +526,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                           key={wi}
                           role="button"
                           tabIndex={0}
+                          data-active-word={isActive ? "true" : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleWordClick(i, w.start);

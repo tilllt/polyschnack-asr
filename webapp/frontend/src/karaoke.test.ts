@@ -7,7 +7,6 @@ import {
   activeWordIndex,
   activeSegmentIndex,
   isKaraokeReady,
-  shouldScrollIntoView,
   confidenceTier,
   confidenceClass,
   hasConfidence,
@@ -157,25 +156,6 @@ describe("isKaraokeReady (nach Merge/Edit)", () => {
   it("false bei leerer Wortliste oder fehlendem words-Feld", () => {
     expect(isKaraokeReady({ start: 0, end: 2, text: "x" })).toBe(false);
     expect(isKaraokeReady({ start: 0, end: 2, text: "x", words: [] })).toBe(false);
-  });
-});
-
-describe("shouldScrollIntoView (Autoscroll-Entscheidung)", () => {
-  // Container: scrollTop=100, clientHeight=200 → sichtbarer Bereich 100..300
-  it("scrollt, wenn Segment unten abgeschnitten ist (top sichtbar, bottom nicht)", () => {
-    expect(shouldScrollIntoView(100, 200, 250, 340)).toBe(true);
-  });
-  it("scrollt nicht, wenn Segment vollständig sichtbar", () => {
-    expect(shouldScrollIntoView(100, 200, 120, 280)).toBe(false);
-  });
-  it("scrollt, wenn Segment oberhalb des Viewports liegt", () => {
-    expect(shouldScrollIntoView(100, 200, 40, 90)).toBe(true);
-  });
-  it("scrollt nicht, wenn es kein aktives Segment gibt (NaN-Positionen)", () => {
-    expect(shouldScrollIntoView(100, 200, NaN, NaN)).toBe(false);
-  });
-  it("scrollt nicht bei leerem/0-Container", () => {
-    expect(shouldScrollIntoView(0, 0, 10, 20)).toBe(false);
   });
 });
 
