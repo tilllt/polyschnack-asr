@@ -7,6 +7,7 @@ Avoids per-chunk ffmpeg subprocesses. Strategy:
 """
 from __future__ import annotations
 import audioop
+import os
 import subprocess
 import wave
 from io import BytesIO
@@ -61,7 +62,15 @@ def _decode_pcm_wav(data: bytes, info: dict) -> Optional[np.ndarray]:
 
 
 def _ffmpeg_decode(data: bytes) -> np.ndarray:
-    """Decode any container/codec to mono 16 kHz float32 via a single ffmpeg call."""
+    """Decode any container/codec to mono 16 kHz float32 via ffmpeg.
+
+    Zuerst über stdin-Pipe (schnell, kein Temp-File). Schlägt das fehl
+    oder liefert 0 Samples, wird mit einer TEMP-DATEI wiederholt: Container
+    wie M4A/MP4 mit moov-Atom am Dateiende (Signal-/Handy-Aufnahmen, 98 %
+    der Datei = mdat) sind über eine nicht-seekbare Pipe nicht lesbar —
+    ffmpeg meldet dann „partial file" und 0 Bytes, obwohl die Datei valide
+    ist (Live-Befund 2026-08-17: „ValueError: empty audio" bei Signal-Audio).
+    """
     cmd = [
         "ffmpeg", "-nostdin", "-loglevel", "error",
         "-i", "pipe:0",
@@ -69,9 +78,40 @@ def _ffmpeg_decode(data: bytes) -> np.ndarray:
         "-f", "s16le", "pipe:1",
     ]
     p = subprocess.run(cmd, input=data, capture_output=True, check=False)
-    if p.returncode != 0:
-        raise RuntimeError(f"ffmpeg decode failed: {p.stderr.decode(errors='ignore')[:300]}")
-    return np.frombuffer(p.stdout, dtype="<i2").astype(np.float32) / 32768.0
+    if p.returncode == 0 and p.stdout:
+        return _s16le_to_float(p.stdout)
+
+    # Fallback: seekbar via Temp-Datei (deckt MP4/M4A mit trailing moov ab).
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tf:
+        tf.write(data)
+        tmp_name = tf.name
+    try:
+        cmd2 = [
+            "ffmpeg", "-nostdin", "-loglevel", "error",
+            "-i", tmp_name,
+            "-ac", "1", "-ar", str(TARGET_SR),
+            "-f", "s16le", "pipe:1",
+        ]
+        p2 = subprocess.run(cmd2, capture_output=True, check=False)
+        if p2.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg decode failed: {p2.stderr.decode(errors='ignore')[:300]}"
+            )
+        if not p2.stdout:
+            raise RuntimeError("ffmpeg decode failed: empty output")
+        return _s16le_to_float(p2.stdout)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+
+def _s16le_to_float(pcm: bytes) -> np.ndarray:
+    """s16le-Bytes → float32 [-1,1] (16-kHz-mono, wie vom ffmpeg-Pipe)."""
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
 def load_audio(data: bytes) -> np.ndarray:
