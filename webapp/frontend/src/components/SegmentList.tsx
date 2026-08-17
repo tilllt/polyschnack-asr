@@ -341,19 +341,21 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // das Symbol erscheint links am Rand auf dieser Höhe. Desktop nutzt die
   // native Selektion; Touch hat die eigene Markierung (touchSel) → hier wird
   // nur der Anker gesetzt.
-  function setAnchorFromRange(i: number, r: { start: number; end: number }) {
+  function setAnchorFromRange(i: number, r: { start: number; end: number }, yOverride?: number) {
     const text = shown[i]?.text ?? "";
     // Y-Position des Markierungsbeginns relativ zur Segment-Zeile.
-    let y = 0;
-    const sel = window.getSelection();
-    const rowEl = rowRefs.current[i];
-    if (sel && sel.rangeCount > 0 && rowEl) {
-      try {
-        const rowRect = rowEl.getBoundingClientRect();
-        const rangeRect = sel.getRangeAt(0).getBoundingClientRect();
-        y = Math.max(0, rangeRect.top - rowRect.top);
-      } catch {
-        y = 0;
+    let y = yOverride ?? 0;
+    if (yOverride === undefined) {
+      const sel = window.getSelection();
+      const rowEl = rowRefs.current[i];
+      if (sel && sel.rangeCount > 0 && rowEl) {
+        try {
+          const rowRect = rowEl.getBoundingClientRect();
+          const rangeRect = sel.getRangeAt(0).getBoundingClientRect();
+          y = Math.max(0, rangeRect.top - rowRect.top);
+        } catch {
+          y = 0;
+        }
       }
     }
     setSplitAnchor({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end), y });
@@ -361,6 +363,32 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     // Selection entfernen → das native Auswahlmenü (Copy/Suche/Google) schließt
     // sich damit auch auf Mobile, nur unser Split-Symbol bleibt.
     window.getSelection()?.removeAllRanges();
+  }
+
+  // Fix 2026-08-17 (Touch): die eigene Markierung hat KEINE native Selection,
+  // also die Y-Position über die Wort-Spans bestimmen (Startwort → Zeilenmitte).
+  // Liefert px relativ zur Segment-Zeile, oder 0 wenn nicht ermittelbar.
+  function touchAnchorY(i: number, startWord: number, endWord: number): number | undefined {
+    const rowEl = rowRefs.current[i];
+    if (!rowEl) return undefined;
+    try {
+      const rowRect = rowEl.getBoundingClientRect();
+      const segEl = rowEl.querySelector("[data-split-container]");
+      if (!segEl) return undefined;
+      const spans = segEl.querySelectorAll("[data-word-index]");
+      const lo = Math.min(startWord, endWord);
+      const hi = Math.max(startWord, endWord);
+      const first = spans[lo];
+      const last = spans[hi];
+      if (!first) return undefined;
+      const a = (first as HTMLElement).getBoundingClientRect();
+      const b = (last as HTMLElement).getBoundingClientRect();
+      // Mitte des markierten Bereichs (Anfangswort bis Endwort)
+      const midY = (Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2;
+      return Math.max(0, midY - rowRect.top);
+    } catch {
+      return undefined;
+    }
   }
 
   function handleTextMouseUp(i: number, el: HTMLElement) {
@@ -417,7 +445,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     if (words.length === 0) return;
     const r = wordRangeToCharRange(words, ts.startWord, ts.endWord);
     if (!r) return;
-    setAnchorFromRange(ts.idx, r);
+    // Fix 2026-08-17: Touch-Markierung hat keine native Selection →
+    // Y-Position über die Wort-Spans (Mitte des markierten Bereichs).
+    setAnchorFromRange(ts.idx, r, touchAnchorY(ts.idx, ts.startWord, ts.endWord));
   }
 
   // Feature 2026-08-16 (Edit): Split bestätigen → Callback an den Parent
@@ -584,17 +614,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
-              className="absolute -left-0.5 z-20 w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
-                text-accent bg-accent/10 border border-accent/40
-                hover:bg-accent/25 hover:text-accent
-                transition-colors shadow-md"
-              style={{ top: splitAnchor.y }}
+              className="absolute -left-0.5 z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
+                bg-accent text-white shadow-lg shadow-accent/40 ring-2 ring-white/30
+                hover:bg-accent/85 hover:scale-110 active:scale-95
+                transition-all"
+              style={{ top: Math.max(0, splitAnchor.y - 13) }}
               title={t("split_segment_title")}
               aria-label={t("split_segment_title")}
               data-testid="split-anchor-btn"
             >
               {/* horizontal-split: zwei Balken, mittige Trennung */}
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+              <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden>
                 <rect x="0.5" y="0.5" width="9" height="3.6" rx="1" fill="currentColor" />
                 <rect x="0.5" y="5.9" width="9" height="3.6" rx="1" fill="currentColor" />
               </svg>
