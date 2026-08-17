@@ -256,7 +256,20 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         });
       });
 
-      ws.on("timeupdate", (t) => { setCurrentTime(t); onTimeUpdateRef.current?.(t); });
+      ws.on("timeupdate", (t) => {
+        // Fix 2026-08-17 (Space-Stop-Sprung): WaveSurfer 7 feuert beim Pause
+        // ueber initReactiveState ein timeupdate mit 0 — das interne
+        // _currentTime-Signal (Initialwert 0) wird nie von WebAudio-Media-
+        // timeupdate aktualisiert, nur der WS-Timer emittiert laufend echte
+        // Werte. Unser Handler uebernahm die 0 blind → Karaoke-Markierung
+        // sprang zum Playback-Start (live reproduziert: 2.662 → 0.000).
+        // Die echte Position (getCurrentTime, aus playbackPosition) ist
+        // korrekt — 0 nur akzeptieren, wenn wirklich am Anfang.
+        const real = ws.getCurrentTime();
+        if (t === 0 && real > 0.05) t = real;
+        setCurrentTime(t);
+        onTimeUpdateRef.current?.(t);
+      });
       // Audio-Exklusivität: Start dieses Players pausiert jeden anderen.
       const me: Playable = {
         pause: () => ws.pause(),
@@ -407,14 +420,22 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
-            {/* Change 2026-08-17: Playback-Speed x0.5/x1/x2 — die
+            {/* Change 2026-08-17: Playback-Speed x0.5/x1/x1.5/x2 — die
                 Karaoke-Markierung hängt an der Audio-Position und folgt
-                damit automatisch korrekt jeder Geschwindigkeit. */}
+                damit automatisch korrekt jeder Geschwindigkeit.
+                Fix 2026-08-17 (1× nicht wählbar): der Button-Klick rief
+                direkt wsRef.current.setPlaybackRate(r) auf, aber NUR das
+                imperative Handle aktualisierte den React-State playRate →
+                der State blieb auf 1, der 1×-Button dadurch dauerhaft
+                disabled. Jetzt: gemeinsamer Handler (WS + State). */}
             <span className="flex items-center gap-[2px] ml-1">
-              {[0.5, 1, 2].map((r) => (
+              {[0.5, 1, 1.5, 2].map((r) => (
                 <button
                   key={r}
-                  onClick={() => wsRef.current?.setPlaybackRate(r)}
+                  onClick={() => {
+                    wsRef.current?.setPlaybackRate(r);
+                    setPlayRate(r);
+                  }}
                   disabled={!canPlay || Math.abs(playRate - r) < 0.01}
                   className={`text-[11px] px-[5px] py-[2px] rounded-sm border transition-colors ${
                     Math.abs(playRate - r) < 0.01

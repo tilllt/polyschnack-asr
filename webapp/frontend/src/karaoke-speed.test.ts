@@ -20,8 +20,8 @@ describe("Karaoke folgt der Audio-Position (speed-unabhängig)", () => {
 
   it("activeWordIndex nutzt die Position direkt — kein Speed-Faktor nötig", () => {
     // Dieselbe Position ergibt dasselbe Wort, egal ob der Player mit
-    // x0.5, x1 oder x2 abspielt (die Position im Audio ist absolut).
-    const rates = [0.5, 1, 2] as const;
+    // x0.5, x1, x1.5 oder x2 abspielt (die Position im Audio ist absolut).
+    const rates = [0.5, 1, 1.5, 2] as const;
     for (const _rate of rates) {
       // Position 10.4 liegt in "hallo" — unabhängig von der Rate.
       expect(activeWordIndex(words, 10.4, 0)).toBe(0);
