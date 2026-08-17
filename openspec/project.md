@@ -15,6 +15,7 @@ und Post-Processing (LLM, Delivery). Betrieben auf einer KI Box (RTX 3090).
 | Capability | Beschreibung |
 |---|---|
 | [Transcription](specs/transcription/spec.md) | Upload, Transkribieren, Retranskribieren, Toggles, Versionen, Export |
+| [Transcription View](specs/transcription-view/spec.md) | GUI-Transkriptionsansicht: Waveform/Karaoke, Segment-Edit (Drag, +/−, Split), Suche, Vollbild |
 | [Identity & Access](specs/identity-access/spec.md) | OIDC-Login, anonyme Sessions, Admin-Designation, API-Keys |
 | [Sharing](specs/sharing/spec.md) | Aufnahmen teilen (read/write/full) |
 | [Backend & Queue](specs/backend-queue/spec.md) | Service-Registry, Ressourcen-Check, Queue mit Prioritäten |

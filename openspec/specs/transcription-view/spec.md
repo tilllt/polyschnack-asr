@@ -1,0 +1,303 @@
+# Transcription View (GUI-Transkriptionsansicht)
+
+## Purpose
+
+Die Ansicht eines fertig transkribierten Recordings in der Webapp: Waveform-Playback
+mit Wort-Karaoke, segmentierte Transkription mit Editier-Werkzeugen (Grenzen
+verschieben, Segmente einfügen/löschen/teilen, Text und Sprecher ändern),
+Suche, Segmentlängen-Wahl und Edit-Vollbild. Alles, was nach der Transkription
+mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
+
+## Requirements
+
+### Req 1: Playback mit Karaoke-Synchronisation
+
+- **Ablauf:** `RecordingCard` rendert `WaveformPlayer` (WaveSurfer 7) mit
+  Server-Peaks + Audio-Preview (64-kbps-MP3, Fallback Voll-WAV). Play/Pause
+  über Button oder globale Space-Taste.
+- **Timing:** rAF-Sync-Loop liest `getCurrentTime()` mit 25-ms-Schwelle
+  (~40 fps) — `timeupdate`-Events allein reichen nicht (HTMLMediaElement ~4/s).
+  Zeit fließt via `onTimeUpdate` in `RecordingCard` (`currentTime`-State) und
+  von dort in `SegmentList` (Karaoke-Markierung + Auto-Scroll).
+- **Exklusivität:** `claimExclusivePlayback` — startet ein Player, pausiert er
+  jeden anderen. Space-Shortcut (Capture-Modus in `App.tsx`) togglet den
+  zuletzt beanspruchten Player; greift nicht in Eingabefeldern.
+- **Stop-Semantik:** `decidePlayPause` — spielt er → pause (Markierung bleibt
+  exakt stehen); steht er am Ende → „stay" (kein Auto-Reset auf 0); ohne
+  geladenes Audio → „noop".
+- **Lade-Indikator:** eigener Audio-Fetch (`readyFetch`) signalisiert echtes
+  Lade-Ende; bis dahin Play-Button disabled + „Loading audio…" (`canplay`/
+  `decode`/readyState sind im Peaks-Pfad unbrauchbar).
+- **Architektur:** `src/components/WaveformPlayer.tsx`, `App.tsx`
+  (Space-Handler), `src/components/RecordingCard.tsx` (currentTime-State,
+  `handleTimeUpdate`).
+
+#### Scenario: Play und Stop per Space
+
+- **Akteure:** Besitzer der Aufnahme.
+- **Eingaben:** Space drücken, 2 s warten, Space drücken.
+- **Ergebnis:** Playback startet; nach Stop bleibt die Markierung exakt an der
+  Stopp-Position stehen (kein Sprung an den Anfang, kein Sprung nach vorne).
+
+#### Scenario: Zweite Karte starten pausiert die erste
+
+- **Akteure:** Besitzer mit zwei Aufnahmen.
+- **Eingaben:** Play auf Karte A, dann Play auf Karte B.
+- **Ergebnis:** A pausiert automatisch; nur B spielt.
+
+### Req 2: Karaoke-Wort-Hervorhebung
+
+- **Ablauf:** `SegmentList` rendert jedes Segment wortweise als Spans; das
+  aktive Wort (zur Playback-Zeit) bekommt `karaoke-active`. Basis:
+  `activeWordIndex(words, currentTime)`.
+- **Lückenlosigkeit:** aktives Wort = letztes mit `start <= t` — ASR-Wort-
+  Timestamps haben Lücken (w[i].end < w[i+1].start) und Überlappungen; die
+  alte `isWordActive`-Logik (isoliertes Fenster) glitchte (kein Wort / zwei
+  Wörter). `activeWordIndex` liefert immer genau ein Wort.
+- **Vorlauf:** `KARAOKE_LEAD_S = 0.15` — der Aligner liefert 80-ms-Bins, die
+  ~0.1–0.2 s nach dem akustischen Sprechbeginn liegen; mit Vorlauf erscheint
+  die Markierung am Anfang des Wortes statt verspätet.
+- **Confidence:** Per-Token-Confidence (CrispASR `probability`) → Ampel
+  `conf-high/medium/low`; nur wenn mindestens ein Wort eine Zahl hat
+  (`hasConfidence`), sonst keine Färbung.
+- **Wort-Klick:** seekt zum Wort-Start (mit 280-ms-Doppelklick-Schutz; der
+  Doppelklick öffnet den Edit-Modus statt Playback).
+- **Architektur:** `src/karaoke.ts` (activeWordIndex, confidenceTier,
+  confidenceClass, hasConfidence), `SegmentList.tsx` (Wort-Spans).
+
+#### Scenario: Markierung wandert Wort für Wort mit
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Playback starten, auf Wortgrenzen achten.
+- **Ergebnis:** Die Markierung wechselt nahtlos (auch bei Timestamp-Lücken:
+  vorheriges Wort bleibt aktiv) und erscheint mit dem Wort-Vorlauf am Anfang
+  jedes Wortes.
+
+### Req 3: Aktives Segment + Auto-Scroll
+
+- **Ablauf:** `activeSegmentIndex(displaySegments, t)` liefert das Segment zur
+  aktuellen Zeit (nach dem letzten Segment-Ende → letztes Segment).
+- **Gegen die ANZEIGE rechnen:** `handleTimeUpdate` berechnet den Index gegen
+  `displaySegments` (die aktuell gerenderte Segmentierung), nie gegen den
+  React-Query-Cache — nach Grenz-Verschiebungen oder Segmentlängen-Änderung
+  haben die angezeigten Segmente andere start/end als der Cache.
+- **Auto-Scroll:** zentriert das aktive Wort im Transkriptions-Container
+  (`container.scrollTo`, `block:"nearest"`-Ersatz via manueller
+  Relativ-Rechnung). NIEMALS `scrollIntoView` — das scrollt alle scrollbaren
+  Vorfahren (auch die Seite; „Stop scrollt die Seite nach unten"-Bug).
+  Fallback: aktive Zeile, wenn kein aktives Wort markiert ist.
+- **Architektur:** `src/karaoke.ts` (activeSegmentIndex, shouldScrollIntoView),
+  `SegmentList.tsx` (Auto-Scroll-Effekt), `RecordingCard.tsx`
+  (displaySegments, activeSegIdx).
+
+#### Scenario: Langes Transkript, Playback scrollt mit
+
+- **Akteure:** Besitzer mit 51-min-Transkript.
+- **Eingaben:** Playback starten, nicht manuell scrollen.
+- **Ergebnis:** Das aktive Wort bleibt ungefähr in der Mitte des sichtbaren
+  Transkriptionsbereichs; die Seite selbst bewegt sich nicht.
+
+### Req 4: Segment-Grenzen verschieben (Drag)
+
+- **Ablauf:** Die Start-Timecodes (i > 0) sind Drag-Handles der Grenze davor
+  (`onBoundaryPointerDown/Move/Up`). `PX_PER_WORD = 16` — alle 16 px
+  Drag-Bewegung = 1 Wort; `moveBoundary(segments, boundaryIdx, delta)`.
+- **Semantik:** delta < 0 (Marker nach oben) → die letzten |delta| Wörter von
+  Segment N wandern an den Anfang von N+1; delta > 0 → die ersten delta
+  Wörter von N+1 ans Ende von N. Wort für Wort, einzelne Wörter werden nie
+  geteilt; Rand-Clamp (kein Segment wird leer); ohne Wort-Timestamps keine
+  Bewegung.
+- **Duplikat-Freiheit (Fix 2026-08-16):** beim Drag-Start wird die Basis-Liste
+  eingefroren (`dragRef.baseSegments`) und jedes pointermove ruft
+  `moveBoundary(baseSegments, idx, KUMULATIVES words)` auf — Schritt-Deltas
+  auf der (noch alten) Prop-Liste duplizierten Wörter („Anton? Anton?").
+  `currentList` im Ref wird bei jedem Schritt aktualisiert und beim Loslassen
+  explizit an `onBoundaryDragEnd` übergeben (kein Closure-State).
+- **Persistenz:** beim Loslassen `PUT /api/recordings/{rid}/segments`
+  (ersetzt die komplette Liste, tiefe Kopie; `rec.text` neu zusammengesetzt;
+  Versions-Snapshot `kind="edit"`). `handleBoundaryDragEnd` setzt
+  `dragSegments` auf die Server-Antwort (NICHT null — sonst rechnet
+  `resegmentByDuration` beim gesetzten `segMaxDuration` die manuelle Grenze
+  wieder weg).
+- **Architektur:** `src/resegment.ts` (moveBoundary, buildSeg),
+  `SegmentList.tsx` (Drag-Handler, dragRef), `RecordingCard.tsx`
+  (handleBoundaryMoved/DragEnd), `app/routers/segments.py`
+  (`replace_segments`).
+
+#### Scenario: Grenze ziehen verschiebt Wörter ohne Duplikate
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Timecode einer Grenze 3 Wörter nach unten ziehen, loslassen.
+- **Ergebnis:** Die ersten 3 Wörter des folgenden Segments hängen am Ende des
+  vorigen; Gesamttext und Gesamtwortzahl unverändert; nach dem Loslassen
+  gespeichert (Toast „Grenze gespeichert"), keine Duplikate, kein Rücksprung.
+
+### Req 5: Segment-Struktur editieren (+/−/Split)
+
+- **Ablauf:** Zwischen den Segmenten „+" im Kreis (fügt ein neues Segment
+  nach i ein: gleicher Sprecher, das LETZTE Wort des vorigen wandert in das
+  neue; deaktiviert ohne Wort-Timestamps). „−" vor jedem Timecode löscht
+  Segment i (Wörter/Text ans vorige; bei Index 0 ans neue erste; nie unter
+  1 Segment). Text-Markierung in einem Segment → Split-Modal (✂): der
+  markierte Teil wird ein eigenes Segment mit wählbarem Sprecher, die Teile
+  davor/danach behalten den Originalsprecher; ohne Wort-Timestamps wird die
+  Zeit proportional zur Zeichenposition interpoliert.
+- **Persistenz:** identisch zu Req 4 (PUT /segments, `persistSegmentList`).
+- **Architektur:** `src/resegment.ts` (insertSegment, deleteSegment,
+  splitSegmentAtRange), `SegmentList.tsx` (Buttons, Split-Modal,
+  `selectionCharRange` — DOM-TreeWalker über Text-Nodes inkl. Trenn-Spaces),
+  `RecordingCard.tsx` (handleSegmentInsert/Delete/Split).
+
+#### Scenario: Segment einfügen
+
+- **Akteure:** Besitzer.
+- **Eingaben:** „+" zwischen Segment 0 und 1.
+- **Ergebnis:** Neues Segment mit dem Sprecher von Segment 0; das letzte Wort
+  von Segment 0 steht jetzt im neuen Segment; Gesamttext identisch.
+
+#### Scenario: Segment aus Text-Markierung teilen
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Wörter im Segment markieren → ✂ → Sprecher wählen → Bestätigen.
+- **Ergebnis:** markierter Teil = eigenes Segment mit neuem Sprecher; Rest
+  behält den Originalsprecher; Wort-Reihenfolge/Timestamps unverändert.
+
+### Req 6: Segmentlänge wählbar (Re-Segmentierung)
+
+- **Ablauf:** Zahlenfeld „📐 Segmentlänge" (Sekunden) über der Segmentliste.
+  `resegmentByDuration(segments, maxDurationS)` teilt die Wörter in Buckets:
+  Bucket endet, sobald (a) Ziel-Dauer überschritten würde ODER (b) der
+  Sprecher wechselt; mindestens 1 Wort pro Bucket; start/end aus erstem/letztem
+  Wort; Text = Wörter verbunden. Nur Wörter mit Timestamps werden aufgeteilt.
+- **Konsistenz:** Die Anzeige (`displaySegments`) und der Export (SRT/VTT)
+  nutzen dieselbe Aufteilung (Backend `service.py:resegment_by_duration` —
+  identische Bucket-Logik). Eine manuell gezogene Grenze (dragSegments) hat
+  Vorrang vor der Auto-Aufteilung.
+- **Architektur:** `src/resegment.ts` (resegmentByDuration),
+  `RecordingCard.tsx` (segMaxDuration-State, displaySegments),
+  `app/service.py` (resegment_by_duration für Export).
+
+#### Scenario: 105-s-Segment in 30-s-Buckets
+
+- **Akteure:** Besitzer mit chunk-bedingt langem ASR-Segment.
+- **Eingaben:** „30" ins Segmentlängen-Feld.
+- **Ergebnis:** Anzeige zeigt Blöcke ≤ 30 s an Wortgrenzen; Sprecherwechsel
+  erzwingen zusätzliche Brüche; Export nutzt dieselben Grenzen.
+
+### Req 7: Text-Edit & Sprecher-Zuweisung
+
+- **Ablauf:** Doppelklick auf ein Segment → Textarea (Auto-Grow auf
+  Textgröße; Enter+Ctrl/Cmd = Speichern, Escape = Abbrechen, Blur = Speichern
+  bei Änderung). `PATCH /api/recordings/{rid}/segments/{idx}` mit `text`
+  ODER `speaker` (tiefe JSON-Kopie vor SQLAlchemy-Write, Versions-Snapshot).
+- **Text-Änderung:** Wörter werden gleichverteilt über die Segment-Dauer neu
+  gebaut (`w_duration = seg_duration / n_words`) — Karaoke bleibt funktions-
+  fähig; Timestamps sind dann Schätzwerte, keine ASR-Werte.
+- **Speaker-Änderung (Dropdown):** Klick auf den Sprecher-Namen öffnet ein
+  Menü mit den erkannten Sprechern (unique aus allen Segmenten) → PATCH mit
+  `speaker` nur für dieses Segment; Wörter/Timestamps bleiben unangetastet.
+- **Globales Rename:** Stift-Icon neben dem Namen → Inline-Input →
+  `POST /api/recordings/{rid}/speaker-rename` (`{from_speaker, to_speaker}`)
+  ersetzt das Feld in ALLEN Segmenten (SRT/VTT/Exporte automatisch konsistent);
+  400 wenn `from` nicht existiert.
+- **Architektur:** `SegmentList.tsx` (Edit-Textarea, Speaker-Dropdown,
+  Rename-Input), `app/routers/segments.py` (update_segment, rename_speaker).
+
+#### Scenario: Wort korrigieren
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Doppelklick auf Segment → Text ändern → Ctrl+Enter.
+- **Ergebnis:** Segment-Text + Gesamttext aktualisiert; Wörter gleichverteilt
+  neu getimt (Karaoke-fähig); Edit-Version gesichert.
+
+#### Scenario: Sprecher zuweisen
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Klick auf Sprecher-Name → andere erkannte Sprecherin wählen.
+- **Ergebnis:** Nur dieses Segment trägt den neuen Sprecher; Wort-Timestamps
+  unverändert; Toast „Sprecher gespeichert".
+
+### Req 8: Suche im Transkript
+
+- **Ablauf:** Such-Icon in der Karten-Kopfzeile öffnet `SegmentSearch` über
+  der Liste. Treffer werden grün markiert (`search-hit`, bewusst ANDERS als
+  der gelbe Karaoke-Marker); Klick auf einen Treffer springt zum Segment
+  (container.scrollTo, zentriert). Plain-Text-Segmente: Regex-Highlight;
+  Karaoke-Segmente: Wort-Substring-Prüfung pro Span.
+- **Architektur:** `src/components/SegmentSearch.tsx`, `SegmentList.tsx`
+  (highlightText, wordIsHit), `RecordingCard.tsx` (searchQuery/searchJump).
+
+#### Scenario: Begriff finden und springen
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Suchbegriff eingeben, Treffer anklicken.
+- **Ergebnis:** Alle Vorkommen grün hervorgehoben; Klick zentriert das
+  Treffer-Segment im Transkriptions-Container.
+
+### Req 9: Edit-Vollbild (focusMode)
+
+- **Ablauf:** Vollbild-Icon in der Karten-Kopfzeile macht die GANZE Karte zum
+  Overlay (`fixed inset-x-0 top-0 z-[101] h-[100dvh] overflow-hidden`,
+  `overflow-y-auto`): Waveform bleibt oben gepinnt, die Segmentliste füllt
+  die Resthöhe (`fillHeight`). Escape schließt; `body` bekommt
+  `overflow:hidden` währenddessen. Kollabierte Transkription wird beim Öffnen
+  automatisch expandiert + Waveform geladen (expandedOnce), sonst zeigt der
+  Vollbild nur die erste Zeile.
+- **Architektur:** `RecordingCard.tsx` (focusMode-State, Escape-Listener,
+  Fullscreen-Button), `SegmentList.tsx` (fillHeight-Prop).
+
+#### Scenario: Vollbild öffnen und schließen
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Vollbild-Icon, dann Escape.
+- **Ergebnis:** Karte füllt den Viewport mit pin-fixierter Waveform und
+  voller Transkription; Escape stellt die normale Listenansicht wieder her.
+
+### Req 10: Wort-Timing-Invariante (übergreifend)
+
+- **Ablauf:** Jede GUI-Operation darf nur die Segment-ZUORDNUNG der Wörter
+  ändern, nie die Wörter selbst: `moveBoundary`/`insertSegment`/
+  `deleteSegment`/`splitSegmentAtRange`/`resegmentByDuration` verschieben
+  Wort-Objekte als Referenzen bzw. kopieren Primitive (`start`/`end`),
+  Timestamps bleiben exakt erhalten. Backend-Roundtrip (PUT /segments →
+  `json.loads(json.dumps(...))` → Response) erhält `words` 1:1.
+- **Verifikation:** `src/resegment.test.ts` — `flattenWords(list)` vergleicht
+  `word|start|end` vor/nach jeder Operation (Achtung: Segmente sind nicht
+  lückenlos — teste `out[i].start >= out[i-1].end`, nicht Gleichheit).
+- **Ausnahme:** Nur die Text-Edit-Operation (Req 7) baut Wörter NEU
+  (gleichverteilt) — dokumentierter Trade-off, damit Karaoke nach Korrekturen
+  funktioniert.
+- **Architektur:** `src/resegment.ts`, `src/resegment.test.ts`,
+  `app/routers/segments.py` (replace_segments: tiefe Kopie).
+
+#### Scenario: Alle Operationen erhalten Wort-Timestamps
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Grenze ziehen, Segment einfügen, löschen, teilen,
+  Segmentlänge ändern — in beliebiger Reihenfolge.
+- **Ergebnis:** flattenWords (wort|start|end über alle Segmente) ist vor und
+  nach jeder Operation identisch; nur die Segment-Zuordnung ändert sich.
+
+## Bekannte Abweichungen (User-Befunde 2026-08-17, noch offen)
+
+Diese drei vom User gemeldeten Phänomene verletzen die Requirements oben und
+sind Gegenstand des laufenden Reviews — sie sind hier als IST-Abweichungen
+festgehalten, damit die folgende Änderungsplanung (Change Proposal) konkrete
+Soll-Deltas formulieren kann:
+
+1. **Wort-Dopplungen beim Verschieben der Segment-Grenzen (Req 4):** trotz
+   des 2026-08-16-Fixes (eingefrorene Basis + kumulatives Delta) weiterhin
+   beobachtet. Der Regressionstest deckt die Sequenz 0→1→2→1→0 auf EINER
+   Grenze ab; offene Pfade: mehrere Grenzen nacheinander ohne Zwischen-
+   Roundtrip, Drag bei gesetztem `segMaxDuration`, Touch/Pointer-Cancel,
+   Doppel-Drag auf dieselbe Grenze.
+2. **Wort-Timing nach Grenz-Verschiebung „manchmal" kaputt (Req 4/10):**
+   Wort-Timestamps verletzen nach bestimmten Verschiebungen die Invariante.
+   Zu prüfen: Interaktion `moveBoundary` ↔ `resegmentByDuration` (Bucket-
+   Grenzen), `dragSegments`-Reset-Effekt, Server-Roundtrip-Normalisierung.
+3. **Karaoke-Hervorhebung springt beim Stop auf ein Wort weiter vorne
+   (Req 2):** `KARAOKE_LEAD_S=0.15` wird auch im pausierten Zustand angewendet
+   (`activeWordIndex(words, currentTime)` addiert den Vorlauf IMMER) —
+   stoppt die Zeit nahe einer Wortgrenze, zeigt die Markierung das nächste
+   Wort. Fix-Richtung: Vorlauf nur während des Playbacks anwenden oder beim
+   Stop `currentTime`-exakt rechnen.
