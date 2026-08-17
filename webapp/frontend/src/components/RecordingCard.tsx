@@ -13,7 +13,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { resegmentByDuration, insertSegment, deleteSegment, splitSegmentAtRange } from "../resegment";
+import { resegmentByDuration, insertSegment, deleteSegment, splitSegmentAtRange, flattenWords } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
@@ -116,6 +116,13 @@ const KIND_LABEL: Record<string, string> = {
 export function RecordingCard({ recording: r, compact = false, isOidc = false, isAdmin = false, defaultCollapsed = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
   const etaRef = useRef<EtaRef>({ pct: -1, ts: 0, rate: null });
+  // Fix 2026-08-17: monotone Sequenznummer für Segment-Persistenz (PUT-Guard
+  // „letzter Drag gewinnt"): Antworten älterer PUTs werden verworfen, damit
+  // eine langsame Antwort keinen neueren Drag-Stand überschreibt.
+  const persistSeq = useRef(0);
+  // Fix 2026-08-17: Play-Zustand der Wiedergabe (onPlayStateChange aus
+  // WaveformPlayer) — für den Karaoke-Vorlauf (Lead nur bei playing).
+  const [isPlaying, setIsPlaying] = useState(false);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
@@ -425,18 +432,27 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     // letzten Wort-Schritt noch nicht enthielt — React hatte bei pointerup im
     // selben Frame wie dem letzten pointermove noch nicht neu gerendert → die
     // Grenze sprang beim nächsten PUT zurück („nicht gespeichert").
+    // Fix 2026-08-17: PUT-Guard „letzter Drag gewinnt" — bei mehreren Drags
+    // in schneller Folge (PUT A noch offen, Drag B startet) könnte eine
+    // langsame Antwort A den neueren Stand B überschreiben. Jede Persistenz
+    // inkrementiert eine monotone Sequenznummer; nur die Antwort mit der
+    // aktuellsten Nummer übernimmt Cache + Anzeige (die älteren verfallen).
     if (!next || !r.uid) return;
+    const seq = ++persistSeq.current;
     try {
       const result = await replaceSegments(r.uid, next);
+      if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
       handleEdited(result.segments, result.text);
       // Fix 2026-08-16: NICHT auf null setzen! Bei gesetztem segMaxDuration
       // rechnet displaySegments sonst sofort resegmentByDuration() wieder
       // drüber → manuelle Grenze verschwindet aus der Anzeige, der nächste
       // Drag startet von der Auto-Aufteilung und überschreibt die manuelle
       // Grenze beim nächsten PUT (Regression „speichert nicht").
-      // result.segments ist referenz-gleich mit dem Cache (handleEdited) →
-      // das useEffect unten resettet dragSegments erst bei ECHT neuen
-      // Server-Segmenten (z. B. nach Retranscribe).
+      // Fix 2026-08-17: der Reset-Effekt unten vergleicht jetzt den WORT-
+      // INHALT (flattenWords), nicht Objekt-Referenzen — eine PUT-Bestätigung
+      // derselben Liste resettet die Anzeige nicht mehr (Referenz-Vergleich
+      // schlug bei gesetztem segMaxDuration fehl: displaySegments ist eine
+      // neu berechnete Liste, nie referenz-gleich mit dem Cache).
       setDragSegments(result.segments);
       toast(t("boundary_saved"), "ok");
     } catch (err) {
@@ -452,8 +468,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // (PUT /segments) — wie beim Grenz-Drag.
   async function persistSegmentList(next: Segment[]) {
     if (!r.uid) return;
+    const seq = ++persistSeq.current;
     try {
       const result = await replaceSegments(r.uid, next);
+      if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
       handleEdited(result.segments, result.text);
       setDragSegments(result.segments);
       toast(t("boundary_saved"), "ok");
@@ -492,11 +510,28 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
 
   // Manuelle Grenzen nur so lange aktiv, wie die zugrunde liegenden
-  // Segmente identisch sind. Kommen nach Retranscribe/Reload ECHT neue
-  // Server-Segmente (andere Referenz), verfällt die alte Drag-Liste —
-  // sonst bliebe eine veraltete manuelle Aufteilung stehen.
+  // Segmente inhaltlich identisch sind. Kommen nach Retranscribe/Reload
+  // ECHT neue Server-Segmente (andere Wortfolge/Wortzahl), verfällt die
+  // alte Drag-Liste — sonst bliebe eine veraltete manuelle Aufteilung
+  // stehen. Fix 2026-08-17: Vergleich über die WORT-INVARIANTE
+  // (flattenWords), nicht über Objekt-Referenzen — der Referenz-Vergleich
+  // resettete die Anzeige bei jeder PUT-Bestätigung, weil displaySegments
+  // bei gesetztem segMaxDuration eine neu berechnete Liste ist und nie
+  // referenz-gleich mit dem Cache („Grenze speichert nicht" / Anzeige
+  // springt zurück).
   useEffect(() => {
-    setDragSegments((cur) => (cur && cur !== segments ? null : cur));
+    setDragSegments((cur) => {
+      if (!cur) return cur;
+      const a = flattenWords(cur as never);
+      const b = flattenWords(segments as never);
+      if (a.length !== b.length) return null;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i].word !== b[i].word || a[i].start !== b[i].start || a[i].end !== b[i].end) {
+          return null;
+        }
+      }
+      return cur;
+    });
   }, [segments]);
 
   const handleTimeUpdate = useCallback((t: number) => {
@@ -730,6 +765,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             onTimeUpdate={handleTimeUpdate}
             onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
             onLoadError={() => setWaveformError(true)}
+            onPlayStateChange={setIsPlaying}
           />
         ) : (
           // Platzhalter mit fester Höhe — verhindert Layout-Springen beim
@@ -849,6 +885,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   recordingId={r.uid}
                   onEdited={handleEdited}
                   currentTime={currentTime}
+                  isPlaying={isPlaying}
                   searchQuery={searchQuery}
                   searchJump={searchJump}
                   onBoundaryMoved={handleBoundaryMoved}

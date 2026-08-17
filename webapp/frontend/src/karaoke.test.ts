@@ -104,6 +104,27 @@ describe("activeWordIndex (lückenlose Karaoke-Markierung — Glitch-Fix)", () =
     expect(activeWordIndex(words, -0.16)).toBe(-1);
     expect(activeWordIndex(words, -0.14)).toBe(0);
   });
+
+  it("REPRO 2026-08-17: Stop nahe Wortgrenze springt auf das NÄCHSTE Wort (Lead im Pausenzustand)", () => {
+    // User-Befund: „Karaoke-Hervorhebung springt auf ein Wort weiter vorne
+    // im Text wenn man stopp drückst“. activeWordIndex addiert den Vorlauf
+    // IMMER (auch pausiert) — `leadS` ist ein Parameter des Aufrufers, aber
+    // SegmentList übergibt ihn nicht und RecordingCard verdrahtet
+    // onPlayStateChange nicht → die Anzeige rechnet mit 0.15 auch im Stop.
+    // words: hallo[0,1) hier[1,2) spricht[2,3)
+    // Gestoppt bei t=1.0 (Wort „hier“ beginnt EXAKT) → +0.15 → t=1.15 →
+    // letztes Wort mit start <= 1.15 ist „hier“ (1.0) — OK.
+    // Gestoppt bei t=1.1 (mitten in „hier“) → +0.15 → 1.25 → immer „hier“.
+    // ABER gestoppt bei t=1.85 (fast am Ende von „hier“) → +0.15 → 2.0 →
+    // „spricht“ (start 2.0) wird markiert, obwohl die Wiedergabe bei 1.85
+    // steht — der sichtbare Sprung.
+    expect(activeWordIndex(words, 1.85)).toBe(2); // mit Default-Lead 0.15
+    expect(activeWordIndex(words, 1.85, 0)).toBe(1); // pausiert exakt
+    // Und der umgekehrte Fall: gestoppt bei 0.9 (fast am Ende von „hallo“)
+    // → +0.15 = 1.05 → „hier“, obwohl man „hallo“ zuletzt gehört hat.
+    expect(activeWordIndex(words, 0.9)).toBe(1); // mit Lead
+    expect(activeWordIndex(words, 0.9, 0)).toBe(0); // exakt
+  });
 });
 
 describe("activeSegmentIndex (Auto-Scroll + Karaoke-Basis)", () => {

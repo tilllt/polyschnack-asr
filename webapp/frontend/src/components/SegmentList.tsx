@@ -18,6 +18,10 @@ interface Props {
   recordingId?: string;
   onEdited?: (segments: Segment[], text: string) => void;
   currentTime?: number;
+  /** Fix 2026-08-17: Play-Zustand — Karaoke-Vorlauf (KARAOKE_LEAD_S) gilt
+   *  NUR während der Wiedergabe; pausiert/gestoppt rechnet exakt (Markierung
+   *  bleibt an der Stopp-Position, kein Sprung auf das nächste Wort). */
+  isPlaying?: boolean;
   /** Review-Fix 2026-08-15 (Such-UI): Query für grüne Treffer-Hervorhebung
    *  (bewusst ANDERS als der gelbe Karaoke-Marker) + Sprung-Ziel. */
   searchQuery?: string;
@@ -86,7 +90,7 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
+export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -175,7 +179,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // dessen container.scrollTo: nur der Transkriptions-Container bewegt sich.
   // Fallback: aktive Zeile, falls das aktive Wort nicht markiert ist.
   const activeW = activeIdx >= 0 && currentTime != null
-    ? activeWordIndex(segments[activeIdx]?.words ?? [], currentTime)
+    ? activeWordIndex(segments[activeIdx]?.words ?? [], currentTime, isPlaying ? undefined : 0)
     : -1;
   useEffect(() => {
     const container = containerRef.current;
@@ -646,7 +650,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
             >
               {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
-                    const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime) : -1;
+                    const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
                     return seg.words!.map((w, wi) => {
                       const isActive = wi === activeW;
                       // Such-Treffer: grüner Marker (.search-hit) — bewusst

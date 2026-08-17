@@ -171,6 +171,105 @@ describe("moveBoundary", () => {
       "a0", "a1", "a2", "a3", "a4", "b0", "b1", "b2", "b3", "b4",
     ]);
   });
+
+  it("REPRO 2026-08-17: ZWEI Grenzen nacheinander — zweiter Drag auf dem Ergebnis des ersten (keine Duplikate)", () => {
+    // UI-Ablauf nach dem 16.08.-Fix: Drag 1 (Grenze 0) → onBoundaryDragEnd
+    // speichert `d.currentList`; der NÄCHSTE Drag beginnt auf DER GESPEICHERTEN
+    // Liste (nicht auf der Original-Basis — die ist pro Drag neu eingefroren).
+    // Reproduziert die Sequenz Grenze-0-ziehen → Grenze-1-ziehen auf dem
+    // Ergebnis. Wortzahl + Wort-Menge müssen konstant bleiben.
+    // 3 Segmente: A(a0..a2) B(b0..b2) C(c0..c2)
+    const wa: [string, number, number][] = [];
+    const wb: [string, number, number][] = [];
+    const wc: [string, number, number][] = [];
+    for (let i = 0; i < 3; i++) {
+      wa.push([`a${i}`, i, i + 1]);
+      wb.push([`b${i}`, 3 + i, 4 + i]);
+      wc.push([`c${i}`, 6 + i, 7 + i]);
+    }
+    const base = [seg(0, 3, wa), seg(3, 6, wb), seg(6, 9, wc)];
+    const countWords = (list: ReturnType<typeof moveBoundary>) =>
+      list.reduce((n, s) => n + (s.words?.length ?? 0), 0);
+    const allWords = (list: ReturnType<typeof moveBoundary>) =>
+      list.flatMap((s) => s.words ?? []).map((w) => w.word).sort().join(",");
+
+    // Drag 1: Grenze 0 um 1 Wort nach unten (b0 → A)
+    const after1 = moveBoundary(base, 0, 1);
+    expect(countWords(after1)).toBe(9);
+    expect(allWords(after1)).toBe("a0,a1,a2,b0,b1,b2,c0,c1,c2");
+
+    // Drag 2: Grenze 1 um 1 Wort nach unten (c0 → B) — auf after1
+    const after2 = moveBoundary(after1, 1, 1);
+    expect(countWords(after2)).toBe(9);
+    expect(allWords(after2)).toBe("a0,a1,a2,b0,b1,b2,c0,c1,c2");
+    // b0 liegt seit Drag 1 in A; Drag 2 schiebt c0 von C nach B
+    expect(after2[0].text).toBe("a0 a1 a2 b0");
+    expect(after2[1].text).toBe("b1 b2 c0");
+    expect(after2[2].text).toBe("c1 c2");
+
+    // Drag 3: Grenze 0 wieder zurück (b0 → B) — kumulativ auf after1-Basis
+    const after3 = moveBoundary(after1, 0, -1);
+    expect(countWords(after3)).toBe(9);
+    expect(allWords(after3)).toBe("a0,a1,a2,b0,b1,b2,c0,c1,c2");
+  });
+
+  it("REPRO 2026-08-17: Grenze über die Kante hinaus und zurück — Clamp + Rückweg dupliziert nichts", () => {
+    // User zieht weit über die verfügbare Wortzahl hinaus (Clamp), dann
+    // zurück. moveBoundary clammt n auf Segment-Größe; der Rückweg muss von
+    // der kumulativen Zahl aus konsistent bleiben (kein Duplikat durch
+    // doppeltes Clampen).
+    const base = twoSegs(); // 5+5 Wörter
+    const countWords = (list: ReturnType<typeof moveBoundary>) =>
+      list.reduce((n, s) => n + (s.words?.length ?? 0), 0);
+
+    // delta 100 → clamp auf 4 (B behält 1 Wort)
+    const over = moveBoundary(base, 0, 100);
+    expect(countWords(over)).toBe(10);
+    expect(over[0].text).toBe("a0 a1 a2 a3 a4 b0 b1 b2 b3");
+    // zurück auf delta 2 (kumulativ, gleiche Basis)
+    const back = moveBoundary(base, 0, 2);
+    expect(countWords(back)).toBe(10);
+    expect(back[0].text).toBe("a0 a1 a2 a3 a4 b0 b1");
+    // und delta -100 → clamp -4 (A behält 1 Wort)
+    const overNeg = moveBoundary(base, 0, -100);
+    expect(countWords(overNeg)).toBe(10);
+    expect(overNeg[0].text).toBe("a0");
+  });
+
+  it("REPRO 2026-08-17: moveBoundary auf RE-SEGMENTIERTER Liste (segMaxDuration gesetzt) — Invariante hält", () => {
+    // UI-Pfad: segMaxDuration gesetzt → displaySegments = resegmentByDuration()
+    // → Grenz-Drag arbeitet auf den Wort-Buckets. Wörter sind in Buckets
+    // gruppiert, deren Grenzen NICHT mit den Original-Segmentgrenzen
+    // zusammenfallen müssen; moveBoundary verschiebt Bucket-Wörter.
+    const base = twoSegsWords(); // A(0-5) B(5-10), je 5 Wörter mit Lücken
+    const reseg = resegmentByDuration(base, 2.5) as {
+      start: number; end: number; text: string; words: { word: string; start: number; end: number }[];
+    }[];
+    const before = flattenWords(reseg as never);
+
+    // Grenze 0 auf der resegmentierten Liste ziehen
+    const moved = moveBoundary(reseg as never, 0, 1) as typeof reseg;
+    expect(flattenWords(moved as never)).toEqual(before);
+
+    // Grenze 1 ebenfalls
+    const moved2 = moveBoundary(moved as never, 1, -1) as typeof reseg;
+    expect(flattenWords(moved2 as never)).toEqual(before);
+  });
+
+  it("REPRO 2026-08-17: PUT-Roundtrip nach Drag — Server-Normalisierung erhält Wort-Zuordnung (keine Dopplungen)", () => {
+    // UI-Ablauf: handleBoundaryDragEnd → replaceSegments(next) → Server
+    // speichert json.loads(json.dumps(segs)) und liefert rec.segments zurück
+    // → handleEdited setzt Cache → displaySegments = result.segments.
+    // Der Roundtrip (JSON-Serialisierung wie segments.py) darf die
+    // Wort-Zuordnung nicht verändern (Dopplung/Verlust).
+    const base = twoSegsWords();
+    const moved = moveBoundary(base, 0, 2) as never;
+    const roundtrip = JSON.parse(JSON.stringify(moved)) as typeof base;
+    expect(flattenWords(roundtrip)).toEqual(flattenWords(base));
+    // Und: die Grenze ist nach dem Roundtrip noch da (nicht zurückgesprungen)
+    expect(roundtrip[0].text).toBe("a0 a1 a2 a3 a4 b0 b1");
+    expect(roundtrip[1].text).toBe("b2 b3 b4");
+  });
 });
 
 describe("insertSegment", () => {

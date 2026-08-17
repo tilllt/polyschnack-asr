@@ -278,26 +278,43 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
 - **Ergebnis:** flattenWords (wort|start|end über alle Segmente) ist vor und
   nach jeder Operation identisch; nur die Segment-Zuordnung ändert sich.
 
-## Bekannte Abweichungen (User-Befunde 2026-08-17, noch offen)
+## Bekannte Abweichungen (User-Befunde 2026-08-17 — Stand nach Fix 007)
 
-Diese drei vom User gemeldeten Phänomene verletzen die Requirements oben und
-sind Gegenstand des laufenden Reviews — sie sind hier als IST-Abweichungen
-festgehalten, damit die folgende Änderungsplanung (Change Proposal) konkrete
-Soll-Deltas formulieren kann:
+Die gemeldeten Phänomene verletzen die Requirements oben. Stand: Reproduktions-
+runde abgeschlossen (Property-Tests `resegment.test.ts`/`karaoke.test.ts` +
+Playwright-GUI-Tests `/opt/data/perf-prof/repro_drag_*.mjs` gegen Dev-Server,
+Mock-API); Fixes aus Change Proposal 007 umgesetzt und GUI-verifiziert.
+Die Einträge sind nach Beweisgrad sortiert:
 
-1. **Wort-Dopplungen beim Verschieben der Segment-Grenzen (Req 4):** trotz
-   des 2026-08-16-Fixes (eingefrorene Basis + kumulatives Delta) weiterhin
-   beobachtet. Der Regressionstest deckt die Sequenz 0→1→2→1→0 auf EINER
-   Grenze ab; offene Pfade: mehrere Grenzen nacheinander ohne Zwischen-
-   Roundtrip, Drag bei gesetztem `segMaxDuration`, Touch/Pointer-Cancel,
-   Doppel-Drag auf dieselbe Grenze.
-2. **Wort-Timing nach Grenz-Verschiebung „manchmal" kaputt (Req 4/10):**
-   Wort-Timestamps verletzen nach bestimmten Verschiebungen die Invariante.
-   Zu prüfen: Interaktion `moveBoundary` ↔ `resegmentByDuration` (Bucket-
-   Grenzen), `dragSegments`-Reset-Effekt, Server-Roundtrip-Normalisierung.
-3. **Karaoke-Hervorhebung springt beim Stop auf ein Wort weiter vorne
-   (Req 2):** `KARAOKE_LEAD_S=0.15` wird auch im pausierten Zustand angewendet
-   (`activeWordIndex(words, currentTime)` addiert den Vorlauf IMMER) —
-   stoppt die Zeit nahe einer Wortgrenze, zeigt die Markierung das nächste
-   Wort. Fix-Richtung: Vorlauf nur während des Playbacks anwenden oder beim
-   Stop `currentTime`-exakt rechnen.
+1. **Grenz-Verschiebung „speichert nicht unbedingt" den neuen Status — BEHOBEN
+   (Change 007, Fix 1 + 2).** Root Cause war ein Anzeige-Desync bei gesetztem
+   `segMaxDuration`: Der Drag verschiebt live korrekt, der PUT speichert am
+   Server korrekt (Server-Zustand + Reload zeigen die neue Grenze), aber die
+   Anzeige sprang nach dem Loslassen auf den alten Stand zurück. Ursache:
+   Reset-Effekt (`setDragSegments(cur => cur !== segments ? null : cur)`)
+   verglich Objekt-Referenzen; `displaySegments` ist bei gesetztem
+   `segMaxDuration` eine NEU berechnete Liste → `cur !== segments` immer wahr
+   → Reset. Fix: Reset vergleicht die WORT-INVARIANTE (`flattenWords`), nur
+   echte Neu-Inhalte (Retranscribe) verwerfen manuelle Grenzen. Zusätzlich
+   PUT-Guard „letzter Drag gewinnt" (monotone Sequenznummer) gegen Race bei
+   schnellen Folge-Drags. GUI-Verifikation: `repro_drag_desync.mjs` — Live
+   `w0 w1 w2 w3 | w4 w5` == Server == Reload (vorher Live auf altem Stand).
+2. **Karaoke-Hervorhebung springt beim Stop — BEHOBEN (Change 007, Fix 3).**
+   `activeWordIndex(words, currentTime)` addierte `KARAOKE_LEAD_S=0.15` IMMER,
+   auch pausiert; zudem übergab `RecordingCard` `onPlayStateChange` nie → die
+   App wusste nicht, ob gespielt wird. Fix: `onPlayStateChange` verdrahtet,
+   `SegmentList` rechnet mit `leadS = isPlaying ? KARAOKE_LEAD_S : 0`.
+   Beleg: `karaoke.test.ts` REPRO-Test (122/122 Tests grün).
+3. **Wort-Dopplungen beim Grenz-Verschieben — als Desync-Folge behoben
+   (Req 4/10).** In der puren Logik nie reproduzierbar (Property-Tests:
+   mehrere Grenzen, Clamp+Rückweg, resegmentierte Liste, PUT-Roundtrip — keine
+   Duplikate); Verdacht war ein SICHTBARES Symptom des Reset-Desyncs (User
+   zieht, Anzeige springt zurück, erneuter Drag auf anderer Basis). Mit Fix 1
+   entfällt die Ursache; erneuter GUI-Test zeigt keine Dopplungen.
+   Offen bleibt der Pfad „Drag während PUT noch offen" (Race) — durch
+   PUT-Guard (Fix 2) abgesichert, im GUI-Test `repro_drag_race.mjs` grün
+   (letzter Drag gewinnt).
+4. **Wort-Timing „manchmal" kaputt (Req 10) — kein reproduzierter Pfad.**
+   Die `flattenWords`-Invariante hält in allen getesteten Operationen; ein
+   Timing-Bruch war nur als Folge des Desyncs (Fix 1) denkbar. Weiter
+   beobachten; bei erneutem Auftreten mit frischem Repro-Material melden.

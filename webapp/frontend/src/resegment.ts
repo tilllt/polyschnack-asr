@@ -406,3 +406,25 @@ function joinWords(words: ResegWord[]): string {
     .join(" ")
     .trim();
 }
+
+/* ============================================================
+   Wort-Invariante: flattenWords über alle Segmente
+   ============================================================
+   Req 10 (Spec transcription-view): jede GUI-Operation (Grenze ziehen,
+   +/−, Split, Re-Segmentierung) muss die lückenlose Wortfolge
+   (word|start|end) über alle Segmente erhalten — nur die Segment-
+   Zuordnung ändert sich. flattenWords liefert die kanonische Folge,
+   mit der Anzeige/Server-Zustand inhaltlich verglichen werden kann
+   (statt Objekt-Referenzen). ====================================== */
+
+export interface FlatWord {
+  word?: string;
+  start?: number;
+  end?: number;
+}
+
+export function flattenWords(
+  segments: readonly { words?: readonly FlatWord[] | undefined }[],
+): FlatWord[] {
+  return (segments ?? []).flatMap((s) => s.words ?? []);
+}
