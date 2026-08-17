@@ -18,6 +18,7 @@ Transkribieren.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
@@ -39,15 +40,106 @@ def is_native_audio(original_name: str) -> bool:
     return Path(original_name).suffix.lower() in NATIVE_AUDIO_EXTS
 
 
+def _moov_at_end(data: bytes) -> bool:
+    """True, wenn ein MP4/M4A moov-Atom am Dateiende liegt (nicht faststart).
+
+    Signal-/Handy-Aufnahmen schreiben moov ans Ende — dann können
+    nicht-seekbare Leser (ffmpeg über stdin-Pipe, Streaming-Player)
+    die Datei NICHT lesen („partial file", 0 Bytes → „empty audio").
+    Position > 50 % der Datei gilt als „am Ende" (faststart-Dateien
+    haben moov direkt nach ftyp bei < 1 %).
+    """
+    if len(data) < 100:
+        return False
+    pos = data.rfind(b"moov")
+    if pos < 0:
+        return False
+    return pos > len(data) * 0.5
+
+
+def _faststart_remux(raw: bytes, original_name: str) -> Tuple[bytes, str, Optional[str]]:
+    """moov-Atom an den Dateianfang verschieben — OHNE Re-Encode.
+
+    ``ffmpeg -c copy -movflags +faststart`` schreibt nur die Container-
+    Boxen neu (kein Audio-Re-Encode: verlustfrei, CPU-kostenlos, die
+    AAC-Samples werden 1:1 durchgereicht).
+
+    WICHTIG: faststart braucht eine SEEKABLE Ausgabe (ffmpeg schreibt
+    moov ans Ende und korrigiert dann die Offsets) — pipe:1 schlägt
+    fehl. Deshalb Temp-Dateien: die eine Kopie fällt beim Upload
+    ohnehin an (Storage), NICHT bei jeder Transkription. Für
+    5-GB-Dateien: einmalige I/O beim Speichern, danach ist die Datei
+    überall lesbar (Backend, Player, Streaming) — kein Workaround mehr
+    im Backend nötig.
+    """
+    import tempfile
+
+    ext = Path(original_name).suffix.lower()
+    log.info("faststart: moov-Atom am Ende (%s) → remuxe nach vorne", original_name)
+    tmp_in = tmp_out = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
+            tf.write(raw)
+            tmp_in = tf.name
+        with tempfile.NamedTemporaryFile(suffix=".out" + ext, delete=False) as tf2:
+            tmp_out = tf2.name
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+                "-i", tmp_in,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                tmp_out,
+            ],
+            capture_output=True,
+            timeout=1800,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.decode("utf-8", errors="replace")[:500]
+            # Nicht-fatal: Original behalten (Backend-Fallback deckt es ab).
+            log.warning("faststart remux fehlgeschlagen (%s): %s", original_name, err)
+            return raw, ext, None
+        out = Path(tmp_out).read_bytes()
+        if not out:
+            log.warning("faststart remux leer (%s) — Original behalten", original_name)
+            return raw, ext, None
+        # Verifikation: moov muss jetzt vorne liegen; sonst Original behalten.
+        if _moov_at_end(out):
+            log.warning("faststart remux Ergebnis hat moov weiterhin hinten (%s)", original_name)
+            return raw, ext, None
+        log.info("faststart: %s %d → %d bytes", original_name, len(raw), len(out))
+        note = "(moov-Atom nach vorne geschrieben)"
+        return out, ext, note
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.warning("faststart remux abgebrochen (%s): %s", original_name, exc)
+        return raw, ext, None
+    finally:
+        for p in (tmp_in, tmp_out):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+
 def prepare_storage(raw: bytes, original_name: str) -> Tuple[bytes, str, Optional[str]]:
     """Entscheide, ob das Original gespeichert oder konvertiert wird.
 
     Returns (audio_bytes, final_extension, conversion_note). Für native
     Formate: unverändert zurück, kein Hinweis. Sonst: MP3 128k mono via
     ffmpeg (Fehler → RuntimeError-Meldung).
+
+    Change 011 (2026-08-17): M4A/MP4 mit moov-Atom am Dateiende werden
+    beim Speichern via ``-c copy -movflags +faststart`` remuxt — das
+    behebt den „empty audio"-Bug an der WURZEL (die Datei ist danach
+    überall lesbar), statt dass das ASR-Backend bei jeder Transkription
+    eine Temp-Kopie baut. Fehler beim Remux sind nicht-fatal: das
+    Original bleibt, der Backend-Fallback deckt den Rest ab.
     """
     ext = Path(original_name).suffix.lower()
     if is_native_audio(original_name):
+        if ext in (".m4a", ".m4b", ".mp4") and _moov_at_end(raw):
+            return _faststart_remux(raw, original_name)
         return raw, ext, None
     return convert_to_mp3(raw, original_name)
 

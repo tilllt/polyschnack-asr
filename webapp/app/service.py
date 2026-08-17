@@ -720,6 +720,38 @@ def _abort_recording(rec_id: int, message: str) -> None:
         log.exception("abort: Status-Update fehlgeschlagen (rec_id=%s)", rec_id)
 
 
+def _start_heartbeat(rec_id: int, pct: int, note: str,
+                     interval_s: float = 5.0) -> threading.Event:
+    """Heartbeat-Thread: tickt last_heartbeat_at, bis das Event gesetzt wird.
+
+    Change 011 (2026-08-17): In Phasen ohne messbaren Fortschritt (Sync-ASR
+    bei 21%, Diarization bei 96%) ruft dieser Thread periodisch
+    ``set_progress`` mit DEMSELBEN pct/note auf — nur ``last_heartbeat_at``
+    bewegt sich. Die UI zeigt damit „läuft, aktiv seit Xs" statt eines
+    eingefrorenen Prozentwerts. Kein erfundener Fortschritt (pct bleibt
+    konstant), kein Fehler-Schlucken: Exceptions werden geloggt, der Thread
+    beendet sich dann.
+    """
+    stop = threading.Event()
+
+    def _tick() -> None:
+        while not stop.is_set():
+            try:
+                with Session(engine) as s:
+                    set_progress(s, rec_id, pct, note=note)
+            except Exception:
+                log.exception("heartbeat: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
+                return
+            stop.wait(interval_s)
+
+    t = threading.Thread(
+        target=_tick, daemon=True,
+        name=f"heartbeat-{rec_id}",  # eindeutig pro Recording
+    )
+    t.start()
+    return stop
+
+
 def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> None:
     """Load row → read audio → call ASR → persist result.
 
@@ -842,14 +874,23 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     set_progress(s, rec_id, pct)
             # Sync-Backends (CrispASR-Familie, async_jobs=False) liefern keinen
             # Job-Progress — sichtbarer Phasen-Hinweis statt starrer 20%.
+            # Change 011: Heartbeat tickt last_heartbeat_at, während der
+            # blockierende transcribe() läuft (kann Minuten dauern) — die UI
+            # zeigt „transcribing · aktiv seit Xs" statt eingefrorenem 21%.
+            hb_stop: Optional[threading.Event] = None
             if not getattr(client.capabilities, "async_jobs", False):
                 with Session(engine) as session:
                     set_progress(session, rec_id, 21, note="asr")
-            result = client.transcribe_async(
-                audio_bytes, filename, mime,
-                noise_reduce=enable_noise_reduce,
-                on_progress=_on_progress,
-            )
+                hb_stop = _start_heartbeat(rec_id, 21, "asr")
+            try:
+                result = client.transcribe_async(
+                    audio_bytes, filename, mime,
+                    noise_reduce=enable_noise_reduce,
+                    on_progress=_on_progress,
+                )
+            finally:
+                if hb_stop is not None:
+                    hb_stop.set()
             with Session(engine) as session:
                 set_progress(session, rec_id, 95, note="finalizing")
                 rec2 = crud.get_recording(session, rec_id)
@@ -874,6 +915,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
             with Session(engine) as session:
                 set_progress(session, rec_id, 96, note="diarization")
+            # Change 011: Heartbeat tickt last_heartbeat_at während der
+            # Diarization (kein Fortschritts-Reporting vom Dienst) — die UI
+            # zeigt „diarizing · aktiv seit Xs" statt eingefrorenem 96%.
+            hb_stop_d = _start_heartbeat(rec_id, 96, "diarization")
             # Zeitbasis: Bei VAD-Trim arbeiten ASR/Aligner auf dem getrimmten
             # Audio — die Diarization muss DASSELBE Audio bekommen, sonst sind
             # die Speaker-Zeiten um trim_offset_s versetzt und die Zuordnung
@@ -913,6 +958,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         os.unlink(diar_path)
                     except OSError:
                         pass
+                # Change 011: Diarization-Heartbeat stoppen.
+                hb_stop_d.set()
                 # Diarization-Phase beendet — Hinweis zurücksetzen (97% = fertig)
                 from .models import Recording as _Rec
 

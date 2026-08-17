@@ -54,6 +54,15 @@ class Recording(SQLModel, table=True):
     progress_pct: int = 0
     #: Phasen-Hinweis während der Verarbeitung ("diarization", …) — null wenn ASR
     progress_note: Optional[str] = None
+    # --- Change 011 (2026-08-17): Aktivitäts-/Phasen-Zeitstempel ---
+    #: Beginn der aktuellen Phase — gesetzt, wenn sich progress_note ändert.
+    #: Basis für „Phase läuft seit Xs" (Frontend-ETA-Fallback).
+    phase_started_at: Optional[dt.datetime] = Field(default=None)
+    #: Letzter Aktivitäts-Nachweis — jeder set_progress-Aufruf aktualisiert
+    #: ihn; in stillen Phasen (Sync-ASR, Diarization) tickt ein Heartbeat-
+    #: Thread. Die UI unterscheidet damit „läuft, kein messbarer Fortschritt"
+    #: (frischer Heartbeat) von „eingefroren/hängend" (alter Heartbeat).
+    last_heartbeat_at: Optional[dt.datetime] = Field(default=None)
 
     # --- timestamps ---
     created_at: dt.datetime = Field(

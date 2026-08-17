@@ -29,7 +29,8 @@ from ..crud import (
     get_stats,
     list_recordings,
 )
-from ..db import get_session
+from .. import crud
+from ..db import engine, get_session
 from ..models import Recording, RecordingShare, User
 from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
@@ -414,6 +415,34 @@ _EXPORT_MEDIA_TYPES = {
 }
 
 
+def _queue_position_for(rec_id: Optional[int]) -> Optional[int]:
+    """Queue-Position der Aufnahme (0 = nicht in der Warteschlange)."""
+    if not rec_id:
+        return None
+    try:
+        pos = queue_manager.position(rec_id)
+        return pos if pos > 0 else None
+    except Exception:
+        return None
+
+
+def _queue_eta_s_for(rec_id: Optional[int]) -> Optional[int]:
+    """Geschätzte Wartezeit in Sekunden (Position × Ø-Verarbeitungszeit)."""
+    if not rec_id:
+        return None
+    try:
+        pos = queue_manager.position(rec_id)
+        if pos <= 0:
+            return None
+        with Session(engine) as session:
+            avg_ms = crud.avg_recent_processing_ms(session)
+        if not avg_ms:
+            return None
+        return round(pos * avg_ms / 1000)
+    except Exception:
+        return None
+
+
 def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Dict[str, Any]:
     """Serialise a Recording row to the canonical API response shape."""
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
@@ -430,6 +459,18 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "processing_ms": rec.processing_ms,
         "progress_pct": rec.progress_pct,
         "progress_note": rec.progress_note,
+        # Change 011: Aktivitäts-/Phasen-Zeitstempel (Heartbeat).
+        "phase_started_at": (
+            rec.phase_started_at.isoformat() if rec.phase_started_at else None
+        ),
+        "last_heartbeat_at": (
+            rec.last_heartbeat_at.isoformat() if rec.last_heartbeat_at else None
+        ),
+        # Change 011: Queue-Position + Warte-ETA auf der Recording-Karte
+        # (Werte wie im Queue-Watcher, aber direkt an der Aufnahme).
+        "queue_position": _queue_position_for(rec.id) if rec.status == "queued" else None,
+        "queue_eta_s": _queue_eta_s_for(rec.id) if rec.status == "queued" else None,
+        "queue_backend": rec.backend if rec.status == "queued" else None,
         "created_at": rec.created_at.isoformat(),
         "language": rec.language,
         "segments": rec.segments,

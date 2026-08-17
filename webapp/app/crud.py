@@ -364,12 +364,23 @@ def get_user(session: Session, user_id: int) -> Optional[User]:
 
 
 def set_progress(session: Session, rec_id: int, pct: int, note: Optional[str] = None) -> None:
-    """Update progress_pct (+ optional Phasen-Hinweis) for a recording."""
+    """Update progress_pct (+ optional Phasen-Hinweis) for a recording.
+
+    Change 011 (2026-08-17): Jeder Aufruf aktualisiert zusätzlich
+    ``last_heartbeat_at`` (Aktivitäts-Nachweis — die UI unterscheidet damit
+    „läuft, kein messbarer Fortschritt" von „eingefroren"). Ändert sich die
+    Phasen-Note, wird ``phase_started_at`` gesetzt (Beginn der neuen Phase —
+    Basis für „Phase läuft seit Xs" im Frontend).
+    """
     rec = session.get(Recording, rec_id)
     if rec:
+        now = dt.datetime.now(dt.timezone.utc)
         rec.progress_pct = pct
-        rec.updated_at = dt.datetime.now(dt.timezone.utc)
+        rec.updated_at = now
+        rec.last_heartbeat_at = now
         if note is not None:
+            if note != rec.progress_note:
+                rec.phase_started_at = now
             rec.progress_note = note
         session.add(rec)
         session.commit()
