@@ -99,21 +99,21 @@ case "${DIARIZE_METHOD}" in
     DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD}"
     ;;
   *)
-    # pyannote (Default) und foxnose: Modelle aus dem Image (Weg B) bzw.
-    # Auto-Download (foxnose-GGUF weiterhin via auto möglich).
-    # pyannote + TitaNet-Embedder = Sherpa-Äquivalent NATIV in CrispASR
-    # (0.6.6+, Issue #107/#110): pyannote-seg läuft EINMAL über die volle
-    # Audio (konsistente IDs über Chunks), der Embedder verankert die
-    # lokalen Tracks global. Mit ORT-Build (PR #364) sind die .onnx-Pfade
-    # gesetzt → pyannote-seg + TitaNet laufen auf CUDA (compose.gpu.yml);
-    # ohne GPU-Overlay fällt ORT still auf CPU zurück.
-    # Fallback auf "auto" (GGUF-Download) nur, wenn die ENV fehlt.
-    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD}"
-    if [ -n "${DIAR_SEG_MODEL}" ] && [ -n "${DIAR_EMBEDDER_MODEL}" ]; then
-        DIARIZE_ARGS="${DIARIZE_ARGS} --sherpa-segment-model ${DIAR_SEG_MODEL} --diarize-embedder ${DIAR_EMBEDDER_MODEL}"
-    else
-        DIARIZE_ARGS="${DIARIZE_ARGS} --sherpa-segment-model auto --diarize-embedder auto"
-    fi
+    # pyannote (Default) und foxnose. Modell-Strategie: IMMER "auto"
+    # (CrispASR-eigener GGUF-Download: pyannote-seg-3.0.gguf ~6 MB +
+    # wespeaker-resnet34-lm GGUF ~24 MB, CACHE-DIR aufs Modell-Volume).
+    #
+    # WARUM NICHT die .onnx-Pfade aus dem Image (DIAR_SEG_MODEL/
+    # DIAR_EMBEDDER_MODEL): Der --diarize-embedder-Weg läuft durch
+    # wespeaker.cpp, das NUR GGUF lesen kann (gguf_init_from_reader) —
+    # eine .onnx-Datei bricht mit "invalid magic characters: '????',
+    # expected 'GGUF'" (live auf der Box, 2026-08-17). Der .onnx-Dispatch
+    # existiert nur im ORT-POC für pyannote-seg/TitaNet (GPU-Weg), und der
+    # ist seit 2026-08-17 widerlegt (6× LANGSAMER als ggml-CPU, s.
+    # compose.gpu.yml). Auf CPU/GGUF sind die .onnx-Modelle nutzlos.
+    # Fallback auf "auto" war bisher nur aktiv, wenn die ENV fehlt — das
+    # Image setzt sie aber immer → Embedder-Fehler. Jetzt: ENVs ignorieren.
+    DIARIZE_ARGS="--diarize --diarize-method ${DIARIZE_METHOD} --sherpa-segment-model auto --diarize-embedder auto"
     ;;
 esac
 

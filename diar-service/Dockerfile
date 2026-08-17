@@ -67,11 +67,11 @@ RUN crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
 # (Volume muss dafür beschreibbar sein, also KEIN ':ro').
 ENV DIAR_MODEL=/models/parakeet-tdt-0.6b-v3-q8_0.gguf
 
-# .onnx-Diarize-Modelle liegen IM Image (nicht unter /models — das ist
-# das rw-Volume und würde sie verdecken). Entrypoint setzt daraus die
-# --sherpa-segment-model / --diarize-embedder Flags.
-ENV DIAR_SEG_MODEL=/opt/crispasr-ort/models/pyannote-seg-3-0/model.onnx
-ENV DIAR_EMBEDDER_MODEL=/opt/crispasr-ort/models/nemo_en_titanet_large.onnx
+# Diarize-Modelle (pyannote-seg + Embedder): IMMER via CrispASR-"auto"
+# (GGUF-Download in CRISPASR_CACHE_DIR, s. entrypoint.sh). Die .onnx-
+# Modelle im Artefakt (pyannote-seg-3-0, TitaNet) werden NICHT mehr
+# genutzt: der --diarize-embedder-Weg ist GGUF-only (wespeaker.cpp), und
+# der ORT/GPU-Weg ist widerlegt (2026-08-17, 6× langsamer als ggml-CPU).
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
