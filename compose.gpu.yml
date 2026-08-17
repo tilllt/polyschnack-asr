@@ -3,10 +3,11 @@
 #   docker compose -f compose.yml -f compose.gpu.yml up -d
 #   (mit Backends: zusätzlich -f compose.backends.yml + Profile)
 #
-# Aktiviert GPU-Zugriff (runtime: nvidia) für ALLE hybriden Services:
+# Aktiviert GPU-Zugriff (runtime: nvidia) für die hybriden Services:
 #   - asr:      parakeet ONNX läuft auf CUDA (POLYSCHNACK_USE_GPU=true)
-#   - diar:     CrispASR-Diarization (Option B) läuft auf CUDA — die Webapp
-#               selbst braucht KEIN torch/CUDA mehr (kein pyannote lokal)
+#   - diar:     bewusst NICHT auf GPU — empirisch KEIN Geschwindigkeitsvorteil
+#               (6× LANGSAMER, 2026-08-16-Benchmarks); läuft CPU, spart ~8,6 GB
+#               VRAM für ASR + Fremdlast (Gemma4) auf der geteilten Karte
 #   - asr-cpp / qwen3-asr / ark-asr: C++-Backends auf CUDA
 #
 # OHNE dieses Overlay laufen alle Container auf der CPU (Default) — die
@@ -30,8 +31,20 @@ services:
       POLYSCHNACK_USE_GPU: "true"
 
   crispr-diar:
+    # Diarization bewusst OHNE GPU (kein runtime: nvidia): empirisch belegt
+    # (2026-08-16, vast.ai-Benchmarks) — ORT/GPU bringt KEINEN
+    # Geschwindigkeitsvorteil, im Gegenteil: CRISPASR_TITANET_GPU=1 war 6×
+    # LANGSAMER als ggml-CPU, ORT insgesamt langsamer als ggml, GPU-Batch
+    # widerlegt (Task 3b). Der ORT-CUDA-EP würde sonst ~8,6 GB VRAM halten,
+    # die Gemma4/ASR auf der geteilten 3090 Ti fehlen (OOM: Concat n4_2_n24).
+    # Ohne runtime: nvidia fällt das ORT-Binary still auf den CPU-Backend
+    # zurück (dlsym-Fallback) — schnellere Diarization UND ~8,6 GB VRAM frei.
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-diar:latest
-    runtime: nvidia
+    environment:
+      # Doppelte Absicherung: ORT-CUDA-EP explizit aus (titanet.cpp liest
+      # CRISPASR_ORT_FORCE_CPU) — kein GPU-Versuch, auch falls der Container
+      # irgendwo doch CUDA-Zugriff bekommt.
+      CRISPASR_ORT_FORCE_CPU: "1"
 
   crispr-align:
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-aligner:latest
