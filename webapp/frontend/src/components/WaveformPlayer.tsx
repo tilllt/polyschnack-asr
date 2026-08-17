@@ -12,6 +12,11 @@ export interface WaveSurferHandle {
   playPause: () => void;
   getCurrentTime: () => number;
   isPlaying: () => boolean;
+  /** Change 2026-08-17: Playback-Rate (x0.5/x1/x2). Die Karaoke-Markierung
+   *  hängt an der AUDIO-Position (getCurrentTime) — sie skaliert damit
+   *  automatisch korrekt mit jeder Geschwindigkeit, ohne Speed-Faktor. */
+  setPlaybackRate: (rate: number) => void;
+  getPlaybackRate: () => number;
 }
 
 interface Props {
@@ -122,6 +127,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
     const [playing, setPlaying] = useState(false);
+    // Change 2026-08-17: Playback-Rate (x0.5/x1/x2) — State für die UI,
+    // Ref für getPlaybackRate aus dem Handle (stale-closure-sicher).
+    const [playRate, setPlayRate] = useState(1);
+    const playRateRef = useRef(1);
+    playRateRef.current = playRate;
     // Play erst möglich, wenn das echte Audio dekodiert ist (2026-08-16):
     // das `ready`-Event feuert mit Server-Peaks VOR dem Hintergrund-Decode
     // der Audiodatei — Play war also drückbar, obwohl noch nichts hörbar
@@ -352,6 +362,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       },
       getCurrentTime: () => wsRef.current?.getCurrentTime() ?? 0,
       isPlaying: () => wsRef.current?.isPlaying() ?? false,
+      setPlaybackRate: (rate: number) => {
+        wsRef.current?.setPlaybackRate(rate);
+        setPlayRate(rate);
+      },
+      getPlaybackRate: () => playRateRef.current,
     }), []);
 
     return (
@@ -391,6 +406,26 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             )}
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}
+            </span>
+            {/* Change 2026-08-17: Playback-Speed x0.5/x1/x2 — die
+                Karaoke-Markierung hängt an der Audio-Position und folgt
+                damit automatisch korrekt jeder Geschwindigkeit. */}
+            <span className="flex items-center gap-[2px] ml-1">
+              {[0.5, 1, 2].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => wsRef.current?.setPlaybackRate(r)}
+                  disabled={!canPlay || Math.abs(playRate - r) < 0.01}
+                  className={`text-[11px] px-[5px] py-[2px] rounded-sm border transition-colors ${
+                    Math.abs(playRate - r) < 0.01
+                      ? "bg-accent/20 border-accent/40 text-accent"
+                      : "border-border text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+                  } disabled:opacity-40`}
+                  title={`Speed ${r}×`}
+                >
+                  {r}×
+                </button>
+              ))}
             </span>
             <span className="flex-1" />
             <button
