@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments, wordRangeToCharRange } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -584,5 +584,64 @@ describe("splitSegmentAtRange (Edit: Markierung → eigenes Segment)", () => {
     expect(out[1].text).toBe("x");
     expect(out[2].text).toBe("y");
     expect(flattenWords(out)).toEqual(before);
+  });
+});
+
+/* ============================================================
+   wordRangeToCharRange (Change 013: Split-Anker/Touch-Markierung)
+   Übersetzt einen Wort-Index-Range in einen Zeichen-Range —
+   EXAKT dieselbe Logik wie splitSegmentAtRange (Wort + Trenn-Space;
+   der Space gehört keinem Wort-Span). text = "a b c d e" →
+   a[0,1) b[2,3) c[4,5) d[6,7) e[8,9). (2026-08-17)
+   ============================================================ */
+describe("wordRangeToCharRange (Change 013: Wort-Range → Char-Range)", () => {
+  function fiveWords() {
+    return [
+      { word: "a", start: 0, end: 1 },
+      { word: "b", start: 1, end: 2 },
+      { word: "c", start: 2, end: 3 },
+      { word: "d", start: 3, end: 4 },
+      { word: "e", start: 4, end: 5 },
+    ];
+  }
+
+  it("einzelnes Wort → dessen Char-Range (ohne Trenn-Space)", () => {
+    expect(wordRangeToCharRange(fiveWords(), 0, 0)).toEqual({ start: 0, end: 1 });
+    expect(wordRangeToCharRange(fiveWords(), 2, 2)).toEqual({ start: 4, end: 5 });
+    expect(wordRangeToCharRange(fiveWords(), 4, 4)).toEqual({ start: 8, end: 9 });
+  });
+
+  it("Wort-Range → Char-Range inkl. Trenn-Spaces dazwischen", () => {
+    // "b c" = Zeichen 2..5
+    expect(wordRangeToCharRange(fiveWords(), 1, 2)).toEqual({ start: 2, end: 5 });
+    // "a b c" = Zeichen 0..5
+    expect(wordRangeToCharRange(fiveWords(), 0, 2)).toEqual({ start: 0, end: 5 });
+    // "d e" = Zeichen 6..9
+    expect(wordRangeToCharRange(fiveWords(), 3, 4)).toEqual({ start: 6, end: 9 });
+  });
+
+  it("Reihenfolge egal (Touch-Drag rückwärts): hi/lo werden normalisiert", () => {
+    expect(wordRangeToCharRange(fiveWords(), 2, 1)).toEqual({ start: 2, end: 5 });
+    expect(wordRangeToCharRange(fiveWords(), 4, 0)).toEqual({ start: 0, end: 9 });
+  });
+
+  it("Konsistenz mit splitSegmentAtRange: Char-Range ergibt exakt denselben Split", () => {
+    const input = [seg(0, 5, [["a", 0, 1], ["b", 1, 2], ["c", 2, 3], ["d", 3, 4], ["e", 4, 5]], "SPEAKER_00")];
+    const before = flattenWords(input);
+    // Touch markiert Wörter 1..2 ("b c") → Char-Range 2..5 → Split wie Desktop
+    const r = wordRangeToCharRange(input[0].words as { word: string; start: number; end: number }[], 1, 2)!;
+    const out = splitSegmentAtRange(input, 0, r.start, r.end, "SPEAKER_07");
+    expect(out.length).toBe(3);
+    expect(out[1].text).toBe("b c");
+    expect(out[1].speaker).toBe("SPEAKER_07");
+    expect(flattenWords(out)).toEqual(before);
+  });
+
+  it("ungültige Eingaben → null", () => {
+    expect(wordRangeToCharRange([], 0, 0)).toBeNull();
+    expect(wordRangeToCharRange(fiveWords(), -1, 0)).toBeNull();
+    expect(wordRangeToCharRange(fiveWords(), 0, 5)).toBeNull();
+    expect(wordRangeToCharRange(fiveWords(), 5, 5)).toBeNull();
+    expect(wordRangeToCharRange(null as unknown as { word: string }[], 0, 0)).toBeNull();
   });
 });

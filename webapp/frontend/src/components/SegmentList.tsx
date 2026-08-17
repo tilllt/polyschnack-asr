@@ -4,7 +4,7 @@ import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
-import { moveBoundary } from "../resegment";
+import { moveBoundary, wordRangeToCharRange, type ResegWord } from "../resegment";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
 
@@ -109,14 +109,30 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
   // offen für Segment-Index i; null = zu.
   const [openSpeakerMenu, setOpenSpeakerMenu] = useState<number | null>(null);
-  // Feature 2026-08-16 (Edit): Text-Markierung → Split-Modal.
-  const [splitCandidate, setSplitCandidate] = useState<{
+  // Feature 2026-08-16 (Edit): Text-Markierung → Split-Symbol (Change 013).
+  // KEIN Auto-Modal mehr: handleTextMouseUp (Desktop) bzw. die eigene
+  // Touch-Markierung setzen einen ANKER mit Y-Position; das Symbol erscheint
+  // links am Rand auf Markierungshöhe. Klick aufs Symbol → Popover (Sprecher).
+  const [splitAnchor, setSplitAnchor] = useState<{
     idx: number;
     charStart: number;
     charEnd: number;
     preview: string;
+    y: number; // Markierungsbeginn relativ zur Segment-Zeile (px)
+  } | null>(null);
+  // Change 013 (Tablet): EIGENE Touch-Markierung — ersetzt die native
+  // Selektion, die auf Android das Google-Suchassistenten-Popup öffnet.
+  // pointerdown/up bestimmen den Wort-Range über data-word-index.
+  const [touchSel, setTouchSel] = useState<{
+    idx: number;
+    startWord: number;
+    endWord: number;
   } | null>(null);
   const [splitSpeaker, setSplitSpeaker] = useState("");
+  // Change 013: Popover (nach Symbol-Klick) und Sprecher-Dropdown getrennt
+  // steuern — ein gemeinsamer State öffnete beide gleichzeitig und der
+  // Dropdown-Catcher (fixed inset-0) blockierte das ganze Popover.
+  const [splitPopoverOpen, setSplitPopoverOpen] = useState(false);
   const [splitSpeakerOpen, setSplitSpeakerOpen] = useState(false);
   // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -318,8 +334,33 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     }
   }
 
-  // Feature 2026-08-16 (Edit): Text-Markierung in einem Segment →
-  // Split-Modal öffnen (Zeichen-Range aus der DOM-Selection).
+  // Feature 2026-08-16 (Edit): Text-Markierung → Split-Symbol (Change 013).
+  // Statt Auto-Modal: Anker mit Y-Position des Markierungsbeginns setzen —
+  // das Symbol erscheint links am Rand auf dieser Höhe. Desktop nutzt die
+  // native Selektion; Touch hat die eigene Markierung (touchSel) → hier wird
+  // nur der Anker gesetzt.
+  function setAnchorFromRange(i: number, r: { start: number; end: number }) {
+    const text = shown[i]?.text ?? "";
+    // Y-Position des Markierungsbeginns relativ zur Segment-Zeile.
+    let y = 0;
+    const sel = window.getSelection();
+    const rowEl = rowRefs.current[i];
+    if (sel && sel.rangeCount > 0 && rowEl) {
+      try {
+        const rowRect = rowEl.getBoundingClientRect();
+        const rangeRect = sel.getRangeAt(0).getBoundingClientRect();
+        y = Math.max(0, rangeRect.top - rowRect.top);
+      } catch {
+        y = 0;
+      }
+    }
+    setSplitAnchor({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end), y });
+    setSplitSpeaker("");
+    // Selection entfernen → das native Auswahlmenü (Copy/Suche/Google) schließt
+    // sich damit auch auf Mobile, nur unser Split-Symbol bleibt.
+    window.getSelection()?.removeAllRanges();
+  }
+
   function handleTextMouseUp(i: number, el: HTMLElement) {
     if (editingIdx !== null) return;
     const text = shown[i]?.text ?? "";
@@ -327,23 +368,60 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     if (!r) return;
     // Volle Segment-Selektion ist kein Split (nichts bliebe übrig)
     if (r.start === 0 && r.end >= text.length) return;
-    setSplitCandidate({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end) });
-    setSplitSpeaker("");
-    // Selection entfernen → das native Auswahlmenü (Copy/Suche) schließt
-    // sich damit auch auf Mobile, nur unser Split-Modal bleibt.
-    window.getSelection()?.removeAllRanges();
+    setAnchorFromRange(i, r);
+  }
+
+  // ── Change 013 (Tablet): eigene Touch-Markierung ──────────────────────
+  // Android öffnet bei nativer Textauswahl den Google-Suchassistenten;
+  // user-select:none (pointer-coarse) verhindert die native Selektion.
+  // Stattdessen: Wort-Range über Pointer-Events + data-word-index.
+  function wordIndexFromEvent(e: React.PointerEvent): number | null {
+    const t = e.target as HTMLElement;
+    const w = t.closest?.("[data-word-index]");
+    if (!w) return null;
+    const idx = Number((w as HTMLElement).dataset.wordIndex);
+    return Number.isFinite(idx) ? idx : null;
+  }
+
+  function handleTextPointerDown(i: number, e: React.PointerEvent) {
+    if (editingIdx !== null) return;
+    if (e.pointerType !== "touch") return; // Desktop: native Selektion
+    e.preventDefault(); // native Touch-Selektion (Google-Popup) verhindern
+    const w = wordIndexFromEvent(e);
+    if (w === null) return;
+    setTouchSel({ idx: i, startWord: w, endWord: w });
+  }
+
+  function handleTextPointerMove(i: number, e: React.PointerEvent) {
+    const ts = touchSel;
+    if (!ts || ts.idx !== i || e.pointerType !== "touch") return;
+    const w = wordIndexFromEvent(e);
+    if (w === null) return;
+    if (w !== ts.endWord) setTouchSel({ ...ts, endWord: w });
+  }
+
+  function handleTextPointerUp(i: number) {
+    const ts = touchSel;
+    if (!ts || ts.idx !== i) return;
+    setTouchSel(null);
+    const words = (shown[i]?.words ?? []) as ResegWord[];
+    if (words.length === 0) return;
+    const r = wordRangeToCharRange(words, ts.startWord, ts.endWord);
+    if (!r) return;
+    setAnchorFromRange(ts.idx, r);
   }
 
   // Feature 2026-08-16 (Edit): Split bestätigen → Callback an den Parent
   // (der persistiert). Default-Sprecher: der des Original-Segments.
   function confirmSplit() {
-    if (!splitCandidate) return;
-    const orig = shown[splitCandidate.idx]?.speaker;
+    if (!splitAnchor) return;
+    const orig = shown[splitAnchor.idx]?.speaker;
     const spk = splitSpeaker || orig || "SPEAKER_00";
-    onSplitSegment?.(splitCandidate.idx, splitCandidate.charStart, splitCandidate.charEnd, spk);
-    setSplitCandidate(null);
+    onSplitSegment?.(splitAnchor.idx, splitAnchor.charStart, splitAnchor.charEnd, spk);
+    setSplitAnchor(null);
     setSplitSpeaker("");
     setSplitSpeakerOpen(false);
+    setSplitPopoverOpen(false);
   }
 
   // Erkannte Sprecher dieser Aufnahme = unique speaker-Werte aller Segmente.
@@ -446,6 +524,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             // Erster Klick des Doppelklicks: Playback-Timer verwerfen —
             // Doppelklick = Edit-Modus, KEIN Playback.
             cancelClickTimer();
+            // Change 013: Doppelklick darf kein Split-Symbol hinterlassen —
+            // die Browser-Wort-Selektion des Doppelklicks setzt sonst über
+            // handleTextMouseUp einen Anker, der im Edit stört.
+            setSplitAnchor(null);
+            setSplitSpeakerOpen(false);
+            setSplitPopoverOpen(false);
+            setTouchSel(null);
             setEditingIdx(i);
             setEditText(seg.text);
           }}
@@ -471,7 +556,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             }
           }}
           className={`
-            flex items-baseline gap-x-2 px-3 py-[6px]
+            relative flex items-baseline gap-x-2 px-3 py-[6px]
             cursor-pointer transition-colors duration-[120ms]
             border-l-2 border-transparent
             text-[13.5px] leading-[1.5]
@@ -480,6 +565,32 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
+          {/* Change 013: Split-Symbol links am Rand auf Markierungshöhe —
+              ersetzt das zentrierte Auto-Modal. Erscheint nur, wenn in
+              DIESER Zeile eine Markierung aktiv ist. */}
+          {splitAnchor && splitAnchor.idx === i && onSplitSegment && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSplitPopoverOpen(true);
+                setSplitSpeakerOpen(false);
+              }}
+              className="absolute -left-0.5 z-20 w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
+                text-accent bg-accent/10 border border-accent/40
+                hover:bg-accent/25 hover:text-accent
+                transition-colors shadow-md"
+              style={{ top: splitAnchor.y }}
+              title={t("split_segment_title")}
+              aria-label={t("split_segment_title")}
+              data-testid="split-anchor-btn"
+            >
+              {/* horizontal-split: zwei Balken, mittige Trennung */}
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+                <rect x="0.5" y="0.5" width="9" height="3.6" rx="1" fill="currentColor" />
+                <rect x="0.5" y="5.9" width="9" height="3.6" rx="1" fill="currentColor" />
+              </svg>
+            </button>
+          )}
           {onSegmentDelete && (
             <button
               onClick={(e) => {
@@ -647,30 +758,35 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             />
           ) : (
             <span
-              className="text-txt flex-1 min-w-0"
+              className="text-txt flex-1 min-w-0 pointer-coarse:select-none"
+              style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
               onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e.currentTarget) : undefined}
-              onTouchEnd={onSplitSegment ? (e) => {
-                // Mobile: Touch-Textauswahl feuert kein (zuverlässiges) mouseup —
-                // nach dem Loslassen die Selection prüfen. Verzögert, damit die
-                // Auswahl final ist; removeAllRanges schließt das native Menü.
-                const el = e.currentTarget;
-                setTimeout(() => handleTextMouseUp(i, el), 10);
-              } : undefined}
+              onPointerDown={onSplitSegment ? (e) => handleTextPointerDown(i, e) : undefined}
+              onPointerMove={onSplitSegment ? (e) => handleTextPointerMove(i, e) : undefined}
+              onPointerUp={onSplitSegment ? () => handleTextPointerUp(i) : undefined}
+              onPointerCancel={onSplitSegment ? () => setTouchSel(null) : undefined}
               data-split-container
             >
               {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
                     const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
+                    // Change 013 (Tablet): eigene Touch-Markierung hervorheben.
+                    const ts = touchSel && touchSel.idx === i ? touchSel : null;
                     return seg.words!.map((w, wi) => {
                       const isActive = wi === activeW;
                       // Such-Treffer: grüner Marker (.search-hit) — bewusst
                       // getrennt vom gelben Karaoke-Marker (Abspielposition).
                       const isHit = wordIsHit(w.word);
+                      const inTouchSel = ts
+                        ? wi >= Math.min(ts.startWord, ts.endWord) && wi <= Math.max(ts.startWord, ts.endWord)
+                        : false;
                       const cls = isHit
                         ? "search-hit"
-                        : isActive
-                          ? "karaoke-active"
-                          : `${confidenceClass(w.confidence)} hover:text-accent/70`;
+                        : inTouchSel
+                          ? "touch-sel"
+                          : isActive
+                            ? "karaoke-active"
+                            : `${confidenceClass(w.confidence)} hover:text-accent/70`;
                       return (
                         <>
                         <span
@@ -678,6 +794,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           role="button"
                           tabIndex={0}
                           data-active-word={isActive ? "true" : undefined}
+                          data-word-index={wi}
                           onClick={(e) => {
                             e.stopPropagation();
                             scheduleClick(() => handleWordClick(i, w.start));
@@ -721,20 +838,32 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
         );
       })}
     </div>
-    {/* Feature 2026-08-16 (Edit): Split-Modal nach Text-Markierung */}
-    {splitCandidate && onSplitSegment && (
+    {/* Feature 2026-08-16 (Edit): Split-Popover nach Klick auf das
+        Split-Symbol (Change 013 — KEIN Auto-Modal mehr). Positioniert
+        neben dem Symbol (links), nicht zentriert. */}
+    {splitAnchor && splitPopoverOpen && onSplitSegment && (
       <>
         <div
-          className="fixed inset-0 z-30 bg-black/20"
+          className="fixed inset-0 z-30"
           onClick={() => {
-            setSplitCandidate(null);
+            setSplitAnchor(null);
             setSplitSpeakerOpen(false);
+            setSplitPopoverOpen(false);
           }}
         />
-        <div className="fixed z-40 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[340px] max-w-[90vw] bg-panel2 border border-border rounded-md shadow-xl p-4">
+        <div
+          className="fixed z-40 w-[260px] max-w-[70vw] bg-panel2 border border-border rounded-md shadow-xl p-3"
+          style={{
+            left: 8,
+            top: Math.min(
+              (rowRefs.current[splitAnchor.idx]?.getBoundingClientRect().top ?? 0) + splitAnchor.y,
+              window.innerHeight - 220,
+            ),
+          }}
+        >
           <div className="text-[13px] font-semibold mb-1">✂ {t("split_segment_title")}</div>
-          <div className="text-[12px] text-muted2 mb-2 leading-[1.5] break-words bg-panel rounded-sm px-2 py-1.5 max-h-[90px] overflow-y-auto scrollbar-thin">
-            „{splitCandidate.preview}“
+          <div className="text-[12px] text-muted2 mb-2 leading-[1.5] break-words bg-panel rounded-sm px-2 py-1.5 max-h-[70px] overflow-y-auto scrollbar-thin">
+            „{splitAnchor.preview}“
           </div>
           <div className="mb-3">
             <div className="text-[11px] text-muted2 mb-1">{t("split_speaker_label")}</div>
@@ -746,7 +875,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 }}
                 className="w-full text-left px-2 py-1 text-[12px] bg-panel border border-border rounded-sm uppercase tracking-[.04em]"
               >
-                {(splitSpeaker || shown[splitCandidate.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
+                {(splitSpeaker || shown[splitAnchor.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
               </button>
               {splitSpeakerOpen && (
                 <>
@@ -767,7 +896,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           setSplitSpeakerOpen(false);
                         }}
                         className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
-                          opt === (splitSpeaker || shown[splitCandidate.idx]?.speaker)
+                          opt === (splitSpeaker || shown[splitAnchor.idx]?.speaker)
                             ? "text-[#25d366] font-bold"
                             : "text-muted1"
                         }`}
@@ -783,8 +912,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
           <div className="flex justify-end gap-2">
             <button
               onClick={() => {
-                setSplitCandidate(null);
+                setSplitAnchor(null);
                 setSplitSpeakerOpen(false);
+                setSplitPopoverOpen(false);
               }}
               className="text-[12px] text-muted2 hover:text-txt border border-border rounded-sm px-3 py-1 transition-colors"
             >

@@ -86,6 +86,30 @@ audio {
 }
 
 /* ============================================================
+   TOUCH-SEL (Tablet-Split-Markierung, Change 013)
+   Eigene Markierung statt nativer Android-Selektion (die öffnet
+   sonst den Google-Suchassistenten). Blau wie die native Auswahl,
+   layout-neutral wie karaoke-active/search-hit. (2026-08-17)
+   ============================================================ */
+.touch-sel {
+  background-color: rgba(91, 140, 255, 0.55) !important;
+  color: #ffffff !important;
+  border-radius: 2px;
+}
+
+/* Android: lange Touch-Selektion (Google-Popup) auch auf dem
+   Segment-Text unterbinden — die App rendert die Markierung selbst
+   (.touch-sel). Nur Touch-Geräte (pointer: coarse); Desktop-Maus
+   behält die native Selektion für Copy/selectionCharRange. */
+@media (pointer: coarse) {
+  [data-split-container] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* ============================================================
    SPINNER (for non-Tailwind contexts)
    ============================================================ */
 @keyframes spin {

@@ -432,6 +432,33 @@ function joinWords(words: ResegWord[]): string {
 }
 
 /* ============================================================
+   Change 013: Wort-Range → Char-Range (Split-Anker)
+   Gleiche Char-Range-Logik wie splitSegmentAtRange (Wort +
+   Trenn-Space; der Space gehört KEINEM Wort-Span). Wird von der
+   Touch-Markierung (SegmentList) verwendet, um aus einem
+   Wort-Index-Range den Char-Range für den Split zu bauen.
+   ============================================================ */
+export function wordRangeToCharRange(
+  words: readonly ResegWord[],
+  lo: number,
+  hi: number,
+): { start: number; end: number } | null {
+  if (!words || words.length === 0) return null;
+  const lo2 = Math.min(lo, hi);
+  const hi2 = Math.max(lo, hi);
+  if (lo2 < 0 || hi2 >= words.length) return null;
+  let pos = 0;
+  const ranges: Array<[number, number]> = words.map((w) => {
+    const s = pos;
+    pos += typeof w.word === "string" ? w.word.length : 0;
+    const e = pos;
+    pos += 1; // Trenn-Space
+    return [s, e];
+  });
+  return { start: ranges[lo2][0], end: ranges[hi2][1] };
+}
+
+/* ============================================================
    Wort-Invariante: flattenWords über alle Segmente
    ============================================================
    Req 10 (Spec transcription-view): jede GUI-Operation (Grenze ziehen,
