@@ -45,6 +45,30 @@ interface _W {
   _speaker?: string;
 }
 
+/**
+ * Change 009 (Single Source of Truth): Anzeige-Segmente als reine Funktion
+ * des Recording-Modells. Es gibt genau EINE Segment-Wahrheit (der
+ * Server/Cache); die Anzeige kann nicht mehr davon abweichen.
+ *
+ * - segments_manual == true → segments direkt (die gespeicherte manuelle
+ *   Aufteilung ist die Wahrheit, KEINE erneute Re-Segmentierung — eine
+ *   gezogene Grenze verschwindet nie wieder aus der Anzeige).
+ * - sonst + segMaxDuration gesetzt → resegmentByDuration (Auto-Vorschau).
+ * - sonst → segments.
+ */
+export function deriveSegments(
+  segments: readonly unknown[] | null | undefined,
+  segMaxDuration: number | null,
+  segmentsManual: boolean,
+): readonly unknown[] {
+  if (!segments || segments.length === 0) return [];
+  if (segmentsManual) return segments;
+  if (segMaxDuration != null && segMaxDuration > 0) {
+    return resegmentByDuration(segments, segMaxDuration);
+  }
+  return segments;
+}
+
 export function resegmentByDuration(
   segments: ResegmentInput,
   maxDurationS: number,

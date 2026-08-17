@@ -233,6 +233,10 @@ def update_result(
         rec.duration_s = duration_s
     rec.language = language
     rec.segments = segments
+    # Change 009: neue ASR-Segmente (Transcribe/Retranscribe) heben die
+    # manuelle Aufteilung auf — Auto-Aufteilung gilt wieder.
+    if segments is not None:
+        rec.segments_manual = False
     rec.processing_ms = processing_ms
     rec.error = error
     rec.progress_pct = progress_pct

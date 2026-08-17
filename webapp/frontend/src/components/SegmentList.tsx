@@ -30,9 +30,9 @@ interface Props {
    *  Wird dieser Callback gesetzt, sind die Grenzen ziehbar: nach oben =
    *  Grenze in der Zeit zurück (Segment N verliert am Ende Wörter, N+1
    *  gewinnt vorne), nach unten = umgekehrt. Wort für Wort, nie geteilt.
-   *  Erster (Start) und letzter (Ende) Marker sind bewusst NICHT ziehbar. */
-  onBoundaryMoved?: (segments: Segment[]) => void;
-  /** Feature 2026-08-15: Drag begonnen/beendet (für Speichern + UI-Feedback). */
+   *  Erster (Start) und letzter (Ende) Marker sind bewusst NICHT ziehbar.
+   *  Change 009: die Drag-Preview ist LOKAL (dragPreview-State) — der
+   *  Callback wird nur beim Loslassen für den Commit gerufen. */
   onBoundaryDragEnd?: (segments: Segment[]) => void;
   /** Feature 2026-08-16 (Mockup): "+" im Kreis zwischen den Segmenten —
    *  fügt nach Segment `afterIdx` ein neues Segment ein (gleicher Sprecher,
@@ -90,7 +90,7 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryMoved, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
+export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -99,6 +99,11 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
   const [renamingSpeakerIdx, setRenamingSpeakerIdx] = useState<number | null>(null);
+  // Change 009 (Single Source of Truth): Drag-Preview ist LOKAL — während
+  // des Ziehens zeigt die Liste `dragPreview`, sonst die Prop (Modell).
+  // Kein Parent-State, keine Referenz-/Inhalts-Vergleiche zur Sync.
+  const [dragPreview, setDragPreview] = useState<Segment[] | null>(null);
+  const shown = dragPreview ?? segmentsProp;
   const [renameText, setRenameText] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
@@ -179,7 +184,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // dessen container.scrollTo: nur der Transkriptions-Container bewegt sich.
   // Fallback: aktive Zeile, falls das aktive Wort nicht markiert ist.
   const activeW = activeIdx >= 0 && currentTime != null
-    ? activeWordIndex(segments[activeIdx]?.words ?? [], currentTime, isPlaying ? undefined : 0)
+    ? activeWordIndex(shown[activeIdx]?.words ?? [], currentTime, isPlaying ? undefined : 0)
     : -1;
   useEffect(() => {
     const container = containerRef.current;
@@ -219,7 +224,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   function handleClick(idx: number) {
     if (editingIdx !== null) return;  // don't seek while editing
     onActiveChange(idx);
-    onSeekTo?.(segments[idx].start);
+    onSeekTo?.(shown[idx].start);
   }
 
   function handleWordClick(idx: number, seconds: number) {
@@ -255,7 +260,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // Der Grenz-Streifen liegt ZWISCHEN den Segment-Zeilen — der Klick
   // auf die Zeile selbst (Seek) bleibt unberührt (stopPropagation).
   function onBoundaryPointerDown(e: React.PointerEvent, idx: number) {
-    if (!onBoundaryMoved) return;
+    if (!onBoundaryDragEnd) return;
     if (e.button !== 0 && e.pointerType === "mouse") return;
     e.preventDefault();
     e.stopPropagation();
@@ -266,7 +271,9 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     // Prop-Liste kann zwischen zwei Pointer-Moves noch die alte sein (React
     // rendert asynchron) — Schritt-Deltas auf der alten Liste duplizieren
     // Wörter (Bug 2026-08-16: "Anton? Anton?", "Montag. Montag.").
-    dragRef.current = { idx, startY: e.clientY, lastWords: 0, baseSegments: segments, currentList: segments };
+    // Change 009: Basis ist die ANGEZEIGTE Liste (`shown`), nicht die Prop —
+    // bei lokaler Preview ist shown == segmentsProp (Preview ist null).
+    dragRef.current = { idx, startY: e.clientY, lastWords: 0, baseSegments: shown, currentList: shown };
     setDragIdx(idx);
   }
 
@@ -282,7 +289,8 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
       // Liste übergeben (kein Closure-State — der kann beim Loslassen noch
       // den vorletzten Render-Stand enthalten, Bug 2026-08-16: „nicht
       // gespeichert / springt zurück").
-      onBoundaryMoved?.(next);
+      // Change 009: Preview ist LOKAL (kein Parent-State mehr).
+      setDragPreview(next);
     }
   }
 
@@ -291,6 +299,8 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
     if (!d) return;
     dragRef.current = null;
     setDragIdx(null);
+    // Change 009: Preview verwerfen; Commit über den Callback.
+    setDragPreview(null);
     onBoundaryDragEnd?.(d.currentList);
   }
 
@@ -312,7 +322,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // Split-Modal öffnen (Zeichen-Range aus der DOM-Selection).
   function handleTextMouseUp(i: number, el: HTMLElement) {
     if (editingIdx !== null) return;
-    const text = segments[i]?.text ?? "";
+    const text = shown[i]?.text ?? "";
     const r = selectionCharRange(el, text);
     if (!r) return;
     // Volle Segment-Selektion ist kein Split (nichts bliebe übrig)
@@ -328,7 +338,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // (der persistiert). Default-Sprecher: der des Original-Segments.
   function confirmSplit() {
     if (!splitCandidate) return;
-    const orig = segments[splitCandidate.idx]?.speaker;
+    const orig = shown[splitCandidate.idx]?.speaker;
     const spk = splitSpeaker || orig || "SPEAKER_00";
     onSplitSegment?.(splitCandidate.idx, splitCandidate.charStart, splitCandidate.charEnd, spk);
     setSplitCandidate(null);
@@ -339,9 +349,9 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
   // Erkannte Sprecher dieser Aufnahme = unique speaker-Werte aller Segmente.
   const speakerOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const s of segments) if (s.speaker) set.add(s.speaker);
+    for (const s of shown) if (s.speaker) set.add(s.speaker);
     return [...set];
-  }, [segments]);
+  }, [shown]);
 
   // Feature 2026-08-16: Sprecher per Dropdown auf DIESES Segment setzen
   // (PATCH /segments/{idx} mit speaker — Wörter/Timestamps bleiben).
@@ -395,9 +405,9 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
         ${fillHeight ? "h-full max-h-none flex-1" : "max-h-[260px]"}
       `}
     >
-      {segments.map((seg, i) => {
+      {shown.map((seg, i) => {
         const speaker = seg.speaker;
-        const prevHasWords = i > 0 && (segments[i - 1].words?.length ?? 0) > 0;
+        const prevHasWords = i > 0 && (shown[i - 1].words?.length ?? 0) > 0;
         return (
         <Fragment key={i}>
         {i > 0 && onSegmentInsert && (
@@ -451,9 +461,9 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
               e.preventDefault();
               e.stopPropagation();
-              const target = nextWordTarget(segments, activeIdx, currentTime ?? 0, e.key === "ArrowRight" ? 1 : -1);
+              const target = nextWordTarget(shown, activeIdx, currentTime ?? 0, e.key === "ArrowRight" ? 1 : -1);
               if (!target) return;
-              const w = segments[target.segIdx]?.words?.[target.wIdx];
+              const w = shown[target.segIdx]?.words?.[target.wIdx];
               if (!w) return;
               onActiveChange?.(target.segIdx);
               // Cursor-Navigation: nur springen, NICHT abspielen
@@ -476,7 +486,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                 e.stopPropagation();
                 onSegmentDelete(i);
               }}
-              disabled={segments.length <= 1}
+              disabled={shown.length <= 1}
               className="w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
                 text-[12px] leading-none text-muted2 border border-border/70
                 opacity-40 hover:opacity-100 hover:text-err hover:bg-err/10 hover:border-err/40
@@ -491,22 +501,22 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
             className={`
               text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0
               opacity-85 tabular-nums
-              ${i > 0 && onBoundaryMoved
+              ${i > 0 && onBoundaryDragEnd
                 ? `cursor-ns-resize touch-none select-none rounded-sm px-0.5 -mx-0.5 ${dragIdx === i - 1 ? "bg-[rgba(91,140,255,0.16)] text-accent" : "hover:bg-[rgba(91,140,255,0.08)]"}`
                 : ""}
             `}
             onClick={(e) => {
               // Timecode = Drag-Handle der Grenze davor — kein Seek/Edit
-              if (i > 0 && onBoundaryMoved) e.stopPropagation();
+              if (i > 0 && onBoundaryDragEnd) e.stopPropagation();
             }}
             onDoubleClick={(e) => {
-              if (i > 0 && onBoundaryMoved) e.stopPropagation();
+              if (i > 0 && onBoundaryDragEnd) e.stopPropagation();
             }}
-            onPointerDown={i > 0 && onBoundaryMoved ? (e) => onBoundaryPointerDown(e, i - 1) : undefined}
-            onPointerMove={i > 0 && onBoundaryMoved ? onBoundaryPointerMove : undefined}
-            onPointerUp={i > 0 && onBoundaryMoved ? onBoundaryPointerUp : undefined}
-            onPointerCancel={i > 0 && onBoundaryMoved ? onBoundaryPointerUp : undefined}
-            title={i > 0 && onBoundaryMoved ? t("boundary_drag_hint") : undefined}
+            onPointerDown={i > 0 && onBoundaryDragEnd ? (e) => onBoundaryPointerDown(e, i - 1) : undefined}
+            onPointerMove={i > 0 && onBoundaryDragEnd ? onBoundaryPointerMove : undefined}
+            onPointerUp={i > 0 && onBoundaryDragEnd ? onBoundaryPointerUp : undefined}
+            onPointerCancel={i > 0 && onBoundaryDragEnd ? onBoundaryPointerUp : undefined}
+            title={i > 0 && onBoundaryDragEnd ? t("boundary_drag_hint") : undefined}
           >
             {fmtTimecode(seg.start)}
           </span>
@@ -627,7 +637,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                 // handleSave gerufen — bei unverändertem Text blieb
                 // editingIdx gesetzt und der Mode war nicht mehr
                 // beendbar (handleClick blockiert während des Editierens).
-                if (editText !== segments[i].text) {
+                if (editText !== shown[i].text) {
                   handleSave(i);
                 } else {
                   setEditingIdx(null);
@@ -736,7 +746,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                 }}
                 className="w-full text-left px-2 py-1 text-[12px] bg-panel border border-border rounded-sm uppercase tracking-[.04em]"
               >
-                {(splitSpeaker || segments[splitCandidate.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
+                {(splitSpeaker || shown[splitCandidate.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
               </button>
               {splitSpeakerOpen && (
                 <>
@@ -757,7 +767,7 @@ export function SegmentList({ segments, onSeekTo, onSeekPaused, activeIdx, onAct
                           setSplitSpeakerOpen(false);
                         }}
                         className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
-                          opt === (splitSpeaker || segments[splitCandidate.idx]?.speaker)
+                          opt === (splitSpeaker || shown[splitCandidate.idx]?.speaker)
                             ? "text-[#25d366] font-bold"
                             : "text-muted1"
                         }`}

@@ -13,7 +13,7 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { resegmentByDuration, insertSegment, deleteSegment, splitSegmentAtRange, flattenWords } from "../resegment";
+import { deriveSegments, insertSegment, deleteSegment, splitSegmentAtRange } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
@@ -403,59 +403,43 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // ──── Segment time tracking ────
   const segments = r.segments;
   const hasSegments = segments && segments.length > 0;
-  // Feature 2026-08-15: Anzeige-Segmente — bei gewählter Max-Dauer werden
-  // die ASR-Segmente (oft ~105 s) in Wort-Buckets ≤ Dauer aufgeteilt.
-  // Strukturell identisch zu Segment[] (resegment.ts garantiert start/end/text).
-  // Während/ nach einem Grenz-Drag gewinnt die manuell angepasste Liste
-  // (dragSegments) — die Anzeige bleibt mit der Preview identisch.
-  const [dragSegments, setDragSegments] = useState<Segment[] | null>(null);
+  // Change 009 (Single Source of Truth): die Anzeige ist eine REINE
+  // Funktion des Recording-Modells. Es gibt genau EINE Segment-Wahrheit
+  // (Server/Cache) — kein dragSegments-Overlay-State, kein Reset-Effekt,
+  // keine Referenz-/Inhalts-Vergleiche zur Synchronisation.
+  // segments_manual == true → segments direkt (manuelle Aufteilung ist die
+  // Wahrheit, keine erneute Re-Segmentierung — gezogene Grenzen
+  // verschwinden nie wieder aus der Anzeige); sonst + Segmentlänge →
+  // resegmentByDuration (Auto-Vorschau); sonst segments.
   const displaySegments = useMemo(
-    () =>
-      dragSegments ??
-      (segMaxDuration != null && segments
-        ? (resegmentByDuration(segments, segMaxDuration) as Segment[])
-        : (segments ?? [])),
-    [segments, segMaxDuration, dragSegments],
+    () => deriveSegments(segments, segMaxDuration, !!r.segments_manual) as Segment[],
+    [segments, segMaxDuration, r.segments_manual],
   );
 
-  // Grenz-Drag: Preview sofort aktualisieren (Wort für Wort), speichern
-  // erst beim Loslassen (onBoundaryDragEnd) — Export nutzt danach dieselben
-  // Segmente (PUT /segments persistiert die Liste).
-  function handleBoundaryMoved(next: Segment[]) {
-    setDragSegments(next);
-  }
-
+  // Change 009: Commit = EIN optimistisches Cache-Update auf das
+  // Recording-Modell (next + segments_manual: true); PUT im Hintergrund;
+  // bei Server-Fehler Rollback auf den vorherigen Modell-Stand +
+  // Fehler-Toast. PUT-Guard „letzter Drag gewinnt" (monotone Sequenz,
+  // 007) bleibt für parallele PUTs. Die Drag-PREVIEW dagegen ist lokal in
+  // SegmentList (dragPreview-State) — der Parent sieht sie nicht.
   async function handleBoundaryDragEnd(next: Segment[]) {
-    // Fix 2026-08-16: `next` kommt EXPLIZIT vom Aufrufer (SegmentList gibt
-    // die aktuelle Liste aus ihrem dragRef mit). Der frühere Weg (dragSegments
-    // aus dem Closure lesen) speicherte beim Loslassen eine Liste, die den
-    // letzten Wort-Schritt noch nicht enthielt — React hatte bei pointerup im
-    // selben Frame wie dem letzten pointermove noch nicht neu gerendert → die
-    // Grenze sprang beim nächsten PUT zurück („nicht gespeichert").
-    // Fix 2026-08-17: PUT-Guard „letzter Drag gewinnt" — bei mehreren Drags
-    // in schneller Folge (PUT A noch offen, Drag B startet) könnte eine
-    // langsame Antwort A den neueren Stand B überschreiben. Jede Persistenz
-    // inkrementiert eine monotone Sequenznummer; nur die Antwort mit der
-    // aktuellsten Nummer übernimmt Cache + Anzeige (die älteren verfallen).
     if (!next || !r.uid) return;
     const seq = ++persistSeq.current;
+    const prevSegments = segments; // Rollback-Ziel (Modell vor dem Commit)
+    const prevText = r.text ?? "";
+    const prevManual = !!r.segments_manual;
+    // Optimistisch: Modell sofort aktualisieren — Anzeige folgt automatisch.
+    handleEdited(next, next.map((s) => s.text).join(" "), true);
     try {
       const result = await replaceSegments(r.uid, next);
       if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
-      handleEdited(result.segments, result.text);
-      // Fix 2026-08-16: NICHT auf null setzen! Bei gesetztem segMaxDuration
-      // rechnet displaySegments sonst sofort resegmentByDuration() wieder
-      // drüber → manuelle Grenze verschwindet aus der Anzeige, der nächste
-      // Drag startet von der Auto-Aufteilung und überschreibt die manuelle
-      // Grenze beim nächsten PUT (Regression „speichert nicht").
-      // Fix 2026-08-17: der Reset-Effekt unten vergleicht jetzt den WORT-
-      // INHALT (flattenWords), nicht Objekt-Referenzen — eine PUT-Bestätigung
-      // derselben Liste resettet die Anzeige nicht mehr (Referenz-Vergleich
-      // schlug bei gesetztem segMaxDuration fehl: displaySegments ist eine
-      // neu berechnete Liste, nie referenz-gleich mit dem Cache).
-      setDragSegments(result.segments);
+      // Server-Antwort ist die Wahrheit (inkl. Flag).
+      handleEdited(result.segments, result.text, result.segments_manual);
       toast(t("boundary_saved"), "ok");
     } catch (err) {
+      if (persistSeq.current !== seq) return;
+      // Rollback auf den vorherigen Modell-Stand + sichtbarer Fehler.
+      handleEdited(prevSegments ?? null, prevText, prevManual);
       toast(
         err instanceof Error ? err.message : t("boundary_save_error"),
         "err",
@@ -464,18 +448,24 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
 
   // ── Feature 2026-08-16: Segment einfügen/löschen (+/− im Mockup) ─────
-  // Die neue Liste wird sofort angezeigt (dragSegments) und persistiert
-  // (PUT /segments) — wie beim Grenz-Drag.
+  // Change 009: identisches Commit-Muster wie der Grenz-Drag — ein
+  // optimistisches Cache-Update (next + segments_manual: true), PUT im
+  // Hintergrund, Rollback bei Fehler.
   async function persistSegmentList(next: Segment[]) {
     if (!r.uid) return;
     const seq = ++persistSeq.current;
+    const prevSegments = segments;
+    const prevText = r.text ?? "";
+    const prevManual = !!r.segments_manual;
+    handleEdited(next, next.map((s) => s.text).join(" "), true);
     try {
       const result = await replaceSegments(r.uid, next);
       if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
-      handleEdited(result.segments, result.text);
-      setDragSegments(result.segments);
+      handleEdited(result.segments, result.text, result.segments_manual);
       toast(t("boundary_saved"), "ok");
     } catch (err) {
+      if (persistSeq.current !== seq) return;
+      handleEdited(prevSegments ?? null, prevText, prevManual);
       toast(
         err instanceof Error ? err.message : t("boundary_save_error"),
         "err",
@@ -487,14 +477,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!r.uid || !displaySegments) return;
     const next = insertSegment(displaySegments, afterIdx) as Segment[];
     if (next === displaySegments) return; // keine Wörter → nichts zu teilen
-    setDragSegments(next);
     void persistSegmentList(next);
   }
 
   function handleSegmentDelete(idx: number) {
     if (!r.uid || !displaySegments || displaySegments.length <= 1) return;
     const next = deleteSegment(displaySegments, idx) as Segment[];
-    setDragSegments(next);
     void persistSegmentList(next);
   }
 
@@ -505,34 +493,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!r.uid || !displaySegments) return;
     const next = splitSegmentAtRange(displaySegments, idx, charStart, charEnd, speaker) as Segment[];
     if (next === displaySegments || next.length === displaySegments.length) return; // nichts geändert
-    setDragSegments(next);
     void persistSegmentList(next);
   }
-
-  // Manuelle Grenzen nur so lange aktiv, wie die zugrunde liegenden
-  // Segmente inhaltlich identisch sind. Kommen nach Retranscribe/Reload
-  // ECHT neue Server-Segmente (andere Wortfolge/Wortzahl), verfällt die
-  // alte Drag-Liste — sonst bliebe eine veraltete manuelle Aufteilung
-  // stehen. Fix 2026-08-17: Vergleich über die WORT-INVARIANTE
-  // (flattenWords), nicht über Objekt-Referenzen — der Referenz-Vergleich
-  // resettete die Anzeige bei jeder PUT-Bestätigung, weil displaySegments
-  // bei gesetztem segMaxDuration eine neu berechnete Liste ist und nie
-  // referenz-gleich mit dem Cache („Grenze speichert nicht" / Anzeige
-  // springt zurück).
-  useEffect(() => {
-    setDragSegments((cur) => {
-      if (!cur) return cur;
-      const a = flattenWords(cur as never);
-      const b = flattenWords(segments as never);
-      if (a.length !== b.length) return null;
-      for (let i = 0; i < a.length; i++) {
-        if (a[i].word !== b[i].word || a[i].start !== b[i].start || a[i].end !== b[i].end) {
-          return null;
-        }
-      }
-      return cur;
-    });
-  }, [segments]);
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
@@ -635,12 +597,26 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       ? note.slice("alignment".length).trim()
       : "";
 
-  function handleEdited(newSegs: typeof segments, newText: string) {
+  function handleEdited(
+    newSegs: typeof segments,
+    newText: string,
+    manual?: boolean,
+  ) {
     // Update cache for all recordings queries (with and without search)
     qc.setQueriesData({ queryKey: ["recordings"] }, (old: Recording[] | undefined) => {
       if (!old) return old;
       return old.map((rec) =>
-        rec.id === r.id ? { ...rec, segments: newSegs, text: newText } : rec
+        rec.id === r.id
+          ? {
+              ...rec,
+              segments: newSegs,
+              text: newText,
+              // Change 009: das Flag gehört zum Modell (PUT setzt es true,
+              // Rollback stellt den alten Wert wieder her). Undefiniert =
+              // Text-Edit (Wort-Diff, 010) — Flag bleibt unverändert.
+              ...(manual !== undefined ? { segments_manual: manual } : {}),
+            }
+          : rec
       );
     });
   }
@@ -888,7 +864,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   isPlaying={isPlaying}
                   searchQuery={searchQuery}
                   searchJump={searchJump}
-                  onBoundaryMoved={handleBoundaryMoved}
                   onBoundaryDragEnd={handleBoundaryDragEnd}
                   onSegmentInsert={handleSegmentInsert}
                   onSegmentDelete={handleSegmentDelete}

@@ -115,6 +115,9 @@ def restore_endpoint(rid: str, v_no: int, request: Request,
     v = _get_version(session, rec.id, v_no)
     rec.text = v.text
     rec.segments = list(v.segments) if v.segments else None
+    # Change 009: Restore stellt einen alten ASR-Stand wieder her —
+    # manuelle Aufteilung ist damit aufgehoben (Auto-Aufteilung gilt wieder).
+    rec.segments_manual = False
     session.add(rec)
     session.commit()
     session.refresh(rec)

@@ -411,6 +411,10 @@ def replace_segments(
 
     stored = _json.loads(_json.dumps(segs))
     rec.segments = stored
+    # Change 009: jede Segment-Struktur-Operation (Grenz-Drag, +/−, Split,
+    # Re-Segmentierung) markiert die Aufteilung als manuell — die Anzeige
+    # nutzt segments direkt und re-segmentiert nie automatisch darüber.
+    rec.segments_manual = True
     rec.text = " ".join(str(s["text"]).strip() for s in stored)
     session.add(rec)
     session.commit()
@@ -420,4 +424,5 @@ def replace_segments(
 
     snapshot(session, rec, "edit", user_id=uid)
 
-    return {"segments": rec.segments, "text": rec.text}
+    return {"segments": rec.segments, "text": rec.text,
+            "segments_manual": rec.segments_manual}

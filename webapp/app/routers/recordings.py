@@ -415,6 +415,9 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "created_at": rec.created_at.isoformat(),
         "language": rec.language,
         "segments": rec.segments,
+        # Change 009: manuelle Segment-Aufteilung aktiv (Anzeige nutzt
+        # segments direkt, keine Auto-Re-Segmentierung nach segMaxDuration).
+        "segments_manual": bool(getattr(rec, "segments_manual", False)),
         "audio_url": f"/api/recordings/{uid}/audio",
         # Schlanke Playback-Preview (64-kbps-MP3-Sidecar) — der Player lädt
         # NUR diese kleine Datei; die volle Datei bleibt für Download und

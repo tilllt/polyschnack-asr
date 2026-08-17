@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -13,6 +13,53 @@ function seg(start: number, end: number, words: [string, number, number][], spea
     words: words.map(([word, s, e]) => ({ word, start: s, end: e })),
   };
 }
+
+describe("deriveSegments (Change 009: Anzeige = reine Funktion des Modells)", () => {
+  // 10 Wörter à 1 s lückenlos ab 0 → 10-s-Segment (wird bei Dauer 4 in 3+ Buckets geteilt)
+  const words: [string, number, number][] = [];
+  for (let i = 0; i < 10; i++) words.push([`w${i}`, i, i + 1]);
+  const input = [seg(0, 10, words)];
+
+  it("segments_manual=true → segments DIREKT (keine Re-Segmentierung)", () => {
+    const out = deriveSegments(input, 4, true);
+    // Manuelle Aufteilung ist die Wahrheit — die Segmentlänge darf sie
+    // nicht mehr zerlegen (Bug-Klasse „Anzeige springt zurück").
+    expect(out).toBe(input);
+    expect(out.length).toBe(1);
+  });
+
+  it("segments_manual=false + Segmentlänge → resegmentByDuration (Auto-Vorschau)", () => {
+    const out = deriveSegments(input, 4, false);
+    expect(out.length).toBeGreaterThan(1);
+    for (const s of out as { start?: unknown; end?: unknown }[]) {
+      expect(Number(s.end) - Number(s.start)).toBeLessThanOrEqual(4 + 1e-9);
+    }
+  });
+
+  it("segments_manual=false + keine Segmentlänge → segments direkt", () => {
+    const out = deriveSegments(input, null, false);
+    expect(out).toBe(input);
+    expect(out.length).toBe(1);
+  });
+
+  it("null/leere Liste → []", () => {
+    expect(deriveSegments(null, 4, false)).toEqual([]);
+    expect(deriveSegments(undefined, null, true)).toEqual([]);
+    expect(deriveSegments([], 4, false)).toEqual([]);
+  });
+
+  it("segments_manual=true + keine Segmentlänge → segments direkt", () => {
+    const out = deriveSegments(input, null, true);
+    expect(out).toBe(input);
+  });
+
+  it("Anzeige == Modell nach jedem Commit (kein Desync-Pfad möglich)", () => {
+    // Simuliert den Commit: Modell enthält die manuelle Liste + Flag true.
+    const manual = [seg(0, 10, words)]; // z. B. vom Server nach PUT zurück
+    const out = deriveSegments(manual, 4, true);
+    expect(out).toBe(manual); // exakt dieselbe Referenz — Anzeige kann nicht abweichen
+  });
+});
 
 describe("resegmentByDuration", () => {
   it("teilt ein 105-s-Segment in Blöcke ≤ Ziel-Dauer", () => {

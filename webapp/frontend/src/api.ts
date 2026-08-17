@@ -35,6 +35,9 @@ export interface Recording {
   created_at: string;
   language: string | null;
   segments: Segment[] | null;
+  /** Change 009: manuelle Segment-Aufteilung aktiv (Anzeige nutzt segments
+   *  direkt, keine Auto-Re-Segmentierung nach segMaxDuration). */
+  segments_manual: boolean;
   audio_url: string;
   /** Schlanke Playback-Preview (64-kbps-MP3) — null solange nicht generiert. */
   audio_preview_url: string | null;
@@ -278,7 +281,7 @@ export async function updateSegment(
 export async function replaceSegments(
   recordingId: string,
   segments: Segment[],
-): Promise<{ segments: Segment[]; text: string }> {
+): Promise<{ segments: Segment[]; text: string; segments_manual: boolean }> {
   const res = await fetch(`/api/recordings/${recordingId}/segments`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

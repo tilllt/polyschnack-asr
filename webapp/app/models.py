@@ -42,6 +42,11 @@ class Recording(SQLModel, table=True):
     backend: str = "ps-pk-onnx"
     #: JSON list of {start, end, text} dicts; stored as SQLite JSON column.
     segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
+    #: Change 009 (2026-08-17): manuelle Segment-Aufteilung aktiv (Grenz-Drag,
+    #: +/−, Split, Re-Segmentierung). true → Anzeige nutzt segments direkt
+    #: (keine Auto-Re-Segmentierung nach segMaxDuration); false bei neuer
+    #: Transkription/Retranscribe/Restore (Auto-Aufteilung gilt wieder).
+    segments_manual: bool = False
     error: Optional[str] = None
     processing_ms: Optional[float] = None
 
