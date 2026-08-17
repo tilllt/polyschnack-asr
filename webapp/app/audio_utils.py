@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -181,11 +182,48 @@ def convert_to_mp3(raw: bytes, original_name: str) -> Tuple[bytes, str, Optional
         ) from None
 
 
+def _wav_has_audio(out: bytes) -> bool:
+    """Echtes WAV mit Audio-Frames? (nicht nur Header)
+
+    Live-Befund 2026-08-17: M4A mit trailing moov (moov-Atom am Dateiende,
+    ~98,8 %) dekodiert über die nicht-seekbare stdin-Pipe nur den WAV-Header
+    (78 Bytes) — returncode 0 trotzdem. `if not out` fängt das nicht
+    (78 Bytes ≠ leer). Zusätzliche Falle: ffmpeg schreibt bei Pipe-Ausgabe
+    für unbekannte Größen die Platzhalter `0xFFFFFFFF` (RIFF- UND
+    data-Chunk) — size > 0 allein reicht also nicht, der data-Chunk muss
+    zur Gesamtlänge passen.
+    """
+    if len(out) < 44 or out[:4] != b"RIFF" or out[8:12] != b"WAVE":
+        return False
+    # data-Chunk suchen (PCM: WAV hat genau einen) — dessen Größe muss
+    # plausibel sein: > 0, nicht 0xFFFFFFFF (ffmpeg-Platzhalter) und in die
+    # Gesamtlänge passend (sonst Header-only / abgeschnitten).
+    idx = out.find(b"data", 12)
+    if idx < 0 or idx + 8 > len(out):
+        return False
+    size = int.from_bytes(out[idx + 4 : idx + 8], "little")
+    if size == 0:
+        return False
+    if size == 0xFFFFFFFF:
+        # ffmpeg-Pipe-Platzhalter „unbekannt bis EOF": gültig, wenn nach dem
+        # data-Header tatsächlich Frames folgen (echte Datei) — die kaputte
+        # Header-only-Variante (78 B) endet EXAKT am data-Header (0 Bytes).
+        return len(out) - (idx + 8) >= 44  # mind. ein paar Frames
+    return idx + 8 + size <= len(out)
+
+
 def convert_to_wav_16k_mono(raw: bytes, original_name: str) -> Tuple[bytes, str, Optional[str]]:
-    """Immer-Konvertierung nach 16 kHz 16 bit mono WAV via ffmpeg (pipe).
+    """Immer-Konvertierung nach 16 kHz 16 bit mono WAV via ffmpeg.
 
     Wird für (a) exotische Upload-Formate und (b) Backends ohne
     Compressed-Support (on-the-fly beim Transkribieren) genutzt.
+
+    Fix 2026-08-17 (M4A trailing moov): Erst Pipe-Versuch (schnell, kein
+    Temp-File) — bei leerer ODER Header-only-Ausgabe (returncode 0, aber
+    kein data-Chunk!) Fallback auf SEEKBARE Temp-Datei. Container-Formate
+    mit moov am Ende (MP4/M4A/3GP von Smartphones) sind über eine
+    nicht-seekbare Pipe nicht dekodierbar (ffmpeg muss zum Dateiende
+    springen); dieselbe Datei als Datei-Input dekodiert einwandfrei.
     """
     ext = Path(original_name).suffix.lower()
     log.info("Converting %s to 16kHz mono WAV", original_name)
@@ -202,15 +240,45 @@ def convert_to_wav_16k_mono(raw: bytes, original_name: str) -> Tuple[bytes, str,
             capture_output=True,
             timeout=300,
         )
-        if proc.returncode != 0:
-            err = proc.stderr.decode("utf-8", errors="replace")[:500]
-            raise RuntimeError(f"Konnte {original_name} nicht konvertieren: {err}")
-        out = proc.stdout
-        if not out:
-            raise RuntimeError(f"Konnte {original_name} nicht konvertieren: leere Ausgabe")
-        log.info("Converted %s: %d → %d bytes", original_name, len(raw), len(out))
-        note = f"(konvertiert von {ext or 'unbekannt'} nach WAV)"
-        return out, ".wav", note
+        if proc.returncode == 0 and _wav_has_audio(proc.stdout):
+            out = proc.stdout
+            log.info("Converted %s: %d → %d bytes", original_name, len(raw), len(out))
+            note = f"(konvertiert von {ext or 'unbekannt'} nach WAV)"
+            return out, ".wav", note
+        # Pipe scheiterte (0 Bytes oder Header-only) → seekbare Temp-Datei.
+        # Die richtige Endung ist wichtig: ffmpeg erkennt das Format am
+        # Suffix, eine generische .tmp würde als "data" fehlinterpretiert.
+        err_hint = proc.stderr.decode("utf-8", errors="replace")[:200].strip()
+        with tempfile.NamedTemporaryFile(suffix=ext or ".m4a", delete=False) as tf:
+            tf.write(raw)
+            tmp_name = tf.name
+        try:
+            p2 = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+                    "-i", tmp_name,
+                    "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+                    "-f", "wav",
+                    "pipe:1",
+                ],
+                capture_output=True,
+                timeout=300,
+            )
+            if p2.returncode != 0 or not _wav_has_audio(p2.stdout):
+                err = p2.stderr.decode("utf-8", errors="replace")[:500] or err_hint or "leere Ausgabe"
+                raise RuntimeError(f"Konnte {original_name} nicht konvertieren: {err}")
+            out = p2.stdout
+            log.info(
+                "Converted %s (Temp-Datei-Fallback, trailing moov): %d → %d bytes",
+                original_name, len(raw), len(out),
+            )
+            note = f"(konvertiert von {ext or 'unbekannt'} nach WAV)"
+            return out, ".wav", note
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
     except subprocess.TimeoutExpired:
         raise RuntimeError(
             f"Konvertierung von {original_name} abgebrochen (länger als 300s)"

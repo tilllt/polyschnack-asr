@@ -74,14 +74,27 @@ def test_convert_to_mp3_timeout(monkeypatch):
 
 
 def test_convert_to_wav_16k_mono_ok(monkeypatch):
+    # Echtes Mini-WAV (1 Sample), damit der Pipe-Pfad als erfolgreich gilt —
+    # seit Fix 2026-08-17 prüft die Funktion auf echten Audio-Inhalt
+    # (_wav_has_audio), Header-only-Bytes würden den Temp-File-Fallback triggern.
+    def _mini_wav() -> bytes:
+        return (
+            b"RIFF" + (44).to_bytes(4, "little") + b"WAVE"
+            + b"fmt " + (16).to_bytes(4, "little")
+            + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+            + (16000).to_bytes(4, "little") + (32000).to_bytes(4, "little")
+            + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+            + b"data" + (2).to_bytes(4, "little") + b"\x00\x00"
+        )
+
     class _R:
         returncode = 0
-        stdout = b"wav-bytes"
+        stdout = _mini_wav()
         stderr = b""
 
     monkeypatch.setattr(au.subprocess, "run", lambda *a, **k: _R())
     out, ext, note = au.convert_to_wav_16k_mono(b"mp3", "a.mp3")
-    assert out == b"wav-bytes"
+    assert out == _mini_wav()
     assert ext == ".wav"
     assert "konvertiert" in (note or "")
 
@@ -140,3 +153,82 @@ def test_probe_duration_path_echt_ffprobe(tmp_path):
 
 def test_probe_duration_path_fehlt_gibt_none(tmp_path):
     assert au.probe_duration_path(tmp_path / "gibt-es-nicht.mp3") is None
+
+
+# ============================================================
+# M4A trailing moov → convert_to_wav_16k_mono (Fix 2026-08-17)
+# ============================================================
+def _make_trailing_moov_m4a(tmp_path, duration_s: int = 40):
+    """Erzeugt eine echte M4A mit moov-Atom am Dateiende (> 90 %).
+
+    ffmpeg schreibt ohne +faststart das moov-Atom ans Dateiende — genau das
+    Smartphone/Signal-Muster. Muss ≥ 30 s / > ~400 KB sein, sonst passt die
+    Datei in den ffmpeg-Pipe-Puffer und reproduziert das Problem NICHT
+    (Skill-Referenz m4a-trailing-moov-pipe-decode.md).
+    """
+    import shutil
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg nicht verfügbar")
+
+    out = tmp_path / f"trailing_{duration_s}s.m4a"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration_s}",
+            "-c:a", "aac", "-b:a", "128k", str(out),
+        ],
+        check=True,
+    )
+    data = out.read_bytes()
+    assert len(data) > 400_000, f"Testdatei zu klein ({len(data)} B) — beweist nichts"
+    moov_frac = data.rfind(b"moov") / len(data)
+    assert moov_frac > 0.9, f"moov nicht am Dateiende ({moov_frac:.1%})"
+    return data, out.name
+
+
+def test_convert_m4a_trailing_moov_liefert_echtes_wav(tmp_path):
+    """M4A mit moov am Ende → valides WAV mit data-Chunk > 0 (nicht 78 B).
+
+    Regression für den Live-Befund 2026-08-17 (Recording 386c71e2…):
+    `ffmpeg -i pipe:0` liefert bei trailing-moov-M4A returncode 0, aber nur
+    den WAV-Header (78 Bytes, 0 Frames) → Diar-Service: "failed to read the
+    frames of the audio data". Der Fix muss auf eine seekbare Temp-Datei
+    zurückfallen.
+    """
+    raw, name = _make_trailing_moov_m4a(tmp_path)
+    wav, ext, note = au.convert_to_wav_16k_mono(raw, name)
+    assert ext == ".wav"
+    assert au._wav_has_audio(wav), f"kein echtes WAV ({len(wav)} B): {note}"
+    # 40 s @ 16 kHz mono s16 ≈ 1,28 MB — Header-only (78 B) wäre ein Bruchteil
+    assert len(wav) > 1_000_000, f"WAV zu klein ({len(wav)} B) — Audio fehlt"
+
+
+def test_wav_has_audio_erkennt_header_only():
+    """78-Byte-Header-only-WAV (returncode-0-Falle) → False."""
+    # Minimal-WAV: RIFF/WAVE + fmt + data mit Größe 0
+    header_only = (
+        b"RIFF" + (36).to_bytes(4, "little") + b"WAVE"
+        + b"fmt " + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+        + (16000).to_bytes(4, "little") + (32000).to_bytes(4, "little")
+        + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+        + b"data" + (0).to_bytes(4, "little")
+    )
+    assert not au._wav_has_audio(header_only)
+    assert not au._wav_has_audio(b"")
+    assert not au._wav_has_audio(b"RIFFxxxxWAVE")  # zu kurz / kein data
+    # ffmpeg-Pipe-Platzhalter 0xFFFFFFFF (Live-Befund 2026-08-17: 78 B) → False,
+    # wenn NICHTS nach dem data-Header folgt (Header-only)
+    placeholder = header_only[:-8] + b"data" + b"\xff\xff\xff\xff"
+    assert not au._wav_has_audio(placeholder)
+    # …aber True, wenn echte Frames folgen (ffmpeg schreibt den Platzhalter
+    # bei Pipe-Ausgabe auch bei gültiger Konvertierung — Datei mit 44 B Frames)
+    placeholder_frames = placeholder + b"\x00" * 44
+    assert au._wav_has_audio(placeholder_frames)
+    # data-Größe passt nicht in die Gesamtlänge (abgeschnitten) → False
+    truncated = header_only[:-8] + b"data" + (1000).to_bytes(4, "little") + b"\x00\x00"
+    assert not au._wav_has_audio(truncated)
+    # echtes WAV mit 1 Sample → True
+    real = header_only[:-8] + b"data" + (2).to_bytes(4, "little") + b"\x00\x00"
+    assert au._wav_has_audio(real)
