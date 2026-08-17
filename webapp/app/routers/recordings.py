@@ -33,7 +33,15 @@ from ..db import get_session
 from ..models import Recording, RecordingShare, User
 from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
-from ..service import resegment_by_duration, to_srt, to_txt, to_vtt, trim_audio
+from ..export import (
+    TemplateInvalid,
+    TemplateNotFound,
+    export_templates_dir,
+    list_templates,
+    load_template,
+    render_template,
+)
+from ..service import resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
 
 router = APIRouter(prefix="/api")
@@ -394,6 +402,16 @@ _AUDIO_MIME_FALLBACK = "audio/mpeg"
 # Storage-Policy in audio_utils.NATIVE_AUDIO_EXTS. Alles andere wird beim
 # Upload nach MP3 konvertiert (.aac/.ogg/.opus/.webm/.wma/…).
 _BROWSER_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".m4b", ".mp4", ".flac"}
+
+# Change 008: Media-Types für Export-Templates (nach Datei-Endung).
+_EXPORT_MEDIA_TYPES = {
+    "txt": "text/plain",
+    "srt": "application/x-subrip",
+    "vtt": "text/vtt",
+    "csv": "text/csv",
+    "json": "application/json",
+    "html": "text/html",
+}
 
 
 def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Dict[str, Any]:
@@ -963,18 +981,16 @@ def download_transcript(
     max_duration_s: Optional[float] = None,
     session: Session = Depends(get_session),
 ) -> Response:
-    """Download the transcription as txt, srt, or vtt.
+    """Download the transcription in an export format.
 
-    ``max_duration_s`` (Feature 2026-08-15): optionale Re-Segmentierung
-    vor dem Export — die ASR-Segmente sind chunk-bedingt oft ~105 s lang
-    und damit für Untertitel unbrauchbar. Mit diesem Parameter teilt
-    ``resegment_by_duration`` die Wörter in Blöcke ≤ max_duration_s auf;
-    identisch zur Preview in der Transkriptionsansicht (gleiche Funktion,
-    gleiche Ausgabe).
+    Change 008: ``format`` ist ein Template-Name aus
+    ``DATA_DIR/export_templates/*.json`` — die eingebauten Namen
+    ``txt|srt|vtt`` lösen die Standard-Templates auf, eigene Formate
+    (YouTube-Transcript, CSV, …) werden durch eine Template-Datei ohne
+    Code-Änderung verfügbar. ``max_duration_s`` (Feature 2026-08-15):
+    optionale Re-Segmentierung vor dem Export — identisch zur Preview in
+    der Transkriptionsansicht (gleiche Funktion, gleiche Ausgabe).
     """
-    if format not in ("txt", "srt", "vtt"):
-        raise HTTPException(status_code=400, detail="format must be txt, srt, or vtt")
-
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -988,32 +1004,48 @@ def download_transcript(
     if rec.status != "done":
         raise HTTPException(status_code=409, detail="transcription not complete yet")
 
-    stem = Path(rec.original_name).stem
-    disposition = f'attachment; filename="{stem}.{format}"'
+    # Template laden (404 bei unbekanntem Namen, 500 bei kaputter Datei).
+    try:
+        tpl = load_template(format, export_templates_dir())
+    except TemplateNotFound:
+        raise HTTPException(status_code=404, detail=f"unknown export format: {format}")
+    except TemplateInvalid as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
-    if format == "txt":
-        content = to_txt(rec.text or "")
-        media_type = "text/plain"
-    else:
-        segments = rec.segments or []
-        if max_duration_s is not None and max_duration_s > 0:
-            segments = resegment_by_duration(segments, max_duration_s)
-        if format == "srt":
-            content = to_srt(segments)
-            media_type = "application/x-subrip"
-        else:  # vtt
-            content = to_vtt(segments)
-            media_type = "text/vtt"
+    stem = Path(rec.original_name).stem
+    disposition = f'attachment; filename="{stem}.{tpl["extension"]}"'
+
+    segments = rec.segments or []
+    if max_duration_s is not None and max_duration_s > 0:
+        segments = resegment_by_duration(segments, max_duration_s)
+
+    meta = {
+        "title": stem,
+        "media_file_name": stem,
+        "media_file_name_with_ext": rec.original_name,
+        "text": rec.text or "",
+    }
+    content = render_template(tpl, segments, meta)
+
+    ext = tpl["extension"].lower()
+    media_type = _EXPORT_MEDIA_TYPES.get(ext, "application/octet-stream")
 
     # Fix 2026-08-15 (User-Report): Umlaute als Sonderzeichen im TXT-Download.
     # Ohne charset im Content-Type rät der Browser das Encoding (häufig
     # Windows-1252/Latin-1) → „ä/ö/ü/ß" wurden zu „Ã¤"-Artefakten. Explizites
-    # charset=utf-8 gilt für alle drei Exportformate (Texte sind Unicode).
+    # charset=utf-8 gilt für alle Exportformate (Texte sind Unicode).
     return Response(
         content=content,
         media_type=f"{media_type}; charset=utf-8",
         headers={"Content-Disposition": disposition},
     )
+
+
+@router.get("/export-templates")
+def export_templates_ep(session: Session = Depends(get_session)) -> dict:
+    """Liste aller verfügbaren Export-Templates (Name + Endung) für das
+    UI-Dropdown (Change 008)."""
+    return {"templates": list_templates(export_templates_dir())}
 
 
 # ---------------------------------------------------------------------------

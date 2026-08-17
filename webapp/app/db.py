@@ -156,6 +156,11 @@ def _auto_migrate() -> None:
 def init_db() -> None:
     """Create tables, run auto-migrations, ensure audio dir, purge expired public recordings."""
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    # Change 008: Standard-Export-Templates nach DATA_DIR/export_templates/
+    # schreiben (falls fehlend) — eigene Templates bleiben unberührt.
+    from .export import ensure_standard_templates
+
+    ensure_standard_templates(settings.DATA_DIR / "export_templates")
     SQLModel.metadata.create_all(engine)
     _auto_migrate()
     _purge_expired()

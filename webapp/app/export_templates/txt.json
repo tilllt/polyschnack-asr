@@ -1,0 +1,9 @@
+{
+  "name": "Plain Text",
+  "extension": "txt",
+  "format_header": "{full-text}\n",
+  "format_paragraph": "",
+  "format_footer": "",
+  "format_timecode": "",
+  "format_newline": "[Do not modify]"
+}

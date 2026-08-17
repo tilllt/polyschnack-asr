@@ -1064,48 +1064,27 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 # ---------------------------------------------------------------------------
 
 
-def _format_timestamp_srt(seconds: float) -> str:
-    """Format *seconds* as an SRT timestamp ``HH:MM:SS,mmm``."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds - int(seconds)) * 1000))
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _format_timestamp_vtt(seconds: float) -> str:
-    """Format *seconds* as a WebVTT timestamp ``HH:MM:SS.mmm``."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds - int(seconds)) * 1000))
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
-
-
 def to_srt(segments: List[Dict[str, Any]]) -> str:
-    """Convert a list of segment dicts into an SRT subtitle string."""
-    lines: List[str] = []
-    for i, seg in enumerate(segments, start=1):
-        start = _format_timestamp_srt(float(seg.get("start", 0)))
-        end = _format_timestamp_srt(float(seg.get("end", 0)))
-        speaker = seg.get("speaker", "")
-        prefix = f"[{speaker}] " if speaker else ""
-        text = prefix + seg.get("text", "").strip()
-        lines.append(f"{i}\n{start} --> {end}\n{text}\n")
-    return "\n".join(lines)
+    """Convert a list of segment dicts into an SRT subtitle string.
+
+    Change 008: delegiert an das eingebaute ``srt.json``-Template
+    (Template-Renderer ist die einzige Format-Implementierung).
+    """
+    from .export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("srt", BUNDLED_TEMPLATES_DIR)
+    return render_template(tpl, segments, {})
 
 
 def to_vtt(segments: List[Dict[str, Any]]) -> str:
-    """Convert a list of segment dicts into a WebVTT subtitle string."""
-    lines: List[str] = ["WEBVTT\n"]
-    for seg in segments:
-        start = _format_timestamp_vtt(float(seg.get("start", 0)))
-        end = _format_timestamp_vtt(float(seg.get("end", 0)))
-        speaker = seg.get("speaker", "")
-        prefix = f"[{speaker}] " if speaker else ""
-        text = prefix + seg.get("text", "").strip()
-        lines.append(f"{start} --> {end}\n{text}\n")
-    return "\n".join(lines)
+    """Convert a list of segment dicts into a WebVTT subtitle string.
+
+    Change 008: delegiert an das eingebaute ``vtt.json``-Template.
+    """
+    from .export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("vtt", BUNDLED_TEMPLATES_DIR)
+    return render_template(tpl, segments, {})
 
 
 def to_txt(text: str) -> str:
