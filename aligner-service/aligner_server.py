@@ -142,11 +142,13 @@ def _to_wav16k(src: str, dst: str) -> None:
     )
 
 
-def _parse_alignment(out_json: str) -> list[dict]:
+def _parse_alignment(out_json: str, resolve: bool = True) -> list[dict]:
     """Tolerant parsen: JSON (words/segments/Liste) oder Zeilen 'start end word'.
 
     Reicht confidence durch (falls die CLI es liefert) und löst
     0-Dauer-Wörter auf (start==end → nächste Wortgrenze bzw. min. 80 ms).
+    Mit resolve=False bleiben die ROH-Wörter erhalten (für die
+    Energie-Korrektur, die VOR der Auflösung laufen muss).
     """
     words: list[dict] = []
     try:
@@ -186,7 +188,7 @@ def _parse_alignment(out_json: str) -> list[dict]:
                             continue
         except OSError:
             pass
-    return _resolve_zero_duration(words)
+    return _resolve_zero_duration(words) if resolve else words
 
 
 def _resolve_zero_duration(words: list[dict]) -> list[dict]:
@@ -211,6 +213,152 @@ def _resolve_zero_duration(words: list[dict]) -> list[dict]:
         item["start"], item["end"] = s, e
         out.append(item)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Energie-basierte Wortgrenzen-Korrektur (2026-08-17)
+#
+# Befund: qwen3-forced-aligner liefert für Wörter in künstlich langen Pausen
+# (TTS-Ground-Truth mit 0.35 s Stille pro Wort) 0-Dauer-Intervalle
+# (start == end). _resolve_zero_duration füllt dann end = nächster start —
+# dadurch wird die KOMPLETTE Stille davor/danach dem Wort zugeschlagen und
+# die Karaoke-Markierung bleibt viel zu lange aktiv ("Playback läuft den
+# Markierungen hinterher").
+#
+# Lösung hier: Die CLI-Grenzen sind trotzdem meist akustisch plausibel
+# (Starts ± 1-2 Bins korrekt, s. GT-Messung). Wir ziehen die Wortgrenzen an
+# die echten Energie-Kanten der WAV: Jedes Wort [s, e] wird auf den
+# nächstgelegenen akustisch belegten Bereich (RMS > Schwelle) begrenzt —
+# die Stille gehört dann KEINEM Wort.
+# ---------------------------------------------------------------------------
+def _energy_refine(words: list[dict], wav_path: str,
+                   frame_ms: float = 10.0, silence_rms: float = 300.0,
+                   min_gap_s: float = 0.25) -> list[dict]:
+    """Zieht Wortgrenzen an echte Stille-Lücken (defensiv).
+
+    Befund (2026-08-17, GT-Messung): qwen3-forced-aligner liefert für
+    Wörter in künstlich langen Pausen 0-Dauer-Intervalle (start==end);
+    _resolve_zero_duration füllt end = nächster start → die KOMPLETTE
+    Stille davor/danach wird dem Wort zugeschlagen (Karaoke-Markierung
+    bleibt viel zu lange aktiv).
+
+    Lösung: Stille-Lücken > min_gap_s (deutlich größer als Konsonanten-
+    Lücken ~20-40 ms) sind echte Wortgrenzen. Die Wörter werden den
+    akustisch belegten REGIONEN zwischen den Lücken zugeordnet — die
+    Stille gehört dann keinem Wort. Fehler beim WAV-Lesen → Wörter
+    unverändert (nie ein Job-Fail, nie verschlechterte Zeiten).
+    """
+    if not wav_path or not os.path.exists(wav_path) or not words:
+        return words
+    try:
+        import wave
+        import struct
+
+        with wave.open(wav_path, "rb") as wf:
+            n_ch = wf.getnchannels()
+            srate = wf.getframerate()
+            n_frames = wf.getnframes()
+            raw = wf.readframes(n_frames)
+        if n_ch != 1 or srate <= 0:
+            return words
+        samples = struct.unpack(f"<{len(raw) // 2}h", raw)
+        frame_len = max(1, int(srate * frame_ms / 1000.0))
+        rms: list[float] = []
+        for i in range(0, len(samples), frame_len):
+            chunk = samples[i:i + frame_len]
+            if not chunk:
+                break
+            sq = sum(s * s for s in chunk) / len(chunk)
+            rms.append((sq ** 0.5) or 0.0)
+        speech = [r > silence_rms for r in rms]
+        dt = frame_len / srate
+
+        # Stille-Lücken > min_gap_s: (lücken_start, lücken_ende) in Sekunden
+        gaps: list[tuple] = []
+        i = 0
+        while i < len(speech):
+            if not speech[i]:
+                j = i
+                while j < len(speech) and not speech[j]:
+                    j += 1
+                if (j - i) * dt >= min_gap_s:
+                    gaps.append((i * dt, j * dt))
+                i = j
+            else:
+                i += 1
+
+        # Akustische Regionen = Sprachblöcke zwischen den Lücken:
+        # [0, gap0.start], [gap0.end, gap1.start], ..., [gapN.end, dauer]
+        duration = len(speech) * dt
+        regions: list[tuple] = []
+        cursor = 0.0
+        for gs, ge in gaps:
+            if ge > cursor:
+                regions.append((cursor, gs))
+            cursor = max(cursor, ge)
+        if duration > cursor + 0.02:
+            regions.append((cursor, duration))
+
+        def assign_region(t: float) -> int:
+            """Region für einen Wort-Start.
+
+            ZUERST Lücken prüfen: Liegt t in (bzw. exakt am Anfang) einer
+            Stille-Lücke → Region NACH der Lücke (Modell-Kollaps: Start
+            klebt an der Vorgänger-Grenze = Lücken-Anfang). Sonst Region,
+            die t enthält."""
+            for gs, ge in gaps:
+                if gs - 0.03 <= t <= ge:
+                    for ri, (rs, _re) in enumerate(regions):
+                        if rs >= ge - 0.02:
+                            return ri
+                    break
+            for ri, (rs, re) in enumerate(regions):
+                if rs <= t <= re:
+                    return ri
+            for ri, (rs, _re) in enumerate(regions):
+                if rs > t:
+                    return ri
+            return max(0, len(regions) - 1)
+
+        out: list[dict] = []
+        for wi, w in enumerate(words):
+            item = dict(w)
+            s = item.get("start")
+            e = item.get("end")
+            if s is None:
+                s = 0.0
+            nxt_s = words[wi + 1].get("start") if wi + 1 < len(words) else None
+            zero_duration = (e is None or e <= s)
+            # Wort der akustischen Region zuordnen (Start in Lücke →
+            # Region NACH der Lücke), Start auf Region-Start anheben.
+            ri = assign_region(s)
+            rs, re = regions[ri] if regions else (0.0, duration)
+            if s < rs:
+                s = rs
+            if zero_duration:
+                # 0-Dauer-Kollaps: Ende = Ende der Start-Region. Mit
+                # min_gap_s=0,25 verschmelzen Silben-Lücken desselben
+                # Worts (< 0,25 s) bereits zu EINER Region — kein Merge
+                # über Wortgrenzen nötig (sonst zieht der nächste
+                # CLI-Start die Folgeregion mit rein).
+                e = re
+            elif e is not None and e > re:
+                # gültiges CLI-Ende jenseits der Region → Region-Ende
+                e = re
+            # Reihenfolge wahren: nicht vor dem Vorgänger-Ende,
+            # nicht über den nächsten CLI-Start hinaus.
+            if out and s < out[-1].get("end", 0.0):
+                s = out[-1]["end"]
+            if nxt_s is not None and e > nxt_s:
+                e = nxt_s
+            if e <= s:
+                e = s + 0.08
+            item["start"], item["end"] = s, e
+            out.append(item)
+        return out
+    except Exception:
+        # Defensiv: nie verschlechtern
+        return words
 
 
 def _run_aligner(cli: str, model: str, wav: str, text: str, lang: str) -> str:
@@ -403,7 +551,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 _to_wav16k(src, wav)
                 out_json = _run_aligner(self.cli, self.model, wav, text, lang)
-                words = _parse_alignment(out_json)
+                words = _parse_alignment(out_json, resolve=False)
+                # Energie-Korrektur (2026-08-17): ordnet Wörter den
+                # akustisch belegten Regionen zu — Stille gehört keinem
+                # Wort. Behebt 0-Dauer-Kollaps bei künstlichen Pausen
+                # (Karaoke-Sync). Danach _resolve_zero_duration als
+                # Sicherheitsnetz für Wörter ohne gültiges Intervall.
+                words = _resolve_zero_duration(_energy_refine(words, wav))
                 os.unlink(out_json)
             self._send(200, {"words": words, "language": lang, "duration_s": dur})
         except ValueError as exc:
