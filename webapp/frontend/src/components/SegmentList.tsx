@@ -759,7 +759,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
           ) : (
             <span
               className="text-txt flex-1 min-w-0 pointer-coarse:select-none"
-              style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
+              style={
+                {
+                  WebkitTouchCallout: "none",
+                  // Fix 2026-08-17 (Touch-Markierung): ohne touch-action
+                  // übernimmt der Browser beim Ziehen das Scrollen und
+                  // feuert pointercancel → Markierung wird verworfen.
+                  // pan-y erlaubt vertikales Scrollen, horizontale Zieh-
+                  // Gesten bleiben für die Wort-Markierung erhalten.
+                  touchAction: "pan-y",
+                } as React.CSSProperties
+              }
               onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e.currentTarget) : undefined}
               onPointerDown={onSplitSegment ? (e) => handleTextPointerDown(i, e) : undefined}
               onPointerMove={onSplitSegment ? (e) => handleTextPointerMove(i, e) : undefined}
