@@ -128,6 +128,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     startWord: number;
     endWord: number;
   } | null>(null);
+  // Fix 2026-08-17: Touch-Markierung — siehe touchAction auf Wort-Spans.
+  // (State entfällt: touch-action steuert der Browser direkt am Span.)
   const [splitSpeaker, setSplitSpeaker] = useState("");
   // Change 013: Popover (nach Symbol-Klick) und Sprecher-Dropdown getrennt
   // steuern — ein gemeinsamer State öffnete beide gleichzeitig und der
@@ -395,9 +397,16 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   function handleTextPointerMove(i: number, e: React.PointerEvent) {
     const ts = touchSel;
     if (!ts || ts.idx !== i || e.pointerType !== "touch") return;
-    const w = wordIndexFromEvent(e);
-    if (w === null) return;
-    if (w !== ts.endWord) setTouchSel({ ...ts, endWord: w });
+    // Fix 2026-08-17 (Touch-Drag): Bei Touch setzt der Browser implizit
+    // Pointer Capture auf das Start-Element (gotpointercapture) → e.target
+    // bleibt bei jedem move der Wort-Span 0. Deshalb die Position über
+    // elementFromPoint auflösen, nicht über e.target.
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const w = el ? (el.closest?.("[data-word-index]") as HTMLElement | null) : null;
+    if (!w) return;
+    const wi = Number((w as HTMLElement).dataset.wordIndex);
+    if (!Number.isFinite(wi)) return;
+    if (wi !== ts.endWord) setTouchSel({ ...ts, endWord: wi });
   }
 
   function handleTextPointerUp(i: number) {
@@ -762,11 +771,12 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
               style={
                 {
                   WebkitTouchCallout: "none",
-                  // Fix 2026-08-17 (Touch-Markierung): ohne touch-action
-                  // übernimmt der Browser beim Ziehen das Scrollen und
-                  // feuert pointercancel → Markierung wird verworfen.
-                  // pan-y erlaubt vertikales Scrollen, horizontale Zieh-
-                  // Gesten bleiben für die Wort-Markierung erhalten.
+                  // Fix 2026-08-17 (Touch-Markierung): Der Browser klassifiziert
+                  // die Geste beim touchstart anhand des touch-action des
+                  // Start-Elements. Die Wort-Spans haben touch-action:none
+                  // (Markierung in alle Richtungen, kein pointercancel beim
+                  // Ziehen über Zeilen); der Container behält pan-y, damit
+                  // Scrollen über Zwischenräume/außerhalb weiter geht.
                   touchAction: "pan-y",
                 } as React.CSSProperties
               }
@@ -805,6 +815,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           tabIndex={0}
                           data-active-word={isActive ? "true" : undefined}
                           data-word-index={wi}
+                          // Fix 2026-08-17 (Touch): touch-action gilt laut Spec
+                          // NICHT für non-replaced inline-Elemente → Wort-Span
+                          // inline-block + touch-action:none. Der Browser
+                          // klassifiziert die Geste beim touchstart am
+                          // Start-Element: Start auf Wort = nie Scroll (kein
+                          // pointercancel, auch vertikal über Zeilen);
+                          // Start auf Zwischenraum = Scrollen normal.
+                          style={{ display: "inline-block", touchAction: "none" } as React.CSSProperties}
                           onClick={(e) => {
                             e.stopPropagation();
                             scheduleClick(() => handleWordClick(i, w.start));
