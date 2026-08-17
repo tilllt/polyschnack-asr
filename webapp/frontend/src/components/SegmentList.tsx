@@ -440,7 +440,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   function handleTextPointerUp(i: number) {
     const ts = touchSel;
     if (!ts || ts.idx !== i) return;
-    setTouchSel(null);
+    // Fix 2026-08-17: Markierung NACH dem Loslassen sichtbar lassen —
+    // sie verschwindet erst beim Klick aufs Split-Symbol (dort
+    // setTouchSel(null) + Popover). Kein setTouchSel(null) hier!
     const words = (shown[i]?.words ?? []) as ResegWord[];
     if (words.length === 0) return;
     const r = wordRangeToCharRange(words, ts.startWord, ts.endWord);
@@ -611,6 +613,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                // Fix 2026-08-17: Markierung bleibt nach dem Loslassen
+                // sichtbar — erst der Symbol-Klick räumt sie und öffnet
+                // den Dialog.
+                setTouchSel(null);
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
@@ -830,6 +836,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                       const inTouchSel = ts
                         ? wi >= Math.min(ts.startWord, ts.endWord) && wi <= Math.max(ts.startWord, ts.endWord)
                         : false;
+                      // Fix 2026-08-17: Space nach Wort wi mit markieren, wenn
+                      // Wort wi UND wi+1 im Bereich liegen (lückenlose Markierung
+                      // inkl. Leerzeichen).
+                      const spaceInSel = ts
+                        ? wi >= Math.min(ts.startWord, ts.endWord) &&
+                          wi + 1 <= Math.max(ts.startWord, ts.endWord)
+                        : false;
                       const cls = isHit
                         ? "search-hit"
                         : inTouchSel
@@ -865,17 +878,23 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           }}
                           className={`cursor-pointer transition-colors duration-[100ms] ${cls}`}
                         >
-                          {/* Review-Fix 2026-08-15: Space GEHÖRT KEINEM
-                              Wort-Span. Der Trenn-Space steht als separates
-                              Text-Node zwischen den Wort-Spans → die Markierung
-                              ist auf BEIDEN Seiten symmetrisch OHNE Space
-                              (User-Vorgabe: konsistent beide Seiten, nicht
-                              einseitig). Ein trailing space im Span würde am
-                              Zeilenumbruch kollabieren (Markierung abgeschnitten),
-                              ein leading space markierte einseitig mit. */}
+                          {/* Fix 2026-08-17: Space ist ein EIGENER Span mit
+                              white-space:pre (kollabiert nicht am Umbruch).
+                              So lassen sich Leerzeichen MIT markieren — vorher
+                              waren sie Text-Nodes ohne Klasse und die Markierung
+                              sprang Wort für Wort. Konsistent: Space zwischen
+                              zwei markierten Wörtern wird mit markiert. */}
                           {w.word}
                         </span>
-                        {wi < seg.words!.length - 1 ? " " : ""}
+                        {wi < seg.words!.length - 1 ? (
+                          <span
+                            key={`sp-${wi}`}
+                            className={spaceInSel ? "touch-sel" : undefined}
+                            style={{ whiteSpace: "pre" }}
+                          >
+                            {" "}
+                          </span>
+                        ) : null}
                         </>
                       );
                     });
