@@ -148,6 +148,68 @@ def test_edit_segment_empty_text_400(client):
     assert r.status_code == 400
 
 
+def test_edit_word_diff_same_count_keeps_timestamps(client):
+    """Change 010: Gleiche Wortzahl (Wort korrigieren) → 1:1-Mapping,
+    Timestamps aller Wörter bleiben exakt erhalten."""
+    r = client.patch("/api/recordings/rec-edit-1/segments/0",
+                     json={"text": "Hallo Globus"})  # „Welt" → „Globus"
+    assert r.status_code == 200
+    words = r.json()["segments"][0]["words"]
+    assert [w["word"] for w in words] == ["Hallo", "Globus"]
+    # Timestamps unverändert: Hallo[0,1) Globus[1,2) — exakt wie vorher
+    assert words[0]["start"] == 0.0 and words[0]["end"] == 1.0
+    assert words[1]["start"] == 1.0 and words[1]["end"] == 2.0
+
+
+def test_edit_word_diff_insert_interpolates_between_neighbors(client):
+    """Change 010: Wort einfügen → Nachbarwörter behalten Timestamps,
+    neues Wort interpoliert zwischen ihnen (a[0,1) b[1,2) c[2,3))."""
+    # Segment 1: „zweiter Satz" (zweiter[2,3) Satz[3,4))
+    r = client.patch("/api/recordings/rec-edit-1/segments/1",
+                     json={"text": "zweiter neuer Satz"})
+    assert r.status_code == 200
+    words = r.json()["segments"][1]["words"]
+    assert [w["word"] for w in words] == ["zweiter", "neuer", "Satz"]
+    # unveränderte Wörter behalten ihre Timestamps exakt
+    assert words[0]["start"] == 2.0 and words[0]["end"] == 3.0
+    assert words[2]["start"] == 3.0 and words[2]["end"] == 4.0
+    # Nachbarn sind lückenlos (zweiter endet 3.0, Satz startet 3.0) → das
+    # eingefügte Wort endet exakt am Start des nächsten (Chronologie zum
+    # FOLGENDEN gewahrt), minimale 0.01-s-Überlappung zum vorherigen.
+    assert words[1]["end"] == pytest.approx(words[2]["start"], abs=1e-9)
+    assert words[1]["end"] > words[1]["start"]
+    # Und: Wort liegt im Segment-Zeitfenster
+    assert words[1]["start"] >= 2.0 - 1e-9
+    assert words[1]["end"] <= 4.0 + 1e-9
+
+
+def test_edit_word_diff_delete_keeps_remaining_timestamps(client):
+    """Change 010: Wort löschen → verbleibende Wörter behalten ihre
+    Timestamps (keine Neuverteilung über die Segment-Dauer)."""
+    # Segment 0: „Hallo Welt" (Hallo[0,1) Welt[1,2)) → nur „Hallo"
+    r = client.patch("/api/recordings/rec-edit-1/segments/0",
+                     json={"text": "Hallo"})
+    assert r.status_code == 200
+    words = r.json()["segments"][0]["words"]
+    assert [w["word"] for w in words] == ["Hallo"]
+    assert words[0]["start"] == 0.0 and words[0]["end"] == 1.0
+
+
+def test_edit_word_diff_no_match_falls_back_to_even_distribution(client):
+    """Change 010: Komplett anderer Text (kein Match) → Gleichverteilung
+    über die Segment-Dauer, Segment-Grenzen unverändert."""
+    r = client.patch("/api/recordings/rec-edit-1/segments/0",
+                     json={"text": "alpha beta gamma"})
+    assert r.status_code == 200
+    seg = r.json()["segments"][0]
+    words = seg["words"]
+    assert [w["word"] for w in words] == ["alpha", "beta", "gamma"]
+    # 2 s Segment / 3 Wörter → 2/3 s pro Wort, beginnend bei 0
+    assert words[0]["start"] == pytest.approx(0.0)
+    assert words[0]["end"] == pytest.approx(2.0 / 3.0)
+    assert words[2]["end"] == pytest.approx(seg["end"], abs=1e-9)
+
+
 def test_edit_segment_out_of_range_404(client):
     r = client.patch("/api/recordings/rec-edit-1/segments/99",
                      json={"text": "x"})

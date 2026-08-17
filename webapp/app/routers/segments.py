@@ -27,6 +27,199 @@ class SpeakerRename(BaseModel):
     to_speaker: str
 
 
+# ---------------------------------------------------------------------------
+# Wort-Diff (Change 010): Text-Edits erhalten die Timestamps unveränderter
+# Wörter. Bisher wurde die Wortliste aus new_text.split() neu gebaut und
+# GLEICHVERTEILT über die Segment-Dauer gelegt — Wörter hinzufügen/löschen
+# stauchte/dehnte dadurch auch akustisch korrekte Nachbarwörter (Karaoke,
+# Wort-Seek, Re-Segmentierung arbeiteten auf künstlichen Werten).
+# ---------------------------------------------------------------------------
+
+
+def _align_words(
+    old_words: list[dict[str, Any]],
+    new_text: str,
+    seg_start: float,
+    seg_end: float,
+) -> list[dict[str, Any]]:
+    """Baut die neue Wortliste per Sequenz-Alignment gegen die alte.
+
+    Regeln (Spec transcription-view, Req 7, Change 010):
+    1. Gleiche Wortzahl → 1:1-Mapping: Wort an Position i behält die
+       Timestamps von alt[i] (deckt „Wort korrigieren" verlustfrei ab).
+    2. Unterschiedliche Wortzahl → LCS-Alignment über die Wort-Strings:
+       übereinstimmende Wörter behalten ihre Timestamps; eingefügte
+       Wörter interpolieren zwischen den erhaltenen Nachbarn
+       (Segment-Grenzen als Rand); gelöschte Wörter entfallen.
+    3. Kein Match + unterschiedliche Wortzahl → Gleichverteilung über
+       die Segment-Dauer (Fallback, Zeile bleibt Karaoke-fähig).
+    """
+    new_words_list = new_text.split() if new_text else []
+
+    if not old_words:
+        return _distribute_words(new_words_list, seg_start, seg_end)
+
+    old_strings = [str(w.get("word", "")) for w in old_words]
+
+    # Regel 1: gleiche Wortzahl → 1:1-Mapping (Timestamps bleiben exakt).
+    if len(old_words) == len(new_words_list):
+        return [
+            {
+                "word": nw,
+                "start": float(old_words[i].get("start", seg_start)),
+                "end": float(old_words[i].get("end", seg_start)),
+            }
+            for i, nw in enumerate(new_words_list)
+        ]
+
+    # Regel 2: LCS über die Wort-Strings.
+    lcs = _lcs_indices(old_strings, new_words_list)
+    if not lcs:
+        # Regel 3: nichts wiedererkannt → Gleichverteilung.
+        return _distribute_words(new_words_list, seg_start, seg_end)
+    # Match-Quote: werden weniger als die Hälfte der neuen Wörter
+    # wiedererkannt, ist das Alignment unzuverlässig (z. B. fast komplett
+    # umformulierter Satz) → Gleichverteilung als sichere Basis.
+    if 2 * len(lcs) < len(new_words_list):
+        return _distribute_words(new_words_list, seg_start, seg_end)
+
+    result: list[dict[str, Any]] = []
+    new_i = 0
+    for old_idx, new_idx in lcs:
+        # Eingefügte Wörter zwischen letztem Match und diesem Match:
+        # gleichmäßig über die Lücke verteilen (letztes erhaltenes Ende
+        # → Start dieses Matches); ohne Lücke: 0.01-s-Scheibe davor.
+        if new_i < new_idx:
+            result.extend(_place_words(
+                new_words_list[new_i:new_idx],
+                _prev_boundary(result, seg_start),
+                float(old_words[old_idx].get("start", seg_start)),
+            ))
+            new_i = new_idx
+        # Match-Wort: Timestamps vom alten Wort übernehmen.
+        ow = old_words[old_idx]
+        result.append({
+            "word": new_words_list[new_idx],
+            "start": float(ow.get("start", seg_start)),
+            "end": float(ow.get("end", seg_start)),
+        })
+        new_i = new_idx + 1
+    # Restliche eingefügte Wörter am Ende: gleichmäßig zwischen letztem
+    # erhaltenen Wort und Segment-Ende.
+    if new_i < len(new_words_list):
+        result.extend(_place_words(
+            new_words_list[new_i:],
+            _prev_boundary(result, seg_start),
+            seg_end,
+        ))
+    return result
+
+
+def _lcs_indices(
+    old_list: list[str],
+    new_list: list[str],
+) -> list[tuple[int, int]]:
+    """Indizes (old_idx, new_idx) der längsten gemeinsamen Teilfolge."""
+    n, m = len(old_list), len(new_list)
+    if n == 0 or m == 0:
+        return []
+    # DP-Tabelle; nur die letzte Zeile brauchen wir zum Rückwärtslaufen
+    # nicht — wir speichern die volle Tabelle (Segmente sind kurz).
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            if old_list[i] == new_list[j]:
+                dp[i][j] = dp[i + 1][j + 1] + 1
+            else:
+                dp[i][j] = max(dp[i + 1][j], dp[i][j + 1])
+    result: list[tuple[int, int]] = []
+    i = j = 0
+    while i < n and j < m:
+        if old_list[i] == new_list[j]:
+            result.append((i, j))
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return result
+
+
+def _prev_boundary(
+    words: list[dict[str, Any]],
+    seg_start: float,
+) -> float:
+    """End des letzten erzeugten Wortes (bzw. Segment-Start am Anfang)."""
+    if words:
+        try:
+            return float(words[-1].get("end", seg_start))
+        except (TypeError, ValueError):
+            return seg_start
+    return seg_start
+
+
+def _place_words(
+    words: list[str],
+    space_start: float,
+    space_end: float,
+) -> list[dict[str, Any]]:
+    """Mehrere eingefügte Wörter gleichmäßig über eine Lücke verteilen.
+
+    Liegt eine echte Lücke vor (span > 0), werden die Wörter gleichmäßig
+    zwischen space_start (Ende des letzten erhaltenen Wortes) und
+    space_end (Start des nächsten Matches bzw. Segment-Ende) aufgeteilt.
+    Ist die Lücke ≤ 0 (lückenlose Nachbarn, kein freier Platz), enden die
+    Wörter exakt an space_end (Chronologie zum FOLGENDEN bleibt:
+    next.start >= letztes.end) und überlappen minimal (0.01 s) den
+    vorherigen Bereich — nie über das Segment-Ende hinaus, nie davor.
+    Unveränderte Nachbarwörter behalten ihre Timestamps exakt.
+    """
+    span = space_end - space_start
+    n = len(words)
+    if n == 0:
+        return []
+    if span > 1e-9:
+        step = span / n
+        return [
+            {
+                "word": words[i],
+                "start": space_start + i * step,
+                "end": space_start + (i + 1) * step,
+            }
+            for i in range(n)
+        ]
+    # Keine Lücke: 0.01-s-Scheibe direkt vor space_end, gleichmäßig.
+    slice_start = space_end - 0.01
+    step = 0.01 / n
+    return [
+        {
+            "word": words[i],
+            "start": slice_start + i * step,
+            "end": slice_start + (i + 1) * step,
+        }
+        for i in range(n)
+    ]
+
+
+def _distribute_words(
+    new_words_list: list[str],
+    seg_start: float,
+    seg_end: float,
+) -> list[dict[str, Any]]:
+    """Gleichverteilung über die Segment-Dauer (Fallback, Stand vor 010)."""
+    seg_duration = max(seg_end - seg_start, 0.1)
+    w_duration = seg_duration / max(len(new_words_list), 1)
+    return [
+        {
+            "word": w,
+            "start": seg_start + i * w_duration,
+            "end": seg_start + (i + 1) * w_duration,
+        }
+        for i, w in enumerate(new_words_list)
+    ]
+
+
 @router.post("/recordings/{rid}/speaker-rename")
 def rename_speaker(
     rid: str,
@@ -126,16 +319,18 @@ def update_segment(
         if not new_text:
             raise HTTPException(status_code=400, detail="text must not be empty")
         segments[idx]["text"] = new_text
-        # Rebuild words from edited text so karaoke still works
-        text_words = new_text.split()
+        # Change 010 (Wort-Diff): unveränderte Wörter behalten ihre
+        # Timestamps (1:1 bei gleicher Wortzahl, LCS bei Einfügen/Löschen);
+        # nur neue Wörter interpolieren, gelöschte entfallen. Fallback:
+        # Gleichverteilung, wenn nichts wiedererkannt wird.
         seg_start = segments[idx].get("start", 0)
         seg_end = segments[idx].get("end", seg_start + 1)
-        seg_duration = max(seg_end - seg_start, 0.1)
-        w_duration = seg_duration / max(len(text_words), 1)
-        segments[idx]["words"] = [
-            {"word": w, "start": seg_start + i * w_duration, "end": seg_start + (i + 1) * w_duration}
-            for i, w in enumerate(text_words)
-        ]
+        segments[idx]["words"] = _align_words(
+            segments[idx].get("words") or [],
+            new_text,
+            seg_start,
+            seg_end,
+        )
     if new_speaker is not None:
         if not new_speaker:
             raise HTTPException(status_code=400, detail="speaker must not be empty")
