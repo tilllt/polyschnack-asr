@@ -23,7 +23,7 @@ import { VersionDiff } from "./VersionDiff";
  *  bei Re-Transcribe stundenalter Dateien kam Unsinn heraus, und bei
  *  nicht-linearen Phasen (ASR schnell, Alignment langsam) massiv falsch. */
 function etaFromRate(rateMsPerPct: number | null, pct: number): string {
-  if (!rateMsPerPct || rateMsPerPct <= 0 || pct <= 0 || pct >= 100) return "…";
+  if (!rateMsPerPct || rateMsPerPct <= 0 || pct <= 0 || pct >= 100) return "";
   const ms = rateMsPerPct * (100 - pct);
   if (ms > 120_000) return `~${Math.round(ms / 60_000)}m`;
   return `~${Math.max(1, Math.round(ms / 1000))}s`;
@@ -41,6 +41,49 @@ function updateEta(ref: { current: EtaRef }, pct: number): string {
     ref.current = { pct, ts: now, rate: prev.rate };
   }
   return etaFromRate(ref.current.rate, pct);
+}
+
+/** Change 011: Sekunden seit einem ISO-Zeitstempel (0 wenn unbekannt/zukunft). */
+export function secondsSince(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 1000));
+}
+
+/** Change 011: „seit Xs" / „seit Xm" aus Sekunden. */
+export function fmtSince(s: number): string {
+  if (s < 60) return `seit ${s}s`;
+  return `seit ${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/** Change 011: Heartbeat-Zustand einer Recording-Karte.
+ *  fresh  = letzter Heartbeat < 8 s (Job lebt, kein messbarer Fortschritt)
+ *  stalled = letzter Heartbeat > 45 s bei processing (verdaechtig/haengend)
+ */
+const HEARTBEAT_FRESH_S = 8;
+const HEARTBEAT_STALL_S = 45;
+
+export function heartbeatState(r: {
+  last_heartbeat_at?: string | null;
+  phase_started_at?: string | null;
+  status?: string;
+}): { fresh: boolean; stalled: boolean; sincePhase: number; sinceBeat: number } {
+  const sinceBeat = secondsSince(r.last_heartbeat_at);
+  const sincePhase = secondsSince(r.phase_started_at);
+  if (!r.last_heartbeat_at) {
+    return { fresh: false, stalled: false, sincePhase, sinceBeat: -1 };
+  }
+  const fresh = sinceBeat <= HEARTBEAT_FRESH_S;
+  const stalled = r.status === "processing" && sinceBeat > HEARTBEAT_STALL_S;
+  return { fresh, stalled, sincePhase, sinceBeat };
+}
+
+/** Change 011: Warte-ETA (queued) kompakt formatieren. */
+export function fmtEtaS(etaS: number | null | undefined): string {
+  if (!etaS || etaS <= 0) return "";
+  if (etaS >= 120) return `~${Math.round(etaS / 60)}m`;
+  return `~${Math.max(1, Math.round(etaS))}s`;
 }
 
 /** Serverseitige progress_note → i18n-Key (alignment traegt einen Zaehler). */
@@ -596,6 +639,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     note.startsWith("alignment") && note.length > "alignment".length
       ? note.slice("alignment".length).trim()
       : "";
+  // Change 011: Heartbeat-Zustand + ETA für die Progress-Zeile. Die ETA
+  // kommt aus der beobachteten Rate; ohne Rate (Sync-ASR, Diarization)
+  // zeigt die Zeile „aktiv seit Xs" aus phase_started_at — nie mehr „…".
+  const hb = heartbeatState(r);
+  const eta = updateEta(etaRef, r.progress_pct);
 
   function handleEdited(
     newSegs: typeof segments,
@@ -774,13 +822,21 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           </div>
         )}
         {r.status === "queued" && (
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 px-4 flex flex-col items-center gap-1">
             <button
               disabled
               className="bg-panel2 border border-border text-muted text-[13px] px-5 py-[7px] rounded-sm font-semibold opacity-70 cursor-not-allowed"
             >
               ⏳ {t("in_queue")}
             </button>
+            {/* Change 011: Queue-Position + Warte-ETA auf der Karte */}
+            {(r.queue_position ?? null) !== null && (
+              <span className="text-[12px] text-muted2 tabular-nums">
+                Warteschlange · Position {r.queue_position}
+                {fmtEtaS(r.queue_eta_s) ? ` · ${fmtEtaS(r.queue_eta_s)}` : ""}
+                {r.queue_backend ? ` · ${r.queue_backend}` : ""}
+              </span>
+            )}
           </div>
         )}
         {(r.status === "done" || r.status === "failed") && reArmed && (
@@ -896,28 +952,46 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         {r.status === "processing" && (
           <div className="px-4 pb-2">
             <div className="flex items-center justify-between gap-2 text-[12px] mb-[6px]">
-              <span className="text-muted">
+              <span className="text-muted min-w-0">
                 {phaseDetail ? (
-                  <span className="text-accent" title={note}>
+                  <span className="text-accent truncate" title={note}>
                     ⚙ {t(phaseKey)} · {phaseDetail}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
                     {t(phaseKey)}
+                    {hb.sincePhase > 0 ? ` · ${fmtSince(hb.sincePhase)}` : ""}
                   </span>
                 )}
               </span>
+              {/* Change 011: ETA-Zeile wird NIE mehr ausgeblendet — auch bei
+                  phaseDetail (Alignment). Fallback: „aktiv seit Xs" statt „…". */}
               <span className="text-muted2 tabular-nums shrink-0">
-                {r.progress_pct}%{phaseDetail ? "" : ` · ${updateEta(etaRef, r.progress_pct)}`}
+                {r.progress_pct}%
+                {eta
+                  ? ` · ${eta}`
+                  : hb.sincePhase > 0
+                    ? ` · ${fmtSince(hb.sincePhase)}`
+                    : ""}
               </span>
             </div>
             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
               <div
-                className="h-full bg-accent rounded-full transition-[width] duration-700 ease-out"
+                className={`h-full bg-accent rounded-full transition-[width] duration-700 ease-out ${
+                  hb.fresh && hb.sinceBeat > 0 && !hb.stalled
+                    ? "animate-pulse"
+                    : ""
+                }`}
                 style={{ width: `${r.progress_pct}%` }}
               />
             </div>
+            {/* Change 011: Stall-Warnung — Job lebt nicht mehr (kein Heartbeat) */}
+            {hb.stalled && (
+              <div className="mt-[6px] text-[12px] text-warn">
+                ⚠ keine Aktivität {fmtSince(hb.sinceBeat)}
+              </div>
+            )}
           </div>
         )}
       </div>

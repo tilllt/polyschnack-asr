@@ -67,6 +67,16 @@ export interface Recording {
   progress_pct: number;
   /** Phasen-Hinweis während der Verarbeitung, z. B. "diarization" */
   progress_note?: string | null;
+  /** Change 011: Beginn der aktuellen Phase (ISO) — "Phase läuft seit Xs". */
+  phase_started_at?: string | null;
+  /** Change 011: Letzter Aktivitäts-Nachweis (ISO) — Heartbeat-Puls. */
+  last_heartbeat_at?: string | null;
+  /** Change 011: Queue-Position (nur status="queued"). */
+  queue_position?: number | null;
+  /** Change 011: Warte-ETA in Sekunden (nur status="queued"). */
+  queue_eta_s?: number | null;
+  /** Change 011: Backend-Name (nur status="queued"). */
+  queue_backend?: string | null;
   waveform_peaks: number[] | null;
   /** Letzter Fortschritts-Heartbeat (ISO) — Basis fuer die ETA-Rate. */
   updated_at?: string | null;
