@@ -20,6 +20,10 @@ from .config import (
     ORT_INTER_THREADS,
     USE_GPU,
     GPU_DEVICE_ID,
+    CUDNN_MAX_WORKSPACE,
+    CUDNN_ALGO_SEARCH,
+    ORT_ARENA_EXTEND,
+    ORT_GPU_MEM_LIMIT_GB,
     logger,
     _getenv,
 )
@@ -75,15 +79,20 @@ def _resolve_providers() -> List:
     want_gpu = USE_GPU in ("true", "auto") and "CUDAExecutionProvider" in available
     providers: List = []
     if want_gpu:
-        providers.append((
-            "CUDAExecutionProvider",
-            {
-                "device_id": GPU_DEVICE_ID,
-                "cudnn_conv_algo_search": "EXHAUSTIVE",
-                "cudnn_conv_use_max_workspace": "1",
-                "do_copy_in_default_stream": True,
-            },
-        ))
+        cuda_opts: Dict[str, Any] = {
+            "device_id": GPU_DEVICE_ID,
+            # Begrenzter cuDNN-Workspace statt "max": cudnn_conv_use_max_workspace=1
+            # reserviert den GESAMTEN freien VRAM -> OOM, wenn Aligner/Diar parallel
+            # laden (Concat-Node, "Failed to allocate memory", 2026-08-17 Box).
+            "cudnn_conv_use_max_workspace": CUDNN_MAX_WORKSPACE,
+            "cudnn_conv_algo_search": CUDNN_ALGO_SEARCH,
+            "do_copy_in_default_stream": True,
+        }
+        if ORT_ARENA_EXTEND:
+            cuda_opts["arena_extend_strategy"] = ORT_ARENA_EXTEND
+        if ORT_GPU_MEM_LIMIT_GB and ORT_GPU_MEM_LIMIT_GB > 0:
+            cuda_opts["gpu_mem_limit"] = ORT_GPU_MEM_LIMIT_GB * 1024 * 1024 * 1024
+        providers.append(("CUDAExecutionProvider", cuda_opts))
     if USE_GPU != "true":  # always include CPU fallback unless forced GPU
         providers.append("CPUExecutionProvider")
     if not providers:

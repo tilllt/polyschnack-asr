@@ -138,6 +138,19 @@ VAD_SPEECH_PAD_MS = int(_getenv("VAD_SPEECH_PAD_MS", "120"))
 USE_GPU = _getenv("USE_GPU", "auto").lower()  # auto|true|false
 GPU_DEVICE_ID = int(_getenv("GPU_DEVICE_ID", "0"))
 
+# CUDA provider tuning (OOM-Schutz auf geteiltem VRAM mit Aligner/Diar):
+# cudnn_conv_use_max_workspace=1 lässt cuDNN den GESAMTEN freien VRAM als
+# Workspace reservieren -> parallel geladener Aligner/Diar bekommt OOM
+# (Concat-Node, "Failed to allocate memory", 2026-08-17 auf der Box).
+# Default: begrenzter Workspace + HEURISTIC-Suche (statt EXHAUSTIVE) + Arena
+# wächst in kleinen Schritten (kSameAsRequested) statt Verdopplung.
+CUDNN_MAX_WORKSPACE = _getenv("CUDNN_MAX_WORKSPACE", "0")
+CUDNN_ALGO_SEARCH = _getenv("CUDNN_ALGO_SEARCH", "HEURISTIC")
+ORT_ARENA_EXTEND = _getenv("ORT_ARENA_EXTEND", "kSameAsRequested")
+# Optionales hartes GPU-Speicherlimit in GB (0 = unbegrenzt). Auf der Box mit
+# Aligner (qwen3 0.6B) + Diar parallel sinnvoll, z. B. POLYSCHNACK_ORT_GPU_MEM_LIMIT_GB=12
+ORT_GPU_MEM_LIMIT_GB = int(_getenv("ORT_GPU_MEM_LIMIT_GB", "0"))
+
 # Micro-batch worker. The default is the validated RTX 3090 GPU profile;
 # CPU deployments should set POLYSCHNACK_BATCHED=0 and POLYSCHNACK_USE_GPU=false.
 MAX_BATCH_SIZE = int(_getenv("MAX_BATCH_SIZE", "4"))
