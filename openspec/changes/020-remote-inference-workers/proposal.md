@@ -119,9 +119,12 @@ Implementierungen (EU-only):
   und API stabil sind.
 
 Ausgeschlossen (US/UK-Jurisdiktion, dokumentiert): vast.ai, RunPod, Salad,
-Spheron (Spheron Networks, Los Angeles CA — verifiziert 08/2026), Massed
+Spheron (Spheron Networks, Los Angeles CA — verifiziert 08/2026), Theta
+EdgeCloud (Theta Labs Inc., Cupertino CA — verifiziert 08/2026), Massed
 Compute, Lambda, CoreWeave, TensorDock, CUDO (UK) — auch wenn EU-Regionen
-oder günstige Preise angeboten werden.
+oder günstige Preise angeboten werden. Theta EdgeCloud wäre preislich
+attraktiv (RTX 3090 0,14 $/h, 4090 0,49 $/h, 5090 0,26 $/h — offiziell,
+08/2026), ist aber als US-Unternehmen gesperrt.
 
 Konfiguration je Provider: Region-Whitelist (EU/EWR), Preis-Cap, GPU-Klassen-
 Mapping (small/medium/large ↔ VRAM), max. Instanzen, Warm-Pool-Größe,
