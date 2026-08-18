@@ -59,6 +59,19 @@ def storage_path_for(user_id: Optional[int], ext: str, anon: bool = False) -> Pa
     return folder / f"{uuid.uuid4().hex}{ext}"
 
 
+def original_path(stored: Path, orig_suffix: str) -> Path:
+    """Seitendatei für das unveränderte Original neben der konvertierten Datei.
+
+    Change 018 (2026-08-18): Liegt NUR vor, wenn beim Upload/URL-Import
+    wirklich transkodiert wurde (z. B. ``.aac`` → MP3 — Endung geändert).
+    Konvention: ``<stored>.orig<ext>`` im selben Ordner. Exporte finden die
+    Datei per Glob (``<stored>.orig.*``), ohne DB-Feld.
+    """
+    if not orig_suffix.startswith("."):
+        orig_suffix = f".{orig_suffix}"
+    return stored.with_name(f"{stored.name}.orig{orig_suffix.lower()}")
+
+
 def is_native_audio(original_name: str) -> bool:
     return Path(original_name).suffix.lower() in NATIVE_AUDIO_EXTS
 

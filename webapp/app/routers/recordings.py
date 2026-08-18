@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..audio_utils import (
     convert_to_wav_16k_mono,
+    original_path,
     prepare_storage,
     probe_duration_path,
     storage_path_for,
@@ -667,6 +668,16 @@ async def upload_recording(
     )
     stored.write_bytes(audio_data)
 
+    # Change 018: Bei echter Transkodierung (Endung geändert, z. B. .aac →
+    # MP3) das unveränderte Original aufbewahren — Export/Backup liefert es
+    # als audio.original.<ext>. Native Uploads & Faststart-Remux (Endung
+    # gleich) bekommen kein Duplikat.
+    orig_path = None
+    orig_ext = Path(file.filename).suffix.lower() or ".bin"
+    if conv_note and orig_ext != new_ext:
+        orig_path = original_path(stored, orig_ext)
+        orig_path.write_bytes(raw)
+
     recorded_at, source = parse_whatsapp(file.filename)
 
     # Exakte Dauer via ffprobe — Grundlage für die VRAM-Prognose und die ETA.
@@ -683,6 +694,11 @@ async def upload_recording(
             stored.unlink(missing_ok=True)
         except OSError:
             pass
+        if orig_path:
+            try:
+                orig_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         raise
 
     # Append conversion note to original name so the user knows

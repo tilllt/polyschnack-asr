@@ -356,3 +356,68 @@ def test_import_wrong_schema_version_400(client):
     )
     assert r.status_code == 400, r.text
     assert "Backup-Version" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Change 018: Original-Audio (audio.original.<ext>) im Backup + Import
+# ---------------------------------------------------------------------------
+
+
+def test_backup_contains_original_and_import_prefers_it(client):
+    """Transkodierte Aufnahme: ZIP enthält audio.mp3 UND audio.original.aac;
+    Import stellt die .aac-Originaldatei wieder her (nicht die MP3)."""
+    from app.audio_utils import original_path
+    from app.config import settings
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session, select
+
+    segs = [_seg(0, 5, "Hallo Original")]
+    rid = _make_done_recording(client, segs, text="Hallo Original")
+
+    # Change-018-Situation simulieren: Store-Datei (MP3) + Original-Seitendatei
+    # (.aac) — wie es der Upload nach einer Transkodierung ablegt.
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec is not None
+        stored = Path(rec.stored_path)
+        assert stored.suffix == ".mp3"
+        orig = original_path(stored, ".aac")
+        orig.write_bytes(b"original-aac-bytes")
+
+    # Backup enthält beide Audio-Dateien; Manifest deckt beide ab.
+    zf = _get_zip(client, rid)
+    names = set(zf.namelist())
+    assert "audio.mp3" in names
+    assert "audio.original.aac" in names
+    manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+    assert set(manifest["files"]) == {
+        "audio.mp3", "audio.original.aac",
+        "transcript.json", "transcript.srt", "transcript.txt",
+    }
+
+    import hashlib
+
+    for name, digest in manifest["files"].items():
+        actual = hashlib.sha256(zf.read(name)).hexdigest()
+        assert actual == digest[len("sha256:"):], f"{name} Hash-Mismatch"
+
+    # Restore-Szenario: Original-Recording löschen, Backup importieren.
+    zip_bytes = _download_backup(client, rid)
+    r = client.delete(f"/api/recordings/{rid}")
+    assert r.status_code in (200, 204), r.text
+
+    r = client.post(
+        "/api/recordings/import-backup",
+        files={"file": ("backup.zip", zip_bytes, "application/zip")},
+    )
+    assert r.status_code in (200, 201), r.text
+    new_rid = r.json()["uid"]
+
+    # Importiertes Audio ist die .aac-Originaldatei — nicht die MP3.
+    with Session(engine) as s:
+        rec2 = s.exec(select(Recording).where(Recording.uid == new_rid)).first()
+        assert rec2 is not None
+        assert Path(rec2.stored_path).suffix == ".aac"
+        assert Path(rec2.stored_path).read_bytes() == b"original-aac-bytes"
+        assert rec2.text == "Hallo Original"

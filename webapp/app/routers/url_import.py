@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel import Session, select
 
-from ..audio_utils import prepare_storage, probe_duration_path, storage_path_for
+from ..audio_utils import original_path, prepare_storage, probe_duration_path, storage_path_for
 from ..config import settings
 from ..crud import create_recording
 from ..db import get_session
@@ -142,7 +142,9 @@ async def import_from_url(
         raise HTTPException(status_code=400, detail="empty audio downloaded")
 
     # Storage-Policy: natives Format behalten (Browser/ASR können es), nur
-    # exotische Formate → 16-kHz-mono-WAV.
+    # exotische Formate → MP3 128k mono. Original-Bytes für Change 018
+    # (Export soll das Original liefern) VOR der Konvertierung merken.
+    raw_orig = audio_data
     audio_data, new_ext, conv_note = prepare_storage(audio_data, src_path.name)
 
     content_hash = hashlib.blake2b(audio_data, digest_size=16).hexdigest()
@@ -162,6 +164,12 @@ async def import_from_url(
         anon=_is_anon_user(session, current_user_id),
     )
     stored.write_bytes(audio_data)
+
+    # Change 018: Bei echter Transkodierung (Endung geändert) das Original
+    # aufbewahren (Export/Backup → audio.original.<ext>).
+    orig_ext = Path(src_path.name).suffix.lower() or ".bin"
+    if conv_note and orig_ext != new_ext:
+        original_path(stored, orig_ext).write_bytes(raw_orig)
 
     # Exakte Dauer via ffprobe (Basis für VRAM-Prognose + ETA) — Datei-basiert
     est_duration_s = probe_duration_path(stored) or (len(audio_data) / 8000)

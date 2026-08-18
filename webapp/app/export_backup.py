@@ -155,6 +155,11 @@ def build_backup_zip(
     audio_ext = audio_path.suffix or ".bin"
     audio_bytes = audio_path.read_bytes()
 
+    # Change 018: Original (falls beim Upload transkodiert, z. B. .aac →
+    # MP3) mitliefern — gefunden per Glob-Konvention `<stored>.orig.<ext>`.
+    # Fehlt es (Alt-Bestand/native Uploads), bleibt der Export wie bisher.
+    orig_candidates = sorted(audio_path.parent.glob(audio_path.name + ".orig.*"))
+
     # Lese-Ausgabe über die Standard-Templates (BOM wie Download).
     txt = render_template(
         load_template("txt", templates_dir),
@@ -180,6 +185,9 @@ def build_backup_zip(
         "transcript.txt": txt,
         "transcript.srt": srt,
     }
+    if orig_candidates:
+        orig = orig_candidates[0]
+        files[f"audio.original{orig.suffix}"] = orig.read_bytes()
     manifest = {
         "schema_version": BACKUP_SCHEMA_VERSION,
         "files": {
@@ -288,10 +296,14 @@ def import_backup_zip(
     rec_data = transcript.get("recording") or {}
     settings_data = rec_data.get("settings") or {}
 
-    # Audio-Datei aus dem ZIP (Name: audio.<ext> — beliebige Endung).
-    audio_name = next(
-        (n for n in contents if n.startswith("audio.") and n != "audio"),
-        None,
+    # Change 018: Original bevorzugen (audio.original.<ext>), sonst die
+    # Store-Datei (alte Backups / native Uploads ohne Original-Seitendatei).
+    audio_name = (
+        next((n for n in contents if n.startswith("audio.original.")), None)
+        or next(
+            (n for n in contents if n.startswith("audio.") and n != "audio"),
+            None,
+        )
     )
     if audio_name is None:
         raise BackupError("Audio-Datei fehlt im Backup (audio.<ext>)")
@@ -331,7 +343,14 @@ def import_backup_zip(
         session,
         original_name=rec_data.get("original_name") or original_name_fallback,
         stored_path=str(stored),
-        mime="audio/wav" if ext == ".wav" else "audio/mpeg",
+        # Kanonische MIME je Endung (Change 018: .aac/.ogg/… sind jetzt
+        # mögliche Original-Suffixe — nicht mehr nur wav/mpeg).
+        mime={
+            ".wav": "audio/wav", ".mp3": "audio/mpeg",
+            ".m4a": "audio/mp4", ".m4b": "audio/mp4", ".mp4": "audio/mp4",
+            ".aac": "audio/aac", ".ogg": "audio/ogg", ".opus": "audio/ogg",
+            ".webm": "audio/webm", ".flac": "audio/flac",
+        }.get(ext, "audio/mpeg"),
         size_bytes=len(audio_bytes),
         duration_s=duration_s,
         enable_vad=bool(settings_data.get("enable_vad", False)),
