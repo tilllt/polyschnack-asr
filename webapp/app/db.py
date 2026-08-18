@@ -69,6 +69,13 @@ def _purge_expired() -> None:
             path = Path(rec.stored_path)
             if path.exists():
                 path.unlink()
+            # Change 014: Sidecar-Metadaten mitlöschen (Titel/Dateiname)
+            try:
+                from .audio_utils import sidecar_path
+
+                sidecar_path(rec.stored_path).unlink(missing_ok=True)
+            except Exception:
+                pass
             session.delete(rec)
         if expired:
             log.info("Purged %d expired public recording(s) (>%d min)", len(expired), ret)

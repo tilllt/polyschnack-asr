@@ -19,16 +19,27 @@ def get_access_level(session, rec, uid: Optional[int], cap: Optional[str] = None
 
     ``cap`` (Task C3): Rechte-Deckel eines API-Keys — der Level wird nie
     höher als ``cap``, selbst wenn Owner/Share mehr erlauben würden.
+
+    Change 014 (2026-08-18): Owner ist ``rec.user_id`` ODER der
+    ``owner_user_id``-Fallback (gesetzt für anon-Uploads und Recovery-
+    Restores). Damit sind Legacy-public-Recordings (user_id=None) wieder
+    löschbar — vorher vergab ``user_id is None`` nur "read" → DELETE 403.
     """
     # Anon-Share-Link: jeder AUSSER dem Owner (auch ohne Login) bekommt
     # NUR read — nie write/full. Der Owner behält full (kann Link deaktivieren).
-    is_owner = uid is not None and rec.user_id == uid
+    is_owner = uid is not None and (
+        rec.user_id == uid or rec.owner_user_id == uid
+    )
     if getattr(rec, "share_token", False) and not is_owner:
         level = "read"
-    elif rec.user_id is None:
-        level = "read"  # Legacy-public: für alle lesbar
     elif is_owner:
         level = "full"
+    elif rec.user_id is None and rec.owner_user_id is None:
+        level = "read"  # Legacy-public: für alle lesbar, niemand darf schreiben
+    elif rec.user_id is None:
+        # Legacy-public mit owner_user_id-Fallback: fremde Besucher lesen,
+        # nur der Owner (oder Admin) schreibt.
+        level = "read"
     else:
         share = _find_share(session, rec.id, uid) if uid is not None else None
         level = share.level if share else None
@@ -61,5 +72,15 @@ def ensure(need: str, have: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail=f"requires at least '{need}' access")
 
 
-def ensure_access(session, rec, uid: Optional[int], need: str, cap: Optional[str] = None) -> None:
-    ensure(need, get_access_level(session, rec, uid, cap=cap))
+def ensure_access(session, rec, uid: Optional[int], need: str, cap: Optional[str] = None,
+                  is_admin: bool = False) -> None:
+    """ensure() mit Admin-Durchstich für herrenlose Legacy-Recordings.
+
+    Change 014: Ein Admin darf auch Recordings ohne jeden Owner
+    (user_id=None UND owner_user_id=None) voll verwalten — sonst wären
+    herrenlose Orphan-Einträge für niemanden löschbar.
+    """
+    level = get_access_level(session, rec, uid, cap=cap)
+    if is_admin and rec.user_id is None and rec.owner_user_id is None:
+        level = "full"
+    ensure(need, level)

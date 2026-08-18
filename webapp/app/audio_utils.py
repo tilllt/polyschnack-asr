@@ -21,6 +21,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -35,6 +36,27 @@ TARGET_SR = 16000
 NATIVE_AUDIO_EXTS = {
     ".wav", ".mp3", ".m4a", ".m4b", ".mp4", ".flac",
 }
+
+#: Change 014 (2026-08-18): Unterordner-Name für anonyme Sessions in der
+#: User-Ordner-Struktur (AUDIO_DIR/anon/…). Menschenlesbar + stabil.
+ANON_STORAGE_DIR = "anon"
+
+
+def storage_path_for(user_id: Optional[int], ext: str, anon: bool = False) -> Path:
+    """Zielpfad für eine neue Audio-Datei — User-Isolation auf der Platte.
+
+    Change 014: Dateien liegen NICHT mehr flach in AUDIO_DIR, sondern pro
+    User unter ``AUDIO_DIR/<user_id>/<uuid><ext>`` (eingeloggt) bzw.
+    ``AUDIO_DIR/anon/<uuid><ext>`` (anonyme Session — ``anon=True``).
+    Die User-ID kommt aus dem aktuellen Request, nie aus dem Dateinamen →
+    ein stored_path-Tippfehler kann nie auf fremde Dateien zeigen.
+    """
+    from .config import settings
+
+    uid_part = ANON_STORAGE_DIR if anon else str(user_id)
+    folder = settings.AUDIO_DIR / uid_part
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{uuid.uuid4().hex}{ext}"
 
 
 def is_native_audio(original_name: str) -> bool:
@@ -338,3 +360,52 @@ def probe_duration_path(path: Path) -> Optional[float]:
     except Exception:
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# Sidecar-Metadaten (Change 014, 2026-08-18)
+# ---------------------------------------------------------------------------
+# Neben der Audio-Datei liegt `{stored_path}.meta.json` mit
+# {"title": …, "original_name": …}. Die DB ist die Quelle der Wahrheit;
+# das Sidecar ist eine denormalisierte Kopie für Robustheit (Export,
+# Re-Transcribe, Wiederherstellung aus Datei-Backups). Fehler beim
+# Schreiben werden nur geloggt — nie fatal.
+
+SIDECAR_SUFFIX = ".meta.json"
+
+
+def sidecar_path(stored_path: str) -> Path:
+    """Pfad des Sidecar-JSON neben der Audio-Datei."""
+    return Path(stored_path).with_suffix(Path(stored_path).suffix + SIDECAR_SUFFIX)
+
+
+def write_sidecar(stored_path: str, title: Optional[str], original_name: str) -> None:
+    """Sidecar schreiben (best-effort). Die DB bleibt die Wahrheit."""
+    import json
+
+    try:
+        p = sidecar_path(stored_path)
+        p.write_text(
+            json.dumps(
+                {"title": title, "original_name": original_name},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        log.warning("sidecar write fehlgeschlagen (%s): %s", stored_path, exc)
+
+
+def read_sidecar(stored_path: str) -> Optional[dict]:
+    """Sidecar lesen; None wenn nicht vorhanden/kaputt (best-effort)."""
+    import json
+
+    try:
+        p = sidecar_path(stored_path)
+        if not p.is_file():
+            return None
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError) as exc:
+        log.debug("sidecar read fehlgeschlagen (%s): %s", stored_path, exc)
+        return None

@@ -29,6 +29,10 @@ class Recording(SQLModel, table=True):
 
     # --- upload metadata ---
     original_name: str
+    #: Change 014 (2026-08-18): editierbarer Anzeige-Titel; None → Fallback
+    #: original_name in der Serialisierung. Quelle der Wahrheit ist die DB;
+    #: ein Sidecar {stored_path}.meta.json spiegelt title/original_name.
+    title: Optional[str] = Field(default=None)
     stored_path: str
     mime: str = "application/octet-stream"
     size_bytes: int = 0
@@ -131,6 +135,11 @@ class Recording(SQLModel, table=True):
 
     # --- user (optional) ---
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    #: Change 014 (2026-08-18): Eigentümer-Fallback für Legacy-public
+    #: Recordings (user_id=None). Wird beim Upload (anon-Session) und beim
+    #: Recovery-Restore gesetzt; ermöglicht DELETE/Re-Transcribe, obwohl
+    #: permissions.py für user_id=None nur "read" vergibt. None = nur Admin.
+    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
 
     # --- anonymous share link (read-only, 32-char uid = token) ---
     #: True → jeder mit dem UID-Link kann lesen (kein Login, NIE write/full).

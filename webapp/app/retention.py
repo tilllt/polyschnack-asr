@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from .config import settings
@@ -13,8 +14,15 @@ from .models import Recording, RecordingShare, User
 def sweep(session: Session) -> int:
     """Lösche anonyme User, deren letzte Aktivität älter als die Retention ist.
 
-    Entfernt komplett: User-Zeile, Recordings (inkl. Audiodateien), Shares,
-    Versionen und (falls vorhanden, Teil C) API-Keys. Rückgabe: Anzahl gelöschter User.
+    Entfernt komplett: User-Zeile, Recordings (inkl. Audiodateien + Sidecar),
+    Shares, Versionen und (falls vorhanden, Teil C) API-Keys. Rückgabe:
+    Anzahl gelöschter User.
+
+    Change 014 (2026-08-18): Der Owner-Fallback ``owner_user_id`` wird
+    mitberücksichtigt — Recordings, die per Recovery-Restore einem anon-
+    User zugeordnet wurden (user_id=None, owner_user_id=uid), müssen
+    ebenfalls mit der Retention verschwinden. Sonst blieben sie ewig
+    liegen (Datenschutz).
     """
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
         minutes=settings.POLYSCHNACK_ANON_RETENTION_MINUTES
@@ -27,11 +35,23 @@ def sweep(session: Session) -> int:
         )
     ).all()
     for u in users:
-        for r in session.exec(select(Recording).where(Recording.user_id == u.id)).all():
+        recs = session.exec(
+            select(Recording).where(
+                or_(Recording.user_id == u.id, Recording.owner_user_id == u.id)
+            )
+        ).all()
+        for r in recs:
             try:
                 from pathlib import Path
 
                 Path(r.stored_path).unlink(missing_ok=True)
+                # Change 014: Sidecar-Metadaten mitlöschen (Titel/Dateiname)
+                try:
+                    from .audio_utils import sidecar_path
+
+                    sidecar_path(r.stored_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             except Exception:
                 pass
             # löscht Row + Transkript-Versionen + Shares (rec_id) + Datei-Cleanup

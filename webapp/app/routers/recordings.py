@@ -20,7 +20,13 @@ from fastapi.responses import FileResponse, Response, RedirectResponse
 from sqlmodel import Session, select
 
 from ..config import settings
-from ..audio_utils import convert_to_wav_16k_mono, prepare_storage, probe_duration_path
+from ..audio_utils import (
+    convert_to_wav_16k_mono,
+    prepare_storage,
+    probe_duration_path,
+    storage_path_for,
+    write_sidecar,
+)
 from ..crud import (
     create_recording,
     delete_recording,
@@ -78,6 +84,15 @@ def _is_admin_session(request: Request) -> bool:
     if not settings.OIDC_ENABLED:
         return False
     return bool(request.session.get("is_admin"))
+
+
+def _is_anon_user(session, uid: Optional[int]) -> bool:
+    """Change 014: User-Ordner-Wahl — anon-Sessions (kind='anonymous')
+    oder kein User → AUDIO_DIR/anon/, eingeloggte User → /<user_id>/."""
+    if uid is None:
+        return True
+    user = session.get(User, uid)
+    return user is None or user.kind == "anonymous"
 
 
 def ensure_backend_available(backend: str, request: Request) -> None:
@@ -450,6 +465,9 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "id": rec.id,
         "uid": uid,
         "original_name": rec.original_name,
+        # Change 014: editierbarer Titel; Fallback original_name.
+        "title": rec.title or rec.original_name,
+        "owner_user_id": rec.owner_user_id,
         "mime": rec.mime,
         "size_bytes": rec.size_bytes,
         "duration_s": rec.duration_s,
@@ -618,7 +636,10 @@ async def upload_recording(
     anon_user = session.get(User, uid) if uid is not None else None
     enforce_anon_limits(session, anon_user, len(audio_data), duration_s=None)
 
-    stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
+    stored = storage_path_for(
+        uid, new_ext,
+        anon=anon_user is None or anon_user.kind == "anonymous",
+    )
     stored.write_bytes(audio_data)
 
     recorded_at, source = parse_whatsapp(file.filename)
@@ -664,6 +685,7 @@ async def upload_recording(
         enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=uid,
+        owner_user_id=uid,
     )
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
@@ -699,7 +721,10 @@ def duplicate_recording(
     src = Path(rec.stored_path)
     if not src.is_file():
         raise HTTPException(status_code=409, detail="source file missing")
-    new_path = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{src.suffix.lower() or '.bin'}"
+    new_path = storage_path_for(
+        uid, src.suffix.lower() or ".bin",
+        anon=_is_anon_user(session, uid),
+    )
     import shutil
 
     shutil.copy2(src, new_path)
@@ -777,7 +802,7 @@ def merge_recordings(
         inputs += ["-i", rec.stored_path]
     n = len(recs)
     concat_filter = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
-    out_path = settings.AUDIO_DIR / f"{uuid.uuid4().hex}.wav"
+    out_path = storage_path_for(uid, ".wav", anon=_is_anon_user(session, uid))
     cmd = [
         "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
         *inputs,
@@ -967,7 +992,12 @@ def get_audio(
 
     path = Path(rec.stored_path)
     if not path.exists():
-        raise HTTPException(status_code=410, detail="audio file gone")
+        # Change 014: klare Message statt stiller Fehlerspirale — die GUI
+        # zeigt den Defekt-Badge (status=failed) und macht Delete prominent.
+        raise HTTPException(
+            status_code=410,
+            detail="Audio-Datei fehlt oder ist beschädigt",
+        )
 
     mime = _guess_mime(rec.stored_path, rec.mime)
     return FileResponse(
@@ -1119,7 +1149,11 @@ def transcribe_ep(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+    ensure_access(
+        session, rec, uid, "full",
+        cap=_key_cap(request, session),
+        is_admin=_is_admin_session(request),
+    )
 
     from ..pricing import ensure_free_only
 
@@ -1220,7 +1254,11 @@ def retranscribe(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+    ensure_access(
+        session, rec, uid, "full",
+        cap=_key_cap(request, session),
+        is_admin=_is_admin_session(request),
+    )
 
     from ..pricing import ensure_free_only
 
@@ -1302,7 +1340,11 @@ def delete_recording_endpoint(
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
     uid = _current_user(request, session)
-    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+    ensure_access(
+        session, rec, uid, "full",
+        cap=_key_cap(request, session),
+        is_admin=_is_admin_session(request),
+    )
     rec = delete_recording(session, rec.id)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -1313,7 +1355,55 @@ def delete_recording_endpoint(
     prev = getattr(rec, "preview_path", None)
     if prev:
         Path(prev).unlink(missing_ok=True)
+    # Change 014: Sidecar-Metadaten mitlöschen (falls vorhanden)
+    try:
+        from ..audio_utils import sidecar_path
+
+        sidecar_path(rec.stored_path).unlink(missing_ok=True)
+    except Exception:
+        pass
     return {"deleted": rid}
+
+
+class TitleBody(BaseModel):
+    title: str
+
+
+@router.patch("/recordings/{rid}/title")
+def set_recording_title(
+    rid: str,
+    body: TitleBody,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 014: Editierbaren Titel setzen (Owner/Admin).
+
+    Schreibt die DB (Quelle der Wahrheit) und spiegelt title/original_name
+    in das Sidecar-JSON neben der Audio-Datei (best-effort) — die
+    Dateinamen-Verknüpfung überlebt damit DB-Resets und wandert mit der
+    Datei.
+    """
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titel darf nicht leer sein")
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(
+        session, rec, uid, "full",
+        cap=_key_cap(request, session),
+        is_admin=_is_admin_session(request),
+    )
+    rec.title = title
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+    try:
+        write_sidecar(rec.stored_path, rec.title, rec.original_name)
+    except Exception:
+        pass  # best-effort — DB bleibt die Wahrheit
+    return {"uid": rec.uid, "title": rec.title, "original_name": rec.original_name}
 
 
 # ---------------------------------------------------------------------------
@@ -1339,9 +1429,7 @@ def transcribe_range(
     audio_bytes = Path(rec.stored_path).read_bytes()
     trimmed = trim_audio(audio_bytes, start_sec, end_sec)
 
-    stem = Path(rec.stored_path).stem
-    parent = Path(rec.stored_path).parent
-    crop_path = parent / f"{stem}_crop_{int(start_sec)}-{int(end_sec)}.wav"
+    crop_path = storage_path_for(uid, ".wav", anon=_is_anon_user(session, uid))
     crop_path.write_bytes(trimmed)
 
     new_rec = create_recording(

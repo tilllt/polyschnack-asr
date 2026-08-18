@@ -39,6 +39,7 @@ def create_recording(
     content_hash: Optional[str] = None,
     duration_s: Optional[float] = None,
     user_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
 ) -> Recording:
     """Insert a new Recording row with status='processing' and return it."""
     rec = Recording(
@@ -61,6 +62,7 @@ def create_recording(
         enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=user_id,
+        owner_user_id=owner_user_id,
     )
     session.add(rec)
     session.commit()

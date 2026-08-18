@@ -105,7 +105,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- Task B4: Retention-Sweep für anonyme Sessions (alle 5 min) ---
     # Im selben Loop: Stale-Processing-Watchdog (hängende Transkriptionen,
-    # z.B. nach Container-OOM oder abgerissener SSE-Verbindung → failed).
+    # z.B. nach Container-OOM oder abgerissener SSE-Verbindung → failed)
+    # und Recording-Health-Scan (Change 014: DB-Eintrag ohne gültige Datei
+    # → failed, damit die GUI den Defekt zeigt und Delete funktioniert).
     import threading
     from .retention import sweep
     from .stale_jobs import sweep_stale_processing
@@ -123,6 +125,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     stale = sweep_stale_processing(session)
                     if stale:
                         log.info("stale sweep: %d hängende Transkription(en) als failed markiert", stale)
+                    from .recording_health import run_health_scan
+
+                    broken = run_health_scan(session, settings.AUDIO_DIR)
+                    if broken:
+                        log.info("health scan: %d Recording(s) ohne gültige Datei als failed markiert", broken)
             except Exception:
                 log.exception("retention sweep failed")
 

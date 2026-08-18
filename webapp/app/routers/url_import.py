@@ -15,13 +15,13 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel import Session, select
 
-from ..audio_utils import prepare_storage, probe_duration_path
+from ..audio_utils import prepare_storage, probe_duration_path, storage_path_for
 from ..config import settings
 from ..crud import create_recording
 from ..db import get_session
 from ..llm_url import validate_llm_url
 from ..models import Recording
-from .recordings import _current_user, _recording_to_dict, _schedule_peaks
+from .recordings import _current_user, _is_anon_user, _recording_to_dict, _schedule_peaks
 
 log = logging.getLogger(__name__)
 
@@ -157,7 +157,10 @@ async def import_from_url(
     if existing and existing.user_id == current_user_id:
         return _recording_to_dict(existing)
 
-    stored = settings.AUDIO_DIR / f"{uuid.uuid4().hex}{new_ext}"
+    stored = storage_path_for(
+        current_user_id, new_ext,
+        anon=_is_anon_user(session, current_user_id),
+    )
     stored.write_bytes(audio_data)
 
     # Exakte Dauer via ffprobe (Basis für VRAM-Prognose + ETA) — Datei-basiert

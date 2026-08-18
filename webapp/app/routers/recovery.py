@@ -135,6 +135,9 @@ def recovery_restore(body: RestoreBody, request: Request,
         size_bytes=len(raw),
         content_hash=content_hash,
         user_id=None,  # anonym — gehört niemandem, aber ist sichtbar
+        # Change 014: Owner-Fallback — der Admin, der den Restore auslöst,
+        # kann die Recording damit wieder löschen (user_id=None → sonst nur read).
+        owner_user_id=None,
     )
     # Peaks im Hintergrund nachziehen (wie beim normalen Upload)
     try:
