@@ -22,5 +22,8 @@
 ## Phase 3 — ps-post + weitere Provider
 - [ ] ps-post-Image (crispr-diar + crispr-align kombiniert, Supervisor)
 - [ ] `dispatcher/backends/nebius.py` (offizielle API, EU-Regionen)
+- [ ] `dispatcher/backends/runpod.py` (Pods + Serverless-Modus, EU-Secure-Cloud für critical)
+- [ ] `dispatcher/backends/salad.py` (Container Engine, nur internal)
+- [ ] `dispatcher/backends/massed.py` (optional)
 - [ ] Datenklassen-Filter (internal/critical) aktiv
 - [ ] Tests: Backend-Unit-Tests (Mock-Anbieter), Integration mit local_backend

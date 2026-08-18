@@ -76,6 +76,19 @@ Implementierungen:
   Watchdog-Muster aus den Betriebs-Skills).
 - **nebius_backend** — Nebius Compute (offizielle API, EU-Regionen,
   Preemptible/Standard-Klassen).
+- **runpod_backend** — RunPod in zwei Modi: Pods (dedizierte Instanzen,
+  acquire/destroy) und Serverless (nur submit_job/poll — kein Instance-
+  Management nötig). Secure Cloud mit EU-Regionen → für data_class
+  `critical` geeignet. Preise (offiziell, 08/2026): A5000 0,27 $/h,
+  3090 0,50 $/h, 4090 0,74 $/h (Pods); 24-GB-Serverless 0,69 $/h.
+- **salad_backend** — Salad Container Engine (Container-Deployment per API,
+  keine Cold-Boot-Kosten, nur laufende Zeit wird berechnet). Preise
+  (offiziell, 08/2026, Batch): 3060 0,084 $/h, 4070 Ti 0,124 $/h,
+  3090 0,124 $/h, 3090 Ti 0,154 $/h, 4090 0,204 $/h. Community Cloud =
+  dezentrale Consumer-Nodes OHNE EU-Region-Garantie → nur `internal`;
+  Secure Cloud (Datacenter) für EU/critical prüfen.
+- **massed_backend** (optional) — Massed Compute (eigene Infrastruktur,
+  dedizierte Instanzen; A5000 0,44 $/h offiziell, 08/2026).
 - später: hetzner_backend, lambda_backend.
 
 Konfiguration je Provider: Region-Whitelist (EU/EWR), Preis-Cap, GPU-Klassen-
