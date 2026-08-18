@@ -16,8 +16,8 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 1. **Dienst-Trennung in drei Rollen:** webapp (kein GPU-Bedarf, bleibt auf der
    Box) · ps-asr-&lt;backend&gt; (ein ASR-Modell je Image, schlank, läuft auf
    günstigen 12-GB-Karten) · ps-post (Diarization + Aligner, modell-unabhängig,
-   16–24-GB-Klasse). Diar/Align existiert genau EINMAL, nicht in jedem
-   ASR-Image.
+   KEINE GPU-Pflicht — siehe Punkt 4). Diar/Align existiert genau EINMAL,
+   nicht in jedem ASR-Image.
 2. **Ende-zu-Ende-verschlüsselter Job-Transfer:** Audio verlässt die Box nur
    als AES-256-GCM-Chiffre; auf dem Worker existiert Klartext ausschließlich
    im RAM (tmpfs), nie auf der Instance-Disk.
@@ -25,6 +25,14 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
    Backends (vast.ai, Nebius, später Hetzner/Lambda) UND die lokale Box als
    erstes Backend — einheitliche Queue, EU-Region-Filter, GPU-Klassen-
    Matching, Warm-Pooling, Auto-Destroy, Kosten-Tracking.
+4. **Diarization ist CPU-only (empirisch belegt):** PR-Erkenntnis beim
+   crisprASR-GPU-Versuch — Pyannote-Diarization ist auf der CPU SCHNELLER
+   als auf der GPU (kurze Chunks, Transfer-Overhead &gt; Rechengewinn).
+   Umgesetzt in compose.gpu.yml (crispr-diar bewusst OHNE runtime: nvidia).
+   Der Aligner (qwen3-forced-aligner via llama.cpp/ggml) ist hybrid
+   (CUDA &gt; Metal &gt; Vulkan &gt; CPU) mit CPU-Fallback — GPU optional.
+   ⇒ ps-post läuft auf CPU-only-Instanzen (ggml-CPU-Fallback); GPU nur,
+   wenn sie billig verfügbar ist (beschleunigt den Align-Schritt).
 
 ## Lösung
 
@@ -36,7 +44,9 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
   moonshine…), Modell + Runtime + Worker-Wrapper. GPU-Klasse: small
   (12 GB, z. B. RTX 3060/4070). Gibt Hypothese + Wort-Timestamps zurück.
 - **ps-post**: Diarization + Aligner in EINEM Image (Supervisor: zwei
-  Prozesse). GPU-Klasse: medium (16–24 GB, z. B. A4000/3090). Nimmt Audio +
+  Prozesse). KEINE GPU-Pflicht: Diar läuft CPU-only (empirisch schneller),
+  Aligner ist ggml-hybrid mit CPU-Fallback → CPU-only-Instanzen genügen;
+  GPU (small) nur optional für den Align-Schritt. Nimmt Audio +
   Hypothese, liefert Segmente mit Sprechern.
 - **Dispatcher**: Bestandteil der webapp (oder eigener Service) — vermittelt
   Jobs an Instanzen, verwaltet Lebenszyklus, wählt Provider/Region/Klasse.

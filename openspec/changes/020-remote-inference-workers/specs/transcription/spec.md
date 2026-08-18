@@ -30,12 +30,14 @@
   Images: (1) `ps-asr-<backend>` — genau ein ASR-Modell je Image, GPU-Klasse
   small (12 GB, z. B. RTX 3060/4070), liefert Hypothese + Wort-Timestamps;
   (2) `ps-post` — Diarization + Aligner in einem Image (Supervisor: zwei
-  Prozesse), GPU-Klasse medium (16–24 GB, z. B. A4000/3090), liefert
-  Segmente mit Sprechern. Die webapp bleibt lokal und übernimmt
-  Orchestrierung und Verschlüsselung.
+  Prozesse), KEINE GPU-Pflicht (Diar CPU-only, Aligner ggml-hybrid mit
+  CPU-Fallback — empirische PR-Erkenntnis), liefert Segmente mit Sprechern.
+  Die webapp bleibt lokal und übernimmt Orchestrierung und Verschlüsselung.
 - **Warum:** Diar/Align ist modell-unabhängig und existiert dadurch genau
   einmal statt in jedem ASR-Image; schlanke ASR-Images erlauben die
-  günstige 12-GB-GPU-Klasse; Stufen können unabhängig skaliert werden.
+  günstige 12-GB-GPU-Klasse; ps-post kann auf CPU-only-Instanzen laufen
+  (Diar ist auf CPU schneller als auf GPU — kein GPU-Zwang);
+  Stufen können unabhängig skaliert werden.
 - **Architektur:** Images aus den bestehenden Builds abgeleitet
   (ASR-Backends einzeln, crispr-diar + crispr-align zu ps-post kombiniert).
 
@@ -45,7 +47,8 @@
 - **Eingaben:** Job-Paket Stufe 1 (Audio-Chiffre), Job-Paket Stufe 2
   (Audio-Chiffre + Hypothese-Chiffre).
 - **Ergebnis:** Stufe 1 gibt Hypothese zurück, Stufe 2 daraus die fertigen
-  Segmente; beide Stufen laufen auf unterschiedlichen GPU-Klassen.
+  Segmente; Stufe 1 läuft auf einer small-GPU-Instanz, Stufe 2 auf einer
+  CPU-only-Instanz (Diar) mit optionaler kleiner GPU (Align).
 
 ### Requirement: Dispatcher mit Provider-Abstraktion
 
