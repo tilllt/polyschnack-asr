@@ -2,7 +2,7 @@ import { Fragment, useRef, useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
-import { fmtTimecode } from "../format";
+import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
 import { moveBoundary, wordRangeToCharRange, type ResegWord } from "../resegment";
 import { useT } from "../useLocale";
@@ -787,8 +787,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             ) : (
               <span className="relative flex items-center gap-0.5 flex-shrink-0">
                 <span
-                  className="text-[11px] font-bold text-[#25d366] w-max uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
-                  title={t("speaker_dropdown_hint")}
+                  className="text-[11px] font-bold text-[#25d366] max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
+                  title={`${speaker.replace("SPEAKER_", "")} — ${t("speaker_dropdown_hint")}`}
                   onClick={(e) => {
                     // Feature 2026-08-16: Klick auf den Namen öffnet das
                     // Dropdown mit den erkannten Sprechern (Segment-weises
@@ -798,7 +798,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                   }}
                   onDoubleClick={(e) => e.stopPropagation()}
                 >
-                  {speaker.replace("SPEAKER_", "")}
+                  {/* Fix 2026-08-18: Mid-Ellipsis — sehr lange Namen
+                      (z. B. "TILL...METZ") zerhauten das Layout, weil die
+                      Spalte per w-max mit dem Inhalt wuchs. */}
+                  {abbreviateMid(speaker.replace("SPEAKER_", ""), 14)}
                 </span>
                 <button
                   onClick={(e) => {
@@ -841,7 +844,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                             }
                             void handleSetSpeaker(i, opt);
                           }}
-                          className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
+                          className={`block w-full max-w-[240px] text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 break-words ${
                             opt === speaker
                               ? "text-[#25d366] font-bold"
                               : "text-muted1"
@@ -1097,7 +1100,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 }}
                 className="w-full text-left px-2 py-1 text-[12px] bg-panel border border-border rounded-sm uppercase tracking-[.04em]"
               >
-                {(splitSpeaker || shown[splitAnchor.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", "")}
+                {abbreviateMid(
+                  (splitSpeaker || shown[splitAnchor.idx]?.speaker || t("split_speaker_default")).replace("SPEAKER_", ""),
+                  20,
+                )}
               </button>
               {splitSpeakerOpen && (
                 <>
@@ -1117,7 +1123,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           setSplitSpeaker(opt);
                           setSplitSpeakerOpen(false);
                         }}
-                        className={`block w-full text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 ${
+                        className={`block w-full max-w-[240px] text-left px-2 py-1 text-[11px] uppercase tracking-[.04em] cursor-pointer hover:bg-accent/10 break-words ${
                           opt === (splitSpeaker || shown[splitAnchor.idx]?.speaker)
                             ? "text-[#25d366] font-bold"
                             : "text-muted1"

@@ -64,3 +64,16 @@ export function fmtHHMM(iso: string | null | undefined): string {
     return "—";
   }
 }
+
+/**
+ * Mid-Ellipsis: kürzt lange Namen VON INNEN, z. B. "TILL...METZ" —
+ * Anfang und Ende bleiben erkennbar, die Gesamtlänge ist stabil
+ * (maxLen inkl. "...").
+ */
+export function abbreviateMid(name: string, maxLen = 16): string {
+  if (name.length <= maxLen) return name;
+  const budget = Math.max(6, maxLen - 3); // Platz für "..."
+  const headLen = Math.ceil(budget / 2);
+  const tailLen = budget - headLen;
+  return `${name.slice(0, headLen)}...${name.slice(-tailLen)}`;
+}
