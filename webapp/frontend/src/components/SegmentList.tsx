@@ -348,7 +348,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // nur der Anker gesetzt.
   function setAnchorFromRange(i: number, r: { start: number; end: number }, yOverride?: number) {
     const text = shown[i]?.text ?? "";
-    // Y-Position des Markierungsbeginns relativ zur Segment-Zeile.
+    // Y-Position der AUSWAHL-MITTE relativ zur Segment-Zeile (User-Vorgabe
+    // 2026-08-18: das Symbol erscheint links mittig zur Markierung, nicht
+    // am Auswahl-Start).
     let y = yOverride ?? 0;
     if (yOverride === undefined) {
       const sel = window.getSelection();
@@ -357,7 +359,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
         try {
           const rowRect = rowEl.getBoundingClientRect();
           const rangeRect = sel.getRangeAt(0).getBoundingClientRect();
-          y = Math.max(0, rangeRect.top - rowRect.top);
+          y = Math.max(0, rangeRect.top - rowRect.top + rangeRect.height / 2);
         } catch {
           y = 0;
         }
@@ -682,18 +684,18 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
-              className="absolute -left-0.5 z-20 w-[24px] h-[24px] rounded-full flex items-center justify-center flex-shrink-0
-                text-accent bg-transparent border border-accent/60
-                hover:bg-accent/10 hover:border-accent hover:scale-110 active:scale-95
-                transition-all"
+              className="absolute -left-0.5 z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
+                text-accent bg-white/70 border-2 border-accent
+                hover:bg-accent/15 hover:scale-110 active:scale-95
+                shadow-sm transition-all"
               style={{
                 // Fix 2026-08-18: Icon innerhalb der Zeile halten — ohne
                 // Clamp ragte es bei Markierungen in der letzten Textzeile
                 // über die Zeilen-Unterkante (bzw. den max-h-Container)
                 // hinaus und wurde unten abgeschnitten.
                 top: Math.min(
-                  Math.max(0, splitAnchor.y - 12),
-                  Math.max(0, (rowRefs.current[i]?.offsetHeight ?? 24) - 24),
+                  Math.max(0, splitAnchor.y - 13),
+                  Math.max(0, (rowRefs.current[i]?.offsetHeight ?? 26) - 26),
                 ),
               }}
               title={t("split_segment_title")}
@@ -702,13 +704,15 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             >
               {/* flaticon 81881 horizontal-split: zwei auseinandergezogene Haelfte.
                   viewBox auf 26 erweitert → Icon sitzt zentriert im Kreis,
-                  ragt nicht mehr über den Rand hinaus. */}
-              <svg width="14" height="14" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden>
+                  ragt nicht mehr über den Rand hinaus. Fix 2026-08-18:
+                  Icon 18px statt 14px + dickere Elemente — war zu klein und
+                  zu fein, das Symbol war im Outline-Kreis kaum erkennbar. */}
+              <svg width="18" height="18" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden>
                 <path d="M12 3l4 4H8l4-4z" fill="currentColor" />
-                <path d="M12 7.5v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                <rect x="3" y="10.5" width="18" height="3.6" rx="1" fill="currentColor" />
-                <rect x="3" y="16.9" width="18" height="3.6" rx="1" fill="currentColor" />
-                <path d="M12 21v-3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M12 7.5v3" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
+                <rect x="3" y="10.5" width="18" height="4" rx="1.2" fill="currentColor" />
+                <rect x="3" y="16.9" width="18" height="4" rx="1.2" fill="currentColor" />
+                <path d="M12 21v-3" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
                 <path d="M12 21l-4-4h8l-4 4z" fill="currentColor" />
               </svg>
             </button>
