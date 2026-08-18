@@ -69,6 +69,15 @@ E2E-Verschlüsselung. Die Verschlüsselung entschärft das technische Risiko
 Rechtslage eindeutig (kein US-Vertragspartner, keine US-Gerichtsbarkeit
 über Auftragsverarbeitung).
 
+**Begründung Vermittlung (vast.ai-Fall):** Der CLOUD Act knüpft an das
+Unternehmen mit Zugriff an, nicht an den GPU-Standort. vast.ai verwaltet
+die gemieteten Instanzen technisch (Portal, SSH-Proxy, Container-Lifecycle)
+und ist damit ein US-„covered provider" mit Zugriffsweg auf die Instanz —
+auch wenn die GPU bei einem EU-Host steht. „EU-Instanz über US-Marktplatz"
+ist deshalb rechtlich NICHT gleichwertig mit „Instanz direkt bei einem
+EU-Anbieter" (Hetzner/Nebius/Verda/Scaleway: kein US-Vertragspartner mit
+Instanz-Zugriff).
+
 Interface `InferenceBackend` (Python-Protokoll):
 
 - `list_offers(filter) -> list[Offer]` — Preis, GPU, VRAM, Region, Reliabilität
