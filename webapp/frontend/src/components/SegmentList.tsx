@@ -629,10 +629,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
               aria-label={t("split_segment_title")}
               data-testid="split-anchor-btn"
             >
-              {/* horizontal-split: zwei Balken, mittige Trennung */}
-              <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden>
-                <rect x="0.5" y="0.5" width="9" height="3.6" rx="1" fill="currentColor" />
-                <rect x="0.5" y="5.9" width="9" height="3.6" rx="1" fill="currentColor" />
+              {/* flaticon 81881 horizontal-split: zwei auseinandergezogene Haelfte */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M12 2.5l4.5 4.5h-9L12 2.5z" fill="currentColor" />
+                <path d="M12 7v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                <rect x="2.5" y="10" width="19" height="4" rx="1" fill="currentColor" />
+                <rect x="2.5" y="17" width="19" height="4" rx="1" fill="currentColor" />
+                <path d="M12 21v-3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M12 21.5l-4.5-4.5h9L12 21.5z" fill="currentColor" />
               </svg>
             </button>
           )}
