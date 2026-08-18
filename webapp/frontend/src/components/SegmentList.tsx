@@ -131,6 +131,11 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Fix 2026-08-17: Touch-Markierung — siehe touchAction auf Wort-Spans.
   // (State entfällt: touch-action steuert der Browser direkt am Span.)
   const [splitSpeaker, setSplitSpeaker] = useState("");
+  // Feature 2026-08-18: „+ Neuer Sprecher" — manuell erweiterbare
+  // Speaker-Liste. newSpeakerMode: "seg" (Segment-Dropdown) | "split"
+  // (Split-Popover) | null; newSpeakerName = aktueller Input.
+  const [newSpeakerMode, setNewSpeakerMode] = useState<"seg" | "split" | null>(null);
+  const [newSpeakerName, setNewSpeakerName] = useState("");
   // Change 013: Popover (nach Symbol-Klick) und Sprecher-Dropdown getrennt
   // steuern — ein gemeinsamer State öffnete beide gleichzeitig und der
   // Dropdown-Catcher (fixed inset-0) blockierte das ganze Popover.
@@ -489,6 +494,30 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     }
   }
 
+  // Feature 2026-08-18: „+ Neuer Sprecher" bestätigen — setzt den
+  // eingegebenen Namen als Speaker für das Split-Segment (Mode "split")
+  // oder als neuen Speaker für DIESES Segment (Mode "seg", PATCH).
+  async function handleAddNewSpeaker(mode: "seg" | "split") {
+    const name = newSpeakerName.trim();
+    if (!name) return;
+    const speakerName = name.toUpperCase().startsWith("SPEAKER_")
+      ? name.toUpperCase()
+      : `SPEAKER_${name.replace(/\s+/g, "_").toUpperCase()}`;
+    if (mode === "split") {
+      setSplitSpeaker(speakerName);
+      setSplitSpeakerOpen(false);
+      setNewSpeakerMode(null);
+      setNewSpeakerName("");
+      return;
+    }
+    // seg: auf das Segment anwenden, dessen Menü offen ist
+    const idx = openSpeakerMenu;
+    if (idx === null) return;
+    setNewSpeakerMode(null);
+    setNewSpeakerName("");
+    void handleSetSpeaker(idx, speakerName);
+  }
+
   async function handleRenameSpeaker(speaker: string) {
     if (renameSaving || !recordingId || !onEdited) return;
     const newName = renameText.trim();
@@ -766,6 +795,47 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           {opt.replace("SPEAKER_", "")}
                         </button>
                       ))}
+                      {/* Feature 2026-08-18: manuell erweiterbare Speaker-Liste */}
+                      <div className="border-t border-border/60 my-0.5" />
+                      {newSpeakerMode === "seg" ? (
+                        <div className="px-2 py-1 flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={newSpeakerName}
+                            onChange={(e) => setNewSpeakerName(e.target.value)}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === "Enter") void handleAddNewSpeaker("seg");
+                              if (e.key === "Escape") {
+                                setNewSpeakerMode(null);
+                                setNewSpeakerName("");
+                              }
+                            }}
+                            placeholder={t("new_speaker_placeholder")}
+                            className="w-full min-w-[110px] text-[11px] bg-panel border border-border rounded-sm px-1.5 py-0.5 text-txt outline-none focus:border-accent"
+                          />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleAddNewSpeaker("seg");
+                            }}
+                            className="flex-shrink-0 text-[11px] text-accent font-semibold px-1 hover:opacity-80"
+                          >
+                            {t("new_speaker_save")}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNewSpeakerMode("seg");
+                            setNewSpeakerName("");
+                          }}
+                          className="block w-full text-left px-2 py-1 text-[11px] italic text-accent cursor-pointer hover:bg-accent/10"
+                        >
+                          {t("new_speaker_add")}
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -992,6 +1062,47 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                         {opt.replace("SPEAKER_", "")}
                       </button>
                     ))}
+                    {/* Feature 2026-08-18: manuell erweiterbare Speaker-Liste */}
+                    <div className="border-t border-border/60 my-0.5" />
+                    {newSpeakerMode === "split" ? (
+                      <div className="px-2 py-1 flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={newSpeakerName}
+                          onChange={(e) => setNewSpeakerName(e.target.value)}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") void handleAddNewSpeaker("split");
+                            if (e.key === "Escape") {
+                              setNewSpeakerMode(null);
+                              setNewSpeakerName("");
+                            }
+                          }}
+                          placeholder={t("new_speaker_placeholder")}
+                          className="w-full min-w-[110px] text-[11px] bg-panel border border-border rounded-sm px-1.5 py-0.5 text-txt outline-none focus:border-accent"
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleAddNewSpeaker("split");
+                          }}
+                          className="flex-shrink-0 text-[11px] text-accent font-semibold px-1 hover:opacity-80"
+                        >
+                          {t("new_speaker_save")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNewSpeakerMode("split");
+                          setNewSpeakerName("");
+                        }}
+                        className="block w-full text-left px-2 py-1 text-[11px] italic text-accent cursor-pointer hover:bg-accent/10"
+                      >
+                        {t("new_speaker_add")}
+                      </button>
+                    )}
                   </div>
                 </>
               )}
