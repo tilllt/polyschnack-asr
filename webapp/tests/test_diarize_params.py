@@ -176,9 +176,11 @@ def _patch_user(monkeypatch):
 def db(tmp_path):
     eng = create_engine(f"sqlite:///{tmp_path}/t.db")
     SQLModel.metadata.create_all(eng)
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"RIFF....")  # Change 023: transcribe_ep verlangt echte Datei
     with Session(eng) as s:
         s.add(User(id=1, sub="oidc-user"))
-        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path="p",
+        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path=str(audio),
                         user_id=1, status="uploaded"))
         s.commit()
     return eng

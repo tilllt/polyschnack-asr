@@ -98,6 +98,26 @@ def _is_anon_user(session, uid: Optional[int]) -> bool:
     return user is None or user.kind == "anonymous"
 
 
+def _audio_file_exists(rec: Recording) -> bool:
+    """True, wenn zur Aufnahme eine Audiodatei auf der Platte liegt.
+
+    Self-Healing (Change 023): stored_path ist ein absoluter Pfad
+    (AUDIO_DIR/<user>/<uuid><ext>) — Existenz direkt prüfbar.
+    """
+    return bool(rec.stored_path) and Path(rec.stored_path).is_file()
+
+
+def _ensure_audio_present(rec: Recording) -> None:
+    """410 statt 500, wenn die Audiodatei fehlt (Self-Healing).
+
+    Aufnahmen ohne Datei (Crash zwischen File-Write und DB-Commit,
+    manueller DB-Eingriff, Platten-Verlust) dürfen keinen 500-Crash
+    auslösen — die GUI markiert sie als defekt (audio_missing).
+    """
+    if not _audio_file_exists(rec):
+        raise HTTPException(status_code=410, detail="audio file missing")
+
+
 def ensure_backend_available(backend: str, request: Request) -> None:
     """Ensure a non-default backend can accept jobs.
 
@@ -496,6 +516,11 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "status": rec.status,
         "text": rec.text,
         "error": rec.error,
+        # Self-Healing (Change 023): Datei weg → sichtbares Flag statt
+        # stiller Fehler; UI kann Defekt-Badge zeigen, Export schreibt
+        # AUDIO_FEHLT.txt statt zu crashen.
+        "audio_missing": bool(rec.stored_path)
+        and not Path(rec.stored_path).is_file(),
         "processing_ms": rec.processing_ms,
         "progress_pct": rec.progress_pct,
         "progress_note": rec.progress_note,
@@ -759,9 +784,8 @@ def duplicate_recording(
     uid = _current_user(request, session)
     ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
 
+    _ensure_audio_present(rec)   # 410 statt 409/500 (Self-Healing)
     src = Path(rec.stored_path)
-    if not src.is_file():
-        raise HTTPException(status_code=409, detail="source file missing")
     new_path = storage_path_for(
         uid, src.suffix.lower() or ".bin",
         anon=_is_anon_user(session, uid),
@@ -1328,6 +1352,8 @@ def transcribe_ep(
         cap=_key_cap(request, session),
         is_admin=_is_admin_session(request),
     )
+
+    _ensure_audio_present(rec)   # 410 statt 500 bei fehlender Datei
 
     from ..pricing import ensure_free_only
 

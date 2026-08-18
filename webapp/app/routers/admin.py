@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from .. import app_config
 from ..config import settings
+from ..db import get_session
 from ..deps import require_admin
 from ..docker_proxy import DockerProxyClient, DockerProxyError, get_docker_client
 from ..queue import QueueError, queue_manager
@@ -349,3 +350,23 @@ def admin_vacuum() -> Dict[str, Any]:
         "after_bytes": after,
         "freed_bytes": max(0, before - after),
     }
+
+
+@router.post("/self-heal")
+def self_heal(dry_run: bool = True,
+              session=Depends(get_session)) -> Dict[str, Any]:
+    """Self-Healing (Change 023): verwaiste Audio-Dateien aufräumen.
+
+    dry_run=True (Default): nur melden, nichts löschen. Löscht nur
+    Dateien älter als min_age_s (3600), auf die KEIN Recording.
+    stored_path zeigt (Orphan nach Crash zwischen File-Write und
+    DB-Commit oder manuellem DB-Eingriff). Laufende Uploads werden
+    nie erfasst (zu jung).
+    """
+    from ..orphan_sweep import collect_referenced_paths, sweep_orphan_files
+
+    refs = collect_referenced_paths(session)
+    removed = sweep_orphan_files(settings.AUDIO_DIR, refs,
+                                 min_age_s=3600, dry_run=dry_run)
+    return {"dry_run": dry_run, "removed": removed,
+            "referenced_files": len(refs)}

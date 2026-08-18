@@ -29,9 +29,11 @@ def db(tmp_path):
     SQLModel.metadata.create_all(eng)
     with Session(eng) as s:
         s.add(User(id=1, sub="oidc-user"))
-        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path="p",
+        audio = tmp_path / "a.mp3"
+        audio.write_bytes(b"RIFF....")  # Change 023: transcribe_ep verlangt echte Datei
+        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path=str(audio),
                         user_id=1, status="uploaded"))
-        s.add(Recording(id=2, uid="r2", original_name="b.mp3", stored_path="p",
+        s.add(Recording(id=2, uid="r2", original_name="b.mp3", stored_path=str(audio),
                         user_id=None, status="uploaded"))
         s.commit()
     return eng

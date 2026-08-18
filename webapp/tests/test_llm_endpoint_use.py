@@ -39,7 +39,9 @@ def db(tmp_path):
         s.add(UserLlmEndpoint(id=2, user_id=2, name="fremd",
                               base_url="https://api.openai.com/v1",
                               api_key=crypto.encrypt("sk-fremd"), model="gpt-4o-mini"))
-        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path="p",
+        audio = tmp_path / "a.mp3"
+        audio.write_bytes(b"RIFF....")  # Change 023: transcribe_ep verlangt echte Datei
+        s.add(Recording(id=1, uid="r1", original_name="a.mp3", stored_path=str(audio),
                         user_id=1, status="uploaded"))
         s.commit()
     return eng

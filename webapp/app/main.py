@@ -26,6 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import init_db
 from .routers.recordings import router as recordings_router
+from .routers.account import router as account_router
 from .routers.recovery import router as recovery_router
 from .routers.api_docs import router as api_docs_router
 from .routers.openai_proxy import router as openai_proxy_router
@@ -238,6 +239,7 @@ app.add_middleware(
 # ------------------------------------------------------------------
 
 app.include_router(recordings_router)
+app.include_router(account_router)
 app.include_router(recovery_router)
 app.include_router(api_docs_router)
 app.include_router(openai_proxy_router)
