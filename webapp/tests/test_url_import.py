@@ -249,7 +249,8 @@ def test_from_url_kein_wav_zwang_mehr(client, patch_ytdlp, tmp_path):
     assert res.json()["mime"] == "audio/wav"
 
     audio_dir = tmp_path / "audio"
-    stored = sorted(audio_dir.glob("*.wav"))
+    # Change 014: URL-Import landet im User-Ordner (hier OIDC-User id=1) → rekursiv.
+    stored = sorted(audio_dir.rglob("*.wav"))
     assert len(stored) == 1
     with wave.open(str(stored[0]), "rb") as w:
         assert w.getframerate() == 44100  # Original bleibt, kein 16-kHz-Zwang

@@ -104,10 +104,11 @@ def test_merge_zwei_dateien_eine_aufnahme(client, tmp_path):
         assert merged_row is not None
         assert Path(merged_row.stored_path).is_file()
 
-    # Merge-Datei ist länger als jede Einzeldatei
+    # Merge-Datei ist länger als jede Einzeldatei (rekursiv — Change 014:
+    # anon-Merge liegt in AUDIO_DIR/anon/).
     from app.config import settings
 
-    files = list(Path(settings.AUDIO_DIR).glob("*.wav"))
+    files = list(Path(settings.AUDIO_DIR).rglob("*.wav"))
     assert len(files) == 1  # nur die Merge-Datei übrig
 
 

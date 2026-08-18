@@ -81,7 +81,8 @@ def test_duplicate_legt_neue_aufnahme_mit_peaks_an(client):
         assert orig.stored_path != new.stored_path
         assert Path(new.stored_path).is_file()
         assert Path(new.stored_path).read_bytes() == Path(orig.stored_path).read_bytes()
-        assert settings.AUDIO_DIR == Path(new.stored_path).parent
+        # Change 014: anon-Uploads liegen in AUDIO_DIR/anon/ (User-Ordner).
+        assert settings.AUDIO_DIR / "anon" == Path(new.stored_path).parent
 
 
 def test_duplicate_unbekannt_404(client):

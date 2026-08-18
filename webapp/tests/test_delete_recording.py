@@ -84,10 +84,11 @@ def test_delete_entfernt_versionen_und_shares(client):
             is None
         ), "RecordingShare blieb nach Delete zurück!"
 
-    # Audiodatei ist auch weg
+    # Audiodatei ist auch weg (rekursiv — Change 014 legt User-Ordner an,
+    # z. B. audio/anon/; der leere Ordner darf bleiben, Dateien nicht).
     from app.config import settings
 
-    assert list(Path(settings.AUDIO_DIR).iterdir()) == []
+    assert [p for p in Path(settings.AUDIO_DIR).rglob("*") if p.is_file()] == []
 
 
 def test_delete_unbekannt_404(client):
