@@ -20,6 +20,12 @@
 - [ ] **ASR-Evidenz:** bestehende WER-Messung (polyschnack-benchmark)
       um Lizenz-Check je Backend ergänzen; aktuelle Kandidaten-Liste
       im Log
+- [ ] **qwen3-Engine-Entscheidung:** CrispASR (`--backend qwen3`,
+      `-am qwen3-forced-aligner.gguf`) vs. predict-woo/qwen3-asr.cpp
+      (aktueller Server). Vergleich auf RTX-3060-Basis: Startzeit,
+      RTF, Wort-Timestamp-Fidelity im HTTP-Server-Modus. Ziel: 5
+      cpp-Backends auf eine Engine konsolidieren (1 Image-Typ,
+      1 onstart-Muster), wenn CrispASR mithält.
 - [ ] **Remote-Backends:** Preis-/Mess-Evidenz aus Change 020
       (vast/theta/EU-only) in den Decision-Log nachführen
 
