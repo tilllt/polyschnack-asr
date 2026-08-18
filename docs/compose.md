@@ -7,7 +7,7 @@ einzige Aufgabe:
   Admin-Steuerung), `asr` (Parakeet Python/ONNX), `diar` (CrispASR-Diarization)
   und `webapp` (GUI). Wird von `docker compose up` automatisch geladen.
 - **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `crispr-qwen3`,
-  `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` (Voxtral: geplant), jeweils über
+  `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`, jeweils über
   **Docker-Profile** aktivierbar.
 - **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
   Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.

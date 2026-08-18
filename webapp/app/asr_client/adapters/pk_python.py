@@ -28,37 +28,51 @@ class PkPythonClient(AsrClient):
         accepts_compressed=True,  # approach-a dekodiert MP3/OGG/… via ffmpeg
     )
 
-    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None) -> None:
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None,
+                 transport: Optional[httpx.BaseTransport] = None) -> None:
         """OpenAI-compatible ASR client.
 
         ``url`` defaults to ``settings.ASR_URL``; ``api_key`` adds an
-        Authorization header (used for the Voxtral/vLLM endpoint, Task 6).
+        Authorization header (used for the vLLM endpoint, Task 6).
+        ``transport`` (MockTransport in Tests) — konsistent mit den anderen
+        Adaptern (pk_cpp, qwen3_asr_http, crisp_asr_http).
         """
         self.url = (url or settings.ASR_URL).rstrip("/")
         self.api_key = api_key
+        self._transport = transport
 
     def _headers(self) -> Optional[Dict[str, str]]:
         return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else None
+
+    def _client(self, timeout: Any = 3600) -> httpx.Client:
+        kw: Dict[str, Any] = {"timeout": timeout}
+        if self._transport is not None:
+            kw["transport"] = self._transport
+        return httpx.Client(**kw)
 
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
     ) -> Dict[str, Any]:
         """Send audio via sync (batched) endpoint."""
-        with httpx.Client(timeout=3600) as client:
-            resp = client.post(
-                f"{self.url}/v1/audio/transcriptions",
-                headers=self._headers(),
-                files={"file": (filename, audio_bytes, mime)},
-                data={
-                    "model": settings.ASR_MODEL,
-                    "response_format": "verbose_json",
-                    "timestamp_granularities": "word",
-                    "noise_reduce": "true" if noise_reduce else "false",
-                },
-            )
-            resp.raise_for_status()
-            return _parse_result(resp.json())
+        try:
+            with self._client(timeout=3600) as client:
+                resp = client.post(
+                    f"{self.url}/v1/audio/transcriptions",
+                    headers=self._headers(),
+                    files={"file": (filename, audio_bytes, mime)},
+                    data={
+                        "model": settings.ASR_MODEL,
+                        "response_format": "verbose_json",
+                        "timestamp_granularities": "word",
+                        "noise_reduce": "true" if noise_reduce else "false",
+                    },
+                )
+                resp.raise_for_status()
+                return _parse_result(resp.json())
+        except httpx.ConnectError as e:
+            raise RuntimeError(
+                f"ASR-Backend {self.url} nicht erreichbar ({e})") from e
 
     def transcribe_streaming(
         self,
@@ -78,7 +92,7 @@ class PkPythonClient(AsrClient):
             "noise_reduce": "true" if noise_reduce else "false",
         }
 
-        with httpx.Client(timeout=httpx.Timeout(3600, read=300)) as client:
+        with self._client(timeout=httpx.Timeout(3600, read=300)) as client:
             with client.stream(
                 "POST",
                 f"{self.url}/v1/audio/transcriptions/stream",
@@ -131,9 +145,9 @@ class PkPythonClient(AsrClient):
         on_progress: Optional[Callable[[int], None]] = None,
     ) -> Dict[str, Any]:
         """Async job via /v1/audio/transcriptions/async + polling."""
-        with httpx.Client(timeout=10) as client:
+        with self._client(timeout=10) as client:
             resp = client.post(
-                f"{settings.ASR_URL}/v1/audio/transcriptions/async",
+                f"{self.url}/v1/audio/transcriptions/async",
                 files={"file": (filename, audio_bytes, mime)},
                 data={
                     "model": settings.ASR_MODEL,
@@ -151,7 +165,7 @@ class PkPythonClient(AsrClient):
                 time.sleep(1)
                 try:
                     status_resp = client.get(
-                        f"{settings.ASR_URL}/v1/audio/jobs/{job_id}", timeout=5
+                        f"{self.url}/v1/audio/jobs/{job_id}", timeout=5
                     )
                     status_resp.raise_for_status()
                     data = status_resp.json()

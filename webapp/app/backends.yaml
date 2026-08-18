@@ -136,38 +136,6 @@ services:
     status: active
     adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
 
-  - name: ps-voxtral
-    backend: ps-voxtral
-    compose_profile: ps-voxtral
-    type: local
-    port: 5099
-    cost_per_minute_eur: 0.0
-    concurrency: 1
-    model: Voxtral-Mini-4B-Realtime-2602 (Q4_K_M)
-    requires: {vram_gb: 5, ram_gb: 6, disk_gb: 4}
-    long_audio: {max_safe_duration_s: 7200, streaming_advice: true}
-    capabilities:
-      word_timestamps: "verify"      # Mistral: nicht für Timestamps trainiert (vermutlich False)
-      streaming: true                # Realtime-Modell: 1 Token je 80-ms-Frame
-      async_jobs: false
-      noise_reduce: false
-      vad: external
-      diarization: external
-      enhance: true
-      languages: [de, en]
-      device: [gpu]
-    status: active
-    adapter: app.asr_client.adapters.pk_python:PkPythonClient
-    adapter_kwargs:
-      api_key_env: POLYSCHNACK_VOXTRAL_API_KEY   # optionaler API-Key (voxtral.cpp)
-    capabilities_override:                       # PkPythonClient ohne ctor-Param → nachträglich setzen
-      word_timestamps: false
-      streaming: true
-      async_jobs: false
-      noise_reduce: false
-      languages: [de, en]
-      device: [gpu]
-
   - name: crispr-moonshine-de
     backend: crispr-moonshine-de
     compose_profile: crispr-moonshine-de
@@ -261,33 +229,6 @@ services:
   #     base_url: https://api.openai.com/v1
   #     api_key_env: OPENAI_API_KEY
   #     model: whisper-1
-
-  # - name: remote-mistral-voxtral
-  #   backend: remote-mistral-voxtral
-  #   compose_profile: remote
-  #   type: remote
-  #   port: 0
-  #   cost_per_minute_eur: 0.004       # Beispiel: Mistral Voxtral
-  #   concurrency: 2
-  #   model: voxtral (Mistral ASR API)
-  #   requires: {vram_gb: 0, ram_gb: 0, disk_gb: 0}
-  #   long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
-  #   capabilities:
-  #     word_timestamps: true
-  #     streaming: false
-  #     async_jobs: false
-  #     noise_reduce: false
-  #     vad: external
-  #     diarization: external
-  #     enhance: false
-  #     languages: [de, en, fr, es]
-  #     device: [remote]
-  #   status: active
-  #   adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
-  #   adapter_kwargs:
-  #     base_url: https://api.mistral.ai/v1
-  #     api_key_env: MISTRAL_API_KEY
-  #     model: voxtral
 
   # - name: remote-groq-whisper
   #   backend: remote-groq-whisper

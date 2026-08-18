@@ -11,7 +11,8 @@ from app.routers.matrix import build_matrix
 def test_matrix_contains_all_services():
     matrix = build_matrix()
     names = {m["name"] for m in matrix}
-    assert {"ps-pk-onnx", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark", "ps-voxtral"} <= names
+    assert {"ps-pk-onnx", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",
+            "crispr-moonshine-de", "crispr-canary"} <= names
 
 
 def test_matrix_field_shapes():
@@ -30,20 +31,6 @@ def test_pk_python_capabilities():
     assert m["streaming"] is True
     assert m["word_timestamps"] is True
     assert m["type"] == "local"
-
-
-def test_voxtral_local_and_timestamps_unverified():
-    m = next(x for x in build_matrix() if x["name"] == "ps-voxtral")
-    assert m["type"] == "local"
-    assert m["word_timestamps"] == "verify"  # Mistral: not trained for timestamps
-    assert m["streaming"] is True
-
-
-def test_voxtral_profile_in_registry():
-    from app.service_registry import get_service
-    svc = get_service("ps-voxtral")
-    assert svc is not None
-    assert svc["compose_profile"] == "ps-voxtral"
 
 
 def test_no_funasr_anywhere():

@@ -154,7 +154,8 @@ def _load_adapter(svc: Dict[str, Any]) -> AsrClient:
         )
     client = cls(**kwargs)
     # capabilities_override (YAML): nachträglich setzen, wenn die Klasse
-    # keinen Konstruktor-Parameter hat (z. B. PkPythonClient für voxtral).
+    # keinen Konstruktor-Parameter hat (z. B. für Backend-spezifische
+    # Feature-Matrizen).
     if svc.get("capabilities_override") and "capabilities" not in kwargs:
         caps = svc["capabilities_override"]
         wt = caps.get("word_timestamps", False)

@@ -11,7 +11,6 @@ Env-Variable — kein Code nötig.
 | **ARK-ASR (ggml/C++)** | `--profile crispr-ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
 | **Moonshine-DE (ggml/C++)** | `--profile crispr-moonshine-de` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
 | **Canary (ggml/C++)** | `--profile crispr-canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
-| **Voxtral (voxtral.cpp)** | *(geplant)* | `ps-voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). **Noch nicht gebaut** — Block in `compose.backends.yml` auskommentiert. |
 
 ## Adapter-URLs
 

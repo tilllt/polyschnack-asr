@@ -146,24 +146,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
-
-  # Voxtral (Profil "voxtral") — GEPLANT, noch kein Image gebaut.
-  # Dockerfile nach dem qwen3-asr-cpp/ark-asr-cpp-Muster bauen
-  # (voxtral.cpp, andrijdavid/voxtral.cpp), Modell
-  # Voxtral-Mini-4B-Realtime-2602 als GGUF Q4_K_M (~2,7 GB) in
-  # voxtral-models-Volume. Erst dann diesen Block einkommentieren.
-  #
-  # voxtral:
-  #   profiles: ["voxtral"]
-  #   image: ${REGISTRY:-ghcr.io/tilllt}/voxtral-asr-cpp:latest
-  #   container_name: ps-voxtral
-  #   environment:
-  #       VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-2602-q4_k_m.gguf
-  #     volumes:
-  #       - ./DATA/models:/models:ro
-  #     ports:
-  #       - "5099:5099"
-  #     deploy:
-  #       resources:
-  #         limits:
-  #           memory: 6G

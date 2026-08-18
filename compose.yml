@@ -3,7 +3,7 @@
 #   UI:  http://localhost:8088
 #   ASR: http://localhost:5092  (direct, for debugging)
 #
-# Optionale Backends (parakeet.cpp, Qwen3, ARK, Voxtral) liegen in
+# Optionale Backends (parakeet.cpp, Qwen3, ARK) liegen in
 # compose.backends.yml und werden über Docker-Profile aktiviert:
 #   docker compose -f compose.yml -f compose.backends.yml \
 #     --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start

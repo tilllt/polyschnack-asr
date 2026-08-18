@@ -43,7 +43,7 @@ def _load() -> List[Dict[str, Any]]:
 SERVICES: List[Dict[str, Any]] = _load()
 
 _VALID_PROFILES = {"default", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",
-                   "ps-voxtral", "crispr-moonshine-de", "crispr-canary"}
+                   "crispr-moonshine-de", "crispr-canary"}
 
 
 def get_service(name: str) -> Optional[Dict[str, Any]]:

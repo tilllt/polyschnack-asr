@@ -38,7 +38,7 @@ def test_required_fields_present():
 
 def test_local_services_have_valid_profile():
     valid = {"default", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",
-             "ps-voxtral", "crispr-moonshine-de", "crispr-canary"}
+             "crispr-moonshine-de", "crispr-canary"}
     for s in SERVICES:
         if s["type"] == "local":
             assert s["compose_profile"] in valid
