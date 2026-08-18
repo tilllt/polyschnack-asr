@@ -78,31 +78,53 @@
   `nebius` mit AVV/EWR-Garantie) werden verwendet; vast wird für diesen Job
   ausgeschlossen; das Audit-Log dokumentiert den gewählten Provider.
 
-### Requirement: Nur EU-Jurisdiktion (CLOUD-Act-Regel)
+### Requirement: Backend-Modi — günstig (Stufe 1) und EU-only (Stufe 2)
 
-- **Ablauf:** Der Dispatcher akzeptiert ausschließlich Provider, die
-  Unternehmen mit Sitz UND Infrastruktur in der EU/EWR sind („EU-Unternehmen,
-  eigene Infrastruktur"). Die Provider-Whitelist enthält nur solche Backends
-  (local, nebius, hetzner, scaleway, ovhcloud, verda, gcore, genesis/EWR).
-  US-Firmen mit EU-Rechenzentren, US-Marktplätze (vast.ai, Salad, RunPod,
-  Lambda, CoreWeave) und UK-Firmen (CUDO) sind ausgeschlossen; die
-  Ausgeschlossenen-Liste ist in der Konfiguration dokumentiert und der
-  Dispatcher lehnt unbekannte Provider ab.
-- **Warum:** Serverstandort allein reicht nicht — ein US-Unternehmen mit
-  EU-RZ bleibt US-Jurisdiktion (CLOUD Act). Für Transkriptionsdaten
-  (potenziell Gesundheits-/Rechtsdaten) ist die Rechtslage mit reinen
-  EU-Anbietern eindeutig. Die E2E-Verschlüsselung bleibt zusätzlich aktiv,
-  entschärft aber nur das technische, nicht das rechtliche Risiko.
-- **Architektur:** `dispatcher/` (Provider-Whitelist, Konfiguration),
-  `dispatcher/backends/*` (nur zugelassene Backends).
+- **Ablauf:** Der Dispatcher unterstützt zwei Backend-Modi:
+  - **Stufe 1 (Standard):** günstige On-Demand-Backends (vast.ai, Theta
+    EdgeCloud) für `internal`-Jobs. Die Datensicherheit trägt die
+    E2E-Verschlüsselung (Chiffre auf der Instanz, Klartext nur in tmpfs,
+    Log-Minimierung, Destroy-Hygiene). Das CLOUD-Act-Restrisiko (US-
+    Unternehmen mit technischem Instanz-Zugriff) ist dokumentiert und
+    technisch entschärft — eine US-Behörde erhielte nur Chiffre + Metadaten.
+  - **Stufe 2 (EU-only-Modus, wenn das Konzept steht):** nur EU/EWR-
+    Unternehmen (local, nebius, hetzner, scaleway, ovhcloud, verda, gcore,
+    genesis/EWR) — Pflicht für `critical`-Jobs (Gesundheit/Recht) und
+    aktivierbar als globaler Modus. Der Modus schaltet alle Nicht-EU-
+    Backends ab.
+- **Warum:** Stufe 1 erschließt die günstigen Spot-Preise (vast 3090
+  ~0,11–0,13 $/h, Theta 3090 0,14 $/h) mit kryptographischem Schutz;
+  Stufe 2 macht die Rechtslage eindeutig (kein US-Vertragspartner, keine
+  US-Gerichtsbarkeit über Auftragsverarbeitung) für den Fall, dass
+  Compliance es verlangt.
+- **Architektur:** `dispatcher/` (Modus-Konfiguration, Datenklassen-Filter),
+  `dispatcher/backends/*` (vast, theta — Stufe 1; nebius, hetzner, verda,
+  scaleway, ovhcloud — Stufe 2).
 
-#### Scenario: Nicht-EU-Provider konfigurieren
+#### Scenario: Interner Job über günstiges Backend (Stufe 1)
+
+- **Akteure:** Queue, Dispatcher, vast- oder Theta-Instanz.
+- **Eingaben:** Job mit Datenklasse `internal`, Stufe-1-Modus aktiv.
+- **Ergebnis:** Dispatcher mietet die günstigste passende Instanz
+  (GPU-Klasse small/medium, Preis-Cap), der Job läuft E2E-verschlüsselt,
+  nach Pool-Lebensdauer wird destroyt; Audit-Log dokumentiert Provider.
+
+#### Scenario: Kritischer Job erzwingt EU-only (Stufe 2)
+
+- **Akteure:** Dispatcher, Konfiguration (EU-only-Modus für `critical`).
+- **Eingaben:** Job mit Datenklasse `critical`.
+- **Ergebnis:** Nur EU/EWR-Backends werden verwendet (z. B. `local` oder
+  `nebius`); vast/Theta werden für diesen Job ausgeschlossen; der
+  EU-only-Modus kann global aktiviert werden und sperrt dann alle
+  Nicht-EU-Backends; das Audit-Log dokumentiert den gewählten Provider.
+
+#### Scenario: Nicht-EU-Provider im EU-only-Modus konfigurieren
 
 - **Akteure:** Admin, Dispatcher-Konfiguration.
-- **Eingaben:** Versuch, einen US-Anbieter (z. B. vast.ai) als Backend
-  zu konfigurieren.
-- **Ergebnis:** Der Dispatcher lehnt die Konfiguration ab (unbekannter/
-  gesperrter Provider); das Audit-Log dokumentiert den Versuch.
+- **Eingaben:** EU-only-Modus aktiv; Versuch, ein Nicht-EU-Backend
+  (z. B. vast.ai) zu konfigurieren.
+- **Ergebnis:** Der Dispatcher lehnt die Konfiguration ab (Modus-Sperre);
+  das Audit-Log dokumentiert den Versuch.
 
 ### Requirement: Instanz-Hygiene und Kosten-Tracking
 

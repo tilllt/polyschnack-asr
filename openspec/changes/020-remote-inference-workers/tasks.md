@@ -13,22 +13,26 @@
 - [ ] `dispatcher/backends/base.py` + `local_backend.py` (Box = Backend)
 - [ ] Queue-Stufen-Orchestrierung in webapp (Stufe 1 → Stufe 2)
 
-## Phase 2 — EU-Backends
+## Phase 2 — Stufe-1-Backends (günstig, verschlüsselt)
 - [ ] Worker-Wrapper (`worker/worker_wrapper.py`) für ps-asr-parakeet
-- [ ] `dispatcher/backends/nebius.py` (offizielle API, EU-Regionen, Preemptible)
-- [ ] `dispatcher/backends/hetzner.py` + `dispatcher/backends/verda.py`
-      (Verda: öffentliche Pricing-API A6000 0,61 $/h / spot 0,305 $/h)
-- [ ] Provider-Whitelist (EU-only, CLOUD-Act-Regel): Dispatcher lehnt
-      nicht-EU-Provider ab
-- [ ] E2E-Test: Job Box → EU-Instanz → Box (verschlüsselt), Audit-Log
+- [ ] `dispatcher/backends/vast.py` (API v0, Bundles-Suche, image_login,
+      Destroy per DELETE, Auto-Destroy-Watchdog)
+- [ ] `dispatcher/backends/theta.py` (Theta EdgeCloud GPU-Compute API)
+- [ ] Datenklassen-Filter (internal/critical) + Modus-Konfiguration
+- [ ] E2E-Test: Job Box → vast/Theta → Box (verschlüsselt), Audit-Log
 - [ ] Auto-Destroy-Watchdog + Kosten-Tracking (`dispatcher/costs.py`)
 
-## Phase 3 — ps-post + weitere EU-Backends
+## Phase 3 — ps-post + Stufe-2-Backends (EU-only, wenn Konzept steht)
 - [ ] ps-post-Image (crispr-diar + crispr-align kombiniert, Supervisor)
-- [ ] `dispatcher/backends/scaleway.py` + `dispatcher/backends/ovhcloud.py`
-- [ ] `dispatcher/backends/gcore.py` / `genesis.py` (optional)
+- [ ] `dispatcher/backends/nebius.py` + `dispatcher/backends/verda.py`
+      (Verda: öffentliche Pricing-API A6000 0,61 $/h / spot 0,305 $/h)
+- [ ] `dispatcher/backends/hetzner.py` + `dispatcher/backends/scaleway.py`
+      + `dispatcher/backends/ovhcloud.py`
+- [ ] EU-only-Modus: sperrt alle Nicht-EU-Backends global; Pflicht für
+      `critical`-Jobs
 - [ ] Tests: Backend-Unit-Tests (Mock-Anbieter), Integration mit local_backend
 
-## Dokumentierte Ausschlüsse (CLOUD-Act-Regel)
-- vast.ai, RunPod, Salad, Massed Compute, Lambda, CoreWeave, CUDO —
-  US/UK-Jurisdiktion, auch mit EU-Rechenzentren/günstigen Preisen gesperrt.
+## Nicht vorgesehen
+- RunPod, Salad, Spheron (US/LA), Massed Compute, Lambda, CoreWeave,
+  TensorDock, CUDO (UK) — kein Vorteil gegenüber Stufe 1/2.
+- Golem (DE) bleibt in Beobachtung (EU-Marktplatz, GPU-Angebot unreif).

@@ -59,32 +59,36 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 
 ### Dispatcher-Provider-Abstraktion
 
-**Verbindliche Regel: NUR reine EU-Anbieter (CLOUD Act).** Zugelassen sind
-ausschließlich Unternehmen mit Sitz und Infrastruktur in der EU/EWR
-(„EU-Unternehmen, eigene Infrastruktur"). US-Firmen mit EU-Rechenzentren
-(z. B. RunPod, Lambda, CoreWeave), US-Marktplätze (vast.ai, Salad) und
-UK-Firmen (z. B. CUDO) sind ausgeschlossen — unabhängig von der
-E2E-Verschlüsselung. Die Verschlüsselung entschärft das technische Risiko
-(US-Behörden erhielten nur Chiffre), die EU-only-Regel macht die
-Rechtslage eindeutig (kein US-Vertragspartner, keine US-Gerichtsbarkeit
-über Auftragsverarbeitung).
+**Backend-Strategie — zwei Stufen (Entscheidung 2026-08-18):**
 
-**Begründung Vermittlung (vast.ai-Fall):** Der CLOUD Act knüpft an das
-Unternehmen mit Zugriff an, nicht an den GPU-Standort. vast.ai verwaltet
-die gemieteten Instanzen technisch (Portal, SSH-Proxy, Container-Lifecycle)
-und ist damit ein US-„covered provider" mit Zugriffsweg auf die Instanz —
-auch wenn die GPU bei einem EU-Host steht. Reale Zugriffswege (in der
-Betriebspraxis verifiziert): Container-Logs per `request_logs`, SSH-Keys
-per `POST /instances/{id}/ssh/`, SSH-Proxy, Lifecycle-API (Reboot/Start/
+- **Stufe 1 (jetzt, Konzept): günstige On-Demand-Backends** — vast.ai und
+  Theta EdgeCloud als primäre Remote-Backends. Die Datensicherheit wird
+  hier durch die E2E-Verschlüsselung getragen (Audio verlässt die Box nur
+  als Chiffre, Klartext nur im RAM/tmpfs, Log-Minimierung). Geeignet für
+  interne und nicht-kritische Daten.
+- **Stufe 2 (wenn das Konzept steht): EU-only-Modus (Cloud-Act-frei)** —
+  ausschließlich EU/EWR-Unternehmen (Nebius, Hetzner, Scaleway, OVHcloud,
+  Verda, Gcore, Genesis/EWR, local) für kritische Kundendaten
+  (Gesundheit/Recht) oder wenn Compliance es verlangt. Golem (DE) als
+  EU-Marktplatz in Beobachtung.
+
+**Warum Stufe 1 trotz US-Jurisdiktion vertretbar ist:** Der CLOUD Act knüpft
+an das Unternehmen mit Zugriff an, nicht an den GPU-Standort. vast.ai
+verwaltet die gemieteten Instanzen technisch (Portal, SSH-Proxy,
+Container-Lifecycle) und ist damit ein US-„covered provider" mit
+Zugriffsweg auf die Instanz. Reale Zugriffswege (in der Betriebspraxis
+verifiziert): Container-Logs per `request_logs`, SSH-Keys per
+`POST /instances/{id}/ssh/`, SSH-Proxy, Lifecycle-API (Reboot/Start/
 Destroy), Port-Tunnel. Kein Confidential Computing, keine Attestation.
-„EU-Instanz über US-Marktplatz" ist deshalb rechtlich NICHT gleichwertig
-mit „Instanz direkt bei einem EU-Anbieter" (Hetzner/Nebius/Verda/Scaleway:
-kein US-Vertragspartner mit Instanz-Zugriff).
+**Das Restrisiko wird durch die E2E-Verschlüsselung entschärft:** Eine
+US-Behörde mit Zugriff erhielte nur Chiffre + Metadaten. Für interne Daten
+akzeptabel; für kritische Daten greift Stufe 2 (EU-only) — die wird
+umgesetzt, sobald das Konzept steht.
 
 **Konsequenz für den Worker-Wrapper:** Logs auf Metadaten begrenzen
 (Job-ID, Status, Laufzeit) — nie Audio-Pfade, Wort-Hypothesen oder
 Job-Inhalte nach stdout/stderr, damit selbst der Log-Zugriffsweg leer
-bleibt.
+bleibt. Gilt für ALLE Backends, besonders für Stufe-1-Anbieter.
 
 Interface `InferenceBackend` (Python-Protokoll):
 
@@ -94,10 +98,20 @@ Interface `InferenceBackend` (Python-Protokoll):
 - `submit_job(endpoint, job) / poll(instance, job_id)`
 - `destroy(instance)` + `instance_meta(instance)` (Provider, Region, Kosten)
 
-Implementierungen (EU-only):
+Implementierungen:
 
+**Stufe 1 — günstig (verschlüsselt):**
 - **local_backend** — die Box selbst (erstes Backend; Jobs laufen lokal wie
   heute, Dispatcher nur als Queue/Router → sofort nutzbar im Ist-Betrieb).
+- **vast_backend** — vast.ai (US): API v0 (Bundles-Suche, image_login für
+  private Registry, Destroy per DELETE, Auto-Destroy-Watchdog-Muster aus den
+  Betriebs-Skills). Region-Filter konfigurierbar (EU bevorzugt, aber nicht
+  Pflicht in Stufe 1).
+- **theta_backend** — Theta EdgeCloud (US): GPU-Compute per offizieller API
+  (offiziell, 08/2026): RTX 3090 0,14 $/h, RTX 4090 0,49 $/h, RTX 5090
+  0,26 $/h, A100 1,99 $/h, H200 2,29 $/h; On-Demand, Minuten-Abrechnung.
+
+**Stufe 2 — EU-only (Cloud-Act-frei, wenn Konzept steht):**
 - **nebius_backend** — Nebius (NL, EU): offizielle API, EU-Regionen,
   Preemptible/Standard-Klassen (L40S 0,74 $/h, H100 2,15 $/h — offiziell,
   08/2026).
@@ -118,17 +132,14 @@ Implementierungen (EU-only):
   noch nicht produktionsreif; als Backend ergänzbar, sobald die GPU-Flotte
   und API stabil sind.
 
-Ausgeschlossen (US/UK-Jurisdiktion, dokumentiert): vast.ai, RunPod, Salad,
-Spheron (Spheron Networks, Los Angeles CA — verifiziert 08/2026), Theta
-EdgeCloud (Theta Labs Inc., Cupertino CA — verifiziert 08/2026), Massed
-Compute, Lambda, CoreWeave, TensorDock, CUDO (UK) — auch wenn EU-Regionen
-oder günstige Preise angeboten werden. Theta EdgeCloud wäre preislich
-attraktiv (RTX 3090 0,14 $/h, 4090 0,49 $/h, 5090 0,26 $/h — offiziell,
-08/2026), ist aber als US-Unternehmen gesperrt.
+Nicht vorgesehen (kein Vorteil gegenüber Stufe 1/2): RunPod, Salad, Spheron
+(Spheron Networks, Los Angeles CA), Massed Compute, Lambda, CoreWeave,
+TensorDock, CUDO (UK).
 
-Konfiguration je Provider: Region-Whitelist (EU/EWR), Preis-Cap, GPU-Klassen-
-Mapping (small/medium/large ↔ VRAM), max. Instanzen, Warm-Pool-Größe,
-Monatsbudget.
+Konfiguration je Provider: erlaubte Datenklassen (internal/critical),
+Region-Whitelist, Preis-Cap, GPU-Klassen-Mapping (small/medium/large ↔
+VRAM), max. Instanzen, Warm-Pool-Größe, Monatsbudget. Der EU-only-Modus
+(Stufe 2) schaltet alle Nicht-EU-Backends ab.
 
 ### Sicherheitsprinzipien (verbindlich)
 
