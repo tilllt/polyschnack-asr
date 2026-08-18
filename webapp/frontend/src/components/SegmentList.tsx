@@ -711,7 +711,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                   ragt nicht mehr über den Rand hinaus. Fix 2026-08-18:
                   Icon 18px statt 14px + dickere Elemente — war zu klein und
                   zu fein, das Symbol war im Outline-Kreis kaum erkennbar. */}
-              <svg width="18" height="18" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden>
+              <svg width="18" height="18" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden
+                style={{ width: 18, height: 18, flexShrink: 0 }}>
                 <path d="M12 3l4 4H8l4-4z" fill="currentColor" />
                 <path d="M12 7.5v3" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
                 <rect x="3" y="10.5" width="18" height="4" rx="1.2" fill="currentColor" />
