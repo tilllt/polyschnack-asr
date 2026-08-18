@@ -1,0 +1,10 @@
+{
+  "name": "SubRip (Word-Level)",
+  "extension": "srt",
+  "format_header": "",
+  "format_paragraph": "{number}\n{start} --> {end}\n{actor-upper-brackets-space}{text}\n",
+  "format_paragraph_word": "{number}\n{start} --> {end}\n{text}\n",
+  "format_footer": "",
+  "format_timecode": "hh:mm:ss,zzz",
+  "format_newline": "[Do not modify]"
+}

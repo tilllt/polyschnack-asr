@@ -1,0 +1,9 @@
+{
+  "name": "YouTube-Transcript (Timestamped)",
+  "extension": "txt",
+  "format_header": "",
+  "format_paragraph": "{start}  {text}",
+  "format_footer": "",
+  "format_timecode": "m:ss",
+  "format_newline": "[Do not modify]"
+}

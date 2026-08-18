@@ -42,6 +42,8 @@ export interface Recording {
   /** Schlanke Playback-Preview (64-kbps-MP3) — null solange nicht generiert. */
   audio_preview_url: string | null;
   download_url: string;
+  /** Change 015: Backup-ZIP (Audio + Transkript + Timings + Versionen). */
+  backup_url: string;
   batch_id: string | null;
   recorded_at: string | null;
   source: string | null;
@@ -201,6 +203,18 @@ export async function fetchRecordings(q = ""): Promise<Recording[]> {
     : "/api/recordings";
   const res = await fetch(url).then(checkOk);
   return res.json() as Promise<Recording[]>;
+}
+
+/** Change 015: verfügbare Export-Templates (Name + Endung) für das Dropdown. */
+export interface ExportTemplate {
+  name: string;
+  extension: string;
+}
+
+export async function fetchExportTemplates(): Promise<ExportTemplate[]> {
+  const res = await fetch("/api/export-templates").then(checkOk);
+  const data = (await res.json()) as { templates?: ExportTemplate[] };
+  return data.templates ?? [];
 }
 
 export async function fetchStats(): Promise<Stats> {

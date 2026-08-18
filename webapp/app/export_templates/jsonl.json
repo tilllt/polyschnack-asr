@@ -1,0 +1,9 @@
+{
+  "name": "JSON Lines",
+  "extension": "jsonl",
+  "format_header": "",
+  "format_paragraph": "{json}",
+  "format_footer": "",
+  "format_timecode": "",
+  "format_newline": "[Do not modify]"
+}

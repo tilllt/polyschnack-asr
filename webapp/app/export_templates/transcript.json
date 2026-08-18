@@ -1,0 +1,9 @@
+{
+  "name": "Sprecher-Transcript",
+  "extension": "txt",
+  "format_header": "{title}\n\n",
+  "format_paragraph": "{actor-upper-brackets-space}{text}\n",
+  "format_footer": "",
+  "format_timecode": "",
+  "format_newline": "[Do not modify]"
+}

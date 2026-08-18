@@ -155,22 +155,91 @@ def render_template(
 ) -> str:
     """Rendert Header, dann pro Segment eine Instanz von format_paragraph,
     dann Footer (Paragraphen mit \\n verbunden — gleiche Semantik wie die
-    früheren hartkodierten to_srt/to_vtt: Cues durch Leerzeile getrennt)."""
+    früheren hartkodierten to_srt/to_vtt: Cues durch Leerzeile getrennt).
+
+    Change 015: optionales ``format_paragraph_word`` — wenn gesetzt UND die
+    Segmente Word-Timings (``words[]`` mit start/end/text) enthalten, wird
+    pro WORT ein Paragraph gerendert (z. B. Word-Level-SRT); ohne Words
+    fällt der Renderer auf den Segment-Loop zurück (identische Ausgabe).
+    """
     header = _expand(template.get("format_header", ""),
                      _header_values(meta, segments))
     para_tpl = template.get("format_paragraph", "")
+    word_tpl = template.get("format_paragraph_word", "")
     paragraphs: List[str] = []
     if para_tpl:
         tc = template.get("format_timecode", "")
-        for i, seg in enumerate(segments):
-            paragraphs.append(_expand(
-                para_tpl,
-                _para_values(i, seg, segments, tc),
-            ))
+        if word_tpl and _has_word_timings(segments):
+            word_segs = _word_rows(segments)
+            for i, seg in enumerate(word_segs):
+                paragraphs.append(_expand(
+                    word_tpl,
+                    _para_values(i, seg, word_segs, tc),
+                ))
+        else:
+            for i, seg in enumerate(segments):
+                paragraphs.append(_expand(
+                    para_tpl,
+                    _para_values(i, seg, segments, tc),
+                ))
     footer = _expand(template.get("format_footer", ""),
                      _header_values(meta, segments))
     content = header + "\n".join(paragraphs) + footer
     return _apply_newline(content, template.get("format_newline", ""))
+
+
+def _has_word_timings(segments: List[Dict[str, Any]]) -> bool:
+    """Mindestens ein Segment mit brauchbaren Word-Timings? (Change 015)
+
+    Whisper-Wörter tragen das Feld ``word`` (nicht ``text``) — beides wird
+    akzeptiert, damit Word-Level-Exporte auch für ASR-Wörter funktionieren.
+    """
+    for seg in segments:
+        words = seg.get("words") or []
+        for w in words:
+            if isinstance(w, dict) and (w.get("text") or w.get("word")):
+                return True
+    return False
+
+
+def _word_rows(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flacht Segment-Words zu Cue-Dicts ab (start/end/text/speaker).
+
+    - Wörter mit eigenen Timings (``words[]`` mit start/end) behalten sie.
+    - Segmente OHNE Words (oder Wörter ohne Timing) werden per Text-Split
+      in Wörter zerlegt und erben die SEGMENT-Grenzen (Fallback) — so geht
+      im Word-Level-Export kein Wort verloren.
+    """
+    rows: List[Dict[str, Any]] = []
+    for seg in segments:
+        seg_start = float(seg.get("start") or 0.0)
+        seg_end = float(seg.get("end") or seg_start)
+        words = seg.get("words") or []
+        timed: List[Dict[str, Any]] = []
+        for w in words:
+            if not isinstance(w, dict):
+                continue
+            text = str(w.get("text") or w.get("word") or "").strip()
+            if not text:
+                continue
+            timed.append({
+                "start": float(w.get("start", seg_start)),
+                "end": float(w.get("end", seg_end)),
+                "text": text,
+                "speaker": seg.get("speaker"),
+            })
+        if timed:
+            rows.extend(timed)
+            continue
+        # Fallback: Segment-Text splitten, Segment-Grenzen vererben.
+        for token in str(seg.get("text") or "").split():
+            rows.append({
+                "start": seg_start,
+                "end": seg_end,
+                "text": token,
+                "speaker": seg.get("speaker"),
+            })
+    return rows
 
 
 def _expand(tpl: str, values: Dict[str, str]) -> str:
@@ -220,6 +289,13 @@ def _para_values(
         "end": _format_timecode(end, timecode_fmt),
         "text": text,
         "text-csv": '"' + text.replace('"', '""') + '"',
+        # Change 015: maschinenlesbares Segment-Objekt (JSON-Lines-Template).
+        "json": json.dumps({
+            "start": round(float(seg.get("start") or 0.0), 3),
+            "end": round(float(seg.get("end") or 0.0), 3),
+            "speaker": speaker or None,
+            "text": text,
+        }, ensure_ascii=False),
         "number": str(i + 1),
         "number-1": str(i),
         "duration": _format_timecode(max(end - start, 0.0), timecode_fmt),
@@ -315,6 +391,15 @@ def _format_timecode(seconds: float, fmt: str) -> str:
             width = j - i
             ms = int(round((seconds - int(seconds)) * 1000))
             out.append(f"{ms:0{width}d}"[:width])
+            i = j
+        elif ch == "c":
+            # Change 015: Zentisekunden (0-99) — ASS/SSA-Timecode h:mm:ss.cc.
+            j = i
+            while j < n and fmt[j] == "c":
+                j += 1
+            width = j - i
+            cs = int(round((seconds - int(seconds)) * 100))
+            out.append(f"{cs:0{width}d}"[:width])
             i = j
         elif ch == "f":
             j = i

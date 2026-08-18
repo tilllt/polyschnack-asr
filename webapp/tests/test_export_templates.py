@@ -227,7 +227,10 @@ def test_download_srt_template_matches_old_output(client):
     r = client.get(f"/api/recordings/{rid}/download?format=srt")
     assert r.status_code == 200, r.text
     assert "charset=utf-8" in r.headers.get("content-type", "").lower()
-    assert r.text.startswith("1\n00:00:00,000 --> 00:00:05,000\n[SPEAKER_01] Hallo Welt\n\n2\n")
+    # Change 015: Text-Exporte als UTF-8 mit BOM (Notepad/Excel-kompatibel).
+    assert r.content.startswith(b"\xef\xbb\xbf")
+    body = r.content.decode("utf-8-sig")
+    assert body.startswith("1\n00:00:00,000 --> 00:00:05,000\n[SPEAKER_01] Hallo Welt\n\n2\n")
     # Content-Disposition nutzt die Template-Endung
     assert 'filename="template-test.srt"' in r.headers.get("content-disposition", "")
 
@@ -238,11 +241,52 @@ def test_download_vtt_and_txt(client):
 
     r = client.get(f"/api/recordings/{rid}/download?format=vtt")
     assert r.status_code == 200
-    assert r.text.startswith("WEBVTT\n\n00:00:00.000 --> 00:00:05.000\n[SPEAKER_01] Hallo Welt")
+    assert r.content.startswith(b"\xef\xbb\xbfWEBVTT")
+    assert r.content.decode("utf-8-sig").startswith("WEBVTT\n\n00:00:00.000 --> 00:00:05.000\n[SPEAKER_01] Hallo Welt")
 
     r = client.get(f"/api/recordings/{rid}/download?format=txt")
     assert r.status_code == 200
-    assert r.text == "Hallo Welt\n"
+    assert r.content.startswith(b"\xef\xbb\xbf")
+    assert r.content.decode("utf-8-sig") == "Hallo Welt\n"
+
+
+def test_download_txt_umlauts_have_bom(client):
+    """Change 015 (User-Report): Umlaute im TXT-Download — BOM + korrekte
+    UTF-8-Sequenz, damit Notepad/Excel sie anzeigen statt „Ã¤\"-Artefakten."""
+    segs = [_seg(0, 5, "Grüße aus Köln: ÄÖÜ äöü ß München")]
+    rid = _make_done_recording(client, segs, text="Grüße aus Köln: ÄÖÜ äöü ß München")
+
+    r = client.get(f"/api/recordings/{rid}/download?format=txt")
+    assert r.status_code == 200, r.text
+    raw = r.content
+    assert raw.startswith(b"\xef\xbb\xbf"), "UTF-8-BOM fehlt"
+    # „ä\" als korrektes UTF-8-Byte (C3 A4) statt Latin-1-Artefakt (C3 83 C2 A4)
+    assert b"Gr\xc3\xbc\xc3\x9fe" in raw
+    assert b"\xc3\x83\xc2\xa4" not in raw
+    assert raw.decode("utf-8-sig") == "Grüße aus Köln: ÄÖÜ äöü ß München\n"
+
+
+def test_download_json_no_bom(client, tmp_path):
+    """Change 015: JSON bleibt reines UTF-8 (kein BOM — strikte Parser)."""
+    from app.config import settings
+
+    tdir = settings.DATA_DIR / "export_templates"
+    tdir.mkdir(parents=True, exist_ok=True)
+    (tdir / "json.json").write_text(json.dumps({
+        "name": "JSON",
+        "extension": "json",
+        "format_header": "",
+        "format_paragraph": "{text}",
+        "format_footer": "",
+        "format_timecode": "",
+        "format_newline": "[Do not modify]",
+    }), encoding="utf-8")
+
+    rid = _make_done_recording(client, [_seg(0, 5, "Grüße")], text="Grüße")
+    r = client.get(f"/api/recordings/{rid}/download?format=json")
+    assert r.status_code == 200, r.text
+    assert not r.content.startswith(b"\xef\xbb\xbf")
+    assert "Grüße" in r.content.decode("utf-8")
 
 
 def test_download_max_duration_still_works(client):
@@ -252,7 +296,7 @@ def test_download_max_duration_still_works(client):
 
     r = client.get(f"/api/recordings/{rid}/download?format=srt&max_duration_s=4")
     assert r.status_code == 200
-    cues = r.text.strip().split("\n\n")
+    cues = r.content.decode("utf-8-sig").strip().split("\n\n")
     assert len(cues) > 1  # 10-s-Segment in ≤4-s-Blöcke
 
 
@@ -289,7 +333,7 @@ def test_download_custom_template_youtube_style(client, tmp_path):
     r = client.get(f"/api/recordings/{rid}/download?format=youtube")
     assert r.status_code == 200, r.text
     # Eine Zeile pro Segment, kein abschließendes Newline (Template ohne \n)
-    assert r.text == "00:00:00 00:00:05\nHallo Welt\n00:00:05 00:00:09\nzweiter Satz"
+    assert r.content.decode("utf-8-sig") == "00:00:00 00:00:05\nHallo Welt\n00:00:05 00:00:09\nzweiter Satz"
 
 
 def test_download_broken_template_500(client, tmp_path):
@@ -329,3 +373,140 @@ def test_ensure_standard_templates_idempotent(tmp_path):
     assert mine.exists()
     assert json.loads(mine.read_text(encoding="utf-8")) == {"custom": True}
     assert (target / "srt.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Change 015: neue Standard-Templates (csv, youtube, ass, transcript, jsonl,
+# srt-words) + Word-Level-Renderer (format_paragraph_word)
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_standard_templates_includes_change015(tmp_path):
+    from app.export import ensure_standard_templates
+
+    target = tmp_path / "export_templates"
+    ensure_standard_templates(target)
+    for name in ("csv", "youtube", "ass", "transcript", "jsonl", "srt-words"):
+        assert (target / f"{name}.json").exists(), f"{name}.json fehlt"
+
+
+def test_word_level_srt_renders_per_word():
+    """Change 015: format_paragraph_word → ein Cue pro Wort (mit Timings)."""
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("srt-words", BUNDLED_TEMPLATES_DIR)
+    segs = [
+        _seg(0, 5, "Hallo Welt", "SPEAKER_01",
+             words=[{"word": "Hallo", "start": 0, "end": 1},
+                    {"word": "Welt", "start": 1, "end": 2}]),
+        _seg(5, 9, "zweiter Satz", None),
+    ]
+    out = render_template(tpl, segs, {"text": "x"})
+    # 4 Wörter → 4 Cues mit fortlaufender Nummer
+    assert out.count("\n\n") == 3  # 4 Paragraphen, 3 Leerzeilen
+    assert out.startswith("1\n00:00:00,000 --> 00:00:01,000\nHallo")
+    assert "2\n00:00:01,000 --> 00:00:02,000\nWelt" in out
+    assert "3\n00:00:05,000 --> 00:00:09,000\nzweiter" in out
+    assert "4\n00:00:05,000 --> 00:00:09,000\nSatz" in out
+
+
+def test_word_level_srt_fallback_without_words():
+    """Keine Word-Timings → identische Ausgabe wie normales srt."""
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("srt-words", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, "Hallo Welt", "SPEAKER_01")]
+    out = render_template(tpl, segs, {"text": "x"})
+    assert out == "1\n00:00:00,000 --> 00:00:05,000\n[SPEAKER_01] Hallo Welt\n"
+
+
+def test_csv_template_escapes_text():
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("csv", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, 'Sag "Hallo", sagte er', "SPEAKER_01")]
+    out = render_template(tpl, segs, {"text": "x"})
+    lines = out.strip().split("\n")
+    assert lines[0] == "number,start,end,duration,speaker,text"
+    assert '1,00:00:00.000,00:00:05.000,00:00:05.000,SPEAKER_01,"Sag ""Hallo"", sagte er"' in lines[1]
+
+
+def test_youtube_template_timestamped():
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("youtube", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, "Hallo Welt"), _seg(5, 65, "zweiter Satz")]
+    out = render_template(tpl, segs, {"text": "x"})
+    # h:mm:ss — 65 s → 1:05 (keine führende Null bei Stunden=0)
+    assert out == "0:00  Hallo Welt\n0:05  zweiter Satz"
+
+
+def test_ass_template_dialogue_lines():
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("ass", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, "Hallo Welt", "SPEAKER_01")]
+    out = render_template(tpl, segs, {"text": "x"})
+    assert out.startswith("[Script Info]\nScriptType: v4.00+")
+    assert "[Events]\nFormat: Layer, Start, End, Style" in out
+    # h:mm:ss.cc (Zentisekunden) — ASS-Zeitformat
+    assert "Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,[SPEAKER_01] Hallo Welt" in out
+
+
+def test_transcript_template_speaker_prefix():
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("transcript", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, "Hallo", "SPEAKER_01"), _seg(5, 9, "Welt", None)]
+    out = render_template(tpl, segs, {"title": "Mein Titel", "text": "x"})
+    assert out.startswith("Mein Titel\n\n")
+    assert "[SPEAKER_01] Hallo" in out
+    assert "\nWelt" in out  # ohne Speaker kein Präfix
+
+
+def test_jsonl_template_one_object_per_line():
+    from app.export import BUNDLED_TEMPLATES_DIR, load_template, render_template
+
+    tpl = load_template("jsonl", BUNDLED_TEMPLATES_DIR)
+    segs = [_seg(0, 5, "Hallo", "SPEAKER_01"), _seg(5, 9, "Grüße")]
+    out = render_template(tpl, segs, {"text": "x"})
+    lines = out.strip().split("\n")
+    assert len(lines) == 2
+    import json as _json
+
+    obj = _json.loads(lines[0])
+    assert obj == {"start": 0.0, "end": 5.0, "speaker": "SPEAKER_01", "text": "Hallo"}
+    obj2 = _json.loads(lines[1])
+    assert obj2["text"] == "Grüße" and obj2["speaker"] is None
+
+
+def test_download_csv_and_jsonl_formats(client):
+    segs = [_seg(0, 5, "Grüße aus Köln", "SPEAKER_01")]
+    rid = _make_done_recording(client, segs, text="Grüße aus Köln")
+
+    r = client.get(f"/api/recordings/{rid}/download?format=csv")
+    assert r.status_code == 200, r.text
+    # BOM (Excel) + Header
+    assert r.content.startswith(b"\xef\xbb\xbf")
+    assert r.content.decode("utf-8-sig").split("\n")[0] == "number,start,end,duration,speaker,text"
+
+    r = client.get(f"/api/recordings/{rid}/download?format=jsonl")
+    assert r.status_code == 200, r.text
+    # jsonl ist maschinenlesbar → KEIN BOM
+    assert not r.content.startswith(b"\xef\xbb\xbf")
+    import json as _json
+
+    obj = _json.loads(r.content.decode("utf-8").strip())
+    assert obj["text"] == "Grüße aus Köln"
+
+
+def test_download_srt_words_format(client):
+    segs = [_seg(0, 5, "Hallo Welt", "SPEAKER_01",
+                 words=[{"word": "Hallo", "start": 0, "end": 1},
+                        {"word": "Welt", "start": 1, "end": 2}])]
+    rid = _make_done_recording(client, segs)
+    r = client.get(f"/api/recordings/{rid}/download?format=srt-words")
+    assert r.status_code == 200, r.text
+    body = r.content.decode("utf-8-sig")
+    assert body.startswith("1\n00:00:00,000 --> 00:00:01,000\nHallo")
+    assert "2\n00:00:01,000 --> 00:00:02,000\nWelt" in body

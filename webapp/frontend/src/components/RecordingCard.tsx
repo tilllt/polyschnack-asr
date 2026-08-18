@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, type ShareItem, type VersionItem } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
@@ -170,6 +170,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
   const [dlOpen, setDlOpen] = useState(false);
+  // Change 015: Export-Formate dynamisch aus GET /export-templates
+  // (Fallback: hartkodierte txt|srt|vtt, falls der Call fehlschlägt).
+  const [exportTemplates, setExportTemplates] = useState<ExportTemplate[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchExportTemplates()
+      .then((ts) => {
+        if (!cancelled && ts.length > 0) setExportTemplates(ts);
+      })
+      .catch(() => {
+        /* Fallback: null → hartkodierte Liste unten */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [searchOpen, setSearchOpen] = useState(false);
   // Review-Fix 2026-08-15 (Such-UI): Query + Sprung-Ziel liegen hier, damit
   // SegmentSearch (eingeben) und SegmentList (hervorheben + scrollen) den
@@ -1039,10 +1055,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   shadow-[0_8px_24px_rgba(0,0,0,.4)]
                 `}
               >
-                {(["txt", "srt", "vtt"] as const).map((fmt) => (
+                {/* Change 015: Formate dynamisch aus /export-templates
+                    (Fallback hartkodiert, falls der Call fehlschlägt). */}
+                {(exportTemplates ?? [
+                  { name: "Plain Text", extension: "txt" },
+                  { name: "SubRip (SRT)", extension: "srt" },
+                  { name: "WebVTT", extension: "vtt" },
+                ]).map((fmt) => (
                   <a
-                    key={fmt}
-                    href={`${r.download_url}?format=${fmt}`}
+                    key={fmt.extension}
+                    href={`${r.download_url}?format=${fmt.extension}`}
                     download
                     onClick={() => setDlOpen(false)}
                     className="
@@ -1052,13 +1074,33 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     "
                   >
                     <span className="font-semibold text-[11px] text-accent w-[26px]">
-                      {fmt.toUpperCase()}
+                      {fmt.extension.toUpperCase()}
                     </span>
-                    <span>
-                      {fmt === "txt" ? t("plain_text") : fmt === "srt" ? "SubRip" : "WebVTT"}
-                    </span>
+                    <span>{fmt.name}</span>
                   </a>
                 ))}
+                {/* Change 015: vollständiger Backup-Download (ZIP) — nur
+                    Owner/Share-full (Backend verlangt full, 403 sonst). */}
+                {(r.access_level === "full" || r.access_level === "owner") && (
+                  <>
+                    <div className="my-1 h-px bg-border2" />
+                    <a
+                      href={r.backup_url}
+                      download
+                      onClick={() => setDlOpen(false)}
+                      className="
+                        flex items-center gap-2 px-[10px] py-[7px] rounded-[5px]
+                        text-txt text-[13px] no-underline cursor-pointer
+                        hover:bg-panel2 transition-colors duration-[120ms]
+                      "
+                    >
+                      <span className="font-semibold text-[11px] text-accent w-[26px]">
+                        ZIP
+                      </span>
+                      <span>{t("backup_zip")}</span>
+                    </a>
+                  </>
+                )}
               </div>
             )}
           </div>

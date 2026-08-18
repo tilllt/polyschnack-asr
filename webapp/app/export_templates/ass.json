@@ -1,0 +1,9 @@
+{
+  "name": "Advanced SubStation Alpha (ASS)",
+  "extension": "ass",
+  "format_header": "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+  "format_paragraph": "Dialogue: 0,{start},{end},Default,,0,0,0,,{actor-upper-brackets-space}{text}\n",
+  "format_footer": "",
+  "format_timecode": "h:mm:ss.cc",
+  "format_newline": "[Do not modify]"
+}

@@ -48,6 +48,8 @@ from ..export import (
     load_template,
     render_template,
 )
+from ..export_backup import build_backup_zip
+from ..versions import list_versions
 from ..service import resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
 
@@ -425,9 +427,28 @@ _EXPORT_MEDIA_TYPES = {
     "srt": "application/x-subrip",
     "vtt": "text/vtt",
     "csv": "text/csv",
+    "ass": "text/plain",
     "json": "application/json",
+    "jsonl": "application/jsonl",
     "html": "text/html",
 }
+
+# Change 015: Maschinenlesbare Formate bleiben reines UTF-8 (kein BOM);
+# alle anderen (Text-Formate für Editoren/Excel) bekommen UTF-8-BOM.
+_JSON_EXPORT_EXTS = {"json", "jsonl"}
+
+
+def _encode_export(content: str, ext: str) -> bytes:
+    """Encodiert Export-Inhalt: utf-8-sig (BOM) für Text, utf-8 für JSON.
+
+    Fix 2026-08-18 (Change 015, User-Report Regression): Der bisherige
+    charset=utf-8-Header reicht nicht — Windows-Editoren (Notepad < 1903,
+    Excel, ältere Tools) raten UTF-8 ohne BOM als Latin-1 → „Ã¤". Mit
+    BOM erkennen sie die Umlaute zuverlässig.
+    """
+    if ext.lower() in _JSON_EXPORT_EXTS:
+        return content.encode("utf-8")
+    return content.encode("utf-8-sig")
 
 
 def _queue_position_for(rec_id: Optional[int]) -> Optional[int]:
@@ -506,6 +527,10 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
             else None
         ),
         "download_url": f"/api/recordings/{uid}/download",
+        # Change 015: vollständiger Backup-Download (ZIP: Audio + Transkript
+        # + Word-Timings + Versionen + manifest) — nur bei status=done
+        # sinnvoll, URL ist aber immer verfügbar (Backend antwortet 409).
+        "backup_url": f"/api/recordings/{uid}/backup",
         # WhatsApp / batch fields
         "batch_id": rec.batch_id,
         "recorded_at": rec.recorded_at.isoformat() if rec.recorded_at else None,
@@ -1101,15 +1126,127 @@ def download_transcript(
     ext = tpl["extension"].lower()
     media_type = _EXPORT_MEDIA_TYPES.get(ext, "application/octet-stream")
 
-    # Fix 2026-08-15 (User-Report): Umlaute als Sonderzeichen im TXT-Download.
-    # Ohne charset im Content-Type rät der Browser das Encoding (häufig
-    # Windows-1252/Latin-1) → „ä/ö/ü/ß" wurden zu „Ã¤"-Artefakten. Explizites
-    # charset=utf-8 gilt für alle Exportformate (Texte sind Unicode).
+    # Change 015 (2026-08-18): explizites Encoding — utf-8-sig (BOM) für
+    # Text-Formate (Notepad/Excel erkennen Umlaute), reines utf-8 für JSON.
+    # Der frühere charset-Header (Fix 2026-08-15) bleibt zusätzlich erhalten.
     return Response(
-        content=content,
+        content=_encode_export(content, ext),
         media_type=f"{media_type}; charset=utf-8",
         headers={"Content-Disposition": disposition},
     )
+
+
+@router.get("/recordings/{rid}/backup")
+def backup_download(
+    rid: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Response:
+    """Vollständiger Backup-Download (Change 015): ZIP mit transcript.json
+    (Schema v1 inkl. Word-Timings + Versionen), Audio, txt/srt + manifest.
+
+    Zugriff ``full`` (Owner oder Share mit full), Status muss ``done`` sein.
+    Datenschutz: Backups enthalten keine DB-internen IDs; anon-Recordings
+    vermerken ``retention_minutes`` im JSON.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "full", cap=_key_cap(request, session))
+
+    if rec.status != "done":
+        raise HTTPException(status_code=409, detail="transcription not complete yet")
+
+    if rec.id is None:  # Pyright-Guard (DB-Rows haben immer eine id)
+        raise HTTPException(status_code=404, detail="not found")
+    versions = list_versions(session, rec.id)
+    zip_bytes = build_backup_zip(session, rec, versions)
+
+    stem = Path(rec.original_name).stem
+    disposition = f'attachment; filename="{stem}-backup.zip"'
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.post("/recordings/import-backup")
+def import_backup_ep(
+    request: Request,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+):
+    """Backup-ZIP importieren (Change 015): stellt ein Recording mit
+    status=done wieder her — Audio, Titel, Segmente inkl. Word-Timings,
+    Einstellungen und Versions-Snapshots. Keine Neu-Transkription.
+
+    Validierung: manifest.json (SHA-256 je Datei) + schema_version.
+    Duplikat-Erkennung über content_hash wie beim Upload (409).
+    anon-Import unterliegt den normalen anon-Limits (Retention ab Import).
+    """
+    uid = _current_user(request, session)
+    from ..anon_limits import enforce_anon_limits
+
+    anon_user = session.get(User, uid) if uid is not None else None
+    anon = anon_user is None or anon_user.kind == "anonymous"
+    try:
+        raw = file.file.read()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Upload nicht lesbar: {exc}")
+
+    # anon-Limits: Größe des ZIP ≈ Größe des enthaltenen Audios.
+    try:
+        enforce_anon_limits(session, anon_user, len(raw), duration_s=None)
+    except HTTPException:
+        raise
+
+    from ..export_backup import BackupError, import_backup_zip
+
+    # Duplikat-Vorprüfung NICHT hier (import_backup_zip rechnet den
+    # content_hash aus dem Audio) — Fehler → 400, Duplikat → 409.
+    try:
+        rec = import_backup_zip(
+            session,
+            raw,
+            user_id=uid,
+            audio_dir=settings.AUDIO_DIR,
+            anon=anon,
+        )
+    except BackupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Duplikat (content_hash existiert schon) → 409 wie beim Upload.
+    dup = session.exec(
+        select(Recording).where(
+            Recording.content_hash == rec.content_hash,
+            Recording.id != rec.id,
+        )
+    ).first()
+    if dup is not None:
+        # Das gerade importierte Recording wieder entfernen (Datei + Row) —
+        # es war ein Duplikat, der User bekommt den bestehenden Eintrag.
+        try:
+            Path(rec.stored_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        from ..crud import delete_recording
+
+        delete_recording(session, rec.id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "duplicate": True,
+                "existing_id": dup.uid,
+                "recording": _recording_to_dict(dup),
+            },
+        )
+
+    if rec.id is not None:
+        _schedule_peaks(rec.id)  # Waveform-Preview sofort rechnen
+    return _recording_to_dict(rec)
 
 
 @router.get("/export-templates")

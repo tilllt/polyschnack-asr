@@ -1,0 +1,9 @@
+{
+  "name": "CSV (Excel)",
+  "extension": "csv",
+  "format_header": "number,start,end,duration,speaker,text\n",
+  "format_paragraph": "{number},{start},{end},{duration},{actor},{text-csv}",
+  "format_footer": "",
+  "format_timecode": "hh:mm:ss.zzz",
+  "format_newline": "[Do not modify]"
+}
