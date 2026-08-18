@@ -451,6 +451,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   function handleTextPointerUp(i: number) {
     const ts = touchSel;
     if (!ts || ts.idx !== i) return;
+    // Fix 2026-08-18 (User-Vorgabe): Ein TAP auf ein Wort ist ein Klick
+    // (= Play ab dem Wort) und KEINE Markierung — kein Split-Anker. Erst
+    // ein Drag über 2+ Wörter markiert und zeigt das Split-Symbol.
+    if (ts.startWord === ts.endWord) return;
     // Fix 2026-08-17: Markierung NACH dem Loslassen sichtbar lassen —
     // sie verschwindet erst beim Klick aufs Split-Symbol (dort
     // setTouchSel(null) + Popover). Kein setTouchSel(null) hier!
@@ -997,6 +1001,15 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           style={{ display: "inline-block", touchAction: "none" } as React.CSSProperties}
                           onClick={(e) => {
                             e.stopPropagation();
+                            // Fix 2026-08-18 (User-Vorgabe): Markieren darf
+                            // KEIN Play auslösen — nach einer Textauswahl
+                            // feuert der Browser zusätzlich ein click auf dem
+                            // Start-Wort. Nur ein einfacher Klick (Selection
+                            // kollabiert, kein Touch-Drag) spielt ab dem Wort.
+                            const sel = window.getSelection();
+                            if (sel && !sel.isCollapsed && sel.rangeCount > 0) return;
+                            const ts = touchSel;
+                            if (ts && ts.idx === i && ts.startWord !== ts.endWord) return;
                             scheduleClick(() => handleWordClick(i, w.start));
                           }}
                           onKeyDown={(e) => {
