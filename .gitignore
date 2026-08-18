@@ -8,3 +8,7 @@ DATA/
 
 # MkDocs-Build (GitLab Pages generiert das im CI)
 public/
+
+# Lokale Arbeits-Artefakte (nicht versionieren)
+sketches/
+businessplan/
