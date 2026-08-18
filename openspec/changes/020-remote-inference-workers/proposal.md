@@ -59,6 +59,16 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 
 ### Dispatcher-Provider-Abstraktion
 
+**Verbindliche Regel: NUR reine EU-Anbieter (CLOUD Act).** Zugelassen sind
+ausschließlich Unternehmen mit Sitz und Infrastruktur in der EU/EWR
+(„EU-Unternehmen, eigene Infrastruktur"). US-Firmen mit EU-Rechenzentren
+(z. B. RunPod, Lambda, CoreWeave), US-Marktplätze (vast.ai, Salad) und
+UK-Firmen (z. B. CUDO) sind ausgeschlossen — unabhängig von der
+E2E-Verschlüsselung. Die Verschlüsselung entschärft das technische Risiko
+(US-Behörden erhielten nur Chiffre), die EU-only-Regel macht die
+Rechtslage eindeutig (kein US-Vertragspartner, keine US-Gerichtsbarkeit
+über Auftragsverarbeitung).
+
 Interface `InferenceBackend` (Python-Protokoll):
 
 - `list_offers(filter) -> list[Offer]` — Preis, GPU, VRAM, Region, Reliabilität
@@ -67,29 +77,28 @@ Interface `InferenceBackend` (Python-Protokoll):
 - `submit_job(endpoint, job) / poll(instance, job_id)`
 - `destroy(instance)` + `instance_meta(instance)` (Provider, Region, Kosten)
 
-Implementierungen:
+Implementierungen (EU-only):
 
 - **local_backend** — die Box selbst (erstes Backend; Jobs laufen lokal wie
   heute, Dispatcher nur als Queue/Router → sofort nutzbar im Ist-Betrieb).
-- **vast_backend** — vast.ai-API v0 (Bundles-Suche, EU-Region-Filter,
-  image_login für private Registry, Destroy per DELETE, Auto-Destroy-
-  Watchdog-Muster aus den Betriebs-Skills).
-- **nebius_backend** — Nebius Compute (offizielle API, EU-Regionen,
-  Preemptible/Standard-Klassen).
-- **runpod_backend** — RunPod in zwei Modi: Pods (dedizierte Instanzen,
-  acquire/destroy) und Serverless (nur submit_job/poll — kein Instance-
-  Management nötig). Secure Cloud mit EU-Regionen → für data_class
-  `critical` geeignet. Preise (offiziell, 08/2026): A5000 0,27 $/h,
-  3090 0,50 $/h, 4090 0,74 $/h (Pods); 24-GB-Serverless 0,69 $/h.
-- **salad_backend** — Salad Container Engine (Container-Deployment per API,
-  keine Cold-Boot-Kosten, nur laufende Zeit wird berechnet). Preise
-  (offiziell, 08/2026, Batch): 3060 0,084 $/h, 4070 Ti 0,124 $/h,
-  3090 0,124 $/h, 3090 Ti 0,154 $/h, 4090 0,204 $/h. Community Cloud =
-  dezentrale Consumer-Nodes OHNE EU-Region-Garantie → nur `internal`;
-  Secure Cloud (Datacenter) für EU/critical prüfen.
-- **massed_backend** (optional) — Massed Compute (eigene Infrastruktur,
-  dedizierte Instanzen; A5000 0,44 $/h offiziell, 08/2026).
-- später: hetzner_backend, lambda_backend.
+- **nebius_backend** — Nebius (NL, EU): offizielle API, EU-Regionen,
+  Preemptible/Standard-Klassen (L40S 0,74 $/h, H100 2,15 $/h — offiziell,
+  08/2026).
+- **hetzner_backend** — Hetzner (DE): GPU-Server GEX-Line, RZ in DE/FI/NL,
+  ISO 27001. Preise im Server-Finder zu prüfen (nicht statisch extrahierbar).
+- **scaleway_backend** — Scaleway (FR, Iliad Group): L4/L40S/H100-GPU-
+  Instances, RZ Paris/Marseille. Preise im Rechner zu prüfen.
+- **ovhcloud_backend** — OVHcloud (FR): GPU-Instances, RZ FR.
+- **verda_backend** — Verda (FI, ehem. DataCrunch): öffentliche Pricing-API
+  (offiziell, 08/2026): A6000 48 GB 0,61 $/h on-demand / 0,305 $/h spot,
+  L40S 1,37 $/h / 0,685 $/h spot.
+- **gcore_backend** (optional) — Gcore (LU).
+- **genesis_backend** (optional) — Genesis Cloud (IS, EWR — kein EU-Mitglied,
+  aber EWR-Datenfluss und isländische Firma ohne CLOUD-Act-Exposure).
+
+Ausgeschlossen (US/UK-Jurisdiktion, dokumentiert): vast.ai, RunPod, Salad,
+Massed Compute, Lambda, CoreWeave, CUDO — auch wenn EU-Regionen oder
+günstige Preise angeboten werden.
 
 Konfiguration je Provider: Region-Whitelist (EU/EWR), Preis-Cap, GPU-Klassen-
 Mapping (small/medium/large ↔ VRAM), max. Instanzen, Warm-Pool-Größe,

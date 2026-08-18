@@ -13,17 +13,22 @@
 - [ ] `dispatcher/backends/base.py` + `local_backend.py` (Box = Backend)
 - [ ] Queue-Stufen-Orchestrierung in webapp (Stufe 1 → Stufe 2)
 
-## Phase 2 — Vast-Backend
-- [ ] `dispatcher/backends/vast.py` (API v0, EU-Filter, image_login, Destroy)
+## Phase 2 — EU-Backends
 - [ ] Worker-Wrapper (`worker/worker_wrapper.py`) für ps-asr-parakeet
-- [ ] E2E-Test: Job Box → vast → Box (verschlüsselt), Audit-Log
+- [ ] `dispatcher/backends/nebius.py` (offizielle API, EU-Regionen, Preemptible)
+- [ ] `dispatcher/backends/hetzner.py` + `dispatcher/backends/verda.py`
+      (Verda: öffentliche Pricing-API A6000 0,61 $/h / spot 0,305 $/h)
+- [ ] Provider-Whitelist (EU-only, CLOUD-Act-Regel): Dispatcher lehnt
+      nicht-EU-Provider ab
+- [ ] E2E-Test: Job Box → EU-Instanz → Box (verschlüsselt), Audit-Log
 - [ ] Auto-Destroy-Watchdog + Kosten-Tracking (`dispatcher/costs.py`)
 
-## Phase 3 — ps-post + weitere Provider
+## Phase 3 — ps-post + weitere EU-Backends
 - [ ] ps-post-Image (crispr-diar + crispr-align kombiniert, Supervisor)
-- [ ] `dispatcher/backends/nebius.py` (offizielle API, EU-Regionen)
-- [ ] `dispatcher/backends/runpod.py` (Pods + Serverless-Modus, EU-Secure-Cloud für critical)
-- [ ] `dispatcher/backends/salad.py` (Container Engine, nur internal)
-- [ ] `dispatcher/backends/massed.py` (optional)
-- [ ] Datenklassen-Filter (internal/critical) aktiv
+- [ ] `dispatcher/backends/scaleway.py` + `dispatcher/backends/ovhcloud.py`
+- [ ] `dispatcher/backends/gcore.py` / `genesis.py` (optional)
 - [ ] Tests: Backend-Unit-Tests (Mock-Anbieter), Integration mit local_backend
+
+## Dokumentierte Ausschlüsse (CLOUD-Act-Regel)
+- vast.ai, RunPod, Salad, Massed Compute, Lambda, CoreWeave, CUDO —
+  US/UK-Jurisdiktion, auch mit EU-Rechenzentren/günstigen Preisen gesperrt.

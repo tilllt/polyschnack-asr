@@ -78,6 +78,32 @@
   `nebius` mit AVV/EWR-Garantie) werden verwendet; vast wird für diesen Job
   ausgeschlossen; das Audit-Log dokumentiert den gewählten Provider.
 
+### Requirement: Nur EU-Jurisdiktion (CLOUD-Act-Regel)
+
+- **Ablauf:** Der Dispatcher akzeptiert ausschließlich Provider, die
+  Unternehmen mit Sitz UND Infrastruktur in der EU/EWR sind („EU-Unternehmen,
+  eigene Infrastruktur"). Die Provider-Whitelist enthält nur solche Backends
+  (local, nebius, hetzner, scaleway, ovhcloud, verda, gcore, genesis/EWR).
+  US-Firmen mit EU-Rechenzentren, US-Marktplätze (vast.ai, Salad, RunPod,
+  Lambda, CoreWeave) und UK-Firmen (CUDO) sind ausgeschlossen; die
+  Ausgeschlossenen-Liste ist in der Konfiguration dokumentiert und der
+  Dispatcher lehnt unbekannte Provider ab.
+- **Warum:** Serverstandort allein reicht nicht — ein US-Unternehmen mit
+  EU-RZ bleibt US-Jurisdiktion (CLOUD Act). Für Transkriptionsdaten
+  (potenziell Gesundheits-/Rechtsdaten) ist die Rechtslage mit reinen
+  EU-Anbietern eindeutig. Die E2E-Verschlüsselung bleibt zusätzlich aktiv,
+  entschärft aber nur das technische, nicht das rechtliche Risiko.
+- **Architektur:** `dispatcher/` (Provider-Whitelist, Konfiguration),
+  `dispatcher/backends/*` (nur zugelassene Backends).
+
+#### Scenario: Nicht-EU-Provider konfigurieren
+
+- **Akteure:** Admin, Dispatcher-Konfiguration.
+- **Eingaben:** Versuch, einen US-Anbieter (z. B. vast.ai) als Backend
+  zu konfigurieren.
+- **Ergebnis:** Der Dispatcher lehnt die Konfiguration ab (unbekannter/
+  gesperrter Provider); das Audit-Log dokumentiert den Versuch.
+
 ### Requirement: Instanz-Hygiene und Kosten-Tracking
 
 - **Ablauf:** Instanzen werden nach Pool-Lebensdauer per Destroy beendet
