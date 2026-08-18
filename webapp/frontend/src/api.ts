@@ -25,6 +25,9 @@ export interface Recording {
   id: string;
   uid: string;
   original_name: string;
+  /** Change 014: editierbarer Titel (Fallback original_name), via PATCH
+   *  /recordings/{uid}/title setzbar — Sidecar spiegelt ihn. */
+  title?: string | null;
   mime: string;
   size_bytes: number;
   duration_s: number | null;
@@ -295,6 +298,20 @@ export async function updateSegment(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  }).then(checkOk);
+  return res.json();
+}
+
+/** Change 014: Titel einer Aufnahme umbenennen (Owner/Admin). Schreibt DB +
+ *  Sidecar (best-effort) im Backend; Response trägt den neuen Stand. */
+export async function updateRecordingTitle(
+  recordingId: string,
+  title: string,
+): Promise<{ uid: string; title: string; original_name: string }> {
+  const res = await fetch(`/api/recordings/${recordingId}/title`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
   }).then(checkOk);
   return res.json();
 }

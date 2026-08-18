@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
@@ -187,6 +187,35 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     };
   }, []);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Change 014: Titel-Inline-Edit (Owner/full). Guard gegen doppeltes
+  // Speichern (Enter + nachfolgender Blur beim Unmount des Inputs).
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleSaveLock = useRef(false);
+  async function handleTitleSave() {
+    if (titleSaveLock.current) return;
+    const next = titleDraft.trim();
+    if (!next || next === (r.title ?? r.original_name)) {
+      setEditingTitle(false);
+      return;
+    }
+    titleSaveLock.current = true;
+    try {
+      await updateRecordingTitle(r.uid, next);
+      toast(t("title_saved"), "ok");
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+    } catch (e) {
+      toast(`${t("title_save_error")}: ${(e as Error).message}`, "err");
+    } finally {
+      titleSaveLock.current = false;
+      setEditingTitle(false);
+    }
+  }
+  // Change 014: Defekt = failed mit fehlender/beschädigter Audio-Datei
+  // (recording_health.mark_broken) → eigener Badge im Karten-Header.
+  const isBroken = r.status === "failed" && !!r.error && /Audio-Datei fehlt/.test(r.error);
+  // Titel nur für Besitzer/Full-Share editierbar (Backend: Owner/Admin).
+  const canEditTitle = r.access_level === "owner" || r.access_level === "full";
   // Review-Fix 2026-08-15 (Such-UI): Query + Sprung-Ziel liegen hier, damit
   // SegmentSearch (eingeben) und SegmentList (hervorheben + scrollen) den
   // gleichen Suchzustand teilen.
@@ -715,13 +744,74 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             className={`transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
           />
         </button>
-        <span
-          title={r.original_name}
-          className="font-semibold flex-1 min-w-0 leading-[1.35] text-[13px] sm:text-[14px] text-txt truncate"
-        >
-          {r.original_name}
-        </span>
+        <div className="flex-1 min-w-0">
+          {editingTitle ? (
+            <div className="flex items-center gap-1">
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleTitleSave();
+                  if (e.key === "Escape") setEditingTitle(false);
+                }}
+                className="w-full min-w-0 bg-panel2 border border-accent/50 rounded-sm px-1.5 py-[1px] text-[13px] sm:text-[14px] text-txt outline-none"
+                placeholder={t("title_placeholder")}
+                aria-label={t("edit_title")}
+              />
+              <button
+                onClick={handleTitleSave}
+                className="flex-shrink-0 text-accent hover:text-accent/80 transition-colors"
+                title={t("save")}
+                aria-label={t("save")}
+              >
+                <Check size={14} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1 min-w-0">
+                <span
+                  title={r.title ?? r.original_name}
+                  className="font-semibold flex-1 min-w-0 leading-[1.35] text-[13px] sm:text-[14px] text-txt truncate"
+                >
+                  {r.title ?? r.original_name}
+                </span>
+                {canEditTitle && (
+                  <button
+                    onClick={() => {
+                      setTitleDraft(r.title ?? r.original_name);
+                      setEditingTitle(true);
+                    }}
+                    className="flex-shrink-0 p-0.5 -m-0.5 text-muted2 hover:text-accent transition-colors"
+                    title={t("edit_title")}
+                    aria-label={t("edit_title")}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                )}
+              </div>
+              {r.title && r.title !== r.original_name && (
+                <div
+                  className="text-muted2 text-[11px] leading-[1.3] truncate"
+                  title={t("original_file") + ": " + r.original_name}
+                >
+                  {r.original_name}
+                </div>
+              )}
+            </>
+          )}
+        </div>
         <StatusBadge status={r.status} t={t} />
+        {isBroken && (
+          <span
+            className="flex-shrink-0 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-err bg-[rgba(248,81,73,.12)] border border-err/40 rounded-sm px-1.5 py-[2px]"
+            title={t("broken_title")}
+          >
+            <AlertTriangle size={9} /> {t("broken_badge")}
+          </span>
+        )}
         {r.shared_with_me && (
           <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-sm px-1.5 py-[2px]" title={t("shared_badge")}>
             🔗 {t("shared_badge")}
