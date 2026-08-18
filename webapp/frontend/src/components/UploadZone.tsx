@@ -16,6 +16,7 @@ import {
 } from "../offlineQueue";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
+import { ensureAudioSessionForRecording } from "../audioSession";
 
 interface Props {
   user?: UserInfo | null;
@@ -630,6 +631,17 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   // (Permission-Check + Stream-Start, auf Mobil oft 300–800 ms). Ab jetzt
   // wird der Stream beim Betreten des Record-Tabs und nach jedem Stop
   // vorab geholt und gecacht — startRecording() nutzt ihn direkt.
+  //
+  // iOS-Härtung (Change 016, 2026-08-18): WaveSurfer 7 setzt bei jedem
+  // WebAudio-Player-Start navigator.audioSession.type = "playback"
+  // (webaudio.js::setWebAudioSessionPlayback). WebKit verbietet dann
+  // getUserMedia mit "AudioSession category is not compatible with audio
+  // capture" (Audio-Session-Spec §6.3: nur play-and-record/auto erlauben
+  // den Mikrofon-Track). Vor jedem Mikrofon-Zugriff wird die Session
+  // deshalb explizit auf play-and-record gesetzt (nur WebKit; andere
+  // Browser haben kein navigator.audioSession → still ignoriert).
+  // Helfer lebt in src/audioSession.ts (testbar, Change 016).
+
   async function prewarmMic() {
     if (micStreamRef.current) return; // schon warm
     if (prewarmInFlight.current) return prewarmInFlight.current; // dedupe
@@ -643,12 +655,16 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         if (micDeviceId) {
           audio.deviceId = { exact: micDeviceId };
         }
+        ensureAudioSessionForRecording();
         const stream = await navigator.mediaDevices.getUserMedia({ audio });
         micStreamRef.current = stream;
         // Geräteliste nachführen (IDs sind erst nach Permission sichtbar)
         void refreshMicDevices();
-      } catch {
+      } catch (e) {
         // Kein Zugriff — startRecording zeigt dann den Fehler-Toast.
+        // Change 016: Ursache loggen (stille Fehler inakzeptabel), damit
+        // Permission-Ablehnung vs. AudioSession-Konflikt unterscheidbar ist.
+        console.warn("mic prewarm failed:", (e as Error)?.message ?? e);
       } finally {
         prewarmInFlight.current = null;
       }
@@ -834,11 +850,32 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       if (micStreamRef.current) {
         record.renderMicStream(micStreamRef.current);
       }
-      await record.startRecording({
-        noiseSuppression: false,
-        echoCancellation: false,
-        autoGainControl: true,
-      });
+      ensureAudioSessionForRecording();
+      try {
+        await record.startRecording({
+          noiseSuppression: false,
+          echoCancellation: false,
+          autoGainControl: true,
+        });
+      } catch (e) {
+        // Change 016 (iOS): WaveSurfer-Player (Recording-Liste) setzen die
+        // AudioSession auf "playback" — WebKit blockiert dann getUserMedia
+        // mit "AudioSession category is not compatible with audio capture".
+        // Falls die Session zwischen Pre-Warm und Start gedriftet ist,
+        // explizit neu setzen und EINMAL erneut versuchen (Sicherheitsnetz;
+        // Permission-Ablehnungen lösen keinen Retry aus).
+        const msg = (e as Error)?.message ?? "";
+        if (msg.includes("AudioSession category")) {
+          ensureAudioSessionForRecording();
+          await record.startRecording({
+            noiseSuppression: false,
+            echoCancellation: false,
+            autoGainControl: true,
+          });
+        } else {
+          throw e;
+        }
+      }
 
       // Crash-Snapshot: zweiter MediaRecorder auf demselben Stream —
       // alle 5 s wird der bisherige Stand nach IndexedDB geschrieben.
