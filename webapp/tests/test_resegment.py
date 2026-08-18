@@ -154,6 +154,59 @@ def test_put_segments_validation(client):
     assert r.status_code == 400
 
 
+def test_put_segments_sets_manual_flag(client):
+    """Change 009: PUT /segments markiert die Aufteilung als manuell —
+    Antwort UND DB tragen segments_manual == true (Anzeige nutzt segments
+    direkt, keine erneute Re-Segmentierung nach segMaxDuration)."""
+    rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
+
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session, select
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec.segments_manual is False  # Default: Auto-Aufteilung
+
+    r = client.put(f"/api/recordings/{rid}/segments",
+                   json={"segments": [_seg(0, 10, _long_words())]})
+    assert r.status_code == 200, r.text
+    assert r.json()["segments_manual"] is True
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec.segments_manual is True  # persistiert
+
+
+def test_restore_resets_manual_flag(client):
+    """Change 009: Restore stellt einen alten ASR-Stand wieder her →
+    segments_manual = false (Auto-Aufteilung gilt wieder)."""
+    rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
+    # Erst manuell markieren (PUT), dann eine Version anlegen, die wir
+    # zurückholen können (Snapshot beim PUT = kind edit reicht).
+    client.put(f"/api/recordings/{rid}/segments",
+               json={"segments": [_seg(0, 4, [("a", 0, 1), ("b", 1, 2)])]})
+
+    from app.db import engine
+    from app.models import Recording, TranscriptVersion
+    from app.versions import list_versions
+    from sqlmodel import Session, select
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec.segments_manual is True
+        versions = list_versions(s, rec.id)
+        # Letzte Version ist der manuelle Stand (kind=edit)
+        target = versions[-1].version_no
+
+    r = client.post(f"/api/recordings/{rid}/versions/{target}/restore")
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec.segments_manual is False  # zurückgesetzt
+
+
 def test_download_srt_with_max_duration(client):
     """max_duration_s am Download = Re-Segmentierung vor dem Export."""
     rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
