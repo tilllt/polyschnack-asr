@@ -16,7 +16,7 @@ import {
 } from "../offlineQueue";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
-import { ensureAudioSessionForRecording } from "../audioSession";
+import { ensureAudioSessionForRecording, restoreAudioSessionAfterRecording, isWebKitAudioSession } from "../audioSession";
 
 interface Props {
   user?: UserInfo | null;
@@ -643,6 +643,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   // Helfer lebt in src/audioSession.ts (testbar, Change 016).
 
   async function prewarmMic() {
+    // iOS/macOS-Safari (WebKit): KEIN Pre-Warm. Das Mikro bliebe sonst
+    // dauerhaft geöffnet — iOS zeigt den Aktiv-Indikator permanent, und
+    // die play-and-record-Session wird nie freigegeben (Datenschutz-
+    // Befund 2026-08-18). Der Stream wird dort erst beim echten
+    // Record-Start geholt (startRecording → ensureAudioSessionForRecording
+    // + getUserMedia im RecordPlugin).
+    if (isWebKitAudioSession()) return;
     if (micStreamRef.current) return; // schon warm
     if (prewarmInFlight.current) return prewarmInFlight.current; // dedupe
     prewarmInFlight.current = (async () => {
@@ -783,10 +790,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       ws.destroy();
       wsRef.current = null;
       recordRef.current = null;
-      // Stream freigeben (Safety Net) — nächster Start prewarmt neu
+      // Stream freigeben (Safety Net) — nächster Start prewarmt neu.
+      // iOS (WebKit): Session zurücksetzen, kein Prewarm (Mikro sonst
+      // dauerhaft aktiv, 2026-08-18).
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
-      void prewarmMic();
+      restoreAudioSessionAfterRecording();
+      if (!isWebKitAudioSession()) void prewarmMic();
 
       releaseWakeLock();
       setIsUploading(true);
@@ -913,10 +923,14 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   async function stopRecording() {
     recordRef.current?.stopRecording();
     recordRef.current?.stopMic();
-    // Stream freigeben + sofort neu prewarmen → nächster Start ohne Delay
+    // Stream freigeben + sofort neu prewarmen → nächster Start ohne Delay.
+    // iOS (WebKit): NICHT neu prewarmen und die AudioSession zurücksetzen —
+    // sonst bleibt das Mikro dauerhaft aktiv (Indikator) und die
+    // play-and-record-Session wird nie freigegeben (2026-08-18).
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
-    void prewarmMic();
+    restoreAudioSessionAfterRecording();
+    if (!isWebKitAudioSession()) void prewarmMic();
     setRecording(false);
     setPaused(false);
     setContinuous(false);
@@ -995,6 +1009,12 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       clearInterval(timerRef.current);
       wsRef.current?.destroy();
       releaseWakeLock();
+      // Record-Tab verlassen (auch mitten in der Aufnahme): Mic-Stream
+      // stoppen + AudioSession zurücksetzen — sonst bleibt das Mikro auf
+      // iOS dauerhaft aktiv (Indikator, 2026-08-18).
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+      restoreAudioSessionAfterRecording();
     };
   }, []);
 
