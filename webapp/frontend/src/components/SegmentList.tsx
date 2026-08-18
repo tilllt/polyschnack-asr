@@ -365,9 +365,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     }
     setSplitAnchor({ idx: i, charStart: r.start, charEnd: r.end, preview: text.slice(r.start, r.end), y });
     setSplitSpeaker("");
-    // Selection entfernen → das native Auswahlmenü (Copy/Suche/Google) schließt
-    // sich damit auch auf Mobile, nur unser Split-Symbol bleibt.
-    window.getSelection()?.removeAllRanges();
+    // Fix 2026-08-18 (Desktop/Firefox): NICHT mehr window.getSelection()
+    // löschen — die native Textmarkierung bleibt sichtbar, bis der User
+    // das Split-Symbol klickt (Regression gemeldet: Markierung verschwand
+    // sofort beim Loslassen). Das native Auswahlmenü stört auf Desktop
+    // nicht (kein Overlay wie Android); der Symbol-Klick und confirmSplit
+    // räumen die Selection explizit weg. Ein selectionchange-Guard löscht
+    // den Anker, wenn die Auswahl woanders hingeht (kein Geister-Icon).
   }
 
   // Fix 2026-08-17 (Touch): die eigene Markierung hat KEINE native Selection,
@@ -464,11 +468,34 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     const orig = shown[splitAnchor.idx]?.speaker;
     const spk = splitSpeaker || orig || "SPEAKER_00";
     onSplitSegment?.(splitAnchor.idx, splitAnchor.charStart, splitAnchor.charEnd, spk);
+    // Native Textmarkierung wegräumen (Desktop: bleibt bis zum Klick sichtbar)
+    window.getSelection()?.removeAllRanges();
     setSplitAnchor(null);
     setSplitSpeaker("");
     setSplitSpeakerOpen(false);
     setSplitPopoverOpen(false);
   }
+
+  // Fix 2026-08-18 (Desktop/Firefox): Die native Textmarkierung bleibt nach
+  // dem Loslassen sichtbar (kein removeAllRanges im Mouse-Pfad mehr). Geht
+  // die Auswahl später woanders hin oder kollabiert sie (Klick in den Text),
+  // verschwindet der Split-Anker mit — kein Geister-Icon ohne Markierung.
+  // splitPopoverOpenRef: SYNCHRON im Icon-Klick gesetzt, BEVOR
+  // removeAllRanges() das selectionchange-Event auslöst — sonst würde der
+  // Guard den Anker löschen, während der Dialog sich öffnen will.
+  const splitPopoverOpenRef = useRef(false);
+  useEffect(() => {
+    splitPopoverOpenRef.current = splitPopoverOpen;
+  }, [splitPopoverOpen]);
+  useEffect(() => {
+    if (!splitAnchor || splitPopoverOpenRef.current) return;
+    const onChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) setSplitAnchor(null);
+    };
+    document.addEventListener("selectionchange", onChange);
+    return () => document.removeEventListener("selectionchange", onChange);
+  }, [splitAnchor, splitPopoverOpen]);
 
   // Erkannte Sprecher dieser Aufnahme = unique speaker-Werte aller Segmente.
   const speakerOptions = useMemo(() => {
@@ -645,7 +672,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 // Fix 2026-08-17: Markierung bleibt nach dem Loslassen
                 // sichtbar — erst der Symbol-Klick räumt sie und öffnet
                 // den Dialog.
+                // Fix 2026-08-18 (Desktop): native Selection ebenfalls
+                // wegräumen (bleibt seit dem Mouse-Fix sichtbar). Die Ref
+                // wird SYNCHRON vor removeAllRanges gesetzt, damit der
+                // selectionchange-Guard den Anker nicht löscht.
+                splitPopoverOpenRef.current = true;
                 setTouchSel(null);
+                window.getSelection()?.removeAllRanges();
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
@@ -653,7 +686,16 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 text-accent bg-transparent border border-accent/60
                 hover:bg-accent/10 hover:border-accent hover:scale-110 active:scale-95
                 transition-all"
-              style={{ top: Math.max(0, splitAnchor.y - 12) }}
+              style={{
+                // Fix 2026-08-18: Icon innerhalb der Zeile halten — ohne
+                // Clamp ragte es bei Markierungen in der letzten Textzeile
+                // über die Zeilen-Unterkante (bzw. den max-h-Container)
+                // hinaus und wurde unten abgeschnitten.
+                top: Math.min(
+                  Math.max(0, splitAnchor.y - 12),
+                  Math.max(0, (rowRefs.current[i]?.offsetHeight ?? 24) - 24),
+                ),
+              }}
               title={t("split_segment_title")}
               aria-label={t("split_segment_title")}
               data-testid="split-anchor-btn"
