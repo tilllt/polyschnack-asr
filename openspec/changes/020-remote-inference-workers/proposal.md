@@ -112,10 +112,16 @@ Implementierungen (EU-only):
 - **gcore_backend** (optional) — Gcore (LU).
 - **genesis_backend** (optional) — Genesis Cloud (IS, EWR — kein EU-Mitglied,
   aber EWR-Datenfluss und isländische Firma ohne CLOUD-Act-Exposure).
+- **golem_backend** (Beobachtung, optional) — Golem Network (Golem Factory
+  GmbH, Berlin, DE — einziger dezentraler GPU-Marktplatz mit EU-Sitz).
+  GPU-Compute im Aufbau (Marketplace-Beta, eigene Runtime statt Docker),
+  noch nicht produktionsreif; als Backend ergänzbar, sobald die GPU-Flotte
+  und API stabil sind.
 
 Ausgeschlossen (US/UK-Jurisdiktion, dokumentiert): vast.ai, RunPod, Salad,
-Massed Compute, Lambda, CoreWeave, CUDO — auch wenn EU-Regionen oder
-günstige Preise angeboten werden.
+Spheron (Spheron Networks, Los Angeles CA — verifiziert 08/2026), Massed
+Compute, Lambda, CoreWeave, TensorDock, CUDO (UK) — auch wenn EU-Regionen
+oder günstige Preise angeboten werden.
 
 Konfiguration je Provider: Region-Whitelist (EU/EWR), Preis-Cap, GPU-Klassen-
 Mapping (small/medium/large ↔ VRAM), max. Instanzen, Warm-Pool-Größe,
