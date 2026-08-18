@@ -23,6 +23,10 @@
 - [ ] Auto-Destroy-Watchdog + Kosten-Tracking (`dispatcher/costs.py`)
 
 ## Phase 3 — ps-post + Stufe-2-Backends (EU-only, wenn Konzept steht)
+- [ ] **Messpunkt Align-CPU:** RTF-Vergleich qwen3-forced-aligner (ggml)
+      CPU-only vs. CUDA auf derselben Test-Aufnahme — entscheidet, ob
+      ps-post auf CPU-only-Instanzen laufen kann (Diar: belegt CPU;
+      Align: ungemessen). Bis dahin ps-post mit optionaler small-GPU.
 - [ ] ps-post-Image (crispr-diar + crispr-align kombiniert, Supervisor)
 - [ ] `dispatcher/backends/nebius.py` + `dispatcher/backends/verda.py`
       (Verda: öffentliche Pricing-API A6000 0,61 $/h / spot 0,305 $/h)

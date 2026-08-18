@@ -25,14 +25,19 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
    Backends (vast.ai, Nebius, später Hetzner/Lambda) UND die lokale Box als
    erstes Backend — einheitliche Queue, EU-Region-Filter, GPU-Klassen-
    Matching, Warm-Pooling, Auto-Destroy, Kosten-Tracking.
-4. **Diarization ist CPU-only (empirisch belegt):** PR-Erkenntnis beim
-   crisprASR-GPU-Versuch — Pyannote-Diarization ist auf der CPU SCHNELLER
-   als auf der GPU (kurze Chunks, Transfer-Overhead &gt; Rechengewinn).
+4. **Diarization ist CPU-only (empirisch belegt):** PR-Erkenntnis bei
+   crisprASR-GPU-Versuch (CrispStrobe/CrispASR#364, Messzahlen: CPU
+   12,7 s vs. GPU 15,3 s bei gleicher Worker-Zahl, 6× langsamer mit
+   4 Workern) — Pyannote-Diarization ist auf der CPU SCHNELLER als auf
+   der GPU (segmentweise variable Längen + sequenzielles biLSTM).
    Umgesetzt in compose.gpu.yml (crispr-diar bewusst OHNE runtime: nvidia).
-   Der Aligner (qwen3-forced-aligner via llama.cpp/ggml) ist hybrid
-   (CUDA &gt; Metal &gt; Vulkan &gt; CPU) mit CPU-Fallback — GPU optional.
-   ⇒ ps-post läuft auf CPU-only-Instanzen (ggml-CPU-Fallback); GPU nur,
-   wenn sie billig verfügbar ist (beschleunigt den Align-Schritt).
+   **Der Aligner (qwen3-forced-aligner via llama.cpp/ggml) ist davon
+   NICHT abgedeckt:** hybrid mit CPU-Fallback, aber aktuell mit
+   runtime: nvidia in der Box — CPU-vs-GPU-RTF ist NICHT gemessen
+   (anderer Workload: ganze Aufnahme statt kurzer Segmente). ps-post
+   wird daher zunächst mit optionaler small-GPU geplant; eine
+   Align-CPU-Messung entscheidet, ob CPU-only-Instanzen reichen
+   (offener Messpunkt, siehe tasks.md).
 
 ## Lösung
 
@@ -44,9 +49,10 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
   moonshine…), Modell + Runtime + Worker-Wrapper. GPU-Klasse: small
   (12 GB, z. B. RTX 3060/4070). Gibt Hypothese + Wort-Timestamps zurück.
 - **ps-post**: Diarization + Aligner in EINEM Image (Supervisor: zwei
-  Prozesse). KEINE GPU-Pflicht: Diar läuft CPU-only (empirisch schneller),
-  Aligner ist ggml-hybrid mit CPU-Fallback → CPU-only-Instanzen genügen;
-  GPU (small) nur optional für den Align-Schritt. Nimmt Audio +
+  Prozesse). Diar: CPU-only (empirisch belegt, PR #364). Aligner: hybrid
+  (ggml), CPU-Fallback vorhanden, aber CPU-vs-GPU-RTF UNGEMESSEN →
+  zunächst mit optionaler small-GPU geplant; CPU-only-Instanz erst nach
+  erfolgreicher Align-CPU-Messung (Messpunkt in tasks.md). Nimmt Audio +
   Hypothese, liefert Segmente mit Sprechern.
 - **Dispatcher**: Bestandteil der webapp (oder eigener Service) — vermittelt
   Jobs an Instanzen, verwaltet Lebenszyklus, wählt Provider/Region/Klasse.

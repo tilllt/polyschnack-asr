@@ -30,13 +30,14 @@
   Images: (1) `ps-asr-<backend>` — genau ein ASR-Modell je Image, GPU-Klasse
   small (12 GB, z. B. RTX 3060/4070), liefert Hypothese + Wort-Timestamps;
   (2) `ps-post` — Diarization + Aligner in einem Image (Supervisor: zwei
-  Prozesse), KEINE GPU-Pflicht (Diar CPU-only, Aligner ggml-hybrid mit
-  CPU-Fallback — empirische PR-Erkenntnis), liefert Segmente mit Sprechern.
+  Prozesse). Diar CPU-only (belegt, PR #364); Aligner ggml-hybrid,
+  CPU-RTF ungemessen → optional small-GPU, CPU-only erst nach Messung
+  (tasks.md), liefert Segmente mit Sprechern.
   Die webapp bleibt lokal und übernimmt Orchestrierung und Verschlüsselung.
 - **Warum:** Diar/Align ist modell-unabhängig und existiert dadurch genau
   einmal statt in jedem ASR-Image; schlanke ASR-Images erlauben die
-  günstige 12-GB-GPU-Klasse; ps-post kann auf CPU-only-Instanzen laufen
-  (Diar ist auf CPU schneller als auf GPU — kein GPU-Zwang);
+  günstige 12-GB-GPU-Klasse; Diar ist auf CPU schneller als auf GPU
+  (belegt), Align-CPU-RTF ist offener Messpunkt;
   Stufen können unabhängig skaliert werden.
 - **Architektur:** Images aus den bestehenden Builds abgeleitet
   (ASR-Backends einzeln, crispr-diar + crispr-align zu ps-post kombiniert).
@@ -47,8 +48,8 @@
 - **Eingaben:** Job-Paket Stufe 1 (Audio-Chiffre), Job-Paket Stufe 2
   (Audio-Chiffre + Hypothese-Chiffre).
 - **Ergebnis:** Stufe 1 gibt Hypothese zurück, Stufe 2 daraus die fertigen
-  Segmente; Stufe 1 läuft auf einer small-GPU-Instanz, Stufe 2 auf einer
-  CPU-only-Instanz (Diar) mit optionaler kleiner GPU (Align).
+  Segmente; Stufe 1 läuft auf einer small-GPU-Instanz, Stufe 2 mit
+  small-GPU oder CPU-only (Align-CPU-Messung entscheidet, tasks.md).
 
 ### Requirement: Dispatcher mit Provider-Abstraktion
 
