@@ -688,8 +688,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
-              className="absolute -left-0.5 z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
-                text-accent bg-white/70 border-2 border-accent
+              className="absolute left-[10px] z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
+                text-accent bg-white/70
                 hover:bg-accent/15 hover:scale-110 active:scale-95
                 shadow-sm transition-all"
               style={{
@@ -706,19 +706,21 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
               aria-label={t("split_segment_title")}
               data-testid="split-anchor-btn"
             >
-              {/* flaticon 81881 horizontal-split: zwei auseinandergezogene Haelfte.
-                  viewBox auf 26 erweitert → Icon sitzt zentriert im Kreis,
-                  ragt nicht mehr über den Rand hinaus. Fix 2026-08-18:
-                  Icon 18px statt 14px + dickere Elemente — war zu klein und
-                  zu fein, das Symbol war im Outline-Kreis kaum erkennbar. */}
-              <svg width="18" height="18" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden
-                style={{ width: 18, height: 18, flexShrink: 0 }}>
-                <path d="M12 3l4 4H8l4-4z" fill="currentColor" />
-                <path d="M12 7.5v3" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
-                <rect x="3" y="10.5" width="18" height="4" rx="1.2" fill="currentColor" />
-                <rect x="3" y="16.9" width="18" height="4" rx="1.2" fill="currentColor" />
-                <path d="M12 21v-3" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
-                <path d="M12 21l-4-4h8l-4 4z" fill="currentColor" />
+              {/* Split-Symbol 2026-08-18 (User-Design, drop.n0ne.de/u/V1T5ih.svg):
+                  Kreis + zwei auseinandergezogene Haelfte mit Balken und
+                  Pfeil nach aussen. Schwarz → currentColor (accent #5b8cff),
+                  passt damit automatisch zum Theme. viewBox 1000er, gerendert
+                  24px im 26px-Kreis. */}
+              <svg width="24" height="24" viewBox="0 0 1000 1000" aria-hidden
+                style={{ width: 24, height: 24, flexShrink: 0 }}
+                fillRule="evenodd" clipRule="evenodd" strokeLinecap="round" strokeLinejoin="round" strokeMiterlimit={1.5}>
+                <g transform="matrix(1,0,0,0.985989,-151.73878,-162.200475)">
+                  <circle cx="651.739" cy="671.611" r="457.508" fill="none" stroke="currentColor" strokeWidth={67.14} />
+                </g>
+                <path d="M823.718,565.929L823.718,640.288L176.282,640.288L176.282,565.929L823.718,565.929ZM500,640.288L501.282,818.494M500,818.494L438.462,735.16L561.538,735.16L500,818.494Z" fill="currentColor" stroke="currentColor" strokeWidth={35.42} />
+                <g transform="matrix(-1,-0,0,-1,1000,1008.782035)">
+                  <path d="M823.718,565.929L823.718,640.288L176.282,640.288L176.282,565.929L823.718,565.929ZM500,640.288L501.282,818.494M500,818.494L438.462,735.16L561.538,735.16L500,818.494Z" fill="currentColor" stroke="currentColor" strokeWidth={35.42} />
+                </g>
               </svg>
             </button>
           )}
