@@ -827,7 +827,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
               onPointerCancel={onSplitSegment ? () => setTouchSel(null) : undefined}
               data-split-container
             >
-              {seg.words && seg.words.length > 0 && (hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
+              {/* Fix 2026-08-18: Wort-Spans IMMER rendern, wenn Split möglich
+                  (onSplitSegment) — vorher nur bei hasConfidence ODER aktivem
+                  Segment (currentTime != null). Beim ersten Laden war
+                  currentTime null → nur Fließtext → keine data-word-index
+                  Spans → Markieren/Split ging erst nach einem Playback-Zyklus.
+                  Ohne Confidence/Playback bleibt die Optik identisch
+                  (confidenceClass liefert ""). */}
+              {seg.words && seg.words.length > 0 && (onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
                     const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
                     // Change 013 (Tablet): eigene Touch-Markierung hervorheben.
