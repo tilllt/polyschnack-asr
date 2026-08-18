@@ -24,9 +24,13 @@
 
 ## Phase 3 — ps-post + Stufe-2-Backends (EU-only, wenn Konzept steht)
 - [ ] **Messpunkt Align-CPU:** RTF-Vergleich qwen3-forced-aligner (ggml)
-      CPU-only vs. CUDA auf derselben Test-Aufnahme — entscheidet, ob
-      ps-post auf CPU-only-Instanzen laufen kann (Diar: belegt CPU;
-      Align: ungemessen). Bis dahin ps-post mit optionaler small-GPU.
+      auf derselben Testaufnahme: CPU vs. CUDA × f16 vs. q4-k-m (OpenVoiceOS-
+      Quantisierung, ~1 GB statt 1,8 GB; Community-Parität laut Perplexity-
+      Recherche 2026-08-18) — entscheidet, ob ps-post auf CPU-only-Instanzen
+      laufen kann und ob die quantisierte Variante reicht (Qualität an
+      Wortgrenzen mitmessen, nicht nur RTF). Bis dahin ps-post mit
+      optionaler small-GPU. Lizenz-Hinweis: Seamless (deutsch-besser) ist
+      CC-BY-NC → NICHT kommerziell nutzbar; Qwen3 (Apache 2.0) bleibt.
 - [ ] ps-post-Image (crispr-diar + crispr-align kombiniert, Supervisor)
 - [ ] `dispatcher/backends/nebius.py` + `dispatcher/backends/verda.py`
       (Verda: öffentliche Pricing-API A6000 0,61 $/h / spot 0,305 $/h)
