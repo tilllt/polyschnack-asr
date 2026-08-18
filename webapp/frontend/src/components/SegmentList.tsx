@@ -649,23 +649,25 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 setSplitPopoverOpen(true);
                 setSplitSpeakerOpen(false);
               }}
-              className="absolute -left-0.5 z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
-                bg-accent text-white shadow-lg shadow-accent/40 ring-2 ring-white/30
-                hover:bg-accent/85 hover:scale-110 active:scale-95
+              className="absolute -left-0.5 z-20 w-[24px] h-[24px] rounded-full flex items-center justify-center flex-shrink-0
+                text-accent bg-transparent border border-accent/60
+                hover:bg-accent/10 hover:border-accent hover:scale-110 active:scale-95
                 transition-all"
-              style={{ top: Math.max(0, splitAnchor.y - 13) }}
+              style={{ top: Math.max(0, splitAnchor.y - 12) }}
               title={t("split_segment_title")}
               aria-label={t("split_segment_title")}
               data-testid="split-anchor-btn"
             >
-              {/* flaticon 81881 horizontal-split: zwei auseinandergezogene Haelfte */}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M12 2.5l4.5 4.5h-9L12 2.5z" fill="currentColor" />
-                <path d="M12 7v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                <rect x="2.5" y="10" width="19" height="4" rx="1" fill="currentColor" />
-                <rect x="2.5" y="17" width="19" height="4" rx="1" fill="currentColor" />
+              {/* flaticon 81881 horizontal-split: zwei auseinandergezogene Haelfte.
+                  viewBox auf 26 erweitert → Icon sitzt zentriert im Kreis,
+                  ragt nicht mehr über den Rand hinaus. */}
+              <svg width="14" height="14" viewBox="-1.5 -1.5 27 27" fill="none" aria-hidden>
+                <path d="M12 3l4 4H8l4-4z" fill="currentColor" />
+                <path d="M12 7.5v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                <rect x="3" y="10.5" width="18" height="3.6" rx="1" fill="currentColor" />
+                <rect x="3" y="16.9" width="18" height="3.6" rx="1" fill="currentColor" />
                 <path d="M12 21v-3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                <path d="M12 21.5l-4.5-4.5h9L12 21.5z" fill="currentColor" />
+                <path d="M12 21l-4-4h8l-4 4z" fill="currentColor" />
               </svg>
             </button>
           )}
