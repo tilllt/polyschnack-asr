@@ -354,18 +354,56 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // frame-genau und driftfrei, weil nie ein Timer akkumuliert.
       let rafId: number | null = null;
       let lastT = -1;
-      const syncLoop = () => {
+      const doSync = () => {
         const t = ws.getCurrentTime();
         if (Math.abs(t - lastT) >= 0.025) {
           lastT = t;
           setCurrentTime(t);
           onTimeUpdateRef.current?.(t);
         }
+      };
+      const syncLoop = () => {
+        doSync();
         rafId = ws.isPlaying() ? requestAnimationFrame(syncLoop) : null;
       };
       const startSync = () => {
         if (rafId == null) rafId = requestAnimationFrame(syncLoop);
       };
+      // ── Fix 2026-08-18 (Change 019): rAF stoppt im Hidden-Tab, das
+      // WebAudio-Playback läuft aber weiter → die Karaoke-Anzeige fror ein
+      // und sprang beim Zurückkehren akkumuliert nach (Eindruck von
+      // Playback-Drift). Im Hintergrund pollt stattdessen ein 500-ms-
+      // Interval (Feuert im Hidden-Tab weiter), beim Visible sofortiger
+      // Resync + rAF-Neustart. Zeitquelle bleibt NUR ws.getCurrentTime().
+      let bgPollId: number | null = null;
+      const stopBgPoll = () => {
+        if (bgPollId != null) {
+          window.clearInterval(bgPollId);
+          bgPollId = null;
+        }
+      };
+      const onVisibility = () => {
+        if (document.hidden) {
+          if (rafId != null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          if (bgPollId == null) {
+            bgPollId = window.setInterval(() => {
+              if (!ws.isPlaying()) {
+                stopBgPoll();
+                return;
+              }
+              doSync();
+            }, 500);
+          }
+        } else {
+          stopBgPoll();
+          doSync(); // sofortiger Resync — kein akkumulierter Sprung
+          if (ws.isPlaying()) startSync();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
 
       wsRef.current = ws;
       regionsRef.current = regions;
@@ -374,6 +412,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         window.clearInterval(decodePoll);
         window.clearTimeout(canPlayTimeout);
         if (rafId != null) cancelAnimationFrame(rafId);
+        stopBgPoll();
+        document.removeEventListener("visibilitychange", onVisibility);
         releaseExclusivePlayback(me);
         ws.destroy();
       };
