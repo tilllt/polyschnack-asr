@@ -307,11 +307,13 @@ export async function updateSegment(
 export async function updateRecordingTitle(
   recordingId: string,
   title: string,
+  signal?: AbortSignal,
 ): Promise<{ uid: string; title: string; original_name: string }> {
   const res = await fetch(`/api/recordings/${recordingId}/title`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
+    signal,
   }).then(checkOk);
   return res.json();
 }

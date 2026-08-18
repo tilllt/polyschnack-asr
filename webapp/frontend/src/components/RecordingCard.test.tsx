@@ -137,7 +137,22 @@ describe("RecordingCard — Change 014 Titel", () => {
     const input = screen.getByPlaceholderText("Title…");
     fireEvent.change(input, { target: { value: "Neuer Titel" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-    expect(updateRecordingTitle).toHaveBeenCalledWith("r1", "Neuer Titel");
+    expect(updateRecordingTitle).toHaveBeenCalledWith(
+      "r1", "Neuer Titel", expect.any(AbortSignal),
+    );
+  });
+
+  test("hängender Save blockiert den Exit nicht (Fix 2026-08-18)", () => {
+    // Request, der NIE zurückkommt — vorher blieb der Edit-Mode gefangen
+    // (Lock-Guard verschluckte Klick/Enter/Blur), jetzt schließt er immer.
+    vi.mocked(updateRecordingTitle).mockReturnValue(new Promise(() => {}));
+    renderCard(makeRec());
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    const input = screen.getByPlaceholderText("Title…");
+    fireEvent.change(input, { target: { value: "Neuer Titel" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" }); // Save startet (hängt)
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" }); // erneuter Exit-Versuch
+    expect(screen.queryByPlaceholderText("Title…")).toBeNull();
   });
 
   test("unveränderter Draft speichert nicht", () => {

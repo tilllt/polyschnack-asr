@@ -208,20 +208,33 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [titleDraft, setTitleDraft] = useState("");
   const titleSaveLock = useRef(false);
   async function handleTitleSave() {
-    if (titleSaveLock.current) return;
     const next = titleDraft.trim();
     if (!next || next === (r.title ?? r.original_name)) {
       setEditingTitle(false);
       return;
     }
+    if (titleSaveLock.current) {
+      // Fix 2026-08-18: Ein Save läuft bereits — der Edit-Mode muss trotzdem
+      // verlassen werden können (Klick/Enter/Haken dürfen NIE blockieren).
+      setEditingTitle(false);
+      return;
+    }
     titleSaveLock.current = true;
+    // Timeout: ein hängender Request (Server antwortet nicht) darf den
+    // Edit-Mode nicht dauerhaft blockieren — nach 20 s Abbruch + Meldung.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
-      await updateRecordingTitle(r.uid, next);
+      await updateRecordingTitle(r.uid, next, ctrl.signal);
       toast(t("title_saved"), "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
-      toast(`${t("title_save_error")}: ${(e as Error).message}`, "err");
+      const msg = ctrl.signal.aborted
+        ? t("title_save_timeout")
+        : (e as Error).message;
+      toast(`${t("title_save_error")}: ${msg}`, "err");
     } finally {
+      clearTimeout(timer);
       titleSaveLock.current = false;
       setEditingTitle(false);
     }
