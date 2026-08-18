@@ -73,10 +73,18 @@ Rechtslage eindeutig (kein US-Vertragspartner, keine US-Gerichtsbarkeit
 Unternehmen mit Zugriff an, nicht an den GPU-Standort. vast.ai verwaltet
 die gemieteten Instanzen technisch (Portal, SSH-Proxy, Container-Lifecycle)
 und ist damit ein US-„covered provider" mit Zugriffsweg auf die Instanz —
-auch wenn die GPU bei einem EU-Host steht. „EU-Instanz über US-Marktplatz"
-ist deshalb rechtlich NICHT gleichwertig mit „Instanz direkt bei einem
-EU-Anbieter" (Hetzner/Nebius/Verda/Scaleway: kein US-Vertragspartner mit
-Instanz-Zugriff).
+auch wenn die GPU bei einem EU-Host steht. Reale Zugriffswege (in der
+Betriebspraxis verifiziert): Container-Logs per `request_logs`, SSH-Keys
+per `POST /instances/{id}/ssh/`, SSH-Proxy, Lifecycle-API (Reboot/Start/
+Destroy), Port-Tunnel. Kein Confidential Computing, keine Attestation.
+„EU-Instanz über US-Marktplatz" ist deshalb rechtlich NICHT gleichwertig
+mit „Instanz direkt bei einem EU-Anbieter" (Hetzner/Nebius/Verda/Scaleway:
+kein US-Vertragspartner mit Instanz-Zugriff).
+
+**Konsequenz für den Worker-Wrapper:** Logs auf Metadaten begrenzen
+(Job-ID, Status, Laufzeit) — nie Audio-Pfade, Wort-Hypothesen oder
+Job-Inhalte nach stdout/stderr, damit selbst der Log-Zugriffsweg leer
+bleibt.
 
 Interface `InferenceBackend` (Python-Protokoll):
 
