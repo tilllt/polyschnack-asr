@@ -8,8 +8,14 @@
 
 ## Phase 1 — PoC (nach Freigabe)
 - [ ] `worker/crypto.py`: AES-256-GCM (encrypt/decrypt), tmpfs-Helfer
-- [ ] PoC-Messung auf vast 3060 (EU): Parakeet laden, Testjob, VRAM-Peak +
+- [x] PoC-Messung auf vast 3060 (EU): Parakeet laden, Testjob, VRAM-Peak +
       RTF loggen (belegt 12-GB-Eignung, gemessen statt geschätzt)
+      — **Ergebnis 18.08. (Instanz 48049284, RTX 3060, CZ, 0,109 $/h):
+      RTF 0,335 (13,9 s Audio → 4,66 s), VRAM-Peak 2.911 MiB, Server bereit
+      in 20 s, Transkription korrekt (de-DE), Kosten ~0,01 $, Instanz
+      destruiert. Gemessen statt geschätzt: ASR-Stufe läuft auf 12-GB-Karte
+      mit >2× Echtzeit.** (Betriebs-Lektionen dabei: runtype-Semantik +
+      onstart-Muster im Skill vast-ai-gpu-instances dokumentiert.)
 - [ ] `dispatcher/backends/base.py` + `local_backend.py` (Box = Backend)
 - [ ] Queue-Stufen-Orchestrierung in webapp (Stufe 1 → Stufe 2)
 
