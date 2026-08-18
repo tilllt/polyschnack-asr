@@ -908,7 +908,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                   (confidenceClass liefert ""). */}
               {seg.words && seg.words.length > 0 && (onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
                 ? (() => {
-                    const activeW = currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
+                    const activeW = i === activeIdx && currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
                     // Change 013 (Tablet): eigene Touch-Markierung hervorheben.
                     const ts = touchSel && touchSel.idx === i ? touchSel : null;
                     return seg.words!.map((w, wi) => {

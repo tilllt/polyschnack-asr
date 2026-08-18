@@ -62,6 +62,12 @@ export function activeWordIndex(
   if (!words || words.length === 0) return -1;
   const t = currentTime + leadS;
   if (t < words[0].start) return -1;
+  // Fix 2026-08-18: Nach dem Ende des LETZTEN Wortes ist KEIN Wort mehr
+  // aktiv (-1). Vorher klebte das letzte Wort für alle t >= last.start —
+  // bei Segmenten, deren Zeitbereich komplett vor currentTime lag, wurde
+  // dadurch fälschlich das letzte Wort markiert (Doppel-Highlight + der
+  // Autoscroll sprang zum ersten data-active-word im DOM, d.h. nach oben).
+  if (t >= words[words.length - 1].end) return -1;
   let idx = 0;
   for (let i = 0; i < words.length; i++) {
     if (t >= words[i].start) idx = i;
@@ -124,7 +130,15 @@ export function nextWordTarget(
   if (!seg) return null;
   const words = seg.words ?? [];
   if (words.length === 0) return null;
-  const aw = currentTime >= 0 ? activeWordIndex(words, currentTime) : -1;
+  const awRaw = currentTime >= 0 ? activeWordIndex(words, currentTime) : -1;
+  // Fix 2026-08-18: activeWordIndex liefert jetzt -1, sobald currentTime
+  // nach dem letzten Wort-Ende liegt (kein Kleben). Für die Navigation
+  // bedeutet „nach dem letzten Wort des Segments" aber weiterhin „das
+  // letzte Wort ist das aktive" — sonst würde dir=1 am Segmentende zum
+  // ersten Wort des SELBEN Segments springen statt zum nächsten Segment.
+  const aw = awRaw < 0 && currentTime >= words[words.length - 1].end
+    ? words.length - 1
+    : awRaw;
 
   if (dir === 1) {
     // erstes Wort im selben Segment, sonst erstes Wort des nächsten Segments

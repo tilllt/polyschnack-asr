@@ -1054,7 +1054,28 @@ def get_audio_preview(
 
     preview = getattr(rec, "preview_path", None)
     if not preview or not Path(preview).exists():
-        raise HTTPException(status_code=410, detail="preview not available yet")
+        # Fix 2026-08-18: Preview synchron nachgenerieren (best-effort).
+        # Vorher 410 → das Frontend fiel auf die volle Audio-Datei zurück;
+        # bei langen Aufnahmen lud der Player dann die ganze WAV (und der
+        # readyFetch parallel ein zweites Mal) → „loading audio“ endlos.
+        # Einmalig dauert der Request länger (ffmpeg 64-kbps), danach
+        # existiert das Sidecar und alle weiteren Aufrufe sind schlank.
+        try:
+            from ..peaks import compute_preview_path
+
+            src = Path(rec.stored_path)
+            if src.exists():
+                generated = compute_preview_path(src)
+                if generated and Path(generated).exists():
+                    rec.preview_path = str(generated)
+                    rec.preview_size_bytes = Path(generated).stat().st_size
+                    session.add(rec)
+                    session.commit()
+                    preview = generated
+        except Exception:
+            log.exception("preview: synchron generate failed rid=%s", rid)
+        if not preview or not Path(preview).exists():
+            raise HTTPException(status_code=410, detail="preview not available yet")
 
     return FileResponse(
         str(preview),

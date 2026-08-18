@@ -286,17 +286,39 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         isPlaying: () => ws.isPlaying(),
         isReady: () => canPlayRef.current,
       };
-      // Abspielbarkeit: eigener Audio-Fetch als Lade-Indikator (2026-08-16).
-      // WaveSurfer-Interna sind im Peaks-Pfad nicht aussagekräftig: `ready`/
-      // `decode` feuern sofort aus den Server-Peaks, bevor die Datei geladen
-      // ist, und `canplay`/readyState des WebAudio-Elements sind in Chromium
-      // unzuverlässig (feuern teils vor dem Laden bzw. gar nicht erneut).
-      // Der zweite Fetch wird vom HTTP-Cache bedient (WaveSurfer lädt die
-      // gleiche URL); `setCanPlay` öffnet Play + schließt die Meldung.
-      const readyFetch = fetch(audioUrl)
-        .then((r) => { if (!r.ok) throw new Error("audio load failed"); return r.arrayBuffer(); })
-        .then(() => { if (!cancelled) setCanPlay(true); })
-        .catch(() => { /* WaveSurfer meldet eigene Ladefehler */ });
+      // Abspielbarkeit (Fix 2026-08-18): Polling auf ws.getDecodedData()
+      // statt zweitem Fetch. Der alte readyFetch lud die Audio-URL ein
+      // ZWEITES Mal — parallel zum WaveSurfer-internen Fetch, also KEIN
+      // Cache-Treffer: bei langen Aufnahmen (volle WAV ohne Preview)
+      // doppelter Download → „loading audio“ drehte sich scheinbar ewig.
+      // getDecodedData() ist der ECHTE decodierte Buffer: null, bis die
+      // Datei dekodiert ist (ready/decode-Events feuern im Peaks-Pfad
+      // vorher aus den Server-Peaks — deshalb kein Event, sondern Polling).
+      const decodePoll = window.setInterval(() => {
+        if (cancelled) return;
+        try {
+          if (ws.getDecodedData()) {
+            window.clearInterval(decodePoll);
+            setCanPlay(true);
+          }
+        } catch {
+          window.clearInterval(decodePoll);
+        }
+      }, 300);
+      // Timeout-Netz: wird canPlay nie true (Netz hängt, Datei fehlt,
+      // Decode schlägt fehl), kommt ein SICHTBARER Fehler statt eines
+      // Endlos-Spinners („stille Fehler inakzeptabel“, 2026-08-18).
+      // 90s, weil der Server die Preview-MP3 beim ersten Zugriff synchron
+      // generieren kann (ffmpeg) — der Request dauert dann einmalig länger.
+      const canPlayTimeout = window.setTimeout(() => {
+        if (cancelled) return;
+        window.clearInterval(decodePoll);
+        if (!canPlayRef.current) {
+          setError(true);
+          setReady(true);
+          onLoadErrorRef.current?.();
+        }
+      }, 90000);
       // Beim Mount als aktiven Player merken (zuletzt geöffnete Card) —
       // damit der globale Play/Stop-Shortcut (Space) ein Ziel hat, auch
       // bevor je ein Play lief. Cleanup gibt die Exklusivität frei.
@@ -349,7 +371,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       regionsRef.current = regions;
       return () => {
         cancelled = true;
-        readyFetch.catch(() => {}); // Unbenutztes Promise stillstellen
+        window.clearInterval(decodePoll);
+        window.clearTimeout(canPlayTimeout);
         if (rafId != null) cancelAnimationFrame(rafId);
         releaseExclusivePlayback(me);
         ws.destroy();

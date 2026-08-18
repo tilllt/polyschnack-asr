@@ -52,7 +52,16 @@ describe("activeWordIndex (lückenlose Karaoke-Markierung — Glitch-Fix)", () =
     expect(activeWordIndex(words, 0.99, 0)).toBe(0);
     expect(activeWordIndex(words, 1.0, 0)).toBe(1); // exakte Grenze → nächstes
     expect(activeWordIndex(words, 2.0, 0)).toBe(2);
-    expect(activeWordIndex(words, 5.0, 0)).toBe(2); // nach dem Ende → letztes
+  });
+
+  it("nach dem letzten Wort-Ende → -1 (kein Kleben, Fix 2026-08-18)", () => {
+    // Vorher klebte das letzte Wort für alle t >= last.start — dadurch
+    // markierten SEGMENTE VOR currentTime fälschlich ihr letztes Wort
+    // (Doppel-Highlight; Autoscroll sprang zum ersten data-active-word,
+    // d.h. nach oben). Nach dem Ende ist KEIN Wort mehr aktiv.
+    expect(activeWordIndex(words, 3.0, 0)).toBe(-1);
+    expect(activeWordIndex(words, 5.0, 0)).toBe(-1);
+    expect(activeWordIndex(words, 2.99, 0)).toBe(2); // letztes Wort läuft noch
   });
 
   it("KEIN Glitch bei Timestamp-Lücken (kein Wort-Ausfall, leadS=0)", () => {
@@ -247,6 +256,11 @@ describe("nextWordTarget (Cursor ←/→ Wort-Navigation)", () => {
   });
   it("ArrowRight am Ende der Transkription: null", () => {
     expect(nextWordTarget(segs, 2, 9.5, 1)).toBeNull();
+  });
+  it("ArrowRight nach dem Segment-Ende: nächstes Segment (Fix 2026-08-18)", () => {
+    // t=6.0 liegt hinter Segment 0 (Ende 5.0) — activeWordIndex liefert
+    // dort -1; die Navigation muss trotzdem zum nächsten Segment springen.
+    expect(nextWordTarget(segs, 0, 6.0, 1)).toEqual({ segIdx: 1, wIdx: 0 });
   });
   it("ArrowLeft: vorheriges Wort im Segment", () => {
     expect(nextWordTarget(segs, 0, 1.2, -1)).toEqual({ segIdx: 0, wIdx: 0 });

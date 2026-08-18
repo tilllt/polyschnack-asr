@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { RecordingCard } from "./RecordingCard";
+import { RecordingCard, resolveAudioUrl } from "./RecordingCard";
 import type { Recording } from "../api";
 import { updateRecordingTitle } from "../api";
 
@@ -58,7 +58,13 @@ vi.mock("./Toasts", () => ({
 }));
 
 // Schwere Komponenten, die bei kollabierter Karte nicht gerendert werden:
-vi.mock("./WaveformPlayer", () => ({ WaveformPlayer: () => null }));
+// WaveformPlayer fängt die Props für URL-Tests ab (audioUrl-Fallback).
+vi.mock("./WaveformPlayer", () => ({
+  WaveformPlayer: (props: { audioUrl?: string; onLoadError?: () => void }) => {
+    (window as unknown as Record<string, unknown>).__wsProps = props;
+    return null;
+  },
+}));
 vi.mock("./SegmentList", () => ({ SegmentList: () => null }));
 vi.mock("./SegmentSearch", () => ({ SegmentSearch: () => null }));
 vi.mock("./FeatureToggles", () => ({
@@ -102,10 +108,10 @@ function makeRec(over: Partial<Recording> = {}): Recording {
   };
 }
 
-function renderCard(rec: Recording) {
+function renderCard(rec: Recording, collapsed = true) {
   return render(
     <LocaleProvider>
-      <RecordingCard recording={rec} compact defaultCollapsed />
+      <RecordingCard recording={rec} compact defaultCollapsed={collapsed} />
     </LocaleProvider>,
   );
 }
@@ -158,6 +164,23 @@ describe("RecordingCard — Change 014 Titel", () => {
     renderCard(makeRec({ title: "aufnahme.wav" }));
     // Nur der Titel-Span trägt den Text — keine zweite Datei-Zeile.
     expect(screen.getAllByText("aufnahme.wav")).toHaveLength(1);
+  });
+});
+
+describe("RecordingCard — resolveAudioUrl (Fix 2026-08-18)", () => {
+  test("nutzt deterministische Preview-URL, wenn audio_preview_url fehlt", () => {
+    expect(resolveAudioUrl({ audio_preview_url: null, audio_url: "/api/audio/r1", uid: "r1" }, false))
+      .toBe("/api/recordings/r1/audio/preview");
+  });
+
+  test("nutzt audio_preview_url, wenn die Preview existiert", () => {
+    expect(resolveAudioUrl({ audio_preview_url: "/api/recordings/r1/audio/preview", audio_url: "/api/audio/r1", uid: "r1" }, false))
+      .toBe("/api/recordings/r1/audio/preview");
+  });
+
+  test("Fallback auf die volle Datei nach previewFailed (einmalig)", () => {
+    expect(resolveAudioUrl({ audio_preview_url: null, audio_url: "/api/audio/r1", uid: "r1" }, true))
+      .toBe("/api/audio/r1");
   });
 });
 

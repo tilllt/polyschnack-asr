@@ -31,6 +31,21 @@ function etaFromRate(rateMsPerPct: number | null, pct: number): string {
 
 type EtaRef = { pct: number; ts: number; rate: number | null };
 
+/** Fix 2026-08-18: Audio-URL des Players. IMMER zuerst die schlanke
+ *  64-kbps-MP3-Preview anfordern — der Server generiert das Sidecar beim
+ *  ersten Zugriff synchron (recordings.py get_audio_preview).
+ *  `audio_preview_url` ist im Recording-Objekt nur gesetzt, wenn die
+ *  Preview schon existiert; die URL ist aber deterministisch konstruierbar.
+ *  Erst wenn die Preview fehlschlägt (onLoadError → previewFailed), wird
+ *  EINMAL auf die volle Datei zurückgefallen. */
+export function resolveAudioUrl(
+  rec: { audio_preview_url?: string | null; audio_url: string; uid: string },
+  previewFailed: boolean,
+): string {
+  if (previewFailed) return rec.audio_url;
+  return rec.audio_preview_url ?? `/api/recordings/${rec.uid}/audio/preview`;
+}
+
 /** Rate aus dem letzten Fortschrittssprung des Polls ableiten und ETA rendern. */
 function updateEta(ref: { current: EtaRef }, pct: number): string {
   const now = Date.now();
@@ -244,6 +259,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Aufteilung (resegment.ts ←→ service.resegment_by_duration).
   const [segMaxDuration, setSegMaxDuration] = useState<number | null>(null);
   const [waveformError, setWaveformError] = useState(false);
+  // Fix 2026-08-18: IMMER zuerst die 64-kbps-MP3-Preview anfordern — der
+  // Server generiert das Sidecar beim ersten Zugriff synchron (recordings.py
+  // get_audio_preview). audio_preview_url ist im Recording-Objekt nur
+  // gesetzt, wenn die Preview schon existiert; die URL ist aber
+  // deterministisch konstruierbar. Erst wenn die Preview fehlschlägt
+  // (410/Netz), fällt der Player EINMAL auf die volle Datei zurück.
+  const [previewFailed, setPreviewFailed] = useState(false);
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [r.uid]);
   const dlRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { t } = useT();
@@ -886,15 +911,20 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         {loadWaveform ? (
           <WaveformPlayer
             ref={wsRef}
-            // Schlanke 64-kbps-MP3-Preview fürs Playback (kein Voll-Download
-            // der WAV); Fallback auf die volle Datei, solange die Preview
-            // noch nicht generiert ist.
-            audioUrl={r.audio_preview_url ?? r.audio_url}
+            // Fix 2026-08-18: Schlanke 64-kbps-MP3-Preview fürs Playback
+            // (kein Voll-Download der WAV). Die URL wird deterministisch
+            // gebaut (Server generiert das Sidecar synchron beim ersten
+            // Zugriff); Fallback auf die volle Datei NUR wenn die Preview
+            // fehlschlägt (onLoadError → previewFailed).
+            audioUrl={resolveAudioUrl(r, previewFailed)}
             peaks={r.waveform_peaks}
             durationHint={r.duration_s}
             onTimeUpdate={handleTimeUpdate}
             onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
-            onLoadError={() => setWaveformError(true)}
+            onLoadError={() => {
+              setWaveformError(true);
+              if (!previewFailed) setPreviewFailed(true);
+            }}
             onPlayStateChange={setIsPlaying}
           />
         ) : (
