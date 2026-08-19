@@ -171,7 +171,7 @@ build-canary:
     - test-webapp
 
 # voxtral (CrispASR voxtral4b, Change 029): hybrides CrispASR-Image mit
-# Mistral Voxtral-Mini-4B-Realtime-2602 (Q8_0-GGUF, handy-computer).
+# Mistral Voxtral-Mini-4B-Realtime-2602 (Q8_0-GGUF, cstr/voxtral-mini-4b-realtime-GGUF).
 # CrispASR-basierte Voxtral-Option — ersetzt das vLLM-Backend (Hang-Bug
 # vllm-project/vllm #52926). Verifiziert: v0.8.29-Binary hat voxtral4b.
 build-voxtral:
@@ -325,7 +325,7 @@ mirror-github:
     - build-voxtral
     - build-whisper-crisp
 
-# GHCR-Mirror: spiegelt alle 10 Images von Harbor nach ghcr.io/tilllt/…
+# GHCR-Mirror: spiegelt alle 12 Images von Harbor nach ghcr.io/tilllt/…
 # (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
 # Harbor bleibt die private Dev-Registry. Tags: latest + SHA. Die Builds sind
 # idempotent (ci_smart_build.sh: SHA-Guard) — ein Re-Run derselben Pipeline
@@ -366,3 +366,6 @@ mirror-ghcr:
     - build-cpp
     - build-moonshine-de
     - build-canary
+    - build-whisper
+    - build-voxtral
+    - build-whisper-crisp
