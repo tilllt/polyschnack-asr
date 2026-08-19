@@ -60,6 +60,12 @@ class _Settings:
     #: Benchmark-Daten (versionierte Manifeste + Audio) — gemountetes Volume.
     BENCHMARK_DATA_DIR: Path = Path(os.getenv("BENCHMARK_DATA_DIR", str(Path(os.getenv("DATA_DIR", "/data")) / "benchmark")))
 
+    #: Shared-Key-Auth für Benchmark-Self-Service (Change 031): kommaseparierte
+    #: Keys für GET /package, /package/sha256 und POST /submit. Leer = Endpunkte
+    #: deaktiviert (503). Runner (vast.ai) nutzt denselben Wert als
+    #: BENCHMARK_API_KEY.
+    BENCHMARK_API_KEYS: str = os.getenv("BENCHMARK_API_KEYS", "")
+
     #: Base URL of the ASR inference service (no trailing slash).
     #: Env-Var = Backend-ID (Option C): PS_PK_ONNX_URL.
     ASR_URL: str = os.getenv("PS_PK_ONNX_URL", "http://ps-pk-onnx:5092").rstrip("/")

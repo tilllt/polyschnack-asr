@@ -3,6 +3,7 @@ GET /api/benchmark/package[/sha256] + POST /api/benchmark/submit."""
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -14,6 +15,7 @@ import pytest
 
 _tmp = tempfile.mkdtemp(prefix="benchmark_submit_test_")
 os.environ.setdefault("DATA_DIR", _tmp)
+os.environ.setdefault("BENCHMARK_API_KEYS", "test-key-123")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -95,7 +97,7 @@ def client(tmp_path: Path, monkeypatch):
 
 
 def test_package_returns_tarball_with_sha_header(client):
-    r = client.get("/api/benchmark/package")
+    r = client.get("/api/benchmark/package", headers=_auth_headers())
     assert r.status_code == 200
     assert r.headers.get("content-type", "").startswith("application/gzip")
     sha_hdr = r.headers.get("x-benchmark-sha256", "")
@@ -107,19 +109,19 @@ def test_package_returns_tarball_with_sha_header(client):
 
 
 def test_package_deterministic(client):
-    a = client.get("/api/benchmark/package").content
-    b = client.get("/api/benchmark/package").content
+    a = client.get("/api/benchmark/package", headers=_auth_headers()).content
+    b = client.get("/api/benchmark/package", headers=_auth_headers()).content
     assert a == b  # Byte-identisch (sortiert, mtime=0)
 
 
 def test_package_sha256_endpoint(client):
-    r = client.get("/api/benchmark/package/sha256")
+    r = client.get("/api/benchmark/package/sha256", headers=_auth_headers())
     assert r.status_code == 200
     d = r.json()
     assert d["version"] == 1
     assert d["sha256"] == package_hash(Path(settings.BENCHMARK_DATA_DIR))
     # Konsistenz mit dem Tarball-Header
-    hdr = client.get("/api/benchmark/package").headers["x-benchmark-sha256"]
+    hdr = client.get("/api/benchmark/package", headers=_auth_headers()).headers["x-benchmark-sha256"]
     assert hdr == f"v1:{d['sha256']}"
 
 
@@ -133,8 +135,8 @@ def test_package_404_without_data(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
     with TestClient(app) as c:
-        assert c.get("/api/benchmark/package").status_code == 404
-        assert c.get("/api/benchmark/package/sha256").status_code == 404
+        assert c.get("/api/benchmark/package", headers=_auth_headers()).status_code == 404
+        assert c.get("/api/benchmark/package/sha256", headers=_auth_headers()).status_code == 404
 
 
 # ── POST /api/benchmark/submit ────────────────────────────────────────────
@@ -162,8 +164,32 @@ def _submit_body(backend: str = "crispr-ark", sha: str | None = None,
     }
 
 
+_TEST_KEY = "test-key-123"
+
+
+def _auth_headers(body: dict | None = None, raw: bytes | None = None) -> dict:
+    """Shared-Key-Header (Change 031): Bearer + optionale Body-Signatur.
+
+    raw: exakt die Bytes, die gesendet werden (content=raw, wie der Runner).
+    """
+    h = {"Authorization": f"Bearer {_TEST_KEY}"}
+    if body is not None:
+        raw = raw if raw is not None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        h["X-Benchmark-Signature"] = hmac.new(
+            _TEST_KEY.encode(), raw, hashlib.sha256).hexdigest()
+    return h
+
+
+def _post_submit(client, body: dict):
+    """POST /submit mit content=raw + Signatur (identisch zum vast.ai-Runner)."""
+    raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    headers = _auth_headers(body, raw=raw)
+    headers["Content-Type"] = "application/json"
+    return client.post("/api/benchmark/submit", content=raw, headers=headers)
+
+
 def test_submit_ok_updates_results(client):
-    r = client.post("/api/benchmark/submit", json=_submit_body())
+    r = _post_submit(client, _submit_body())
     assert r.status_code == 200
     d = r.json()
     assert d["ok"] is True
@@ -189,7 +215,7 @@ def test_submit_ok_updates_results(client):
 
 
 def test_submit_hash_mismatch_409(client):
-    r = client.post("/api/benchmark/submit", json=_submit_body(sha="f" * 64))
+    r = _post_submit(client, _submit_body(sha="f" * 64))
     assert r.status_code == 409
     d = r.json()
     assert d["ok"] is False
@@ -200,12 +226,12 @@ def test_submit_hash_mismatch_409(client):
 
 
 def test_submit_version_mismatch_409(client):
-    r = client.post("/api/benchmark/submit", json=_submit_body(version=99))
+    r = _post_submit(client, _submit_body(version=99))
     assert r.status_code == 409
 
 
 def test_submit_unknown_backend_422(client):
-    r = client.post("/api/benchmark/submit", json=_submit_body(backend="no-such-backend"))
+    r = _post_submit(client, _submit_body(backend="no-such-backend"))
     assert r.status_code == 422
     assert r.json()["ok"] is False
 
@@ -222,20 +248,71 @@ def test_submit_without_data_404(tmp_path, monkeypatch):
     with TestClient(app) as c:
         # sha explizit setzen — der Default würde package_hash auf das leere
         # Verzeichnis anwenden und im Test (nicht im Server) fehlschlagen.
-        r = c.post("/api/benchmark/submit", json=_submit_body(sha="0" * 64))
+        r = _post_submit(c, _submit_body(sha="0" * 64))
         assert r.status_code == 404
 
 
 def test_submit_twice_updates_pool(client):
     """Zwei Submits desselben Backends: Pooling über beide Runs (Mittelwert)."""
-    client.post("/api/benchmark/submit", json=_submit_body(run_id="run-a"))
+    _post_submit(client, _submit_body(run_id="run-a"))
     body = _submit_body(run_id="run-b")
     body["rows"][2]["wer"] = 0.0  # zweiter Lauf besser
     body["rows"][2]["cer"] = 0.0
-    r = client.post("/api/benchmark/submit", json=body)
+    r = _post_submit(client, body)
     assert r.status_code == 200
     latest = json.loads((Path(settings.BENCHMARK_DATA_DIR) / "results" / "latest.json").read_text())
     row = latest["rows"][0]
     assert row["n_samples"] == 6  # beide Runs gepoolt
     # Run A: WER (0+0+1)/3 · Run B: (0+0+0)/3 → Summe 1.0 über 6 Samples
     assert row["wer"] == pytest.approx(1.0 / 6)
+
+
+# ── Shared-Key-Auth (Change 031) ─────────────────────────────────────────
+
+
+def test_package_requires_key_401(client):
+    assert client.get("/api/benchmark/package").status_code == 401
+    assert client.get("/api/benchmark/package/sha256").status_code == 401
+
+
+def test_package_wrong_key_401(client):
+    h = {"Authorization": "Bearer falscher-key"}
+    assert client.get("/api/benchmark/package", headers=h).status_code == 401
+    assert client.get("/api/benchmark/package/sha256", headers=h).status_code == 401
+
+
+def test_package_not_configured_503(client, monkeypatch):
+    monkeypatch.setattr(settings, "BENCHMARK_API_KEYS", "")
+    r = client.get("/api/benchmark/package", headers=_auth_headers())
+    assert r.status_code == 503
+
+
+def test_submit_without_key_401(client):
+    body = _submit_body()
+    r = client.post("/api/benchmark/submit", json=body)
+    assert r.status_code == 401
+
+
+def test_submit_missing_signature_401(client):
+    body = _submit_body()
+    r = client.post("/api/benchmark/submit", json=body,
+                    headers={"Authorization": f"Bearer {_TEST_KEY}"})
+    assert r.status_code == 401
+
+
+def test_submit_bad_signature_401(client):
+    body = _submit_body()
+    h = _auth_headers(body)
+    h["X-Benchmark-Signature"] = "0" * 64
+    r = client.post("/api/benchmark/submit", json=body, headers=h)
+    assert r.status_code == 401
+
+
+def test_submit_signature_binds_to_key(client):
+    """Signatur muss mit dem Key im Bearer-Header passen (nicht keys[0])."""
+    body = _submit_body()
+    raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    sig_other = hmac.new(b"anderer-key", raw, hashlib.sha256).hexdigest()
+    h = {"Authorization": f"Bearer {_TEST_KEY}", "X-Benchmark-Signature": sig_other}
+    r = client.post("/api/benchmark/submit", json=body, headers=h)
+    assert r.status_code == 401

@@ -15,6 +15,8 @@ Admin (require_admin):
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +43,45 @@ def _require_data() -> BenchmarkService:
     except FileNotFoundError:
         raise HTTPException(404, "no benchmark data available")
     return svc
+
+
+# ── Shared-Key-Auth (Change 031) ─────────────────────────────────────────
+
+def _benchmark_keys() -> List[str]:
+    """Konfigurierte Keys (kommasepariert, getrimmt). Leer = deaktiviert."""
+    return [k.strip() for k in settings.BENCHMARK_API_KEYS.split(",") if k.strip()]
+
+
+def _authenticated_key(request: Request) -> Optional[str]:
+    """Gibt den authentifizierten Key zurück oder None (401-würdig)."""
+    keys = _benchmark_keys()
+    if not keys:
+        raise HTTPException(503, "benchmark api not configured")
+    auth = request.headers.get("Authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.lower().startswith("bearer ") else ""
+    if not token:
+        return None
+    for k in keys:
+        if hmac.compare_digest(token, k):
+            return k
+    return None
+
+
+def require_benchmark_key(request: Request) -> None:
+    """Dependency: Shared-Key für Backend↔Webapp-Endpunkte (package/submit)."""
+    if _authenticated_key(request) is None:
+        raise HTTPException(401, "invalid benchmark key")
+
+
+async def _verify_submit_signature(request: Request, key: str) -> None:
+    """HMAC-SHA256 über den rohen Body (X-Benchmark-Signature, hex)."""
+    sig = request.headers.get("X-Benchmark-Signature", "").strip()
+    if not sig:
+        raise HTTPException(401, "missing signature")
+    raw = await request.body()  # Starlette cached den Body (auch nach Parsing)
+    expected = hmac.new(key.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(401, "invalid signature")
 
 
 # ── Öffentliche GET-Routen ────────────────────────────────────────────────
@@ -168,7 +209,7 @@ def versions() -> Dict[str, Any]:
 # ── Selbstbedienung (Change 030): Paket + Hash + Submit ───────────────────
 
 
-@router.get("/package")
+@router.get("/package", dependencies=[Depends(require_benchmark_key)])
 def package() -> Response:
     """Tarball der aktuellen Benchmark-Version (manifest + audio + preview)
     mit SHA-256 im Header ``X-Benchmark-SHA256`` (``v<N>:<hex>``)."""
@@ -190,7 +231,7 @@ def package() -> Response:
     )
 
 
-@router.get("/package/sha256")
+@router.get("/package/sha256", dependencies=[Depends(require_benchmark_key)])
 def package_sha256() -> Dict[str, Any]:
     """Leichtgewichtiger Paket-Hash (Vorab-Prüfung durch Backends)."""
     svc = _require_data()
@@ -224,12 +265,17 @@ class BenchmarkSubmit(BaseModel):
 
 
 @router.post("/submit")
-def submit(body: BenchmarkSubmit) -> Any:
-    """Backend meldet Benchmark-Ergebnisse selbstständig (erstmal offen).
+async def submit(request: Request, body: BenchmarkSubmit) -> Any:
+    """Backend meldet Benchmark-Ergebnisse (Shared-Key + Body-Signatur, Change 031).
 
-    Validierung: manifest_version + manifest_sha256 gegen die aktuelle
-    Version (409 bei Mismatch), Backend-Name gegen backends.yaml (422).
+    Auth: Authorization: Bearer <key> (BENCHMARK_API_KEYS) plus
+    X-Benchmark-Signature: HMAC-SHA256(key, roher Body). Validierung wie 030:
+    manifest_version + manifest_sha256 (409), Backend-Name (422).
     """
+    key = _authenticated_key(request)
+    if key is None:
+        raise HTTPException(401, "invalid benchmark key")
+    await _verify_submit_signature(request, key)
     svc = _require_data()
     payload = body.model_dump()
     payload["rows"] = [r.model_dump() for r in body.rows]
