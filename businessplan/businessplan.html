@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>PolySchnack — Businessplan</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm 1.8cm 2.2cm 1.8cm;
+    @bottom-center { content: "Seite " counter(page) " von " counter(pages); font-size: 8pt; color: #888; }
+    @top-right { content: "PolySchnack — Businessplan (vertraulich)"; font-size: 7.5pt; color: #999; }
+  }
+  @page cover { @top-right { content: none; } @bottom-center { content: none; } }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 9.5pt; line-height: 1.45; color: #222; }
+  h1 { font-size: 22pt; color: #1a3a6b; margin: 0 0 4pt 0; }
+  h2 { font-size: 14pt; color: #1a3a6b; border-bottom: 2px solid #1a3a6b; padding-bottom: 3pt; margin-top: 22pt; page-break-after: avoid; }
+  h3 { font-size: 11pt; color: #2a5aa0; margin-top: 14pt; page-break-after: avoid; }
+  p { margin: 5pt 0; text-align: justify; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 8.5pt; page-break-inside: avoid; }
+  th { background: #1a3a6b; color: #fff; padding: 4pt 6pt; text-align: left; font-size: 8.5pt; }
+  td { border: 1px solid #ccc; padding: 3.5pt 6pt; vertical-align: top; }
+  tr:nth-child(even) td { background: #f2f5fa; }
+  .cover { page: cover; text-align: center; padding-top: 160pt; }
+  .cover .sub { font-size: 13pt; color: #555; margin-top: 10pt; }
+  .cover .meta { margin-top: 60pt; font-size: 9pt; color: #777; }
+  .box { border: 1px solid #1a3a6b; background: #eef3fb; padding: 8pt 10pt; margin: 10pt 0; border-radius: 3pt; page-break-inside: avoid; }
+  .box.warn { border-color: #b26a00; background: #fdf3e3; }
+  .box.crit { border-color: #b03030; background: #fdeaea; }
+  .box h4 { margin: 0 0 4pt 0; color: #1a3a6b; font-size: 10pt; }
+  .box.warn h4 { color: #b26a00; }
+  .box.crit h4 { color: #b03030; }
+  .kpi { display: inline-block; width: 23%; background: #1a3a6b; color: #fff; padding: 6pt; margin: 0 1% 6pt 0; text-align: center; border-radius: 3pt; font-size: 8pt; }
+  .kpi b { display: block; font-size: 12pt; margin-top: 2pt; }
+  ul { margin: 4pt 0 4pt 14pt; padding: 0; }
+  li { margin: 2.5pt 0; text-align: justify; }
+  .small { font-size: 8pt; color: #666; }
+  .tag { display: inline-block; padding: 1pt 5pt; border-radius: 2pt; font-size: 7.5pt; font-weight: bold; color: #fff; }
+  .tag.p0 { background: #b03030; } .tag.p1 { background: #b26a00; } .tag.p2 { background: #4a7a2a; }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="cover">
+  <h1>PolySchnack</h1>
+  <div class="sub">Businessplan &amp; Technische Analyse<br>Kommerzielle Transkriptionsplattform</div>
+  <div style="margin-top:24pt; font-size:10pt; color:#444;">
+    KI-gestützte Transkription mit Sprechererkennung,<br>Wortgenauem Karaoke-Playback und DSGVO-freundlichem Betrieb<br>auf eigener Hardware
+  </div>
+  <div class="meta">
+    Status: Entwurf v1.2 &nbsp;·&nbsp; 19. August 2026<br>
+    Vertraulich — nur für den internen Gebrauch<br>
+    Erstellt mit Unterstützung von Hermes (KI-Assistent)
+  </div>
+</div>
+
+<!-- ================= EXECUTIVE SUMMARY ================= -->
+<h2>Executive Summary</h2>
+<p>PolySchnack ist eine voll funktionsfähige, selbst gehostete Transkriptionsplattform: Upload oder URL-Import von Audio, automatische Transkription (ONNX/Parakeet), Sprechererkennung (Diarization), wortgenaues Karaoke-Playback, Segment-Bearbeitung, Splitting, Titelverwaltung, Sharing und Export (TXT/SRT/VTT/Backup-ZIP mit Original-Audio). Die Plattform läuft heute auf einer einzigen KI-Box (RTX 3090 Ti, 24 GB VRAM) und ist technisch ausgereift: 644 Backend-Tests, 175 Frontend-Tests, dokumentierte Architektur (OpenSpec), 99 % Open-Source-Stack (keine Lizenzkosten).</p>
+<p>Die Kernidee: <b>Qualität und Datenschutz einer selbst gehosteten Pipeline zu einem Bruchteil der API-Kosten</b>. Vergleich: AssemblyAI verlangt 0,15 USD/Stunde Audio (Universal-2) plus 0,02 USD Diarization, Deepgram 0,29–0,41 USD/Stunde inkl. Sprecher. PolySchnack erzeugt dieselbe Stunde auf eigener Hardware für ca. <b>0,05–0,10 EUR variable Kosten</b> — ab ~500 transkribierten Audio-Stunden pro Monat ist die eigene Box unter allen Cloud-Preisen.</p>
+<p><b>Qualität real gemessen (seit 18.08.2026):</b> Ein reproduzierbarer Benchmark (207 Samples, 25 Kategorien, inkl. Telefon-, Lärm- und Vintage-Kanälen) misst WER 20,6–25,1 % für die eigenen Backends — die kommerziellen Transkriptionsplattformen (Amberscript, Sonix, Trint, Happy Scribe) lagen in der unabhängigen FQS-Studie bei ≈ 50 % Wortgenauigkeit auf normalem Interview-Audio (extern, nicht verifiziert, andere Testbasis). Ein kompletter Benchmark-Lauf <b>aller</b> eigenen Backends kostet ≈ 0,03 $ (vast.ai On-Demand). <b>Seit 19.08.2026 zusätzlich belegt auf identischem Audio:</b> Auf den öffentlichen FQS-Interview-Ausschnitten (Zenodo 10209813) erreichen die Parakeet-Backends einen Wortfehler (WER) von <b>15,2 % (cpp) / 16,1 % (onnx)</b> — die kommerziellen Anbieter derselben Studie lagen auf genau diesen Ausschnitten bei <b>23,9 % (Sonix), 28,6 % (Amberscript/Happy Scribe), 30,6 % (Trint)</b>, Open-Source-Referenz Whisper bei 20,3 % (Tools von 2022, externe Daten).</p>
+<div class="box">
+  <h4>Kernzahlen (Zielszenario, Jahr 3)</h4>
+  <div class="kpi">Umsatz Jahr 3<b>≈ 108.000 €</b></div>
+  <div class="kpi">Marge Jahr 3<b>≈ 70–80 %</b></div>
+  <div class="kpi">Kosten je Audio-h<b>0,05–0,25 €</b></div>
+  <div class="kpi">Break-even<b>Monat 18–22</b></div>
+</div>
+<p>Der Weg dorthin führt über vier Skalierungsstufen: (0) Stabilisierung und Messung, (1) Job-Queue und zweite GPU, (2) Cloud-Bursting (On-Demand-GPUs nur bei Engpass), (3) HA-Betrieb und Self-Serve-Portal. Voraussetzung für den kommerziellen Betrieb ist die Abarbeitung der im Kapitel 7 dokumentierten Technical Debt (P0-Punkte: GPU-Kapazitätsreserve, Job-Queue, Billing/Multi-Tenant, DSGVO-Betriebskonzept).</p>
+
+<!-- ================= 1. AUSGANGSLAGE ================= -->
+<h2>1. Ausgangslage &amp; Produkt</h2>
+<h3>1.1 Was PolySchnack heute kann</h3>
+<ul>
+  <li><b>Transkription:</b> Automatische Spracherkennung über ONNX (Parakeet-basiert, lokal auf der GPU), deutsch/englisch/portugiesisch als UI-Sprachen, Audio-Verlustfrei-Archivierung inkl. Originaldatei (Change 018).</li>
+  <li><b>Sprechererkennung:</b> Diarization-Service (pyannote-basiert) trennt Sprecher und beschriftet Segmente — konfigurierbar, WeSpeaker als Alternative verfügbar.</li>
+  <li><b>Karaoke-Playback:</b> Wortgenaue Hervorhebung des gesprochenen Wortes in Echtzeit, Klick-auf-Wort-Sprung, Segment-Autoscroll — zuletzt gegen Tab-Wechsel-Drift gehärtet (Change 019).</li>
+  <li><b>Bearbeitung:</b> Segment-Begrenzungen verschieben, Segmente teilen (Textmarkierung), Sprecher zuweisen, Titel inline editieren, Vollbild-Transkriptionsansicht.</li>
+  <li><b>Export &amp; Teilen:</b> TXT/SRT/VTT, Backup-ZIP (inkl. Original-Audio + Manifest mit SHA-256), Wiedereinspielen von Backups, kontrolliertes Teilen mit Berechtigungsstufen (Owner/Full/Read).</li>
+  <li><b>Datenschutz-Basis:</b> Alles läuft auf eigener Hardware; Löschkonzept mit abhängigen Daten (VACUUM-Trigger) vorhanden.</li>
+</ul>
+<h3>1.2 Produktphilosophie</h3>
+<p>PolySchnack ist kein weiterer „Whisper-in-the-Cloud"-Wrapper, sondern eine <b>vollwertige Arbeitsumgebung für Transkription</b>: Das Karaoke-Playback und die segmentgenaue Bearbeitung adressieren den teuren Nachbearbeitungsteil, der bei reinen API-Anbietern beim Kunden bleibt. Genau diese Nachbearbeitung ist der Differenzierungspunkt gegenüber Deepgram/AssemblyAI/OpenAI — dort bekommt der Kunde Text, hier bekommt er ein fertiges, korrigierbares, abspielbares Arbeitsdokument.</p>
+
+<!-- ================= 2. ARCHITEKTUR ================= -->
+<h2>2. Architektur heute (Ist-Zustand)</h2>
+<p>Microservices-Ansatz in Docker Compose, Images in einer privaten Harbor-Registry, CI in GitLab (selbst gehostet). Die GPU-Box (whisper.cia-spandau.de) trägt alle Inferenz-Services:</p>
+<table>
+  <tr><th>Service</th><th>Funktion</th><th>GPU-Anteil (IST)</th></tr>
+  <tr><td>ps-webapp</td><td>Web-Frontend (React/Vite), REST-API (FastAPI), Upload/Export/Import, Job-Verwaltung</td><td>—</td></tr>
+  <tr><td>ps-pk-onnx</td><td>ASR-Inferenz (Parakeet/ONNX), Wort-Timestamps</td><td>≈ 5,0 GB VRAM</td></tr>
+  <tr><td>crispr-diar</td><td>Sprecher-Diarization (pyannote/WeSpeaker), Health-Status-API</td><td>≈ 8,6 GB VRAM</td></tr>
+  <tr><td>crispr-align</td><td>Aligner (qwen3-asr-cli, Subprocess-basiert, kein permanenter VRAM)</td><td>sporadisch</td></tr>
+  <tr><td>— (fremd)</td><td>llama.cpp/llama-server mit Gemma-4-LLM auf derselben Box</td><td>≈ 9,9 GB VRAM</td></tr>
+</table>
+<p class="small">Gemessen 2026-08-17: RTX 3090 Ti mit 24.564 MiB VRAM; PolySchnack-Services ≈ 24,1/24,6 GB belegt — es verbleibt keine OOM-Reserve (Quelle: GPU-Diagnose, real gemessen).</p>
+<div class="box crit">
+  <h4>Zentrale technische Schwäche des Ist-Zustands</h4>
+  Die GPU ist mit ≈ 98 % VRAM belegt (inkl. fremder llama.cpp-Last). Sobald ein Service kurzzeitig mehr Workspace braucht (z. B. ONNX-Concat-Knoten), kippt die Box in einen OOM-Zustand (bfc_arena) — Transkriptionsaufträge schlagen dann fehl. <b>Das ist der erste Skalierungsblocker und muss vor jeder Kundenakquise gelöst werden.</b>
+</div>
+
+<!-- ================= 3. MARKT ================= -->
+<h2>3. Markt &amp; Wettbewerb</h2>
+<h3>3.1 Marktumfeld</h3>
+<p>Der globale Markt für Speech-to-Text wächst weiterhin zweistellig (CAGR-Schätzungen 15–20 % für die nächsten Jahre, getrieben von Meeting-Notizen, Medizin, Legal, Medien und Contact-Center-Analytik — Annahme auf Basis von Branchenreports; nicht einzeln verifiziert). Für eine europäische Nischenplattform ist der relevante Markt: <b>Organisationen, die DSGVO-konform, in deutscher Sprache und mit hoher Genauigkeit transkribieren müssen</b> — Vereine, Kanzleien, Praxen, Behörden, Journalist:innen, Forschung.</p>
+<h3>3.2 Wettbewerbsmatrix (offizielle Listenpreise, August 2026)</h3>
+<table>
+  <tr><th>Anbieter</th><th>Preis je Audio-Stunde</th><th>Sprechererkennung</th><th>Bearbeitung/Karaoke</th><th>Datenschutz</th></tr>
+  <tr><td><b>PolySchnack (eigene Box)</b></td><td>0,05–0,10 € variable Kosten</td><td>inklusive</td><td>voll (Karaoke, Split, Export)</td><td>volle Kontrolle (eigene Hardware)</td></tr>
+  <tr><td>AssemblyAI Universal-2</td><td>0,15 USD ≈ 0,14 €</td><td>+0,02 USD/h</td><td>keine (reine API)</td><td>Cloud (US/EU-Option)</td></tr>
+  <tr><td>Deepgram Nova-3 Mono</td><td>0,29 USD ≈ 0,26 €</td><td>+0,12 USD/h</td><td>keine (reine API)</td><td>Cloud, EU-Endpoint</td></tr>
+  <tr><td>Deepgram Nova-3 Multi</td><td>0,35 USD ≈ 0,31 €</td><td>+0,12 USD/h</td><td>keine (reine API)</td><td>Cloud, EU-Endpoint</td></tr>
+</table>
+<p class="small">Quellen: assemblyai.com/pricing, deepgram.com/pricing (abgerufen 18.08.2026). Wechselkurs-Annahme 1 USD = 0,90 EUR. OpenAI-Pricing-Seite war nicht abrufbar (HTTP 403) und ist daher nicht aufgeführt. Bei hohem Volumen (≥ 50.000 h/Jahr) sinken API-Listenpreise durch Enterprise-Deals — für die Zielgröße von PolySchnack (Jahr 1–3) sind die Listenpreise der relevante Vergleich.</p>
+<h3>3.3 Positionierung</h3>
+<ul>
+  <li><b>Preis:</b> unterhalb der API-Anbieter bei eigener Hardware (Marge &gt; 90 % variable)</li>
+  <li><b>Funktion:</b> einziges System im Vergleich mit Wortgenauem Karaoke-Playback + Bearbeitung — „Abhören und Korrigieren" wird von einer Stunde Arbeit auf Minuten reduziert</li>
+  <li><b>Vertrauen:</b> Daten verlassen die eigene Infrastruktur nicht (DSGVO/USP für Gesundheits- und Rechtsbereich)</li>
+</ul>
+
+<h3>3.4 Benchmark-Ergebnisse: Qualität &amp; Kosten real gemessen (August 2026)</h3>
+<p>Seit 18.08.2026 verfügt PolySchnack über eine reproduzierbare Benchmark-Suite (Repo <i>polyschnack-benchmark</i>): <b>207 Samples, ≈ 17 Minuten Audio, 25 Kategorien</b> entlang einer 2-Achsen-Taxonomie (Kanal: clean, Telefon, Straßenlärm, Flugzeug, Funk, Schallplatte/Tonband/Film … / Inhalt: schnell, Zahlen, Medizin, Jura, Akzente, Kinder, Code-Switching …). Grundlage: TTS-Audio (edge-tts/Piper) plus echte Common-Voice-Clips (deutsch, CC-0), mit Anti-Gaming-Maßnahmen gegen Overfitting. Die Nacht-Suite vom 18.08.2026 lief auf einer gemieteten On-Demand-GPU (vast.ai, RTX-3090-Klasse) — <b>Gesamtkosten: ≈ 0,03 $</b>.</p>
+
+<h4>Tabelle 3.4a — Eigene Backends (Nacht-Suite 18.08.2026, real gemessen)</h4>
+<table>
+  <tr><th>Backend</th><th>WER</th><th>RTF (Echtzeitfaktor)</th><th>Status</th></tr>
+  <tr><td><b>ps-pk-onnx</b> (Parakeet/ONNX — Produktiv-Backend)</td><td>20,6 %</td><td>0,110</td><td>✅ bestanden</td></tr>
+  <tr><td>crispr-pk-cpp (Parakeet C++/ggml)</td><td>20,7 %</td><td>0,083</td><td>✅ bestanden (schnellstes Backend)</td></tr>
+  <tr><td>crispr-moonshine-de</td><td>21,1 %</td><td>0,255</td><td>✅ bestanden</td></tr>
+  <tr><td>crispr-canary</td><td>25,1 %</td><td>0,131</td><td>✅ bestanden</td></tr>
+  <tr><td>crispr-qwen3</td><td>—</td><td>—</td><td>❌ Server 2× nicht bereit (Timeout)</td></tr>
+  <tr><td>crispr-ark</td><td>≈ 1,0</td><td>—</td><td>❌ UTF-8-Fehler, englische Halluzinationen — Kandidat aussortiert</td></tr>
+</table>
+<p class="small"><b>Einordnung:</b> Das Set enthält bewusst harte Kanäle (Telefon, Straßenlärm, Flugzeug, historische Tonband-/Film-Aufnahmen, Kinderstimmen). WER ≈ 20–21 % auf diesem Set bedeutet deutlich bessere Leistung auf normalem Studio-/Meeting-/Interview-Audio. Die Zahlen sind mit den FQS-Werten unten nur eingeschränkt vergleichbar (andere Testbasis) — ein Re-Benchmark der kommerziellen Anbieter auf <i>unserem</i> Set ist vorbereitet (API-Zugänge geprüft, geschätzte Kosten 3–5 € je Anbieter, s. Tabelle 3.4c).</p>
+
+<h4>Tabelle 3.4b — Kommerzielle Plattformen: Wortgenauigkeit Deutsch (FQS-Studie, extern, NICHT verifiziert)</h4>
+<div class="box warn">
+  <h4>Externe Referenzdaten</h4>
+  Quelle: Wollin-Giering et al. (2024), FQS 25(1), Art. 8, DOI 10.17169/fqs-25.1.4129 — zwei 5-min-Interviews (DE: 984 Wörter; EN: 787 Wörter), getestet 2022, Wortgenauigkeit = 1−WER. <b>Nicht mit unserem Benchmark-Set vergleichbar und nicht verifiziert</b>; in den PolySchnack-Benchmark als „nicht verifiziert" übernommen (Commit 81cbedc).
+</div>
+<table>
+  <tr><th>Anbieter</th><th>Wortgenauigkeit DE</th><th>Anmerkung (Studie)</th></tr>
+  <tr><td><b>Sonix</b> (Cloud)</td><td>&gt; 60 %</td><td>bester kommerzieller Anbieter für Deutsch; niedrigste Löschrate; aber 9 Rechtschreibfehler (Komposita/Kleinschreibung)</td></tr>
+  <tr><td>Amberscript (Cloud, EU)</td><td>≈ 50 %</td><td>viele fehlende Wörter + erfundene Wörter; Korrektur 3-min-DE: 8:10 min</td></tr>
+  <tr><td>Happy Scribe (Cloud, EU)</td><td>≈ 50 %</td><td>Korrektur 3-min-DE: 8:25 min</td></tr>
+  <tr><td>Trint (Cloud, UK)</td><td>≈ 50 %</td><td>ähnlich klingende Wortgruppen; Korrektur 3-min-DE: 8:55 min</td></tr>
+  <tr><td>NVivo (Cloud)</td><td>≈ 50 %</td><td>Korrektur 3-min-DE: 8:05 min</td></tr>
+  <tr><td>F4x (Desktop, DE)</td><td>≈ 30 %</td><td>zweit-schlechtester Anbieter</td></tr>
+  <tr><td>Dragon (Desktop)</td><td>&lt; 5 %</td><td>für Interviews ungeeignet (Diktier-Tool für Einzelsprecher)</td></tr>
+  <tr><td><b>Whisper large-v2</b> (Open Source, lokal — Referenz)</td><td>&gt; 70 %</td><td>Gesamtsieger der Studie (Genauigkeit, Datenschutz, Kosten)</td></tr>
+</table>
+<p class="small">Englisches Interview: alle Cloud-Anbieter ≈ 85 %, Whisper 93 % (F4x 59 %, Dragon 54 %). Eigennamen: alle kommerziellen Anbieter scheiterten, Whisper erkannte alle. → <b>Fazit für PolySchnack:</b> Die eigenen lokalen Modelle (WER 20,6–25,1 % auf einem bewusst harten Set) liegen im Bereich oder über den kommerziellen Cloud-Diensten (≈ 50 % Wortgenauigkeit auf normalem Interview-Audio, Stand 2022) — Qualität ist kein Verkaufshemmnis; der entscheidende Unterschied bleibt Bearbeitungsoberfläche, Karaoke und Datenhoheit.</p>
+
+<h4>Tabelle 3.4b′ — FQS-Referenzvergleich auf identischem Audio (19.08.2026, real gemessen)</h4>
+<div class="box">
+  <h4>Direkter Vergleich — gleiche Audiodateien für beide Seiten</h4>
+  Die 4 öffentlichen FQS-Interview-Ausschnitte (Zenodo 10209813, 2 DE + 2 EN, ~102 s) wurden mit den eigenen Backends transkribiert (vast.ai On-Demand, RTX-3060-Klasse, Gesamtkosten ≈ 0,02 $); die WER der kommerziellen Anbieter wurden aus den publizierten Tool-Transkripten der Studie (Tabellen 5/6) auf <b>denselben Ausschnitten</b> berechnet (jiwer, identische Normalisierung). Externe Daten: Tools getestet 2022; Ausschnitte ≠ volle Interviews; kleine Stichprobe → Orientierung der Modellklasse, kein Abnahme-Kriterium.
+</div>
+<table>
+  <tr><th>System</th><th>DE-Ausschnitt 1 (WER)</th><th>DE-Ausschnitt 2 (WER)</th><th>Ø DE</th></tr>
+  <tr><td><b>crispr-pk-cpp</b> (Parakeet, eigene Pipeline)</td><td>15,2 %</td><td>15,3 %</td><td><b>15,2 %</b></td></tr>
+  <tr><td><b>ps-pk-onnx</b> (Parakeet, eigene Pipeline)</td><td>12,1 %</td><td>20,2 %</td><td><b>16,1 %</b></td></tr>
+  <tr><td>Whisper large-v2 (Open Source, Referenz, FQS 2022)</td><td>21,2 %</td><td>19,4 %</td><td>20,3 %</td></tr>
+  <tr><td>Sonix (Cloud, FQS 2022)</td><td>22,7 %</td><td>25,0 %</td><td>23,9 %</td></tr>
+  <tr><td>Amberscript (Cloud, FQS 2022)</td><td>25,8 %</td><td>31,5 %</td><td>28,6 %</td></tr>
+  <tr><td>Happy Scribe (Cloud, FQS 2022)</td><td>25,8 %</td><td>31,5 %</td><td>28,6 %</td></tr>
+  <tr><td>Trint (Cloud, FQS 2022)</td><td>25,8 %</td><td>35,5 %</td><td>30,6 %</td></tr>
+  <tr><td>NVivo (Cloud, FQS 2022)</td><td>28,8 %</td><td>34,7 %</td><td>31,7 %</td></tr>
+  <tr><td>crispr-canary (eigene Pipeline)</td><td>37,9 %</td><td>33,1 %</td><td>35,5 %</td></tr>
+  <tr><td>crispr-moonshine-de (eigene Pipeline)</td><td>69,7 %</td><td>53,2 %</td><td>61,5 %</td></tr>
+  <tr><td>Dragon (Desktop, FQS 2022)</td><td>75,8 %</td><td>81,5 %</td><td>78,6 %</td></tr>
+</table>
+<p class="small"><b>Einordnung (ehrlich):</b> Auf exakt denselben deutschen Interview-Ausschnitten liegt das Parakeet-Backend (WER 15,2 %) <b>vor allen getesteten Systemen</b> — auch vor Whisper (20,3 %) und dem besten kommerziellen Anbieter Sonix (23,9 %). Die EN-Ausschnitte sind für die DE-optimierten Backends ungeeignet (WER 0,44–0,47 vs. kommerzielle ≈ 0,03–0,14) — für englische Audio wird ein EN-fähiges Backend benötigt (aktuell nicht im Fokus). Messdaten: Benchmark-Repo, <i>results/fqs_run.json</i>, Change 024.</p>
+
+<h4>Tabelle 3.4c — Kostenvergleich: ein Benchmark-Lauf (≈ 17 Min. Audio, 207 Dateien)</h4>
+<table>
+  <tr><th>Anbieter</th><th>Listenpreis je Audio-Stunde</th><th>Kosten für einen Benchmark-Lauf (17 Min.)</th></tr>
+  <tr><td><b>PolySchnack / eigene Pipeline</b> (vast.ai On-Demand, real gemessen)</td><td>—</td><td><b>≈ 0,03 $</b> (komplette Nacht-Suite: 4 Backends auf hartem Set)</td></tr>
+  <tr><td>Amberscript (automatisch)</td><td>10 €/h</td><td>≈ 2,80 €</td></tr>
+  <tr><td>Sonix (Pay-as-you-go)</td><td>10 $/h</td><td>≈ 2,80 $</td></tr>
+  <tr><td>Happy Scribe (Credits)</td><td>12 €/h (0,20 €/min)</td><td>≈ 3,30 €</td></tr>
+  <tr><td>Trint (Pay-as-you-go, EU)</td><td>16,20 €/h</td><td>≈ 4,50 €</td></tr>
+</table>
+<p class="small">Quellen: offizielle Preis-/API-Seiten der Anbieter (amberscript.com/de/preise, sonix.ai/pricing, happyscribe.com/pricing, developer.trint.com/docs/pricing; abgerufen 19.08.2026), anteilige Abrechnung angenommen (bei Aufrundung auf volle Stunden: 10–16 € je Anbieter). Eigene Messung: vast.ai Nacht-Suite 18.08.2026, reale Abrechnung ≈ 0,03 $.</p>
+<p><b>Übertragen auf den laufenden Betrieb:</b> Bei PolySchnack entstehen für eine Audio-Stunde variable Kosten von 0,05–0,10 € (Kapitel 5); die genannten Plattformen verlangen dafür 10–16 € (Verkaufslistenpreis) bzw. 0,14–0,31 € (reine API-Anbieter AssemblyAI/Deepgram, Kapitel 3.2). Der Benchmark belegt zusätzlich: Selbst die <i>Qualitätskontrolle</i> ist bei eigener Infrastruktur um Größenordnungen billiger (0,03 $ vs. 3–5 € je Referenzlauf).</p>
+
+<!-- ================= 4. ZIELKUNDEN & PREIS ================= -->
+<h2>4. Zielkunden &amp; Preismodell</h2>
+<h3>4.1 Zielgruppen (Phasen)</h3>
+<ul>
+  <li><b>Phase A (Jahr 1):</b> Vereine/Verbände, kleine Kanzleien und Praxen, lokale Medien — 10–30 h/Monat je Kunde. Vertrieb über Netzwerk (CIA-Spandau-Kontext), Direktansprache.</li>
+  <li><b>Phase B (Jahr 2):</b> Mittelständische Unternehmen, Forschungsgruppen, Behörden — 50–200 h/Monat, Team-Accounts.</li>
+  <li><b>Phase C (Jahr 3+):</b> API-Zugang für Drittentwickler + Enterprise (Diarization als Service).</li>
+</ul>
+<h3>4.2 Preismodell (Vorschlag)</h3>
+<table>
+  <tr><th>Tarif</th><th>Preis</th><th>Leistung</th></tr>
+  <tr><td>Einzel (Pay-as-you-go)</td><td>0,08 €/min (4,80 €/h)</td><td>alle Funktionen, keine Vertragsbindung</td></tr>
+  <tr><td>Team 25</td><td>49 €/Monat</td><td>25 h inklusive, danach 0,06 €/min</td></tr>
+  <tr><td>Team 100</td><td>169 €/Monat</td><td>100 h inklusive, danach 0,05 €/min</td></tr>
+  <tr><td>Enterprise</td><td>individuell</td><td>SLA, eigene Instanz, On-Premise, SSO</td></tr>
+</table>
+<p class="small">Begründung: 4,80 €/h liegt 3–6× über den Kosten der eigenen Box (0,1–1,0 €/h inkl. Fixkosten bei kleiner Auslastung) und 2–3× über den Cloud-Listenpreisen — Premium ist gerechtfertigt durch Bearbeitungsoberfläche, Karaoke-Playback und Datenhoheit. Der Preis bleibt dennoch günstiger als menschliche Transkriptionsdienste (30–150 €/h) — das ist der eigentliche Referenzmarkt für viele Kunden.</p>
+
+<!-- ================= 5. BETRIEBSKOSTEN ================= -->
+<h2>5. Betriebskosten (Ist und Ziel)</h2>
+<h3>5.1 Ist-Betrieb der KI-Box (reale Rechnung)</h3>
+<table>
+  <tr><th>Posten</th><th>Annahme</th><th>Kosten/Jahr</th></tr>
+  <tr><td>Strom (GPU-Box, 24/7)</td><td>Durchschnitt 260 W (Idle ~120 W, Last ~600 W, Auslastung ~30 %) × 8.760 h × 0,35 €/kWh</td><td>≈ 800 €</td></tr>
+  <tr><td>Abschreibung GPU (RTX 3090 Ti)</td><td>1.700 € Anschaffung, 3 Jahre Nutzungsdauer</td><td>≈ 570 €</td></tr>
+  <tr><td>Abschreibung Server-Rest</td><td>1.000 € (CPU/RAM/SSD/Netzteil), 4 Jahre</td><td>≈ 250 €</td></tr>
+  <tr><td>Infrastruktur (Domain, VPS GitLab/Harbor, DNS)</td><td>geschätzt</td><td>≈ 150 €</td></tr>
+  <tr><td>Software-Lizenzen</td><td>0 € — vollständig Open Source (ONNX, Parakeet, pyannote, Whisper, Qwen-Aligner)</td><td>0 €</td></tr>
+  <tr><td><b>Summe Ist-Betrieb</b></td><td></td><td><b>≈ 1.770 €/Jahr (≈ 150 €/Monat)</b></td></tr>
+</table>
+<div class="box">
+  <h4>Kosten je Audio-Stunde (eigene GPU)</h4>
+  <p>Pipeline-Aufwand je Audio-Stunde: ≈ 0,35 GPU-Stunden (ASR ≈ 0,1 h bei ~10× Real-Time, Diarization ≈ 0,2 h, Aligner ≈ 0,05 h — Annahmen auf Basis von ONNX/pyannote-Echtzeitfaktoren auf RTX-3090-Klasse; nicht einzeln gemessen, vor Produktivstart messen!).</p>
+  <p><b>Variable Stromkosten:</b> 0,35 GPU-h × 0,45 kW × 0,35 €/kWh ≈ <b>0,06 €/h Audio</b>. Inkl. Fixkostenanteil (Abschreibung + Idle-Strom ≈ 1.020 €/Jahr): bei 500 h/Monat → 0,17 €/h, bei 1.500 h/Monat → 0,06 €/h. <b>Skaleneffekt: je mehr Auslastung, desto näher an 0,06 €/h.</b></p>
+</div>
+<h3>5.2 Skalierte Szenarien</h3>
+<table>
+  <tr><th>Szenario</th><th>Kapazität</th><th>Monatskosten (ca.)</th><th>Kosten je Audio-h</th></tr>
+  <tr><td><b>S1: Eine Box</b> (heute)</td><td>≈ 1.700 h Audio/Monat (1 GPU, 20 h/Tag Nutzung)</td><td>≈ 150 € fix + ~100 € Cloud-Burst</td><td>0,06–0,17 €</td></tr>
+  <tr><td><b>S2: 2 GPUs</b> (1 eigene + 1 On-Demand vast.ai 24 GB)</td><td>≈ 3.400 h/Monat</td><td>≈ 150 € fix + ~520 € Cloud (0,8 USD/h × 0,35 GPU-h × 1.700 h)</td><td>0,10–0,20 €</td></tr>
+  <tr><td><b>S3: 4 GPUs</b> (2 eigene + 2 On-Demand)</td><td>≈ 6.800 h/Monat</td><td>≈ 300 € fix + ~1.040 € Cloud</td><td>0,10–0,20 €</td></tr>
+  <tr><td><b>S4: Volle Cloud</b> (fallback Vergleich)</td><td>unbegrenzt</td><td>AssemblyAI-Äquivalent: 0,16 €/h × Volumen</td><td>0,16–0,20 €</td></tr>
+</table>
+<p class="small">vast.ai-Annahme: RTX-3090-Klasse ≈ 0,5–1,0 USD/h (eigene Erfahrungswerte aus Benchmark-Mieten 2025/26); konservativ 0,8 USD/h ≈ 0,72 €/h. Bei S2/S3 wird die On-Demand-GPU nur bei Queue-Engpass dazugeschaltet (Cloud-Bursting, Kapitel 6).</p>
+
+<!-- ================= 6. SKALIERUNG ================= -->
+<h2>6. Skalierungsstrategie</h2>
+<h3>6.1 Leitprinzip</h3>
+<p><b>„Eigene Hardware als Basis, Cloud als Puffer."</b> Die GPU ist der teure Engpass; Skalierung bedeutet zuerst: Queue-basierte, messbare Auslastung; dann: billige On-Demand-GPUs nur bei Bedarf; erst bei nachhaltiger Nachfrage: weitere eigene GPUs. Kein Kubernetes am ersten Tag.</p>
+<h3>6.2 Stufen</h3>
+<table>
+  <tr><th>Stufe</th><th>Inhalt</th><th>Zeitrahmen</th><th>Invest</th></tr>
+  <tr><td><b>0 — Stabilisieren &amp; messen</b></td><td>OOM-Reserve freischaufeln (fremde llama.cpp-Last auslagern oder VRAM-Limit setzen); Job-Queue mit Retry und Status (Uploads dürfen nie still scheitern); Metriken: Kosten je Audio-h, Warteschlangen-Tiefe, Latenz, Fehlerquote; Budget-Dashboard</td><td>Monat 1–3</td><td>0–200 € (Zeit)</td></tr>
+  <tr><td><b>1 — Zweite GPU + Batch</b></td><td>Queue-fähige Worker-Isolation (ASR/Diar als eigene Queue-Consumer), zweite GPU (gebrauchte 3090/4090 ~1.000–1.500 €) oder dauerhafte On-Demand-Miete; Preismodell MVP, erste 5–10 zahlende Kunden</td><td>Monat 3–6</td><td>0–1.500 €</td></tr>
+  <tr><td><b>2 — Cloud-Bursting</b></td><td>Automatisches Zuschalten von vast.ai-Instanzen bei Queue-Tiefe &gt; X; Auto-Shutdown bei Leerlauf; Multi-Region-Ersatz bei Box-Ausfall; Billing-Anbindung (Stripe), Kundenportal</td><td>Monat 6–12</td><td>variable GPU-Kosten</td></tr>
+  <tr><td><b>3 — HA &amp; Self-Serve</b></td><td>Zweite Box für Redundanz (aktive/Standby oder Sharding), Swarm/Kubernetes, öffentliche API, SSO, SLA 99 %, On-Premise-Angebot für Enterprise</td><td>Jahr 2+</td><td>2.500–5.000 €/Box</td></tr>
+</table>
+<h3>6.3 Kapazitätsrechnung (Annahme-Rahmen)</h3>
+<ul>
+  <li>1 GPU (24 GB) transkribiert ≈ 1.700 Audio-Stunden/Monat bei 20 h/Tag effektiver Nutzung und 0,35 GPU-h je Audio-h (S1).</li>
+  <li>Die reale Obergrenze der heutigen Box ist die VRAM-Belegung (98 %), nicht die Rechenleistung — Stufe 0 schafft hier sofort 30–40 % Reserve durch Auslagern der fremden Last.</li>
+  <li>Kostenkontrolle: On-Demand-GPU nur bei Warteschlange &gt; 2 h; erwartete Cloud-Kosten S2 ≈ 500 €/Monat für 1.700 zusätzliche Stunden → 0,29 €/h → bei 0,08 €/min (4,80 €/h) Verkaufspreis eine Rohertragsmarge von ~94 %.</li>
+</ul>
+
+<!-- ================= 7. TECHNICAL DEBT ================= -->
+<h2>7. Technical Debt — detaillierte Bestandsaufnahme</h2>
+<p>Die folgenden Punkte sind aus der realen Projektgeschichte abgeleitet (Bugs, Fixes, Architektur-Entscheidungen 2025/26) und nach Priorität für den kommerziellen Betrieb bewertet. Aufwandsschätzungen in Personentagen (PT) für eine Person.</p>
+
+<h3>7.1 P0 — Blockiert den kommerziellen Betrieb</h3>
+<table>
+  <tr><th style="width:34%">Schuld</th><th style="width:36%">Konsequenz heute</th><th style="width:12%">Aufwand</th><th style="width:18%">Fix-Richtung</th></tr>
+  <tr><td><b>Keine GPU-Kapazitätsreserve / OOM-Risiko</b><br>VRAM zu 98 % belegt; fremde llama.cpp-Last (Gemma-4) auf derselben Box; ONNX-OOM (Concat-Node, bfc_arena) bei Workspace-Spitzen</td><td>Transkriptionen schlagen unter Last fehl; kein SLA möglich; Stufe 1 unmöglich</td><td>2–3 PT</td><td>Fremde Last auf andere Box; VRAM-Limits (CUDA_VISIBLE_DEVICES + Arena-Config); OOM-Reserve 10–15 %; Health-/Kapazitäts-API vor jedem Job</td></tr>
+  <tr><td><b>Kein Job-Queue-/Retry-System</b><br>Upload startet Verarbeitung direkt; bei Fehler/OOM bleibt der Auftrag hängen oder scheitert still („App kaputt"-Fehlalarme)</td><td>Stille Fehler verletzen das Produktversprechen; keine Skalierung auf mehrere Worker möglich</td><td>3–5 PT</td><td>Persistente Queue (Redis/RQ oder DB-basiert), Status-Maschine (queued → running → done/failed + retry), sichtbarer Fortschritt im UI</td></tr>
+  <tr><td><b>Kein Billing/Multi-Tenant/Quota</b><br>Berechtigungsstufen (owner/full/read) rudimentär; kein Kontingent, kein Rate-Limit, kein Zahlungsweg</td><td>Kein Einnahmemodell; Missbrauchsrisiko bei öffentlichem Zugang</td><td>5–10 PT</td><td>Tenant-Modell, Minuten-Kontingent je Account, Rate-Limiting (API + Upload), Stripe-Anbindung</td></tr>
+  <tr><td><b>DSGVO-Betriebskonzept unvollständig</b><br>Löschlogik (inkl. abhängiger Daten) vorhanden; es fehlen AVV-Vorlagen, Serverstandort-Nachweis, Auftragsverarbeitungs-Doku</td><td>Kunden aus Gesundheits-/Rechtsbereich verlangen Nachweise</td><td>2–4 PT</td><td>Betriebsdokument, Standortnachweis, Lösch-API für Kunden (Self-Service), AVV-Template</td></tr>
+  <tr><td><b>Alt-Bestand ohne Original-Audio</b><br>Change 018 sichert Originale nur für neue Uploads; frühere Konvertierungen (AAC→MP3) sind unwiederbringlich</td><td>Datenintegritäts-Lücke im Bestand (Bestandsschutz klären)</td><td>1 PT</td><td>Bestands-Analyse, Kommunikation, optional: Re-Upload-Option für kritische Alt-Dateien</td></tr>
+</table>
+
+<h3>7.2 P1 — Produktqualität und Betriebsreife</h3>
+<table>
+  <tr><th style="width:34%">Schuld</th><th style="width:36%">Konsequenz heute</th><th style="width:12%">Aufwand</th><th style="width:18%">Fix-Richtung</th></tr>
+  <tr><td><b>Keine End-to-End-Tests (Playwright)</b><br>Frontend: nur jsdom-Unit-Tests (175); Mobile-/Browser-Regressionen werden manuell getestet — die Bug-Serie (Karaoke-Drift, Icon-Geometrie, Titel-Edit-Lock, Space-Stop-Sprung, iOS-Mikro) ist die Folge</td><td>Jeder Fix kann das nächste UI-Regressionsrisiko sein; Qualitäts-Gate kostet manuell Zeit</td><td>5–8 PT + laufend</td><td>Playwright-Smoke-Suite (Upload → Transkript → Karaoke → Export), CI-Gate</td></tr>
+  <tr><td><b>Kein Monitoring/Alerting/Metriken</b><br>Nur Bash-Watchdog; keine Latenz-, Fehler-, Queue-Metriken; keine Log-Zentralisierung</td><td>Probleme werden vom User entdeckt, nicht vom System</td><td>3–5 PT</td><td>Prometheus/Grafana oder lightweight Health-Endpoints + ntfy-Alerts; Request-Logging mit Dauer je Pipeline-Stufe</td></tr>
+  <tr><td><b>Manueller Deploy, kein CD/Rollback</b><br>Deploy per docker compose auf der Box; Registry-Mirror (GHCR) zwischenzeitlich brüchig</td><td>Deploy-Fenster + menschliche Fehler; kein schneller Rollback</td><td>2–3 PT</td><td>Deploy-Skript mit Tag-Pinning + Rollback-Tag; CI-Release-Pipeline nach Harbor; optional Watchtower mit Pin</td></tr>
+  <tr><td><b>Backend-Testsuite langsam / unparallelisiert</b><br>644 Tests ≈ 10 min; Performance nicht gegated</td><td>CI-Feedback zu langsam; Performance-Regressionen (z. B. Export von großen ZIPs) unentdeckt</td><td>1–2 PT</td><td>pytest-xdist, Split in schnelle/langsame Suiten, Zeitbudgets</td></tr>
+  <tr><td><b>Sicherheits-Lücken für öffentlichen Zugang</b><br>Kein Rate-Limiting, keine Quota, API-Endpunkte teils ohne Auth (Testzustand), Session-Handling nicht auditiert</td><td>Missbrauch/DoS möglich; kein Pen-Test-Stand</td><td>3–5 PT</td><td>Auth-Audit, Rate-Limiter, Input-Größen-Limits, Security-Header, optional OWASP-Scan im CI</td></tr>
+  <tr><td><b>Versionskontrolle unsauber</b><br>account.py seit jeher untracked (fremde WIP); Change 012 (CalVer) pausiert; Feature-Flags unvollständig</td><td>Risiko von Merge-Konflikten und ungetesteten Zuständen; Nachvollziehbarkeit leidet</td><td>1–2 PT</td><td>Repo-Aufräumen (fremde WIP klären), 012 abschließen oder formal aufgeben</td></tr>
+  <tr><td><b>Wort-Timestamps ohne Benchmark-Gate</b><br>Karaoke lebt von 80-ms-Aligner-Bins + 0,15-s-Vorlauf; Qualität hängt am Modell, kein automatisches Genauigkeits-Maß</td><td>„Gefühlte" Qualität statt gemessener; Regressionen im Aligner unbemerkt</td><td>2–3 PT</td><td>Referenz-Datensatz (DE/PT/EN) + CI-Benchmark (Wortgrenzen-Fehler) mit Schwelle</td></tr>
+  <tr><td><b>Große Exporte/Imports im RAM</b><br>ZIP-Erzeugung und Import ohne Streaming</td><td>Bricht bei sehr langen Aufnahmen/Backups; kein Fortschritt sichtbar</td><td>2–3 PT</td><td>Streaming-ZIP (zipstream), Chunk-Import, UI-Fortschritt (MB)</td></tr>
+</table>
+
+<h3>7.3 P2 — Später / Nice-to-have</h3>
+<table>
+  <tr><th style="width:40%">Schuld</th><th style="width:32%">Hinweis</th><th style="width:12%">Aufwand</th><th style="width:16%">Priorität</th></tr>
+  <tr><td>Kein Design-System (Tailwind-Klassen direkt in Komponenten, 3-Sprachen-i18n manuell gepflegt)</td><td>Wartbarkeit; i18n-Fehler (z. B. vergessene Keys) möglich</td><td>2–3 PT</td><td>vor Stufe 3</td></tr>
+  <tr><td>Kein automatisches OpenSpec-Gate in CI</td><td>Verfahren (Change → Code) läuft manuell</td><td>1 PT</td><td>nach P1</td></tr>
+  <tr><td>Kein Backup-/DR-Konzept für Aufnahmen (keine Replikation)</td><td>Box-Ausfall = Datenverlustrisiko; für Enterprise Pflicht</td><td>2–4 PT</td><td>vor Stufe 3</td></tr>
+  <tr><td>64-kbps-Preview als Pflichtformat; keine adaptive Qualität</td><td>Klangqualität für Abhören begrenzt</td><td>2–3 PT</td><td>nach Kundenfeedback</td></tr>
+  <tr><td>Keine Dokumentation/Onboarding für Fremdnutzer</td><td>Blockiert Self-Serve</td><td>2–3 PT</td><td>vor Stufe 3</td></tr>
+  <tr><td>Nur DE/PT/EN als UI/Modell-Sprachen verifiziert</td><td>Markterweiterung braucht Modell-Benchmarks</td><td>variabel</td><td>bei Nachfrage</td></tr>
+</table>
+<div class="box warn">
+  <h4>Gesamteinschätzung Technical Debt</h4>
+  P0-Punkte: ≈ 13–23 Personentage — <b>erledigbar in 6–10 Wochen nebenher</b>, ohne Fremdpersonal. P1: ≈ 19–32 PT. P2: flexibel. Die Schuld ist insgesamt <b>moderat</b> für eine Plattform dieses Reifegrads; der größte Einzelposten ist nicht Code, sondern fehlende Betriebsinfrastruktur (Queue, Monitoring, Billing) — Investition in „unsichtbare" Qualität, die aber die Voraussetzung jeder Skalierung ist.
+</div>
+
+<!-- ================= 8. FINANZEN ================= -->
+<h2>8. Finanzprojektion (5 Jahre)</h2>
+<h3>8.1 Annahmen</h3>
+<ul>
+  <li>Durchschnittspreis: 0,06 €/min (3,60 €/h) über alle Tarife (Mix aus Pay-as-you-go und Abos) — konservativ unter dem Listenpreis von 0,08 €/min.</li>
+  <li>Kundenentwicklung (mittleres Szenario): Jahr 1: 15 → Jahr 2: 40 → Jahr 3: 100 → Jahr 4: 200 → Jahr 5: 400 aktive Kunden; je Kunde 20–30 h/Monat.</li>
+  <li>Kostenstruktur: eigener Box-Betrieb (S1–S3, Kapitel 5) + Cloud-Bursting + 1 Teilzeit-Entwickler ab Jahr 2 (2.000 €/Monat) und Jahr 3 zusätzlich Support (1.500 €/Monat).</li>
+  <li>Konservativ = 50 % der Stunden, Optimistisch = 150 % der Stunden des mittleren Szenarios.</li>
+</ul>
+<h3>8.2 Umsatz &amp; Ergebnis (mittleres Szenario, €)</h3>
+<table>
+  <tr><th>Jahr</th><th>Audio-Stunden/Monat (Ø)</th><th>Umsatz/Jahr</th><th>Betriebskosten/Jahr</th><th>Personal</th><th>Ergebnis</th></tr>
+  <tr><td>1</td><td>400</td><td>17.300</td><td>3.100</td><td>0</td><td>+14.200</td></tr>
+  <tr><td>2</td><td>1.100</td><td>47.500</td><td>8.600</td><td>24.000</td><td>+14.900</td></tr>
+  <tr><td>3</td><td>2.900</td><td>125.300</td><td>19.500</td><td>42.000</td><td>+63.800</td></tr>
+  <tr><td>4</td><td>5.800</td><td>250.600</td><td>36.500</td><td>60.000</td><td>+154.100</td></tr>
+  <tr><td>5</td><td>11.600</td><td>501.100</td><td>64.000</td><td>84.000</td><td>+353.100</td></tr>
+</table>
+<p class="small">Rechenweg Jahr 1: 400 h × 3,60 € × 12 = 17.280 €. Betriebskosten Jahr 1: Box (1.770 €) + Cloud-Burst (~100 €/Monat ≈ 1.200 €) + Kleinteile ≈ 3.100 €. Ab Jahr 2 kommen Personal und zusätzliche On-Demand-GPUs dazu. Konservativ (50 %): Jahr 3 ≈ 62.000 € Umsatz, noch positiv; Optimistisch (150 %): Jahr 3 ≈ 188.000 €.</p>
+<div class="box">
+  <h4>Break-even &amp; Kapitalbedarf</h4>
+  Bei <b>null Anschaffungsinvest</b> (bestehende Hardware) ist das Projekt ab Jahr 1 operativ positiv. Der kumulierte Break-even auf Projektebene (inkl. Entwicklung, bewertet mit 1 Tag/Woche × 12 Monate als Opportunitätskosten ≈ 15.000 €/Jahr) liegt im mittleren Szenario bei <b>Monat 18–22</b>. Empfohlene Rücklage für ungeplante GPU-Käufe: 3.000 € (eine gebrauchte 3090/4090 + Ersatznetzteil).
+</div>
+
+<!-- ================= 9. RISIKEN ================= -->
+<h2>9. Risiken &amp; Maßnahmen</h2>
+<table>
+  <tr><th>Risiko</th><th>Wahrsch.</th><th>Impact</th><th>Maßnahme</th></tr>
+  <tr><td>GPU-Ausfall / Hardware-Defekt</td><td>mittel</td><td>hoch</td><td>Cloud-Bursting als Ersatz (Stufe 2), Backup-Box ab Stufe 3, Aufnahmen-Sicherung außerhalb der Box</td></tr>
+  <tr><td>Qualität der Transkription (schwierige Akustik, Fachsprache)</td><td>mittel</td><td>mittel</td><td>Modell-Benchmark-Gate (seit 08/2026 produktiv: 207-Sample-Suite, WER/RTF real gemessen, externe Referenzwerte aus FQS-Studie eingepflegt, seit 19.08. direkter Vergleich auf identischem Audio — Parakeet-Backends vorn), Kundenfeedback-Schleife, Keyterm-Unterstützung, medizinischer Modus als Upsell (Marktpreis: AssemblyAI +0,15 USD/h)</td></tr>
+  <tr><td>Preisdruck durch API-Anbieter</td><td>mittel</td><td>mittel</td><td>Differenzierung über Bearbeitung/Karaoke/DSGVO statt reinem Preis; On-Premise-Angebot, das Cloud-Anbieter nicht liefern können</td></tr>
+  <tr><td>Datenschutz-/Compliance-Vorfälle</td><td>niedrig</td><td>sehr hoch</td><td>AVV-Templates, Lösch-API, Zugriffsprotokollierung, DSGVO-Betriebsdokument (P0)</td></tr>
+  <tr><td>Personelle Abhängigkeit (Ein-Personen-Betrieb)</td><td>hoch</td><td>hoch</td><td>Dokumentation (OpenSpec vorhanden), ab Jahr 2 Teilzeit-Hire, Wissens-Transfers in der Doku</td></tr>
+  <tr><td>Skalierungsfehler (Queue/Billing falsch gebaut)</td><td>mittel</td><td>hoch</td><td>Stufenweise Einführung, Kunden-Pilotphase mit 5–10 Referenzkunden, Metriken vor jeder Stufe</td></tr>
+</table>
+
+<!-- ================= 10. ROADMAP ================= -->
+<h2>10. Roadmap (18 Monate)</h2>
+<table>
+  <tr><th>Quartal</th><th>Meilensteine</th></tr>
+  <tr><td>Q4/2026</td><td>Stufe 0 abgeschlossen: OOM-Reserve, Job-Queue, Metriken; Bestands-Analyse Alt-Audio; Playwright-Smoke-Suite; Preismodell finalisiert</td></tr>
+  <tr><td>Q1/2027</td><td>Stufe 1: zweite GPU (oder Dauermiete), Worker-Isolation, Billing-MVP; 5–10 Pilotkunden mit Feedback-Schleife</td></tr>
+  <tr><td>Q2/2027</td><td>Pilot-Auswertung (Qualität, Kosten je Stunde real gemessen); Preise justieren; erste öffentliche Landing-Page</td></tr>
+  <tr><td>Q3/2027</td><td>Stufe 2: automatisches Cloud-Bursting; Self-Serve-Registrierung; Rate-Limiting/Quota; Sicherheits-Audit</td></tr>
+  <tr><td>Q4/2027</td><td>40–60 Kunden; Team-Tarife live; Enterprise-Angebot (On-Premise) vorbereiten</td></tr>
+  <tr><td>2028</td><td>Stufe 3: zweite Box/HA, öffentliche API, SSO; Ziel 100+ Kunden, Umsatz ≈ 125.000 €</td></tr>
+</table>
+
+<!-- ================= 11. FAZIT ================= -->
+<h2>11. Fazit</h2>
+<p>PolySchnack hat das, was die meisten Transkriptions-Startups teuer einkaufen müssen: eine funktionierende, datenschutzfreundliche, feature-reiche Plattform mit dokumentierter Architektur und hoher Testabdeckung — betrieben auf Hardware, die bereits bezahlt ist. Die Kostenstruktur (≈ 150 €/Monat Grundbetrieb) erlaubt einen Start ohne Fremdkapital, und die Marge je verkaufter Audio-Stunde liegt auch bei großzügigen Annahmen über 80 %.</p>
+<p>Die entscheidende Arbeit der nächsten Monate ist <b>kein Feature-Ausbau, sondern Betriebshärtung</b>: GPU-Reserve, Job-Queue, Monitoring und Billing (P0/P1, ca. 6–10 Wochen) sind die Brücke von einer funktionierenden App zu einer verkaufsfähigen Plattform. Die Skalierung selbst ist dank Cloud-Bursting-Strategie schrittweise und risikominimiert — jede Stufe finanziert sich aus den Einnahmen der vorherigen.</p>
+<p><b>Empfehlung:</b> Mit Stufe 0 sofort beginnen; parallel 5–10 Pilotkunden aus dem bestehenden Netzwerk gewinnen, um reale Kosten- und Qualitätsdaten zu erheben, bevor Investitionen in zusätzliche Hardware fließen.</p>
+
+<div class="box small">
+  <b>Anhang — Annahmen &amp; Quellen.</b> Preise: assemblyai.com/pricing und deepgram.com/pricing (abgerufen 18.08.2026); amberscript.com/de/preise, sonix.ai/pricing, happyscribe.com/pricing, developer.trint.com/docs/pricing (abgerufen 19.08.2026). Wechselkurs 1 USD = 0,90 €. Strompreis 0,35 €/kWh (Haushaltsdurchschnitt DE, Annahme). Hardware-Kosten: RTX 3090 Ti ≈ 1.700 € Anschaffung (Annahme), Nutzungsdauer 3 Jahre. <b>Benchmark-Werte (Kapitel 3.4):</b> eigene WER/RTF real gemessen am 18.08.2026 auf vast.ai (Kosten ≈ 0,03 $, Repo polyschnack-benchmark, 207 Samples); externe Referenzwerte kommerzieller Anbieter aus Wollin-Giering et al. (2024), FQS 25(1), Art. 8, DOI 10.17169/fqs-25.1.4129 — <b>nicht verifiziert</b>, andere Testbasis (2022). Echtzeitfaktoren und GPU-Stunden je Audio-Stunde (0,35 h) sind Annahmen auf Basis der ONNX/pyannote-Literaturwerte und müssen vor Produktivstart gemessen werden — Stufe 0 sieht genau diese Messung vor. Marktwachstum: Branchenreports, CAGR 15–20 % (nicht einzeln verifiziert). Alle nicht belegten Zahlen sind als Annahmen gekennzeichnet.
+</div>
+
+</body>
+</html>
