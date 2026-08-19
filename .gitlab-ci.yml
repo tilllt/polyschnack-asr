@@ -170,6 +170,23 @@ build-canary:
   needs:
     - test-webapp
 
+# whisper (faster-whisper large-v3, OpenAI-kompatible API) — Change 027:
+# Benchmark-Backend + PolySchnack-Container-Einbindung.
+build-whisper:
+  timeout: 30 minutes
+  stage: build
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-whisper" "whisper-service/"
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # ASR-GPU-Image (approach-a, ONNX + CUDA) — das Kern-Backend pk-python.
 # Eigener Job, damit der Webapp-Build nicht hinter dem 60-min-CUDA-Build wartet.
 build-asr:
@@ -267,8 +284,9 @@ mirror-github:
     - build-cpp
     - build-moonshine-de
     - build-canary
+    - build-whisper
 
-# GHCR-Mirror: spiegelt alle 9 Images von Harbor nach ghcr.io/tilllt/…
+# GHCR-Mirror: spiegelt alle 10 Images von Harbor nach ghcr.io/tilllt/…
 # (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
 # Harbor bleibt die private Dev-Registry. Tags: latest + SHA. Die Builds sind
 # idempotent (ci_smart_build.sh: SHA-Guard) — ein Re-Run derselben Pipeline
@@ -282,7 +300,7 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary; do
+    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary -whisper; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
       docker pull "${src}:latest"
