@@ -160,6 +160,53 @@ def test_health_scan_erkennt_78_byte_wav(client):
         assert r.status == "failed"
 
 
+def test_health_scan_uid_none_crasht_nicht(client):
+    """Change 028: Legacy-Recording ohne uid + fehlende Datei → kein TypeError.
+
+    Produktions-Legacy nachstellen: Die Auto-Migration ergänzte die uid-
+    Spalte per ALTER TABLE (nullable) — Bestandszeilen haben uid=NULL.
+    Die Test-DB baut das Modell mit NOT NULL, daher wird die Tabelle hier
+    auf das Legacy-Schema (uid nullable) zurückgebaut.
+    """
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from app.recording_health import run_health_scan
+    from app.config import settings
+    from sqlmodel import Session
+    import datetime as dt
+
+    with engine.begin() as conn:
+        cols = conn.exec_driver_sql("PRAGMA table_info(recording)").fetchall()
+        defs = []
+        for cid, name, typ, notnull, dflt, pk in cols:
+            if name == "uid":
+                defs.append(f'"{name}" {typ}')  # nullable (Legacy)
+            else:
+                nn = " NOT NULL" if notnull and not pk else ""
+                pk_ = " PRIMARY KEY" if pk else ""
+                defs.append(f'"{name}" {typ}{nn}{pk_}')
+        conn.exec_driver_sql("ALTER TABLE recording RENAME TO recording_old")
+        conn.exec_driver_sql(f"CREATE TABLE recording ({', '.join(defs)})")
+        conn.exec_driver_sql("INSERT INTO recording SELECT * FROM recording_old")
+        conn.exec_driver_sql("DROP TABLE recording_old")
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        assert r is not None
+        r.uid = None  # Legacy-Datensatz
+        Path(r.stored_path).unlink()
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    with Session(engine) as s:
+        n = run_health_scan(s, settings.AUDIO_DIR)  # darf nicht werfen
+        assert n == 1
+        r = s.get(Recording, rec["id"])
+        assert r.status == "failed"
+
+
 # ---------------------------------------------------------------------------
 # Lösch-Rechte für Legacy-public
 # ---------------------------------------------------------------------------

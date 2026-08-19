@@ -124,7 +124,8 @@ def run_health_scan(session: Session, audio_dir: Path) -> int:
     """Kurzschluss: Scan + Markieren. Returns number of updated rows."""
     broken = scan_broken_recordings(session, audio_dir)
     if broken:
-        names = ", ".join(b[0].uid[:8] for b in broken[:5])
+        # uid kann bei Legacy-Datensätzen None sein → Fallback "?" (Change 028)
+        names = ", ".join((b[0].uid or "?")[:8] for b in broken[:5])
         log.info("recording health: %d kaputt (%s%s)", len(broken), names,
                  "…" if len(broken) > 5 else "")
     return mark_broken(session, broken)
