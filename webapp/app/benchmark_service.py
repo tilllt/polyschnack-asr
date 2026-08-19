@@ -17,15 +17,29 @@ mutieren die aktuelle Version in-place (updated_at).
 from __future__ import annotations
 
 import copy
+import hashlib
+import io
 import json
 import logging
 import subprocess
+import tarfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from .service_registry import get_service
 
 log = logging.getLogger(__name__)
 
 PREVIEW_BITRATE = "128k"
+
+# Selbstkosten-Annahme €/min je Backend (identisch zu run_container.py —
+# dient als Basis fürs RTF-basierte Pricing nach Submits).
+BACKEND_COST_ASSUMPTION = {
+    "ps-pk-onnx": 0.0002, "crispr-pk-cpp": 0.0002, "crispr-qwen3": 0.0004,
+    "crispr-ark": 0.0006, "crispr-moonshine-de": 0.0001, "crispr-canary": 0.0003,
+    "crispr-voxtral": 0.0004, "crispr-whisper": 0.0002,
+}
 
 
 class BenchmarkService:
@@ -188,6 +202,168 @@ class BenchmarkService:
                 tmp.replace(self._manifest_path(version))
                 return s
         raise KeyError(sample_id)
+
+    # ── Selbstbedienung (Change 030): Paket + Hash + Submit ───────────────
+
+    def package_sha256(self, version: Optional[int] = None) -> str:
+        """Deterministischer Paket-Hash (REQ-WEB-040).
+
+        sha256 über die Verkettung sha256(manifest.json) + je
+        Audio-Datei sha256 (WAVs alphabetisch). Version-gebunden.
+        """
+        if version is None:
+            version = self.latest_manifest()["version"]
+        assert version is not None
+        vdir = self._version_dir(version)
+        mpath = vdir / "manifest.json"
+        if not mpath.exists():
+            raise FileNotFoundError(f"Version v{version} fehlt (manifest.json)")
+        parts = [hashlib.sha256(mpath.read_bytes()).digest()]
+        for wav in sorted((vdir / "audio").glob("*.wav")):
+            parts.append(hashlib.sha256(wav.read_bytes()).digest())
+        return hashlib.sha256(b"".join(parts)).hexdigest()
+
+    def build_package_tarball(self, version: Optional[int] = None) -> bytes:
+        """Tarball der Version: manifest.json + audio/*.wav (+ preview/*.mp3).
+
+        Determinismus: Member alphabetisch, mtime=0, keine UID/GID —
+        Byte-identische Tarballs über Requests hinweg.
+        """
+        if version is None:
+            version = self.latest_manifest()["version"]
+        assert version is not None
+        vdir = self._version_dir(version)
+        rels = ["manifest.json"]
+        rels += sorted(f"audio/{p.name}" for p in (vdir / "audio").glob("*.wav"))
+        preview_dir = vdir / "preview"
+        if preview_dir.is_dir():
+            rels += sorted(f"preview/{p.name}" for p in preview_dir.glob("*.mp3"))
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
+            for rel in rels:
+                p = vdir / rel
+                if not p.is_file():
+                    continue
+                ti = tar.gettarinfo(str(p), arcname=rel)
+                ti.mtime = 0
+                ti.uid = ti.gid = 0
+                ti.uname = ti.gname = ""
+                with open(p, "rb") as f:
+                    tar.addfile(ti, f)
+        return buf.getvalue()
+
+    def apply_submission(self, payload: dict) -> dict:
+        """Validiert + persistiert einen Backend-Submit (REQ-WEB-041).
+
+        - manifest_version + manifest_sha256 müssen zur aktuellen Version
+          passen (sonst ``ok: False, reason: manifest mismatch``).
+        - Backend-Name muss in backends.yaml registriert sein (sonst
+          ``unknown backend``).
+        - Detail-Zeilen → results/runs/<backend>_<ts>.json; danach
+          Re-Pooling von latest.json + pricing.json über alle Runs mit
+          aktuellem Hash.
+        """
+        m = self.latest_manifest()
+        version = m["version"]
+        sha = self.package_sha256(version)
+        if (
+            payload.get("manifest_version") != version
+            or payload.get("manifest_sha256") != sha
+        ):
+            return {
+                "ok": False,
+                "reason": "manifest mismatch",
+                "current": {"version": version, "sha256": sha},
+            }
+        backend = payload["backend"]
+        if get_service(backend) is None:
+            return {"ok": False, "reason": "unknown backend", "backend": backend}
+
+        runs_dir = self.data_dir / "results" / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        run_file = runs_dir / f"{backend}_{ts}.json"
+        i = 1
+        while run_file.exists():
+            run_file = runs_dir / f"{backend}_{ts}_{i}.json"
+            i += 1
+        run = {
+            "backend": backend,
+            "settings": payload.get("settings", "auto"),
+            "run_id": payload.get("run_id"),
+            "generated_at": payload.get("generated_at"),
+            "manifest_version": version,
+            "manifest_sha256": sha,
+            "meta": payload.get("meta", {}),
+            "rows": payload.get("rows", []),
+        }
+        run_file.write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # ── Re-Pooling über alle Runs mit aktuellem Hash ──────────────────
+        by_backend: Dict[str, List[dict]] = {}
+        for rf in runs_dir.glob("*.json"):
+            data = json.loads(rf.read_text(encoding="utf-8"))
+            if data.get("manifest_sha256") != sha:
+                continue
+            bb = by_backend.setdefault(data["backend"], [])
+            bb.extend(r for r in data["rows"] if r.get("wer") is not None)
+
+        pooled: List[dict] = []
+        for bname, rows in by_backend.items():
+            n = len(rows)
+            pooled.append({
+                "backend": bname,
+                "settings": "auto",
+                "wer": sum(r["wer"] for r in rows) / n,
+                "cer": sum(r.get("cer") or 0 for r in rows) / n,
+                "coverage_pct": sum(r.get("coverage_pct") or 0 for r in rows) / n,
+                "rtf": sum(r.get("rtf") or 0 for r in rows) / n,
+                "n_samples": n,
+            })
+        pooled.sort(key=lambda r: r["backend"])
+
+        latest = {
+            "version": version,
+            "run_id": f"pooled-{int(time.time())}",
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "rows": pooled,
+        }
+        (self.data_dir / "results" / "latest.json").write_text(
+            json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # ── pricing.json (RTF-basiert) ────────────────────────────────────
+        pricing_rows = []
+        for bname, rows in by_backend.items():
+            n = len(rows)
+            avg_rtf = sum(r.get("rtf") or 0 for r in rows) / n
+            base = BACKEND_COST_ASSUMPTION.get(bname, 0.0002)
+            pricing_rows.append({
+                "backend": bname,
+                "group": "polyschnack",
+                "wer": sum(r["wer"] for r in rows) / n,
+                "eur_per_min_selfhost": round(base * (1 + avg_rtf), 6),
+                "eur_per_min_saas": None,
+                "eur_per_min_commercial": None,
+            })
+        pricing_rows.sort(key=lambda r: r["backend"])
+        pricing = {
+            "generated_at": latest["generated_at"],
+            "note": "Selbstkosten-Annahme (RTF-basiert); SaaS/kommerziell erst nach Freigabe.",
+            "rows": pricing_rows,
+        }
+        (self.data_dir / "pricing.json").write_text(
+            json.dumps(pricing, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        return {
+            "ok": True,
+            "backend": backend,
+            "version": version,
+            "sha256": sha,
+            "pooled": pooled,
+            "runs_file": run_file.name,
+        }
 
     # ── Preview-Generierung ────────────────────────────────────────────────
 

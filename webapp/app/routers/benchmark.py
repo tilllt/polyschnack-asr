@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from ..benchmark_service import BenchmarkService
@@ -163,6 +163,84 @@ def versions() -> Dict[str, Any]:
             }
         )
     return {"versions": out}
+
+
+# ── Selbstbedienung (Change 030): Paket + Hash + Submit ───────────────────
+
+
+@router.get("/package")
+def package() -> Response:
+    """Tarball der aktuellen Benchmark-Version (manifest + audio + preview)
+    mit SHA-256 im Header ``X-Benchmark-SHA256`` (``v<N>:<hex>``)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    version = m["version"]
+    try:
+        sha = svc.package_sha256(version)
+        data = svc.build_package_tarball(version)
+    except FileNotFoundError:
+        raise HTTPException(404, "benchmark package not available")
+    return Response(
+        content=data,
+        media_type="application/gzip",
+        headers={
+            "X-Benchmark-SHA256": f"v{version}:{sha}",
+            "Content-Disposition": f'attachment; filename="benchmark-v{version}.tar.gz"',
+        },
+    )
+
+
+@router.get("/package/sha256")
+def package_sha256() -> Dict[str, Any]:
+    """Leichtgewichtiger Paket-Hash (Vorab-Prüfung durch Backends)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    version = m["version"]
+    try:
+        sha = svc.package_sha256(version)
+    except FileNotFoundError:
+        raise HTTPException(404, "benchmark package not available")
+    return {"version": version, "manifest_version": version, "sha256": sha}
+
+
+class SampleResultRow(BaseModel):
+    sample_id: str
+    hyp: Optional[str] = None
+    wer: Optional[float] = None
+    cer: Optional[float] = None
+    coverage_pct: Optional[float] = None
+    rtf: Optional[float] = None
+
+
+class BenchmarkSubmit(BaseModel):
+    backend: str
+    settings: str = "auto"
+    manifest_version: int
+    manifest_sha256: str
+    run_id: Optional[str] = None
+    generated_at: Optional[str] = None
+    rows: List[SampleResultRow]
+    meta: Optional[Dict[str, Any]] = None
+
+
+@router.post("/submit")
+def submit(body: BenchmarkSubmit) -> Any:
+    """Backend meldet Benchmark-Ergebnisse selbstständig (erstmal offen).
+
+    Validierung: manifest_version + manifest_sha256 gegen die aktuelle
+    Version (409 bei Mismatch), Backend-Name gegen backends.yaml (422).
+    """
+    svc = _require_data()
+    payload = body.model_dump()
+    payload["rows"] = [r.model_dump() for r in body.rows]
+    res = svc.apply_submission(payload)
+    if not res["ok"]:
+        if res["reason"] == "manifest mismatch":
+            return JSONResponse(status_code=409, content=res)
+        if res["reason"] == "unknown backend":
+            return JSONResponse(status_code=422, content=res)
+        return JSONResponse(status_code=400, content=res)
+    return res
 
 
 # ── Admin-POST-Routen ─────────────────────────────────────────────────────
