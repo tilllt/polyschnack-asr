@@ -89,6 +89,7 @@ def client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "AUDIO_DIR", tmp_path / "audio")
     monkeypatch.setattr(settings, "DB_PATH", tmp_path / "benchmark.db")
     monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+    monkeypatch.setattr(settings, "BENCHMARK_API_KEYS", _TEST_KEY)
     with TestClient(app) as c:
         yield c
 
@@ -134,6 +135,7 @@ def test_package_404_without_data(tmp_path, monkeypatch):
     root = tmp_path / "empty_benchmark"
     root.mkdir()
     monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+    monkeypatch.setattr(settings, "BENCHMARK_API_KEYS", _TEST_KEY)
     with TestClient(app) as c:
         assert c.get("/api/benchmark/package", headers=_auth_headers()).status_code == 404
         assert c.get("/api/benchmark/package/sha256", headers=_auth_headers()).status_code == 404
@@ -245,6 +247,7 @@ def test_submit_without_data_404(tmp_path, monkeypatch):
     root = tmp_path / "empty2"
     root.mkdir()
     monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+    monkeypatch.setattr(settings, "BENCHMARK_API_KEYS", _TEST_KEY)
     with TestClient(app) as c:
         # sha explizit setzen — der Default würde package_hash auf das leere
         # Verzeichnis anwenden und im Test (nicht im Server) fehlschlagen.
