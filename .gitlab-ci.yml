@@ -170,6 +170,43 @@ build-canary:
   needs:
     - test-webapp
 
+# voxtral (CrispASR voxtral4b, Change 029): hybrides CrispASR-Image mit
+# Mistral Voxtral-Mini-4B-Realtime-2602 (Q8_0-GGUF, handy-computer).
+# CrispASR-basierte Voxtral-Option — ersetzt das vLLM-Backend (Hang-Bug
+# vllm-project/vllm #52926). Verifiziert: v0.8.29-Binary hat voxtral4b.
+build-voxtral:
+  timeout: 30 minutes
+  stage: build
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-voxtral" "voxtral-crisp/"
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
+# whisper-crisp (CrispASR whisper, Change 029): OpenAI Whisper large-v3-turbo
+# via CrispASR-whisper-Backend (ggml-*.bin aus ggerganov/whisper.cpp).
+# Zusätzliche Option neben faster-whisper (build-whisper).
+build-whisper-crisp:
+  timeout: 30 minutes
+  stage: build
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-whisper-crisp" "whisper-crisp/"
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # whisper (faster-whisper large-v3, OpenAI-kompatible API) — Change 027:
 # Benchmark-Backend + PolySchnack-Container-Einbindung.
 build-whisper:
@@ -285,6 +322,8 @@ mirror-github:
     - build-moonshine-de
     - build-canary
     - build-whisper
+    - build-voxtral
+    - build-whisper-crisp
 
 # GHCR-Mirror: spiegelt alle 10 Images von Harbor nach ghcr.io/tilllt/…
 # (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
@@ -300,7 +339,7 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary -whisper; do
+    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
       docker pull "${src}:latest"

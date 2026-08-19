@@ -188,6 +188,56 @@ services:
     status: active
     adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
 
+  - name: crispr-voxtral
+    backend: crispr-voxtral
+    compose_profile: crispr-voxtral
+    type: local
+    port: 5100
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf (CrispASR voxtral4b, 4.7 GB, WER-neutral lt. handy-computer)
+    model_files:
+      Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf: https://huggingface.co/handy-computer/Voxtral-Mini-4B-Realtime-2602-gguf/resolve/main/Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf
+    requires: {vram_gb: 6, ram_gb: 8, disk_gb: 5}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.05, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
+    capabilities:
+      word_timestamps: true   # CrispASR verbose_json liefert word-level
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
+
+  - name: crispr-whisper
+    backend: crispr-whisper
+    compose_profile: crispr-whisper
+    type: local
+    port: 5101
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: ggml-large-v3-turbo-q5_0.bin (OpenAI Whisper via CrispASR)
+    model_files:
+      ggml-large-v3-turbo-q5_0.bin: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+    requires: {vram_gb: 3, ram_gb: 4, disk_gb: 2}
+    long_audio: {auto_vram: true, vram_per_minute_gb: 0.04, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
+    capabilities:
+      word_timestamps: true   # CrispASR verbose_json liefert word-level
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: true
+      languages: [de, en]
+      device: [gpu, cpu]
+    status: active
+    adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
+
   # ===================================================================
   # REMOTE-BACKENDS (type: remote) — auskommentierte Beispiele
   # ===================================================================

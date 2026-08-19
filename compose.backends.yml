@@ -146,3 +146,50 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  crispr-voxtral:
+    profiles: ["crispr-voxtral"]
+    # Change 029: CrispASR voxtral4b (Voxtral-Mini-4B-Realtime-2602, Q8_0)
+    # statt vLLM — CrispASR-Hybrid (CUDA-Binary mit CPU-Fallback).
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-voxtral:latest
+    environment:
+      VOXTRAL_ASR_MODEL: /models/Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf
+      # Residenter Post-Prozessor: Interpunktion + deutsches Truecasing.
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+    volumes:
+      - ./DATA/models:/models:ro
+    ports:
+      - "5100:5100"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  crispr-whisper:
+    profiles: ["crispr-whisper"]
+    # Change 029: CrispASR whisper (ggml-large-v3-turbo-q5_0.bin) —
+    # zusätzliche Whisper-Option neben faster-whisper (build-whisper).
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-whisper-crisp:latest
+    environment:
+      WHISPER_ASR_MODEL: /models/ggml-large-v3-turbo-q5_0.bin
+      CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
+    volumes:
+      - ./DATA/models:/models:ro
+    ports:
+      - "5101:5101"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
