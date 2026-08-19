@@ -153,7 +153,7 @@ services:
     # statt vLLM — CrispASR-Hybrid (CUDA-Binary mit CPU-Fallback).
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-voxtral:latest
     environment:
-      VOXTRAL_ASR_MODEL: /models/Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf
+      VOXTRAL_ASR_MODEL: /models/voxtral-mini-4b-realtime-q8_0.gguf
       # Residenter Post-Prozessor: Interpunktion + deutsches Truecasing.
       CRISPASR_EXTRA_ARGS: "--punc-model fullstop --truecase-model lstm"
     volumes:

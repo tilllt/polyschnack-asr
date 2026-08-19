@@ -195,9 +195,9 @@ services:
     port: 5100
     cost_per_minute_eur: 0.0
     concurrency: 1
-    model: Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf (CrispASR voxtral4b, 4.7 GB, WER-neutral lt. handy-computer)
+    model: voxtral-mini-4b-realtime-q8_0.gguf (CrispASR voxtral4b, offizielle cstr-GGUF)
     model_files:
-      Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf: https://huggingface.co/handy-computer/Voxtral-Mini-4B-Realtime-2602-gguf/resolve/main/Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf
+      voxtral-mini-4b-realtime-q8_0.gguf: https://huggingface.co/cstr/voxtral-mini-4b-realtime-GGUF/resolve/main/voxtral-mini-4b-realtime-q8_0.gguf
     requires: {vram_gb: 6, ram_gb: 8, disk_gb: 5}
     long_audio: {auto_vram: true, vram_per_minute_gb: 0.05, vram_safety_gb: 2, max_safe_duration_s: 7200, streaming_advice: false}
     capabilities:

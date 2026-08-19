@@ -38,7 +38,8 @@ def test_required_fields_present():
 
 def test_local_services_have_valid_profile():
     valid = {"default", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",
-             "crispr-moonshine-de", "crispr-canary"}
+             "crispr-moonshine-de", "crispr-canary", "crispr-voxtral",
+             "crispr-whisper"}
     for s in SERVICES:
         if s["type"] == "local":
             assert s["compose_profile"] in valid
@@ -60,6 +61,25 @@ def test_canary_asr_service_registered():
     assert service_url(svc) == "http://crispr-canary:5097"
     assert svc["compose_profile"] == "crispr-canary"
     assert set(svc["capabilities"]["languages"]) == {"de", "en", "fr", "es"}
+
+
+def test_voxtral_service_registered():
+    svc = get_service("crispr-voxtral")
+    assert svc is not None
+    assert container_name(svc) == "crispr-voxtral"
+    assert service_url(svc) == "http://crispr-voxtral:5100"
+    assert svc["compose_profile"] == "crispr-voxtral"
+    assert set(svc["capabilities"]["languages"]) == {"de", "en"}
+
+
+def test_crisp_whisper_service_registered():
+    svc = get_service("crispr-whisper")
+    assert svc is not None
+    assert container_name(svc) == "crispr-whisper"
+    assert service_url(svc) == "http://crispr-whisper:5101"
+    assert svc["compose_profile"] == "crispr-whisper"
+    assert svc["model_files"]["ggml-large-v3-turbo-q5_0.bin"].startswith("https://huggingface.co/")
+    assert set(svc["capabilities"]["languages"]) == {"de", "en"}
 
 
 def test_default_backend_adapter_matches_registry():

@@ -49,6 +49,6 @@ RUN mkdir -p /models
 # OpenAI-kompatibler Server-Modus (Backend voxtral4b).
 EXPOSE 5100
 
-ENV VOXTRAL_ASR_MODEL=/models/Voxtral-Mini-4B-Realtime-2602-Q8_0.gguf
+ENV VOXTRAL_ASR_MODEL=/models/voxtral-mini-4b-realtime-q8_0.gguf
 
 CMD ["sh", "-c", "exec crispasr --server --backend voxtral4b -m \"$VOXTRAL_ASR_MODEL\" --host 0.0.0.0 --port 5100"]
