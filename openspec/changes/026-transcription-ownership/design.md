@@ -101,6 +101,37 @@ Alle Aktionen idempotent, mit `--dry-run`. Tests: `tests/test_ownership.py`
   nur einzeln (bestehende Regel).
 - `docs/component-decisions.md`: Ownership-Eintrag nach Abschluss.
 
+## Kollaboration (Option, evaluiert: Yjs)
+
+Recherche (2026-08-19): [Yjs](https://github.com/yjs/yjs) (MIT, ~22k Stars,
+CRDT-Framework, konfliktfreie Shared Types `Y.Text`/`Y.Map`/`Y.Array`,
+Netzwerk-agnostisch, Offline-Editing, Version-Snapshots, Undo/Redo,
+Shared Cursors; genutzt u. a. von Nextcloud, JupyterLab, Proton Docs).
+Server-Komponenten: `y-websocket` (klassisch, einfach, In-Memory +
+DB-Persistenz), alternativ `hocuspocus`, `@y/websocket-server`, `pycrdt-websocket`.
+⚠️ `y-crdt/ypy` (Python-Bindings) ist **archiviert** — Nachfolger ist
+`pycrdt`.
+
+**Einordnung für den Ownership-Workflow:**
+
+- Yjs löst die **Kollaboration**: Agent (Hermes) und Projektleitung können
+  dieselbe Transkription parallel bearbeiten, ohne Merge-Konflikte;
+  Offline-Korrektur und Snapshot-Historie inklusive.
+- Yjs löst **nicht** die Ownership/Annahme: Wer die finale Referenz
+  besitzt und wann sie verbindlich wird, bleibt der
+  Zustandsmaschinen-Workflow (agent → proposed → user_owned) mit
+  physischer Verschiebung in `transcripts/user/`.
+- **Empfehlung:** Datei-basierte Mechanik (`ownership.py`, Repo-Ablage)
+  bleibt die Wahrheitsquelle für den Benchmark. Yjs ist die **optionale
+  Webapp-Anbindung**: kollaborativer Edit-Mode im PolySchnack-
+  Transkriptions-Editor (Yjs-Dokument je Transkription, Sync über
+  `pycrdt-websocket` oder `hocuspocus` als eigener Compose-Dienst);
+  bei `accept` wird der finale Text aus dem Yjs-Dokument nach
+  `transcripts/user/` exportiert. Die Webapp-Integration ist ein
+  eigener Change (betrifft den PolySchnack-Stack), hier nur als
+  Schnittstelle spezifiziert: pro Sample eine Yjs-Room, Export-Format =
+  Klartext-Zeile je Segment.
+
 ## Offene Frage
 
 - **Zielablage „User-Dateien":** Default ist `transcripts/user/` im
