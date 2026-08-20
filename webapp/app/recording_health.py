@@ -15,6 +15,7 @@ Orphan-Sweep.
 from __future__ import annotations
 
 import logging
+import subprocess
 import time
 from pathlib import Path
 from typing import List, Tuple
@@ -66,6 +67,81 @@ def _looks_like_audio(head: bytes) -> bool:
     return len(head) >= 8 and head[4:8] in _ISO_BMFF_TYPES
 
 
+#: Konvertiertes Sidecar für Dateien mit unbekannter Magic, die ffmpeg aber
+#: lesen kann (Change 034, User-Vorgabe): unbekannter Typ ≠ kaputt — erst
+#: die ffmpeg-Konvertierung entscheidet. Konvention analog original_path()
+#: (audio_utils): `<stored>.conv.mp3` im selben Ordner.
+CONV_SUFFIX = ".conv.mp3"
+
+
+def _conv_sidecar(stored: Path) -> Path:
+    return stored.with_name(stored.name + CONV_SUFFIX)
+
+
+def reconvert_to_sidecar(stored: Path) -> Tuple[bool, str]:
+    """ffmpeg-Konvertierung (MP3 128k mono) → `<stored>.conv.mp3`.
+
+    Gleiche Ziel-Konvention wie der Upload-Transcode in audio_utils.py
+    (MP3 128 kbit/s mono — überall abspielbar, klein). Returns (ok, note);
+    bei Misserfolg bleibt keine Temp-Datei zurück.
+    """
+    out = _conv_sidecar(stored)
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+                "-i", str(stored),
+                "-vn", "-ac", "1", "-ar", "44100", "-b:a", "128k",
+                "-f", "mp3", str(tmp),
+            ],
+            capture_output=True,
+            timeout=1800,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"ffmpeg nicht ausführbar: {exc}"
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="replace").strip()[:200]
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False, f"ffmpeg kann Datei nicht lesen ({err})"
+    if not tmp.exists() or tmp.stat().st_size < MIN_AUDIO_SIZE:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False, "ffmpeg-Konvertierung leer"
+    tmp.replace(out)
+    return True, ""
+
+
+def _is_healthy(stored: Path) -> Tuple[bool, str]:
+    """Gesundheit einer Datei (Scan- und Heil-Pfad).
+
+    1. Magic-Check bestanden → heil.
+    2. Unbekannte Magic → Konvertierungsversuch (ffmpeg → conv-Sidecar):
+       erfolgreich (oder Sidecar existiert bereits) → heil, NICHT kaputt.
+       3. ffmpeg scheitert → wirklich kaputt (mit ffmpeg-Fehlertext).
+    Andere Gründe (fehlt / zu klein / leer / nicht lesbar) → kaputt.
+    """
+    ok, reason = is_valid_audio_file(stored)
+    if ok:
+        return True, ""
+    if reason.startswith("unbekanntes Format"):
+        conv = _conv_sidecar(stored)
+        if conv.exists() and is_valid_audio_file(conv)[0]:
+            return True, ""
+        ok2, note = reconvert_to_sidecar(stored)
+        if ok2:
+            log.info("recording health: %s unbekannte Magic, aber ffmpeg "
+                     "lesbar → Sidecar %s erzeugt", stored.name, conv.name)
+            return True, ""
+        return False, f"nicht lesbar ({note})"
+    return False, reason
+
+
 def is_valid_audio_file(path: Path) -> Tuple[bool, str]:
     """Prüft, ob *path* eine plausible Audio-Datei ist.
 
@@ -115,7 +191,7 @@ def scan_broken_recordings(
             # Laufende Verarbeitung: Datei kann gerade neu geschrieben
             # werden (Re-Transcribe-Crop) — nicht anfassen.
             continue
-        ok, reason = is_valid_audio_file(Path(rec.stored_path))
+        ok, reason = _is_healthy(Path(rec.stored_path))
         if not ok:
             broken.append((rec, reason))
     return broken
@@ -160,7 +236,7 @@ def heal_false_failures(session: Session, audio_dir: Path) -> int:
         if not (rec.error or "").startswith(prefix):
             continue
         try:
-            ok, _reason = is_valid_audio_file(Path(rec.stored_path))
+            ok, _reason = _is_healthy(Path(rec.stored_path))
         except Exception:
             ok = False
         if not ok:

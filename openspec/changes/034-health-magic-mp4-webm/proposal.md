@@ -18,22 +18,37 @@ geprüft).
 
 1. MP4/M4A korrekt erkennen (Box-Typ an Position 4: `ftyp`/`moov`/`mdat`/…).
 2. WebM/EBML und AAC-ADTS ergänzen (MediaRecorder-Formate).
-3. **Selbstheilung:** Bereits fälschlich als `failed` markierte Recordings,
-   deren Datei nach aktuellem Check gültig ist, werden beim nächsten Scan
-   zurückgesetzt (`done` bei vorhandener Transkription, sonst `uploaded`).
-   Echte Schäden (Datei fehlt, zu klein, keine Audio-Magic) bleiben `failed`.
+3. **User-Korrektur (20.08.): unbekannter Dateityp ≠ kaputt.** Bei
+   unbekannter Magic löst der Scan eine **erneute Konvertierung in ein
+   lesbares Sidecar** (`<stored>.conv.mp3`, MP3 128k mono — gleiche
+   Konvention wie der Upload-Transcode) aus. Erst wenn ffmpeg die Datei
+   nicht lesen kann, wird sie als `failed` markiert.
+4. **Selbstheilung:** Bereits fälschlich als `failed` markierte Recordings,
+   deren Datei nach aktuellem Check gültig ist (Magic ODER ffmpeg-lesbar),
+   werden beim nächsten Scan zurückgesetzt (`done` bei vorhandener
+   Transkription, sonst `uploaded`). Echte Schäden bleiben `failed`.
 
 ## Entscheidungen
 
 - Erkennung als eigene Funktion `_looks_like_audio(head)`: Präfix-Magic
   (RIFF/ID3/MP3-Frame/AAC-ADTS/OggS/fLaC/EBML) **oder** ISO-BMFF-Box-Typ
   an Byte 4–7.
+- **ffmpeg als Entscheidungsinstanz:** `_is_healthy()` prüft Magic; bei
+  „unbekanntes Format" → `reconvert_to_sidecar()` (ffmpeg → `.conv.mp3`);
+  Erfolg (oder Sidecar existiert bereits) → heil, sonst `failed` mit
+  ffmpeg-Fehlertext („nicht lesbar (…)").
+- **moov-Atom am Dateiende ist bereits gelöst** (Change 011, `_faststart_remux`
+  beim Upload — `-c copy -movflags +faststart`). Der Health-Scan fasst den
+  Upload-Pfad nicht an; das conv-Sidecar ist ein ergänzender Heilungs-Pfad
+  für Dateien, die schon in der Ablage liegen.
 - `#EXTM3U` aus der Magic-Liste entfernt (kein Audio-Container, bewusst
   vorher schon kommentiert).
 - Heilen nur bei `error` mit Präfix „Audio-Datei fehlt oder ist beschädigt"
   UND jetzt gültiger Datei — kein Zurücksetzen anderer Fehler.
 - Tests: M4A/WebM/AAC/WAV/MP3/OGG gültig; Box-Typ „XXXX" weiterhin
-  „unbekanntes Format"; Fehldiagnose wird geheilt; echter Schaden bleibt.
+  „unbekanntes Format"; AIFF (unbekannte Magic, ffmpeg-lesbar) → Sidecar
+  statt failed; Müll (ffmpeg unlesbar) → failed mit „nicht lesbar";
+  Fehldiagnose wird geheilt; echter Schaden bleibt.
 
 ## Nicht-Ziele
 

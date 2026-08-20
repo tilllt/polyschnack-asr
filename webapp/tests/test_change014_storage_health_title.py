@@ -526,3 +526,95 @@ def test_health_scan_laesst_echte_schaeden_failed(client):
         r = s.get(Recording, rec["id"])
         assert r.status == "failed"
         assert r.error is not None
+
+
+# ---------------------------------------------------------------------------
+# Change 034 (User-Korrektur): unbekannter Dateityp ≠ kaputt — erst ffmpeg
+# entscheidet. Konvertierungsversuch in lesbares Sidecar (<stored>.conv.mp3),
+# failed nur wenn ffmpeg die Datei nicht lesen kann.
+# ---------------------------------------------------------------------------
+
+
+def _ffmpeg_available() -> bool:
+    import shutil
+
+    return shutil.which("ffmpeg") is not None
+
+
+def _make_aiff(tmp_path, name: str = "sine.aiff") -> Path:
+    """Echte kleine AIFF-Datei (1 s Sinus, PCM) via ffmpeg erzeugen.
+
+    AIFF beginnt mit "FORM…AIFF" — bewusst NICHT in der Magic-Liste
+    (die App konvertiert AIFF beim Upload ohnehin zu MP3). Damit testet
+    der Fall exakt die User-Vorgabe: unbekannte Magic, aber ffmpeg lesbar
+    → Konvertierung statt failed-Markierung.
+    """
+    import subprocess as _sp
+
+    p = tmp_path / name
+    _sp.run(
+        ["ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         "-c:a", "pcm_s16be", str(p)],
+        check=True, capture_output=True)
+    return p
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
+def test_health_scan_konvertiert_unbekannte_magic_statt_failed(client, tmp_path):
+    """Datei mit unbekannter Magic (AIFF), aber ffmpeg-lesbarem Inhalt:
+    Scan erzeugt conv-Sidecar und markiert NICHT failed."""
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+
+    aiff = _make_aiff(tmp_path)
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        stored = Path(r.stored_path)
+        stored.write_bytes(aiff.read_bytes())
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    from app.config import settings
+    from app.recording_health import _conv_sidecar, run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert r.status != "failed", r.error
+        assert _conv_sidecar(stored).exists(), "conv-Sidecar wurde nicht erzeugt"
+        assert _conv_sidecar(stored).stat().st_size >= 256
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
+def test_health_scan_ffmpeg_unlesbar_bleibt_failed(client, tmp_path):
+    """Unbekannte Magic UND ffmpeg kann die Datei nicht lesen → wirklich
+    kaputt → failed mit ffmpeg-Fehlertext."""
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+
+    muell = b"XXXXXXXX" + b"\x00" * 300 + b"ABCDEFGHIJKLMNOP" * 10
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        Path(r.stored_path).write_bytes(muell)
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    from app.config import settings
+    from app.recording_health import run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert r.status == "failed"
+        assert "nicht lesbar" in (r.error or "")
