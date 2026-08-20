@@ -36,14 +36,34 @@ MIN_AUDIO_SIZE = 256
 #: Magic-Bytes, die eine Audio-Datei erkennbar machen (Audio-Container).
 _AUDIO_MAGICS = (
     b"RIFF",   # WAV / AVI
-    b"ftyp",   # MP4 / M4A
     b"ID3",    # MP3 mit ID3-Tag
     b"\xff\xfb", b"\xff\xf3", b"\xff\xf2",  # MP3-Frame ohne ID3
+    b"\xff\xf1", b"\xff\xf9",  # AAC-ADTS (mit/ohne CRC)
     b"OggS",   # OGG / Opus
-    b"FLAC",
-    b"fLaC",
-    b"#EXTM3U",  # M3U (theoretisch), eher nicht Audio — bewusst nicht hier
+    b"fLaC",   # FLAC
+    b"\x1a\x45\xdf\xa3",  # WebM / EBML (MediaRecorder: Android/Chrome)
 )
+
+#: ISO-BMFF (MP4/M4A): Datei beginnt mit 4-Byte-Box-Größe, der Box-Typ
+#: (z. B. "ftyp") steht an Position 4 — NICHT an Position 0. Change 034:
+#: vorher wurde head.startswith(b"ftyp") geprüft → jede M4A-Datei
+#: (iOS-Aufnahmen, Magic z. B. b"\x00\x00\x00\x1c") galt fälschlich als
+#: "unbekanntes Format" und wurde als kaputt markiert (Fehlalarm).
+_ISO_BMFF_TYPES = (b"ftyp", b"moov", b"mdat", b"free", b"wide", b"styp",
+                   b"skip", b"pdin")
+
+
+def _looks_like_audio(head: bytes) -> bool:
+    """Erkennt Audio-Container an den ersten 8 Bytes (Header).
+
+    WAV/MP3/OGG/FLAC/WebM starten direkt mit ihrer Magic; MP4/M4A mit
+    4-Byte-Box-Größe + Box-Typ an Position 4.
+    """
+    if not head:
+        return False
+    if head.startswith(_AUDIO_MAGICS):
+        return True
+    return len(head) >= 8 and head[4:8] in _ISO_BMFF_TYPES
 
 
 def is_valid_audio_file(path: Path) -> Tuple[bool, str]:
@@ -67,7 +87,7 @@ def is_valid_audio_file(path: Path) -> Tuple[bool, str]:
         return False, "nicht lesbar"
     if not head:
         return False, "leer"
-    if not any(head.startswith(m) for m in _AUDIO_MAGICS):
+    if not _looks_like_audio(head):
         return False, f"unbekanntes Format (Magic: {head[:4]!r})"
     return True, ""
 
@@ -120,6 +140,40 @@ def mark_broken(session: Session, broken: List[Tuple[Recording, str]]) -> int:
     return updated
 
 
+def heal_false_failures(session: Session, audio_dir: Path) -> int:
+    """Heilt Fehlalarme: failed wegen Health-Scan, Datei inzwischen gültig.
+
+    Change 034: Der Magic-Check markierte MP4/M4A (und WebM) fälschlich als
+    "unbekanntes Format" → viele gesunde Recordings wurden als failed
+    markiert. Sobald die Datei laut aktuellem Check gültig ist, war die
+    Markierung falsch → Status zurück auf "done" (mit Transkription) bzw.
+    "uploaded" (ohne), error=None. Echte Schäden (Datei fehlt wirklich,
+    zu klein, keine Audio-Magic) bleiben failed.
+
+    Returns number of healed rows.
+    """
+    healed = 0
+    prefix = "Audio-Datei fehlt oder ist beschädigt"
+    for rec in session.exec(
+        select(Recording).where(Recording.status == "failed")
+    ).all():
+        if not (rec.error or "").startswith(prefix):
+            continue
+        try:
+            ok, _reason = is_valid_audio_file(Path(rec.stored_path))
+        except Exception:
+            ok = False
+        if not ok:
+            continue
+        rec.status = "done" if (rec.text or rec.segments) else "uploaded"
+        rec.error = None
+        healed += 1
+    if healed:
+        session.commit()
+        log.info("recording health: %d Fehlalarm-Markierung(en) geheilt", healed)
+    return healed
+
+
 def run_health_scan(session: Session, audio_dir: Path) -> int:
     """Kurzschluss: Scan + Markieren. Returns number of updated rows."""
     broken = scan_broken_recordings(session, audio_dir)
@@ -128,4 +182,6 @@ def run_health_scan(session: Session, audio_dir: Path) -> int:
         names = ", ".join((b[0].uid or "?")[:8] for b in broken[:5])
         log.info("recording health: %d kaputt (%s%s)", len(broken), names,
                  "…" if len(broken) > 5 else "")
-    return mark_broken(session, broken)
+    marked = mark_broken(session, broken)
+    heal_false_failures(session, audio_dir)
+    return marked

@@ -423,3 +423,106 @@ def test_anon_retention_loescht_restore_recording_mit_owner_fallback(client):
         n = sweep(s)
         assert n == 1
         assert s.get(Recording, rec_id) is None, "Restore-Recording (owner_user_id) blieb zurück!"
+
+
+# ---------------------------------------------------------------------------
+# Change 034: Magic-Erkennung MP4/M4A + WebM, Selbstheilung von Fehlalarmen
+# ---------------------------------------------------------------------------
+
+
+def _m4a_bytes(n: int = 512) -> bytes:
+    # ISO-BMFF: Box-Size 28 (b"\x00\x00\x00\x1c") + "ftypisom" + Füllung.
+    # Exakt das Muster aus dem Produktions-Fehlalarm
+    # "unbekanntes Format (Magic: b'\\x00\\x00\\x00\\x1c')" (iOS-M4A).
+    return b"\x00\x00\x00\x1cftypisom" + b"\x00" * (n - 12)
+
+
+def _webm_bytes(n: int = 512) -> bytes:
+    # EBML-Header (MediaRecorder Android/Chrome)
+    return b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01" + b"\x00" * (n - 9)
+
+
+def test_magic_m4a_webm_aac_gueltig(tmp_path):
+    from app.recording_health import is_valid_audio_file
+
+    cases = {
+        "aufnahme.m4a": _m4a_bytes(),
+        "aufnahme.webm": _webm_bytes(),
+        "aufnahme.aac": b"\xff\xf1\x50\x80" + b"\x00" * 300,
+        "aufnahme.wav": b"RIFF" + b"\x00" * 300,
+        "aufnahme.mp3": b"ID3" + b"\x00" * 300,
+        "aufnahme.ogg": b"OggS" + b"\x00" * 300,
+    }
+    for name, payload in cases.items():
+        p = tmp_path / name
+        p.write_bytes(payload)
+        ok, reason = is_valid_audio_file(p)
+        assert ok, f"{name}: {reason}"
+
+
+def test_magic_muell_bleibt_unbekannt(tmp_path):
+    from app.recording_health import is_valid_audio_file
+
+    # Box-Size 28, aber Box-Typ "XXXX" an Position 4 → kein Audio-Container
+    p = tmp_path / "muell.bin"
+    p.write_bytes(b"\x00\x00\x00\x1cXXXX" + b"\x00" * 300)
+    ok, reason = is_valid_audio_file(p)
+    assert not ok
+    assert "unbekanntes Format" in reason
+
+
+def test_health_scan_heilt_m4a_fehldiagnose(client, tmp_path):
+    """Failed-Markierung wegen "unbekanntes Format" + jetzt gültige Datei
+    → Scan setzt zurück auf done (Transkription vorhanden)."""
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        Path(r.stored_path).write_bytes(_m4a_bytes())
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        r.status = "failed"
+        r.error = ("Audio-Datei fehlt oder ist beschädigt "
+                   "(unbekanntes Format (Magic: b'\\x00\\x00\\x00\\x1c'))")
+        r.text = "Hallo Welt"
+        s.add(r)
+        s.commit()
+
+    from app.config import settings
+    from app.recording_health import run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert r.status == "done", r.status
+        assert r.error is None
+
+
+def test_health_scan_laesst_echte_schaeden_failed(client):
+    """Datei wirklich weg → failed bleibt bestehen (kein falsches Heilen)."""
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        Path(r.stored_path).unlink()
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        r.status = "failed"
+        r.error = "Audio-Datei fehlt oder ist beschädigt (Datei fehlt)"
+        s.add(r)
+        s.commit()
+
+    from app.config import settings
+    from app.recording_health import run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert r.status == "failed"
+        assert r.error is not None
