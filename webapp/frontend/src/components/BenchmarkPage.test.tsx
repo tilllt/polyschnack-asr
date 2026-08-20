@@ -58,6 +58,9 @@ function renderCat(open: boolean, onToggle: () => void) {
         admin={false}
         previewUrl={(id) => `/api/benchmark/preview/${id}`}
         audioUrl={(id) => `/api/benchmark/audio/${id}`}
+        qualityRows={[]}
+        perSample={{}}
+        hiddenModels={new Set()}
       />
     </LocaleProvider>,
   );
@@ -95,6 +98,9 @@ describe("BenchmarkCategory", () => {
           onReject={() => {}}
           previewUrl={(id) => `/api/benchmark/preview/${id}`}
           audioUrl={(id) => `/api/benchmark/audio/${id}`}
+          qualityRows={[]}
+          perSample={{}}
+          hiddenModels={new Set()}
         />
       </LocaleProvider>,
     );
@@ -306,7 +312,8 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
 
   test("Kategorie-Graph je Kategorie mit Daten; leere Kategorie (0 Samples) unsichtbar", () => {
     renderPage();
-    expect(screen.getByText("Modellqualität je Kategorie")).toBeTruthy();
+    // Change 039: Qualität ist Teil der Kategorie-Blöcke — Kategorie öffnen
+    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
     expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     // clean hat 0 Samples: weder als Kategorie-Box noch als Chart
     expect(screen.queryByText(/Hochdeutsch/)).toBeNull();
@@ -316,6 +323,8 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
 
   test("Modell-Filter oben blendet Modell aus allen Graphen aus", async () => {
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
+    expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     fireEvent.click(screen.getByTestId("model-chip-ps-pk-onnx"));
     await waitFor(() => expect(screen.queryByTestId("cat-bar-akzent-ps-pk-onnx")).toBeNull());
     expect(screen.getByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeTruthy();

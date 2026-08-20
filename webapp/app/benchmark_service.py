@@ -63,18 +63,19 @@ class BenchmarkService:
         return self._load_manifest(nums[-1])
 
     def latest_results(self) -> dict:
-        """latest.json inkl. `per_category` (Change 032).
+        """latest.json inkl. `per_category` (Change 032) + `per_sample` (Change 039).
 
         Bestehende latest.json-Dateien (vor Change 032 gepoolt) enthalten
-        kein `per_category` — das wird hier on-the-fly aus den Run-Rows +
-        aktivem Manifest nachgerüstet (gleiche Formel wie beim Re-Pooling:
-        WER/CER gemittelt je (Kategorie × Backend), nur Rows mit wer-Wert).
-        So funktionieren die Kategorie-Charts sofort nach dem Deploy, ohne
-        auf den nächsten Submit warten zu müssen.
+        kein `per_category`/`per_sample` — das wird hier on-the-fly aus den
+        Run-Rows + aktivem Manifest nachgerüstet (gleiche Formel wie beim
+        Re-Pooling: WER/CER gemittelt je (Kategorie × Backend), nur Rows mit
+        wer-Wert; per_sample: WER je Backend für genau ein Sample). So
+        funktionieren die Kategorie-Charts und Sample-Mini-Tabellen sofort
+        nach dem Deploy, ohne auf den nächsten Submit warten zu müssen.
         """
         p = self.data_dir / "results" / "latest.json"
         latest = json.loads(p.read_text(encoding="utf-8"))
-        if latest.get("per_category"):
+        if latest.get("per_category") and latest.get("per_sample"):
             return latest
         try:
             m = self.latest_manifest()
@@ -84,6 +85,7 @@ class BenchmarkService:
         cat_by_id = {s["id"]: s.get("category", "unknown")
                      for s in m.get("samples", [])}
         per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
+        per_sample: Dict[str, Dict[str, float]] = {}  # sample_id -> {backend: wer}
         runs_dir = self.data_dir / "results" / "runs"
         if not runs_dir.exists():
             return latest
@@ -94,7 +96,11 @@ class BenchmarkService:
             for r in data["rows"]:
                 if r.get("wer") is None:
                     continue
-                cat = cat_by_id.get(r.get("sample_id"), "unknown")
+                sid = r.get("sample_id")
+                if not sid:
+                    continue
+                per_sample.setdefault(sid, {})[data["backend"]] = r["wer"]
+                cat = cat_by_id.get(sid, "unknown")
                 cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
                 cell[0] += r["wer"]
                 cell[1] += r.get("cer") or 0.0
@@ -110,6 +116,10 @@ class BenchmarkService:
             for (cat, bname), (wsum, csum, n) in sorted(per_cat.items())
         ]
         latest["per_category"] = per_category
+        latest["per_sample"] = {
+            sid: {b: round(w, 4) for b, w in backs.items()}
+            for sid, backs in sorted(per_sample.items())
+        }
         return latest
 
     def _load_manifest(self, version: int) -> dict:
@@ -356,6 +366,7 @@ class BenchmarkService:
         cat_by_id = {s["id"]: s.get("category", "unknown")
                      for s in m.get("samples", [])}
         per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
+        per_sample: Dict[str, Dict[str, float]] = {}  # Change 039
         for rf in runs_dir.glob("*.json"):
             data = json.loads(rf.read_text(encoding="utf-8"))
             if data.get("manifest_sha256") != sha:
@@ -365,7 +376,11 @@ class BenchmarkService:
                 if r.get("wer") is None:
                     continue
                 bb.append(r)
-                cat = cat_by_id.get(r.get("sample_id"), "unknown")
+                sid = r.get("sample_id")
+                if not sid:
+                    continue
+                per_sample.setdefault(sid, {})[data["backend"]] = r["wer"]
+                cat = cat_by_id.get(sid, "unknown")
                 cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
                 cell[0] += r["wer"]
                 cell[1] += r.get("cer") or 0.0
@@ -402,6 +417,10 @@ class BenchmarkService:
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "rows": pooled,
             "per_category": per_category,
+            "per_sample": {
+                sid: {b: round(w, 4) for b, w in backs.items()}
+                for sid, backs in sorted(per_sample.items())
+            },
         }
         (self.data_dir / "results" / "latest.json").write_text(
             json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"

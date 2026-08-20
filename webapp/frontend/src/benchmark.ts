@@ -84,6 +84,8 @@ export interface BenchmarkResults {
   generated_at?: string;
   rows: ResultRow[];
   per_category?: BenchmarkPerCategoryRow[];
+  /** Change 039: sample_id -> { backend: wer } für Sample-Mini-Tabellen. */
+  per_sample?: Record<string, Record<string, number>>;
 }
 
 export function parseBenchmarkPath(path: string): boolean {

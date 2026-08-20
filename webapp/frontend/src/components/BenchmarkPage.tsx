@@ -22,10 +22,16 @@ interface CategoryProps {
   onEdit?: (sampleId: string, fields: { text: string }) => void;
   previewUrl: (id: string) => string;
   audioUrl: (id: string) => string;
+  /** Change 039: beste Modelle je Kategorie (sehr kleine Tabelle). */
+  qualityRows: Array<{ backend: string; wer: number; n: number }>;
+  /** Change 039: WER je Backend für genau dieses Sample (per_sample). */
+  perSample: Record<string, Record<string, number>>;
+  hiddenModels: ReadonlySet<string>;
 }
 
 export function BenchmarkCategory({
   cat, samples, open, onToggle, showText, admin, onReject, onEdit, previewUrl, audioUrl,
+  qualityRows, perSample, hiddenModels,
 }: CategoryProps) {
   return (
     <div className="border border-border rounded-lg overflow-hidden">
@@ -40,27 +46,40 @@ export function BenchmarkCategory({
         <span className="text-dim">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <ul className="divide-y divide-border">
-          {samples.map((s) => (
-            <SampleRow
-              key={s.id}
-              sample={s}
-              showText={showText}
-              admin={admin}
-              onReject={onReject}
-              onEdit={onEdit}
-              previewUrl={previewUrl}
-              audioUrl={audioUrl}
+        <>
+          {/* Change 039: beste Modelle je Kategorie als Teil der Kategorie */}
+          {qualityRows.length > 0 && (
+            <CategoryQualityChart
+              categoryId={cat.id}
+              categoryName={cat.name}
+              rows={qualityRows}
+              hiddenModels={hiddenModels}
             />
-          ))}
-        </ul>
+          )}
+          <ul className="divide-y divide-border">
+            {samples.map((s) => (
+              <SampleRow
+                key={s.id}
+                sample={s}
+                showText={showText}
+                admin={admin}
+                onReject={onReject}
+                onEdit={onEdit}
+                previewUrl={previewUrl}
+                audioUrl={audioUrl}
+                perSample={perSample[s.id]}
+                hiddenModels={hiddenModels}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
 }
 
 function SampleRow({
-  sample, showText, admin, onReject, onEdit, previewUrl, audioUrl,
+  sample, showText, admin, onReject, onEdit, previewUrl, audioUrl, perSample, hiddenModels,
 }: {
   sample: BenchmarkSample;
   showText: boolean;
@@ -69,9 +88,20 @@ function SampleRow({
   onEdit?: (id: string, fields: { text: string }) => void;
   previewUrl: (id: string) => string;
   audioUrl: (id: string) => string;
+  /** Change 039: WER je Backend für genau dieses Sample (optional). */
+  perSample?: Record<string, number>;
+  hiddenModels: ReadonlySet<string>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sample.text);
+
+  // Change 039: Mini-Tabelle "Qualität pro Modell" für dieses Sample,
+  // sortiert nach WER aufsteigend (bestes Modell zuerst), sehr klein.
+  const sampleRows = perSample
+    ? Object.entries(perSample)
+        .filter(([b]) => !hiddenModels.has(b))
+        .sort((a, b) => a[1] - b[1])
+    : [];
 
   return (
     <li className="px-4 py-3">
@@ -101,6 +131,26 @@ function SampleRow({
       </div>
 
       <WaveformPlayer audioUrl={previewUrl(sample.id)} height={56} />
+
+      {sampleRows.length > 0 && (
+        <div className="mt-1.5" data-testid={`sample-wer-${sample.id}`}>
+          <div className="text-[9px] text-dim uppercase tracking-wide mb-0.5">Qualität pro Modell</div>
+          <table className="w-full table-fixed text-[9px] border-collapse">
+            <tbody>
+              {sampleRows.map(([backend, wer]) => (
+                <tr
+                  key={backend}
+                  data-testid={`sample-wer-${sample.id}-${backend}`}
+                  title={`${backend}: WER ${(wer * 100).toFixed(1)} %`}
+                >
+                  <td className="pr-1 font-mono truncate">{backend}</td>
+                  <td className="text-right w-12 tabular-nums">{(wer * 100).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {editing && onEdit ? (
         <div className="mt-2 flex gap-2">
@@ -140,38 +190,44 @@ export function AxesMatrix({ meta, active, onSelect }: MatrixProps) {
   const inhaltKeys = Object.keys(axes.inhalt.kategorien);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
+    <div className="overflow-hidden">
+      {/* Change 039: immer ohne Scrollbar — table-fixed skaliert die Zellen
+          auf die verfügbare Breite, sehr kleine Schrift, Header truncated. */}
+      <table className="w-full table-fixed text-[10px] border-collapse">
         <thead>
           <tr>
-            <th className="py-1 pr-2 text-left text-dim font-normal">
+            <th className="py-0.5 pr-1 text-left text-dim font-normal w-24 align-bottom">
               Kanal ↓ · Inhalt →
             </th>
             {inhaltKeys.map((ik) => (
-              <th key={ik} className="py-1 px-2 text-center font-medium">
-                {axes.inhalt.kategorien[ik].name}
+              <th key={ik} className="py-0.5 px-0.5 text-center font-medium overflow-hidden">
+                <span className="block truncate" title={axes.inhalt.kategorien[ik].name}>
+                  {axes.inhalt.kategorien[ik].name}
+                </span>
               </th>
             ))}
-            <th className="py-1 px-2 text-center font-medium">Σ</th>
+            <th className="py-0.5 px-0.5 text-center font-medium w-7">Σ</th>
           </tr>
         </thead>
         <tbody>
           {kanalKeys.map((kk) => (
             <tr key={kk}>
-              <td className="py-1 pr-2 whitespace-nowrap">
-                <span className="font-medium">{axes.kanal.kategorien[kk].name}</span>
-                <span className="text-dim text-xs block">{kk}</span>
+              <td className="py-0.5 pr-1 overflow-hidden">
+                <span className="block truncate font-medium" title={axes.kanal.kategorien[kk].name}>
+                  {axes.kanal.kategorien[kk].name}
+                </span>
+                <span className="text-dim text-[9px] block truncate">{kk}</span>
               </td>
               {inhaltKeys.map((ik) => {
                 const n = meta.matrix?.[kk]?.[ik] ?? 0;
                 const isActive = active?.kanal === kk && active?.inhalt === ik;
                 return (
-                  <td key={ik} className="py-1 px-1 text-center">
+                  <td key={ik} className="py-0.5 px-0.5 text-center">
                     <button
                       onClick={() => onSelect(isActive ? null : { kanal: kk, inhalt: ik })}
                       disabled={n === 0}
                       className={[
-                        "min-w-[2.4rem] px-2 py-1 rounded text-xs",
+                        "w-full px-0.5 py-0.5 rounded text-[10px] leading-none",
                         n === 0
                           ? "text-dim/30 cursor-not-allowed"
                           : isActive
@@ -185,14 +241,14 @@ export function AxesMatrix({ meta, active, onSelect }: MatrixProps) {
                   </td>
                 );
               })}
-              <td className="py-1 px-2 text-center text-dim">
+              <td className="py-0.5 px-0.5 text-center text-dim">
                 {inhaltKeys.reduce((acc, ik) => acc + (meta.matrix?.[kk]?.[ik] ?? 0), 0)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="text-xs text-dim mt-2">
+      <p className="text-xs text-dim mt-1">
         {meta.matrix_total ?? 0} Samples gesamt · Klick auf eine Zelle filtert die Samples darunter
         {active ? ` (aktiv: ${active.kanal} × ${active.inhalt})` : ""}
       </p>
@@ -245,17 +301,6 @@ export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
 
 // ── Modellqualität je Kategorie (REQ-BEN-047) ────────────────────────────
 
-const MODEL_COLORS = [
-  "#8b5cf6", "#22d3ee", "#fbbf24", "#34d399",
-  "#f472b6", "#60a5fa", "#fb923c", "#a3e635",
-];
-
-function modelColor(backend: string): string {
-  let h = 0;
-  for (const ch of backend) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return MODEL_COLORS[h % MODEL_COLORS.length];
-}
-
 export function CategoryQualityChart({
   categoryId, categoryName, rows, hiddenModels,
 }: {
@@ -267,29 +312,27 @@ export function CategoryQualityChart({
   const visible = rows.filter((r) => !hiddenModels.has(r.backend));
   if (visible.length === 0) return null;
   const sorted = [...visible].sort((a, b) => a.wer - b.wer);
+  // Change 039: sehr kleine Tabelle statt Balken — Teil des Kategorie-Blocks.
   return (
-    <div className="border border-border rounded-lg p-3">
-      <h3 className="font-semibold text-sm mb-2">{categoryName}</h3>
-      <div className="space-y-1.5">
-        {sorted.map((r) => (
-          <div
-            key={r.backend}
-            className="flex items-center gap-2"
-            data-testid={`cat-bar-${categoryId}-${r.backend}`}
-            title={`${r.backend}: WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
-          >
-            <span className="w-32 font-mono text-xs text-dim truncate">{r.backend}</span>
-            <div className="flex-1 h-4 bg-[rgba(255,255,255,.06)] rounded overflow-hidden">
-              <div
-                className="h-full rounded"
-                style={{ width: `${Math.min(100, Math.max(2, r.wer * 100))}%`, background: modelColor(r.backend) }}
-              />
-            </div>
-            <span className="text-xs tabular-nums w-14 text-right">{(r.wer * 100).toFixed(1)}%</span>
-            <span className="text-xs text-dim w-10 text-right">({r.n})</span>
-          </div>
-        ))}
+    <div className="px-3 py-1.5 border-b border-border/40" data-testid={`cat-quality-${categoryId}`}>
+      <div className="text-[9px] text-dim uppercase tracking-wide mb-0.5">
+        Beste Modelle · {categoryName}
       </div>
+      <table className="w-full table-fixed text-[9px] border-collapse">
+        <tbody>
+          {sorted.map((r) => (
+            <tr
+              key={r.backend}
+              data-testid={`cat-bar-${categoryId}-${r.backend}`}
+              title={`${r.backend}: WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
+            >
+              <td className="pr-1 font-mono truncate">{r.backend}</td>
+              <td className="text-right w-9 tabular-nums">{(r.wer * 100).toFixed(1)}%</td>
+              <td className="text-right w-6 text-dim">({r.n})</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -514,10 +557,23 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
     arr.push(s);
     grouped.set(s.category, arr);
   }
-  const cats = meta.categories.map((c) => ({
-    cat: c,
-    samples: grouped.get(c.id) ?? [],
-  }));
+  // Change 039: nur Kategorien mit > 0 Samples anzeigen (Filter wirkt)
+  const cats = meta.categories
+    .map((c) => ({
+      cat: c,
+      samples: grouped.get(c.id) ?? [],
+    }))
+    .filter(({ samples: ss }) => ss.length > 0);
+
+  // Change 039: Qualität je Kategorie (per_category) als Map für die
+  // Kategorie-Blöcke + per_sample für die Sample-Mini-Tabellen.
+  const qualityByCat = new Map<string, Array<{ backend: string; wer: number; n: number }>>();
+  for (const r of results?.per_category ?? []) {
+    const arr = qualityByCat.get(r.category) ?? [];
+    arr.push({ backend: r.backend, wer: r.wer, n: r.n });
+    qualityByCat.set(r.category, arr);
+  }
+  const perSample = results?.per_sample ?? {};
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -564,11 +620,9 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
         <AxesMatrix meta={meta} active={matrixCell} onSelect={setMatrixCell} />
       </section>
 
-      {/* REQ-BEN-047: Modellqualität je Kategorie */}
-      <section className="space-y-3">
-        <h2 className="font-semibold">Modellqualität je Kategorie</h2>
-        <CategoryQualityCharts results={results} meta={meta} hiddenModels={hiddenModels} />
-      </section>
+      {/* REQ-BEN-047/Change 039: Modellqualität je Kategorie jetzt als Teil
+          der Kategorie-Blöcke unten (sehr kleine Tabellen) — keine separate
+          Sektion mehr. Nur Kategorien mit > 0 Samples (Filter wirkt). */}
 
       {/* Test-Set-Erklärung */}
       <section className="border border-border rounded-lg p-4">
@@ -586,25 +640,24 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
             </button>
           ) : null}
         </h2>
-        {cats.map(({ cat, samples: ss }) => {
-          // REQ-BEN-049: Kategorien mit 0 Samples ausblenden, nicht leer zeigen
-          if (ss.length === 0) return null;
-          return (
-            <BenchmarkCategory
-              key={cat.id}
-              cat={cat}
-              samples={ss}
-              open={openCat === cat.id}
-              onToggle={() => setOpenCat(openCat === cat.id ? null : cat.id)}
-              showText={showText}
-              admin={admin}
-              onReject={onReject}
-              onEdit={onEdit}
-              previewUrl={(id) => `/api/benchmark/preview/${id}`}
-              audioUrl={(id) => `/api/benchmark/audio/${id}`}
-            />
-          );
-        })}
+        {cats.map(({ cat, samples: ss }) => (
+          <BenchmarkCategory
+            key={cat.id}
+            cat={cat}
+            samples={ss}
+            open={openCat === cat.id}
+            onToggle={() => setOpenCat(openCat === cat.id ? null : cat.id)}
+            showText={showText}
+            admin={admin}
+            onReject={onReject}
+            onEdit={onEdit}
+            previewUrl={(id) => `/api/benchmark/preview/${id}`}
+            audioUrl={(id) => `/api/benchmark/audio/${id}`}
+            qualityRows={qualityByCat.get(cat.id) ?? []}
+            perSample={perSample}
+            hiddenModels={hiddenModels}
+          />
+        ))}
         {filtered.length === 0 && (
           <p className="text-sm text-dim">Keine Samples in dieser Matrix-Zelle.</p>
         )}
