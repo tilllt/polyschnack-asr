@@ -243,13 +243,150 @@ export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
   );
 }
 
+// ── Modellqualität je Kategorie (REQ-BEN-047) ────────────────────────────
+
+const MODEL_COLORS = [
+  "#8b5cf6", "#22d3ee", "#fbbf24", "#34d399",
+  "#f472b6", "#60a5fa", "#fb923c", "#a3e635",
+];
+
+function modelColor(backend: string): string {
+  let h = 0;
+  for (const ch of backend) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return MODEL_COLORS[h % MODEL_COLORS.length];
+}
+
+export function CategoryQualityChart({
+  categoryId, categoryName, rows, hiddenModels,
+}: {
+  categoryId: string;
+  categoryName: string;
+  rows: Array<{ backend: string; wer: number; n: number }>;
+  hiddenModels: ReadonlySet<string>;
+}) {
+  const visible = rows.filter((r) => !hiddenModels.has(r.backend));
+  if (visible.length === 0) return null;
+  const sorted = [...visible].sort((a, b) => a.wer - b.wer);
+  return (
+    <div className="border border-border rounded-lg p-3">
+      <h3 className="font-semibold text-sm mb-2">{categoryName}</h3>
+      <div className="space-y-1.5">
+        {sorted.map((r) => (
+          <div
+            key={r.backend}
+            className="flex items-center gap-2"
+            data-testid={`cat-bar-${categoryId}-${r.backend}`}
+            title={`${r.backend}: WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
+          >
+            <span className="w-32 font-mono text-xs text-dim truncate">{r.backend}</span>
+            <div className="flex-1 h-4 bg-[rgba(255,255,255,.06)] rounded overflow-hidden">
+              <div
+                className="h-full rounded"
+                style={{ width: `${Math.min(100, Math.max(2, r.wer * 100))}%`, background: modelColor(r.backend) }}
+              />
+            </div>
+            <span className="text-xs tabular-nums w-14 text-right">{(r.wer * 100).toFixed(1)}%</span>
+            <span className="text-xs text-dim w-10 text-right">({r.n})</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function CategoryQualityCharts({
+  results, meta, hiddenModels,
+}: {
+  results: BenchmarkResults | null;
+  meta: BenchmarkMeta;
+  hiddenModels: ReadonlySet<string>;
+}) {
+  const perCat = results?.per_category;
+  if (!perCat?.length) {
+    return <p className="text-sm text-dim">Noch keine Kategorie-Ergebnisse (nach dem ersten Submit).</p>;
+  }
+  const catName = new Map(meta.categories.map((c) => [c.id, c.name]));
+  const byCat = new Map<string, Array<{ backend: string; wer: number; n: number }>>();
+  for (const r of perCat) {
+    const arr = byCat.get(r.category) ?? [];
+    arr.push({ backend: r.backend, wer: r.wer, n: r.n });
+    byCat.set(r.category, arr);
+  }
+  const cats = [...byCat.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {cats.map(([id, rows]) => (
+        <CategoryQualityChart
+          key={id}
+          categoryId={id}
+          categoryName={catName.get(id) ?? id}
+          rows={rows}
+          hiddenModels={hiddenModels}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Modell-Filter (REQ-BEN-048) ──────────────────────────────────────────
+
+export function ModelFilterChips({
+  models, hiddenModels, onToggle, onReset,
+}: {
+  models: string[];
+  hiddenModels: ReadonlySet<string>;
+  onToggle: (backend: string) => void;
+  onReset: () => void;
+}) {
+  if (models.length === 0) return null;
+  const chipCls = (active: boolean) =>
+    [
+      "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+      active
+        ? "bg-[rgba(139,92,246,.25)] border-accent text-txt"
+        : "bg-transparent border-border text-dim hover:text-txt",
+    ].join(" ");
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Modell-Filter">
+      <span className="text-sm text-dim">Modelle:</span>
+      <button
+        onClick={onReset}
+        data-active={hiddenModels.size === 0 ? "true" : "false"}
+        className={chipCls(hiddenModels.size === 0)}
+      >
+        Alle
+      </button>
+      {models.map((m) => {
+        const active = !hiddenModels.has(m);
+        return (
+          <button
+            key={m}
+            onClick={() => onToggle(m)}
+            data-active={active ? "true" : "false"}
+            data-testid={`model-chip-${m}`}
+            className={chipCls(active)}
+          >
+            {m}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Preisvergleich ────────────────────────────────────────────────────────
 
-export function PriceComparison({ pricing }: { pricing: BenchmarkPricing | null }) {
+export function PriceComparison({ pricing, hiddenModels }: { pricing: BenchmarkPricing | null; hiddenModels?: ReadonlySet<string> }) {
   if (!pricing || !pricing.rows?.length) {
     return <p className="text-sm text-dim">Noch kein Preisvergleich verfügbar.</p>;
   }
-  const sorted = [...pricing.rows].sort((a, b) =>
+  const filtered = hiddenModels?.size
+    ? pricing.rows.filter((r) => !hiddenModels.has(r.backend))
+    : pricing.rows;
+  if (!filtered.length) {
+    return <p className="text-sm text-dim">Keine Preisdaten für die ausgewählten Modelle.</p>;
+  }
+  const sorted = [...filtered].sort((a, b) =>
     (a.wer ?? 99) - (b.wer ?? 99) || (a.eur_per_min_selfhost ?? 99) - (b.eur_per_min_selfhost ?? 99),
   );
   return (
@@ -282,9 +419,15 @@ export function PriceComparison({ pricing }: { pricing: BenchmarkPricing | null 
 
 // ── Ergebnisse-Tabelle ────────────────────────────────────────────────────
 
-export function ResultsTable({ results }: { results: BenchmarkResults | null }) {
+export function ResultsTable({ results, hiddenModels }: { results: BenchmarkResults | null; hiddenModels?: ReadonlySet<string> }) {
   if (!results || !results.rows?.length) {
     return <p className="text-sm text-dim">Noch keine Benchmark-Ergebnisse.</p>;
+  }
+  const rows = hiddenModels?.size
+    ? results.rows.filter((r) => !hiddenModels.has(r.backend))
+    : results.rows;
+  if (!rows.length) {
+    return <p className="text-sm text-dim">Keine Ergebnisse für die ausgewählten Modelle.</p>;
   }
   return (
     <div className="overflow-x-auto">
@@ -300,7 +443,7 @@ export function ResultsTable({ results }: { results: BenchmarkResults | null }) 
           </tr>
         </thead>
         <tbody>
-          {results.rows.map((r, i) => (
+          {rows.map((r, i) => (
             <tr key={`${r.backend}-${r.settings ?? ""}-${i}`} className="border-b border-border/50">
               <td className="py-2 pr-2 font-mono">{r.backend}</td>
               <td className="py-2 pr-2">{r.settings ?? "auto"}</td>
@@ -333,6 +476,21 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
   const [openCat, setOpenCat] = useState<string | null>(null);
   const [showText, setShowText] = useState(true);
   const [matrixCell, setMatrixCell] = useState<{ kanal: string; inhalt: string } | null>(null);
+  const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
+
+  // REQ-BEN-048: Modell-Liste aus per_category (Fallback: gepoolte rows)
+  const modelList = results?.per_category?.length
+    ? [...new Set(results.per_category.map((r) => r.backend))].sort()
+    : results?.rows?.length
+      ? [...new Set(results.rows.map((r) => r.backend))].sort()
+      : [];
+
+  const toggleModel = (backend: string) => {
+    const next = new Set(hiddenModels);
+    if (next.has(backend)) next.delete(backend);
+    else next.add(backend);
+    setHiddenModels(next);
+  };
 
   if (!meta || !data) {
     return (
@@ -381,6 +539,18 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
         </div>
       </div>
 
+      {/* REQ-BEN-048: Modell-Filter (oben) */}
+      {modelList.length > 0 && (
+        <section className="border border-border rounded-lg p-3">
+          <ModelFilterChips
+            models={modelList}
+            hiddenModels={hiddenModels}
+            onToggle={toggleModel}
+            onReset={() => setHiddenModels(new Set())}
+          />
+        </section>
+      )}
+
       {/* Methodik */}
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-1">Methodik</h2>
@@ -392,6 +562,12 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-2">Test-Set · 2-Achsen-Matrix</h2>
         <AxesMatrix meta={meta} active={matrixCell} onSelect={setMatrixCell} />
+      </section>
+
+      {/* REQ-BEN-047: Modellqualität je Kategorie */}
+      <section className="space-y-3">
+        <h2 className="font-semibold">Modellqualität je Kategorie</h2>
+        <CategoryQualityCharts results={results} meta={meta} hiddenModels={hiddenModels} />
       </section>
 
       {/* Test-Set-Erklärung */}
@@ -410,21 +586,25 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
             </button>
           ) : null}
         </h2>
-        {cats.map(({ cat, samples: ss }) => (
-          <BenchmarkCategory
-            key={cat.id}
-            cat={cat}
-            samples={ss}
-            open={openCat === cat.id}
-            onToggle={() => setOpenCat(openCat === cat.id ? null : cat.id)}
-            showText={showText}
-            admin={admin}
-            onReject={onReject}
-            onEdit={onEdit}
-            previewUrl={(id) => `/api/benchmark/preview/${id}`}
-            audioUrl={(id) => `/api/benchmark/audio/${id}`}
-          />
-        ))}
+        {cats.map(({ cat, samples: ss }) => {
+          // REQ-BEN-049: Kategorien mit 0 Samples ausblenden, nicht leer zeigen
+          if (ss.length === 0) return null;
+          return (
+            <BenchmarkCategory
+              key={cat.id}
+              cat={cat}
+              samples={ss}
+              open={openCat === cat.id}
+              onToggle={() => setOpenCat(openCat === cat.id ? null : cat.id)}
+              showText={showText}
+              admin={admin}
+              onReject={onReject}
+              onEdit={onEdit}
+              previewUrl={(id) => `/api/benchmark/preview/${id}`}
+              audioUrl={(id) => `/api/benchmark/audio/${id}`}
+            />
+          );
+        })}
         {filtered.length === 0 && (
           <p className="text-sm text-dim">Keine Samples in dieser Matrix-Zelle.</p>
         )}
@@ -433,13 +613,13 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
       {/* Ergebnisse */}
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-2">Ergebnisse</h2>
-        <ResultsTable results={results} />
+        <ResultsTable results={results} hiddenModels={hiddenModels} />
       </section>
 
       {/* Preisvergleich */}
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-2">Preisvergleich</h2>
-        <PriceComparison pricing={pricing} />
+        <PriceComparison pricing={pricing} hiddenModels={hiddenModels} />
       </section>
     </div>
   );

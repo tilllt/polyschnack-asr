@@ -62,6 +62,56 @@ class BenchmarkService:
             raise FileNotFoundError("keine Benchmark-Version vorhanden")
         return self._load_manifest(nums[-1])
 
+    def latest_results(self) -> dict:
+        """latest.json inkl. `per_category` (Change 032).
+
+        Bestehende latest.json-Dateien (vor Change 032 gepoolt) enthalten
+        kein `per_category` — das wird hier on-the-fly aus den Run-Rows +
+        aktivem Manifest nachgerüstet (gleiche Formel wie beim Re-Pooling:
+        WER/CER gemittelt je (Kategorie × Backend), nur Rows mit wer-Wert).
+        So funktionieren die Kategorie-Charts sofort nach dem Deploy, ohne
+        auf den nächsten Submit warten zu müssen.
+        """
+        p = self.data_dir / "results" / "latest.json"
+        latest = json.loads(p.read_text(encoding="utf-8"))
+        if latest.get("per_category"):
+            return latest
+        try:
+            m = self.latest_manifest()
+            sha = self.package_sha256(m["version"])
+        except (FileNotFoundError, KeyError):
+            return latest
+        cat_by_id = {s["id"]: s.get("category", "unknown")
+                     for s in m.get("samples", [])}
+        per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
+        runs_dir = self.data_dir / "results" / "runs"
+        if not runs_dir.exists():
+            return latest
+        for rf in runs_dir.glob("*.json"):
+            data = json.loads(rf.read_text(encoding="utf-8"))
+            if data.get("manifest_sha256") != sha:
+                continue
+            for r in data["rows"]:
+                if r.get("wer") is None:
+                    continue
+                cat = cat_by_id.get(r.get("sample_id"), "unknown")
+                cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
+                cell[0] += r["wer"]
+                cell[1] += r.get("cer") or 0.0
+                cell[2] += 1
+        per_category = [
+            {
+                "category": cat,
+                "backend": bname,
+                "wer": round(wsum / n, 4),
+                "cer": round(csum / n, 4),
+                "n": n,
+            }
+            for (cat, bname), (wsum, csum, n) in sorted(per_cat.items())
+        ]
+        latest["per_category"] = per_category
+        return latest
+
     def _load_manifest(self, version: int) -> dict:
         p = self._versions_dir() / f"v{version}" / "manifest.json"
         return json.loads(p.read_text(encoding="utf-8"))
@@ -301,12 +351,25 @@ class BenchmarkService:
 
         # ── Re-Pooling über alle Runs mit aktuellem Hash ──────────────────
         by_backend: Dict[str, List[dict]] = {}
+        # REQ-BEN-046: Kategorie je Sample aus dem aktiven Manifest mappen
+        # (Runner-Rows tragen nur sample_id, keine category).
+        cat_by_id = {s["id"]: s.get("category", "unknown")
+                     for s in m.get("samples", [])}
+        per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
         for rf in runs_dir.glob("*.json"):
             data = json.loads(rf.read_text(encoding="utf-8"))
             if data.get("manifest_sha256") != sha:
                 continue
             bb = by_backend.setdefault(data["backend"], [])
-            bb.extend(r for r in data["rows"] if r.get("wer") is not None)
+            for r in data["rows"]:
+                if r.get("wer") is None:
+                    continue
+                bb.append(r)
+                cat = cat_by_id.get(r.get("sample_id"), "unknown")
+                cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
+                cell[0] += r["wer"]
+                cell[1] += r.get("cer") or 0.0
+                cell[2] += 1
 
         pooled: List[dict] = []
         for bname, rows in by_backend.items():
@@ -322,11 +385,23 @@ class BenchmarkService:
             })
         pooled.sort(key=lambda r: r["backend"])
 
+        # REQ-BEN-046: Kategorie-Ebene (Kategorie × Backend → WER/CER/n)
+        per_category: List[dict] = []
+        for (cat, bname), (wsum, csum, n) in sorted(per_cat.items()):
+            per_category.append({
+                "category": cat,
+                "backend": bname,
+                "wer": round(wsum / n, 4),
+                "cer": round(csum / n, 4),
+                "n": n,
+            })
+
         latest = {
             "version": version,
             "run_id": f"pooled-{int(time.time())}",
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "rows": pooled,
+            "per_category": per_category,
         }
         (self.data_dir / "results" / "latest.json").write_text(
             json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"

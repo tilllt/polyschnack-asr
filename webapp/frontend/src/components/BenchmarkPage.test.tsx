@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { AxesMatrix, BenchmarkCategory, PriceComparison, TestSetExplanation } from "./BenchmarkPage";
-import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing } from "../benchmark";
+import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation } from "./BenchmarkPage";
+import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse } from "../benchmark";
 
 const CAT: Cat = { id: "akzent", name: "Akzente", description: "Regionale Färbungen" };
 
@@ -185,5 +185,142 @@ describe("TestSetExplanation", () => {
   test("nennt die Sample-Gesamtzahl", () => {
     render(<TestSetExplanation meta={META} />);
     expect(screen.getByText(/2 Samples/)).toBeTruthy();
+  });
+});
+
+describe("CategoryQualityChart (REQ-BEN-047)", () => {
+  test("Balken sortiert nach WER aufsteigend, beste Modell oben, mit %-Wert und n", () => {
+    render(
+      <LocaleProvider>
+        <CategoryQualityChart
+          categoryId="akzent"
+          categoryName="Akzente"
+          rows={[
+            { backend: "ps-pk-onnx", wer: 0.3, n: 3 },
+            { backend: "crispr-pk-cpp", wer: 0.1, n: 3 },
+          ]}
+          hiddenModels={new Set()}
+        />
+      </LocaleProvider>,
+    );
+    const bars = screen.getAllByTestId(/^cat-bar-/);
+    expect(bars).toHaveLength(2);
+    const text = bars.map((b) => b.textContent ?? "");
+    expect(text[0]).toContain("crispr-pk-cpp"); // bestes zuerst
+    expect(text[0]).toContain("10.0%");
+    expect(text[1]).toContain("30.0%");
+    expect(text[0]).toContain("(3)");
+  });
+
+  test("keine Balken wenn alle Modelle ausgeblendet (Chart entfällt)", () => {
+    render(
+      <LocaleProvider>
+        <CategoryQualityChart
+          categoryId="akzent"
+          categoryName="Akzente"
+          rows={[
+            { backend: "ps-pk-onnx", wer: 0.3, n: 3 },
+            { backend: "crispr-pk-cpp", wer: 0.1, n: 3 },
+          ]}
+          hiddenModels={new Set(["ps-pk-onnx", "crispr-pk-cpp"])}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByTestId(/^cat-bar-/)).toBeNull();
+  });
+});
+
+describe("ModelFilterChips (REQ-BEN-048)", () => {
+  test("Klick toggelt Modell, 'Alle' setzt zurück", () => {
+    const toggle = vi.fn();
+    const reset = vi.fn();
+    render(
+      <LocaleProvider>
+        <ModelFilterChips
+          models={["ps-pk-onnx", "crispr-pk-cpp"]}
+          hiddenModels={new Set(["ps-pk-onnx"])}
+          onToggle={toggle}
+          onReset={reset}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByTestId("model-chip-ps-pk-onnx").getAttribute("data-active")).toBe("false");
+    expect(screen.getByTestId("model-chip-crispr-pk-cpp").getAttribute("data-active")).toBe("true");
+    screen.getByTestId("model-chip-ps-pk-onnx").click();
+    expect(toggle).toHaveBeenCalledWith("ps-pk-onnx");
+    screen.getByText("Alle").click();
+    expect(reset).toHaveBeenCalled();
+  });
+});
+
+describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/049)", () => {
+  const META: BenchmarkMeta = {
+    version: 1,
+    created_at: "2026-08-20T00:00:00Z",
+    supersedes: null,
+    categories: [
+      { id: "akzent", name: "Akzente" },
+      { id: "clean", name: "Hochdeutsch" },
+    ],
+    sample_count: 3,
+    per_category: { akzent: 3, clean: 0 },
+    methodology: "WER auf CommonVoice-de (echte Stimmen)",
+    disclaimer: "Referenztexte held-out.",
+  };
+  const DATA: BenchmarkSamplesResponse = {
+    version: 1,
+    samples: [
+      { id: "akzent_001", category: "akzent", text: "Kisten und Möbel.", preview_url: "/p", audio_url: "/a" },
+      { id: "akzent_002", category: "akzent", text: "Zweiter Satz.", preview_url: "/p", audio_url: "/a" },
+    ],
+  };
+  const RESULTS: BenchmarkResults = {
+    version: 1,
+    run_id: "r1",
+    generated_at: "2026-08-20T00:00:00Z",
+    rows: [
+      { backend: "ps-pk-onnx", wer: 0.2 },
+      { backend: "crispr-pk-cpp", wer: 0.25 },
+    ],
+    per_category: [
+      { category: "akzent", backend: "ps-pk-onnx", wer: 0.2, cer: 0.1, n: 2 },
+      { category: "akzent", backend: "crispr-pk-cpp", wer: 0.25, cer: 0.15, n: 2 },
+    ],
+  };
+  function renderPage() {
+    return render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META}
+          data={DATA}
+          results={RESULTS}
+          pricing={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+  }
+
+  test("Kategorie-Graph je Kategorie mit Daten; leere Kategorie (0 Samples) unsichtbar", () => {
+    renderPage();
+    expect(screen.getByText("Modellqualität je Kategorie")).toBeTruthy();
+    expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
+    // clean hat 0 Samples: weder als Kategorie-Box noch als Chart
+    expect(screen.queryByText(/Hochdeutsch/)).toBeNull();
+    // akzent-Samples-Sektion vorhanden (Kategorie-Header-Button mit Anzahl)
+    expect(screen.getByRole("button", { name: /Akzente/ })).toBeTruthy();
+  });
+
+  test("Modell-Filter oben blendet Modell aus allen Graphen aus", async () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("model-chip-ps-pk-onnx"));
+    await waitFor(() => expect(screen.queryByTestId("cat-bar-akzent-ps-pk-onnx")).toBeNull());
+    expect(screen.getByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeTruthy();
+    // Reset zeigt wieder beide
+    fireEvent.click(screen.getByText("Alle"));
+    await waitFor(() => expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy());
   });
 });

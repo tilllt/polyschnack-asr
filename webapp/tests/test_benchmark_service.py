@@ -192,3 +192,80 @@ def test_edit_sample_rejects_status_change(data_dir: Path):
     svc = BenchmarkService(data_dir)
     with pytest.raises(ValueError):
         svc.edit_sample("akzent_001", status="rejected")
+
+
+def test_apply_submission_pools_per_category(data_dir: Path):
+    """REQ-BEN-046: latest.json enthält per_category (Kategorie × Backend)."""
+    svc = BenchmarkService(data_dir)
+    sha = svc.package_sha256(1)
+    base = {
+        "manifest_version": 1,
+        "manifest_sha256": sha,
+        "settings": "auto",
+        "generated_at": "2026-08-20T00:00:00Z",
+        "rows": [
+            {"sample_id": "akzent_001", "wer": 0.10, "cer": 0.05, "coverage_pct": 100.0, "rtf": 0.1},
+            {"sample_id": "akzent_002", "wer": 0.30, "cer": 0.20, "coverage_pct": 100.0, "rtf": 0.1},
+        ],
+    }
+    r1 = svc.apply_submission({**base, "backend": "ps-pk-onnx"})
+    assert r1["ok"] is True
+    r2 = svc.apply_submission({**base, "backend": "crispr-pk-cpp"})
+    assert r2["ok"] is True
+
+    latest = json.loads((data_dir / "results" / "latest.json").read_text(encoding="utf-8"))
+    # rows (gepoolte Gesamtwerte) bleibt vorhanden
+    assert {r["backend"] for r in latest["rows"]} == {"ps-pk-onnx", "crispr-pk-cpp"}
+    # per_category: 2 Backends × 1 Kategorie
+    pc = latest["per_category"]
+    by = {(e["category"], e["backend"]): e for e in pc}
+    assert by[("akzent", "ps-pk-onnx")]["wer"] == pytest.approx(0.20)
+    assert by[("akzent", "ps-pk-onnx")]["n"] == 2
+    assert by[("akzent", "crispr-pk-cpp")]["wer"] == pytest.approx(0.20)
+    assert by[("akzent", "crispr-pk-cpp")]["n"] == 2
+    # Rows ohne wer-Wert fließen nicht in per_category
+    svc.apply_submission({
+        **base, "backend": "ps-pk-onnx",
+        "rows": [{"sample_id": "akzent_001", "wer": None, "rtf": 0.1}],
+    })
+    latest = json.loads((data_dir / "results" / "latest.json").read_text(encoding="utf-8"))
+    pc = latest["per_category"]
+    assert all(e["n"] == 2 for e in pc if e["backend"] == "ps-pk-onnx")
+
+
+def test_latest_results_rueckt_per_category_nach(data_dir: Path):
+    """Change 032: alte latest.json (ohne per_category, vor Change 032
+    gepoolt) bekommt die Kategorie-Ebene on-the-fly nachgerüstet — die
+    Charts funktionieren direkt nach dem Deploy ohne neuen Submit."""
+    svc = BenchmarkService(data_dir)
+    results_dir = data_dir / "results"
+    results_dir.mkdir(parents=True)
+    (results_dir / "latest.json").write_text(json.dumps({
+        "version": 1,
+        "run_id": "pooled-alt",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "rows": [{"backend": "ps-pk-onnx", "wer": 0.2, "cer": 0.1,
+                  "n_samples": 2}],
+    }))
+    sha = svc.package_sha256(1)
+    runs = results_dir / "runs"
+    runs.mkdir(parents=True)
+    (runs / "ps-pk-onnx_20260101.json").write_text(json.dumps({
+        "backend": "ps-pk-onnx",
+        "manifest_sha256": sha,
+        "rows": [
+            {"sample_id": "akzent_001", "wer": 0.10, "cer": 0.05},
+            {"sample_id": "akzent_001", "wer": 0.30, "cer": 0.20},
+            {"sample_id": "gibtsnicht", "wer": 0.5, "cer": 0.4},  # → unknown
+        ],
+    }))
+
+    out = svc.latest_results()
+    assert "per_category" in out
+    by = {(e["category"], e["backend"]): e for e in out["per_category"]}
+    assert by[("akzent", "ps-pk-onnx")]["wer"] == pytest.approx(0.20)
+    assert by[("akzent", "ps-pk-onnx")]["n"] == 2
+    assert by[("unknown", "ps-pk-onnx")]["n"] == 1
+    # Vorhandenes per_category wird nicht überschrieben
+    out2 = svc.latest_results()
+    assert out2["per_category"] == out["per_category"]

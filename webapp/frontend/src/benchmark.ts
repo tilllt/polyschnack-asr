@@ -69,11 +69,21 @@ export interface ResultRow {
   eur_per_min?: number | null;
 }
 
+/** REQ-BEN-046: gepoolte Qualität je (Kategorie × Backend) aus latest.json. */
+export interface BenchmarkPerCategoryRow {
+  category: string;
+  backend: string;
+  wer: number;
+  cer: number;
+  n: number;
+}
+
 export interface BenchmarkResults {
   version?: number;
   run_id?: string;
   generated_at?: string;
   rows: ResultRow[];
+  per_category?: BenchmarkPerCategoryRow[];
 }
 
 export function parseBenchmarkPath(path: string): boolean {

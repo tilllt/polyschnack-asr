@@ -166,13 +166,13 @@ def preview(sample_id: str) -> FileResponse:
 
 @router.get("/results")
 def results() -> Dict[str, Any]:
-    """Gepoolte Benchmark-Ergebnisse (results/latest.json)."""
+    """Gepoolte Benchmark-Ergebnisse (results/latest.json) inkl.
+    per_category (Change 032 — bei alten Dateien on-the-fly nachgerüstet)."""
     svc = _service()
-    p = svc.data_dir / "results" / "latest.json"
-    if not p.exists():
+    try:
+        return svc.latest_results()
+    except FileNotFoundError:
         raise HTTPException(404, "no benchmark results yet")
-    import json
-    return json.loads(p.read_text(encoding="utf-8"))
 
 
 @router.get("/pricing")
