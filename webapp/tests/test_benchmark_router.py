@@ -170,6 +170,19 @@ def test_samples_exclude_held_out(client):
     assert all("preview_url" in s and "audio_url" in s for s in samples)
 
 
+def test_samples_include_kanal_inhalt(client):
+    """Change 042: kanal/inhalt müssen im Samples-Response sein, sonst
+    findet der Matrix-Filter der UI (clean×akzente) keine Samples."""
+    r = client.get("/api/benchmark/samples")
+    assert r.status_code == 200
+    samples = r.json()["samples"]
+    assert all("kanal" in s and "inhalt" in s for s in samples)
+    akzent = [s for s in samples if s["inhalt"] == "akzent"]
+    assert len(akzent) == 1
+    assert akzent[0]["kanal"] == "clean"
+    assert akzent[0]["id"] == "akzent_001"
+
+
 def test_audio_returns_wav_with_range(client):
     r = client.get("/api/benchmark/audio/akzent_001", headers={"Range": "bytes=0-99"})
     assert r.status_code == 206

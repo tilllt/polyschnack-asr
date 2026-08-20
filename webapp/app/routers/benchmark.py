@@ -132,6 +132,11 @@ def samples() -> Dict[str, Any]:
                 "text": s["text"],  # Referenztext: öffentlich sichtbar (nicht held-out)
                 "accent": s.get("accent", ""),
                 "age": s.get("age", ""),
+                # Change 042: kanal/inhalt mitsenden — der Matrix-Filter der
+                # UI braucht sie (sonst fällt der Filter auf Defaults zurück
+                # und clean×akzente zeigt 0 Samples, obwohl die Zelle zählt).
+                "kanal": s.get("kanal") or "clean",
+                "inhalt": s.get("inhalt") or "allgemein",
                 "preview_url": f"/api/benchmark/preview/{s['id']}",
                 "audio_url": f"/api/benchmark/audio/{s['id']}",
             }
