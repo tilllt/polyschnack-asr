@@ -52,7 +52,7 @@ cd "$(dirname "$0")"
 # aenderte (wird beim Committen mitgefuehrt). Basis fuer den Update-Check
 # (jeder Lauf) und den selfupdate-Changelog. Deaktivieren des Checks:
 # POLYSCHNACK_SELFUPDATE_CHECK=off in der .env.
-SELFUPDATE_SHA="cc6165fa54ef00eade4d29a6e26e5d883d9ccf64"
+SELFUPDATE_SHA="65c7636f11cfe62a5a86c501204b879b094e43f6"
 
 # --- Projekt-Basis ----------------------------------------------------------
 # compose.backends.yml ist IMMER Teil des Projekts: die Overlays
