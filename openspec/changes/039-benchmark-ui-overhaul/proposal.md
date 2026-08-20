@@ -28,9 +28,10 @@ Die Benchmark-Sektion der Webapp-GUI hat UX-Probleme:
 
 ## Tasks
 
-- [ ] Benchmark-Frontend lokalisieren (Template/JS/API-Datenfluss)
-- [ ] Matrix ohne Scrollbar rendern
-- [ ] Kategorie-Filter: nur Kategorien mit > 0 Samples anzeigen
-- [ ] Mini-Tabelle „beste Modelle je Kategorie" im Kategorie-Block
-- [ ] Mini-Tabelle „Qualität pro Modell" je Sample
-- [ ] GUI-Test (Browser, Desktop + Mobile)
+- [x] Benchmark-Frontend lokalisieren (Template/JS/API-Datenfluss)
+- [x] Matrix ohne Scrollbar rendern (table-fixed, skalierend, truncatete Header)
+- [x] Kategorie-Filter: nur Kategorien mit > 0 Samples anzeigen
+- [x] Mini-Tabelle „beste Modelle je Kategorie" im Kategorie-Block (sehr klein)
+- [x] Mini-Tabelle „Qualität pro Modell" je Sample (per_sample aus latest.json)
+- [x] Backend: per_sample in latest_results() + Re-Pooling (on-the-fly-Nachrüstung)
+- [x] GUI-Test (17 Frontend-Tests + 27 Backend-Tests grün, dist gebaut)
