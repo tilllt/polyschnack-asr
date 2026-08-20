@@ -50,7 +50,13 @@ if [ -z "${KEY:-}" ]; then
   KEY="$(grep -m1 '^BENCHMARK_API_KEYS=' .env 2>/dev/null | cut -d= -f2- | cut -d, -f1 | tr -d ' \r\n' || true)"
 fi
 if [ -z "${KEY:-}" ]; then
-  echo "FEHLER: Kein Benchmark-Key — --key setzen oder BENCHMARK_API_KEYS in .env"; exit 1
+  echo "FEHLER: Kein Benchmark-Key gefunden (--key oder BENCHMARK_API_KEYS in .env)."
+  echo ""
+  echo "  Key erzeugen:       openssl rand -hex 32"
+  echo "  In die Box-.env:    BENCHMARK_API_KEYS=<key>"
+  echo "  Webapp neu starten: ./polyschnack-manage.sh deploy   (bzw. docker compose up -d ps-webapp)"
+  echo "  Alternativ direkt:  ./import_benchmark_suite.sh <PAKET> --key <key>"
+  exit 1
 fi
 
 TMP="$(mktemp -d /tmp/benchmark_suite.XXXXXX)"

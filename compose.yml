@@ -127,6 +127,11 @@ services:
       # Liegt im selben Volume wie /data (./DATA/poc-data:/data) — vor dem
       # ersten Start per Seed befüllen (siehe README "Wichtig vor dem Deployment").
       BENCHMARK_DATA_DIR: /data/benchmark
+      # Shared-Key(s) für Benchmark-Self-Service (Change 031/036): kommasepariert.
+      # Runner/Import authentifiziert mit Authorization: Bearer <key> +
+      # HMAC-SHA256-Signatur (Header X-Benchmark-Signature). Leer = Endpunkte 503.
+      # Key erzeugen:  openssl rand -hex 32
+      BENCHMARK_API_KEYS: "${BENCHMARK_API_KEYS:-}"
       DOCKER_PROXY_URL: http://docker-proxy:2375
       # Admin-Bereich: wer darf Services starten/stoppen und das
       # Default-Backend wechseln? Leer = Admin-Bereich deaktiviert.

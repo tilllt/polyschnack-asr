@@ -42,6 +42,35 @@
 ## Tasks
 
 - [x] Suite-Backends in `webapp/app/backends.yaml` registrieren (whisper-large-v3, voxtral-mini-realtime)
-- [ ] Build-Skript: 207er-Suite → `benchmark_data`-Version + `package_sha256` + Tarball (deterministisch)
-- [ ] Box-Import-Skript: Hash-Gate, Versions-Einspielen, Backend-Registrierung, Submit, Verifikation
-- [ ] Paket + Result-JSONs bereitstellen (Zipline) und Anleitung an User
+- [x] `BENCHMARK_API_KEYS` in compose.yml für ps-webapp verdrahten (Change-031-Lücke: Env fehlte → Endpunkte 503)
+- [x] Build-Skript: 207er-Suite → `benchmark_data`-Version + `package_sha256` + Tarball (deterministisch)
+- [x] Box-Import-Skript: Hash-Gate, Versions-Einspielen, Backend-Registrierung, Submit, Verifikation
+- [x] Paket + Result-JSONs bereitstellen (Zipline) und Anleitung an User
+
+## Anhang: Benchmark-Key (Shared-Key, Change 031)
+
+Die Endpunkte `GET /api/benchmark/package`, `/package/sha256` und
+`POST /api/benchmark/submit` sind mit einem Shared-Key geschützt
+(`Authorization: Bearer <key>` + HMAC-SHA256-Signatur im Header
+`X-Benchmark-Signature` über den rohen Request-Body, hex).
+
+**Key erzeugen:**
+```bash
+openssl rand -hex 32
+```
+
+**Aktivieren (auf der Box):**
+1. In die `.env` des Checkouts eintragen (mehrere Keys kommasepariert):
+   ```
+   BENCHMARK_API_KEYS=<key1>,<key2>
+   ```
+2. Webapp neu starten (Compose reicht die Variable seit Change 036 durch):
+   ```bash
+   ./polyschnack-manage.sh deploy
+   # bzw. docker compose up -d ps-webapp
+   ```
+3. Prüfen: `curl -s -o /dev/null -w "%{http_code}" https://<host>/api/benchmark/meta`
+   → 200; die Submit-Endpunkte antworten ohne Key mit 401/503, mit Key + Signatur 200.
+
+**Im Import-Skript:** `--key <key>` oder automatisch aus `BENCHMARK_API_KEYS`
+in der `.env` (erste Key).
