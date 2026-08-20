@@ -71,6 +71,9 @@ def build_payload(result: dict, version: int, sha: str) -> dict:
     rows = []
     for sid in sorted(wps):
         wer = wps[sid]
+        # vast-Result-JSONs: wer_per_sample[sid] = {"wer": x, "hypothesis": "…"}
+        if isinstance(wer, dict):
+            wer = wer.get("wer")
         if wer is None:
             continue
         rows.append({
