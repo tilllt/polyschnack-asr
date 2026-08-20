@@ -216,6 +216,12 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
     expect(text[0]).toContain("10.0%");
     expect(text[1]).toContain("30.0%");
     expect(text[0]).toContain("(3)");
+    // Change 040: Balken-Grafik — Label macht Kategorie-Zuordnung klar
+    expect(screen.getByText(/Kategorie · Akzente/)).toBeTruthy();
+    // Balken-Füllung hat Breite und WER-Farbe (grafische Repräsentation)
+    const fill = bars[0].querySelector("div[style]");
+    expect(fill).toBeTruthy();
+    expect(fill?.getAttribute("style")).toContain("width:");
   });
 
   test("keine Balken wenn alle Modelle ausgeblendet (Chart entfällt)", () => {
@@ -237,16 +243,16 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
 });
 
 describe("ModelFilterChips (REQ-BEN-048)", () => {
-  test("Klick toggelt Modell, 'Alle' setzt zurück", () => {
+  test("Klick toggelt Modell, 'Alle' toggelt alle", () => {
     const toggle = vi.fn();
-    const reset = vi.fn();
+    const toggleAll = vi.fn();
     render(
       <LocaleProvider>
         <ModelFilterChips
           models={["ps-pk-onnx", "crispr-pk-cpp"]}
           hiddenModels={new Set(["ps-pk-onnx"])}
           onToggle={toggle}
-          onReset={reset}
+          onToggleAll={toggleAll}
         />
       </LocaleProvider>,
     );
@@ -254,8 +260,22 @@ describe("ModelFilterChips (REQ-BEN-048)", () => {
     expect(screen.getByTestId("model-chip-crispr-pk-cpp").getAttribute("data-active")).toBe("true");
     screen.getByTestId("model-chip-ps-pk-onnx").click();
     expect(toggle).toHaveBeenCalledWith("ps-pk-onnx");
-    screen.getByText("Alle").click();
-    expect(reset).toHaveBeenCalled();
+    screen.getByTestId("model-chip-alle").click();
+    expect(toggleAll).toHaveBeenCalled();
+  });
+
+  test("'Alle' aktiv markiert, wenn alle Modelle sichtbar", () => {
+    render(
+      <LocaleProvider>
+        <ModelFilterChips
+          models={["ps-pk-onnx", "crispr-pk-cpp"]}
+          hiddenModels={new Set()}
+          onToggle={() => {}}
+          onToggleAll={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByTestId("model-chip-alle").getAttribute("data-active")).toBe("true");
   });
 });
 
@@ -329,7 +349,24 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
     await waitFor(() => expect(screen.queryByTestId("cat-bar-akzent-ps-pk-onnx")).toBeNull());
     expect(screen.getByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeTruthy();
     // Reset zeigt wieder beide
-    fireEvent.click(screen.getByText("Alle"));
+    fireEvent.click(screen.getByTestId("model-chip-alle"));
     await waitFor(() => expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy());
+  });
+
+  test("Change 040: 'Alle' de-klick blendet alle Modelle aus, Klick zeigt alle", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
+    // Ausgangslage: alle sichtbar, „Alle" aktiv
+    expect(screen.getByTestId("model-chip-alle").getAttribute("data-active")).toBe("true");
+    expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
+    // De-Klick: alle ausgeblendet
+    fireEvent.click(screen.getByTestId("model-chip-alle"));
+    await waitFor(() => expect(screen.queryByTestId("cat-bar-akzent-ps-pk-onnx")).toBeNull());
+    expect(screen.queryByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeNull();
+    expect(screen.getByTestId("model-chip-alle").getAttribute("data-active")).toBe("false");
+    // Erneuter Klick: alle wieder sichtbar
+    fireEvent.click(screen.getByTestId("model-chip-alle"));
+    await waitFor(() => expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy());
+    expect(screen.getByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeTruthy();
   });
 });

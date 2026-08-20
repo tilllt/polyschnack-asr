@@ -95,13 +95,15 @@ function SampleRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sample.text);
 
-  // Change 039: Mini-Tabelle "Qualität pro Modell" für dieses Sample,
-  // sortiert nach WER aufsteigend (bestes Modell zuerst), sehr klein.
+  // Change 039/040: Qualität pro Modell für dieses Sample als Mini-Balken
+  // (grafisch), sortiert nach WER aufsteigend. ▤-Icon + grüne Akzente =
+  // klar als Sample-Grafik erkennbar (Kategorie-Grafiken: ▦ + violett).
   const sampleRows = perSample
     ? Object.entries(perSample)
         .filter(([b]) => !hiddenModels.has(b))
         .sort((a, b) => a[1] - b[1])
     : [];
+  const bestW = sampleRows.length ? sampleRows[0][1] : 0;
 
   return (
     <li className="px-4 py-3">
@@ -134,21 +136,32 @@ function SampleRow({
 
       {sampleRows.length > 0 && (
         <div className="mt-1.5" data-testid={`sample-wer-${sample.id}`}>
-          <div className="text-[9px] text-dim uppercase tracking-wide mb-0.5">Qualität pro Modell</div>
-          <table className="w-full table-fixed text-[9px] border-collapse">
-            <tbody>
-              {sampleRows.map(([backend, wer]) => (
-                <tr
+          <div className="flex items-center gap-1 text-[9px] text-emerald-300 uppercase tracking-wide mb-0.5">
+            <span aria-hidden>▤</span>
+            <span>Sample-Qualität</span>
+          </div>
+          <div className="space-y-1">
+            {sampleRows.map(([backend, wer]) => {
+              const pct = Math.max(4, Math.round((wer / (bestW || 0.0001)) * 100));
+              return (
+                <div
                   key={backend}
                   data-testid={`sample-wer-${sample.id}-${backend}`}
+                  className="flex items-center gap-1.5"
                   title={`${backend}: WER ${(wer * 100).toFixed(1)} %`}
                 >
-                  <td className="pr-1 font-mono truncate">{backend}</td>
-                  <td className="text-right w-12 tabular-nums">{(wer * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  <span className="w-24 font-mono text-[9px] truncate text-right">{backend}</span>
+                  <div className="flex-1 h-[5px] rounded-sm bg-bg/40 overflow-hidden">
+                    <div
+                      className="h-full rounded-sm"
+                      style={{ width: `${pct}%`, backgroundColor: werColor(wer) }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-[9px] tabular-nums">{(wer * 100).toFixed(1)}%</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -300,6 +313,17 @@ export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
 }
 
 // ── Modellqualität je Kategorie (REQ-BEN-047) ────────────────────────────
+// Change 040: grafische Darstellung — CSS-Balken statt Mini-Tabelle.
+// Balkenbreite = relative Qualität (bestes Modell = volle Breite),
+// Farbe = WER-Skala (grün = gut … rot = schlecht). Kategorie-Grafiken
+// sind durch ▦-Icon + violette Akzente klar von Sample-Grafiken (▤, grün)
+// unterscheidbar.
+
+function werColor(wer: number): string {
+  // WER 0 → grün (120°), WER ≥ 0.6 → rot (0°)
+  const t = Math.min(Math.max(wer, 0), 0.6) / 0.6;
+  return `hsl(${Math.round(120 * (1 - t))} 70% 45%)`;
+}
 
 export function CategoryQualityChart({
   categoryId, categoryName, rows, hiddenModels,
@@ -312,27 +336,36 @@ export function CategoryQualityChart({
   const visible = rows.filter((r) => !hiddenModels.has(r.backend));
   if (visible.length === 0) return null;
   const sorted = [...visible].sort((a, b) => a.wer - b.wer);
-  // Change 039: sehr kleine Tabelle statt Balken — Teil des Kategorie-Blocks.
+  const best = sorted[0].wer || 0.0001; // bestes Modell = volle Balkenbreite
   return (
-    <div className="px-3 py-1.5 border-b border-border/40" data-testid={`cat-quality-${categoryId}`}>
-      <div className="text-[9px] text-dim uppercase tracking-wide mb-0.5">
-        Beste Modelle · {categoryName}
+    <div className="px-3 py-2 border-b border-border/40" data-testid={`cat-quality-${categoryId}`}>
+      <div className="flex items-center gap-1 text-[9px] text-violet-300 uppercase tracking-wide mb-1">
+        <span aria-hidden>▦</span>
+        <span>Kategorie · {categoryName}</span>
       </div>
-      <table className="w-full table-fixed text-[9px] border-collapse">
-        <tbody>
-          {sorted.map((r) => (
-            <tr
+      <div className="space-y-1">
+        {sorted.map((r) => {
+          const pct = Math.max(4, Math.round((r.wer / best) * 100));
+          return (
+            <div
               key={r.backend}
               data-testid={`cat-bar-${categoryId}-${r.backend}`}
+              className="flex items-center gap-1.5"
               title={`${r.backend}: WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
             >
-              <td className="pr-1 font-mono truncate">{r.backend}</td>
-              <td className="text-right w-9 tabular-nums">{(r.wer * 100).toFixed(1)}%</td>
-              <td className="text-right w-6 text-dim">({r.n})</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              <span className="w-24 font-mono text-[9px] truncate text-right">{r.backend}</span>
+              <div className="flex-1 h-[5px] rounded-sm bg-bg/40 overflow-hidden">
+                <div
+                  className="h-full rounded-sm"
+                  style={{ width: `${pct}%`, backgroundColor: werColor(r.wer) }}
+                />
+              </div>
+              <span className="w-8 text-right text-[9px] tabular-nums">{(r.wer * 100).toFixed(1)}%</span>
+              <span className="w-5 text-right text-[9px] text-dim">({r.n})</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -374,12 +407,12 @@ export function CategoryQualityCharts({
 // ── Modell-Filter (REQ-BEN-048) ──────────────────────────────────────────
 
 export function ModelFilterChips({
-  models, hiddenModels, onToggle, onReset,
+  models, hiddenModels, onToggle, onToggleAll,
 }: {
   models: string[];
   hiddenModels: ReadonlySet<string>;
   onToggle: (backend: string) => void;
-  onReset: () => void;
+  onToggleAll: () => void;
 }) {
   if (models.length === 0) return null;
   const chipCls = (active: boolean) =>
@@ -389,13 +422,17 @@ export function ModelFilterChips({
         ? "bg-[rgba(139,92,246,.25)] border-accent text-txt"
         : "bg-transparent border-border text-dim hover:text-txt",
     ].join(" ");
+  // Change 040: „Alle" ist ein Toggle — ist alles sichtbar, blendet ein
+  // Klick alle Modelle aus; sonst zeigt er alle wieder an.
+  const allActive = hiddenModels.size === 0;
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Modell-Filter">
       <span className="text-sm text-dim">Modelle:</span>
       <button
-        onClick={onReset}
-        data-active={hiddenModels.size === 0 ? "true" : "false"}
-        className={chipCls(hiddenModels.size === 0)}
+        onClick={onToggleAll}
+        data-active={allActive ? "true" : "false"}
+        data-testid="model-chip-alle"
+        className={chipCls(allActive)}
       >
         Alle
       </button>
@@ -535,6 +572,12 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
     setHiddenModels(next);
   };
 
+  // Change 040: „Alle" toggelt — alles sichtbar → alle ausblenden; sonst → alle zeigen.
+  const toggleAllModels = () => {
+    if (hiddenModels.size === 0) setHiddenModels(new Set(modelList));
+    else setHiddenModels(new Set());
+  };
+
   if (!meta || !data) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -602,7 +645,7 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
             models={modelList}
             hiddenModels={hiddenModels}
             onToggle={toggleModel}
-            onReset={() => setHiddenModels(new Set())}
+            onToggleAll={toggleAllModels}
           />
         </section>
       )}
