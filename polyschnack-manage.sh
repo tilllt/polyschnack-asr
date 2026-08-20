@@ -32,7 +32,11 @@
 #               Manifest, schreibt results/latest.json + pricing.json ins
 #               Volume; die Webapp zeigt sie auf /benchmark). Konfiguration
 #               per .env: BENCH_BACKENDS, BENCH_BACKEND_URLS, OPENAI_API_KEY.
-#               Container endet nach dem Lauf — ideal fuer Host-Cron.
+#               Vorab-Checks: Stack laeuft? Key in .env? Key-Sichtbarkeit im
+#               Container (maskiert). Container endet nach dem Lauf — ideal
+#               fuer Host-Cron.
+#   key         Zeigt die Benchmark-Key-Sichtbarkeit maskiert (.env vs.
+#               Webapp-Container) — Diagnose bei 503/401 beim Submit.
 #   update      git pull + pull + models + start  (kompletter Deploy-Workflow).
 #   selfupdate  Aktualisiert DIESES Skript aus dem Repo (GitLab-API, Token
 #               aus POLYSCHNACK_GITLAB_TOKEN oder .env daneben).
@@ -332,6 +336,48 @@ if [ "$CMD" != "selfupdate" ] && [ "$CMD" != "help" ] && [ "$CMD" != "-h" ] && [
     selfupdate_check
 fi
 
+# ── Benchmark-Key: Maskierung + Sichtbarkeits-Check (Change 037) ─────────
+# Zeigt, ob die Webapp (Container) den Key aus der .env wirklich sieht —
+# haeufigste Ursache fuer 503/401 bei POST /api/benchmark/submit ist ein
+# Container, der noch mit altem/ohne Key laeuft (update vergessen).
+_mask_key() {
+    local v="$1"
+    if [ -z "$v" ]; then
+        echo "(leer)"
+    elif [ "${#v}" -le 8 ]; then
+        echo "****"
+    else
+        echo "${v:0:4}…${v: -4}"
+    fi
+}
+
+_container_benchmark_key() {
+    # Key-Env der laufenden Webapp auslesen (Python: Container hat python3 sicher)
+    docker compose exec -T ps-webapp python3 -c 'import os; print(os.environ.get("BENCHMARK_API_KEYS",""))' 2>/dev/null | tr -d '\r' || true
+}
+
+benchmark_key_status() {
+    local env_key="${1:-}" container_key status
+    echo "→ Benchmark-Key-Sichtbarkeit (maskiert):"
+    echo "    .env:        $(_mask_key "$env_key")"
+    if "${COMPOSE[@]}" ps --status running 2>/dev/null | grep -q 'ps-webapp'; then
+        container_key="$(_container_benchmark_key)"
+        echo "    Container:   $(_mask_key "$container_key")"
+        if [ -z "$env_key" ]; then
+            echo "    Status:      ⚠ .env ohne Key — BENCHMARK_API_KEYS eintragen"
+        elif [ -z "$container_key" ]; then
+            echo "    Status:      ⚠ Container sieht KEINEN Key — Stack neu starten: ./polyschnack-manage.sh update"
+        elif [ "$container_key" = "$env_key" ]; then
+            echo "    Status:      ✓ identisch — /api/benchmark/submit akzeptiert den Key"
+        else
+            echo "    Status:      ⚠ abweichend — Stack neu starten: ./polyschnack-manage.sh update"
+        fi
+    else
+        echo "    Container:   (Stack läuft nicht — ./polyschnack-manage.sh start)"
+        echo "    Status:      ⚠ kein Container-Check möglich"
+    fi
+}
+
 case "$CMD" in
     pull)
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
@@ -434,6 +480,9 @@ case "$CMD" in
             echo "" >&2
             exit 1
         fi
+        # Key-Sichtbarkeit im Container (maskiert) — Warnung bei Abweichung,
+        # haeufigste Ursache fuer 503/401 beim Submit (update vergessen).
+        benchmark_key_status "$BENCHMARK_API_KEYS"
         # Weicher HTTP-Check: Container läuft, aber antwortet die Webapp?
         # (Nur Warnung — ein vorgeschalteter Reverse-Proxy kann andere Ports nutzen.)
         _webapp_code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://localhost:${WEBAPP_PORT:-8088}/" 2>/dev/null || true)"
@@ -455,6 +504,14 @@ case "$CMD" in
             exit 1
         fi
         docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
+        ;;
+    key)
+        # Benchmark-Key-Sichtbarkeit: .env vs. Webapp-Container (maskiert)
+        _env_key=""
+        if [ -f .env ]; then
+            _env_key="$(grep -E '^BENCHMARK_API_KEYS=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+        fi
+        benchmark_key_status "$_env_key"
         ;;
     logs)
         shift

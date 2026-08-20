@@ -37,3 +37,5 @@
   auf WEBAPP_PORT (Box-Befund: benchmark lief ohne laufenden Stack)
 - [x] benchmark: BENCHMARK_API_KEYS/BENCHMARK_API_KEY explizit aus .env nachladen
   (Box-Befund: Key stand in .env, Skript las nur die Umgebung und erzeugte neue Keys)
+- [x] key-Kommando + benchmark-Integration: Key-Sichtbarkeit im Webapp-Container
+  auslesen und maskiert anzeigen (.env vs. Container, Status identisch/abweichend/leer)
