@@ -170,6 +170,10 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     # keep duration_s — the upload already gave us a rough estimate for ETA
     rec.processing_ms = None
     rec.progress_pct = 1  # 1 instead of 0 so fmtETA can compute
+    # Change 035: Heartbeat-Zeitstempel frisch starten — sonst zeigt die UI
+    # nach Re-Transcribe sofort einen uralten „seit Xs"-Wert vom letzten Lauf.
+    rec.last_heartbeat_at = dt.datetime.now(dt.timezone.utc)
+    rec.phase_started_at = rec.last_heartbeat_at
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -187,6 +191,10 @@ def set_queued(session: Session, rec_id: int, backend: str) -> Optional[Recordin
     rec.segments = None
     rec.error = None
     rec.progress_pct = 1  # keep the frontend ETA visible
+    # Change 035: Heartbeat-Zeitstempel frisch starten (wie set_processing) —
+    # die Wartezeit beginnt erst mit dem Enqueue, nicht mit dem letzten Lauf.
+    rec.last_heartbeat_at = dt.datetime.now(dt.timezone.utc)
+    rec.phase_started_at = rec.last_heartbeat_at
     session.add(rec)
     session.commit()
     session.refresh(rec)

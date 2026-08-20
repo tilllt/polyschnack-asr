@@ -738,7 +738,15 @@ def _start_heartbeat(rec_id: int, pct: int, note: str,
         while not stop.is_set():
             try:
                 with Session(engine) as s:
-                    set_progress(s, rec_id, pct, note=note)
+                    # Change 035: aktuellen pct aus der DB übernehmen statt
+                    # fix den Start-pct zu schreiben — wenn on_progress einen
+                    # echten Zähler hochzieht, darf der Heartbeat ihn nicht
+                    # zurücksetzen (nur last_heartbeat_at soll ticken).
+                    from .models import Recording as _Rec
+
+                    rec = s.get(_Rec, rec_id)
+                    cur_pct = rec.progress_pct if rec is not None else pct
+                    set_progress(s, rec_id, cur_pct, note=note)
             except Exception:
                 log.exception("heartbeat: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
                 return
@@ -881,7 +889,14 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             if not getattr(client.capabilities, "async_jobs", False):
                 with Session(engine) as session:
                     set_progress(session, rec_id, 21, note="asr")
-                hb_stop = _start_heartbeat(rec_id, 21, "asr")
+            # Change 035: Heartbeat-Fallback IMMER (auch async_jobs=True):
+            # ps-pk-onnx deklariert async_jobs=True, definiert aber kein
+            # eigenes transcribe_async → Basisklasse fällt auf blockierendes
+            # transcribe() zurück. Ohne Heartbeat friert last_heartbeat_at
+            # ein → falsche Stall-Warnung bei JEDER Transkription (Befund
+            # 20.08.). Der Thread liest den aktuellen pct aus der DB und
+            # tickt nur last_heartbeat_at — kein Konflikt mit on_progress.
+            hb_stop = _start_heartbeat(rec_id, 21, "asr")
             try:
                 result = client.transcribe_async(
                     audio_bytes, filename, mime,
@@ -1019,37 +1034,55 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         # --truecase-model lstm) — dort KEINE LLM-Punctuation nachschalten,
         # sonst doppelte/konkurrierende Interpunktion.
         native_punct = bool(getattr(client.capabilities, "native_punctuation", False))
-        if enable_punctuation and not native_punct and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
-            text = run_punctuation(text, settings.POLYSCHNACK_PUNCTUATION_MODE)
-        if enable_llm_enhance:
-            text, segments = run_llm_enhance(text, segments)
+        # Change 035: LLM-Phasen (Interpunktion/Enhance/Template) können
+        # Minuten dauern und haben keinen Zähler — ohne Heartbeat friert die
+        # UI bei 95% ein und zeigt nach 45 s eine FALSCHE Stall-Warnung.
+        # note "postprocessing" + Heartbeat, bis der letzte LLM-Call endet.
+        hb_stop_llm: Optional[threading.Event] = None
+        _llm_work = (
+            (enable_punctuation and not native_punct
+             and settings.POLYSCHNACK_PUNCTUATION_MODE != "off")
+            or enable_llm_enhance or prompt_template_id or llm_endpoint_id
+        )
+        if _llm_work:
+            with Session(engine) as session:
+                set_progress(session, rec_id, 95, note="postprocessing")
+            hb_stop_llm = _start_heartbeat(rec_id, 95, "postprocessing")
+        try:
+            if enable_punctuation and not native_punct and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
+                text = run_punctuation(text, settings.POLYSCHNACK_PUNCTUATION_MODE)
+            if enable_llm_enhance:
+                text, segments = run_llm_enhance(text, segments)
 
-        # Post-Processing mit Prompt-Template (Task D4) — LLM, nur bei Auswahl
-        if prompt_template_id or enable_llm_enhance or llm_endpoint_id:
-            with Session(engine) as s:
-                from . import llm as llm_mod
-                from .crypto import decrypt
-                from .models import PromptTemplate, UserLlmEndpoint
+            # Post-Processing mit Prompt-Template (Task D4) — LLM, nur bei Auswahl
+            if prompt_template_id or enable_llm_enhance or llm_endpoint_id:
+                with Session(engine) as s:
+                    from . import llm as llm_mod
+                    from .crypto import decrypt
+                    from .models import PromptTemplate, UserLlmEndpoint
 
-                endpoint = None
-                if llm_endpoint_id:
-                    ep = s.get(UserLlmEndpoint, llm_endpoint_id)
-                    if ep is None:
-                        raise RuntimeError("llm endpoint not found")
-                    endpoint = {"base_url": ep.base_url,
-                                "api_key": decrypt(ep.api_key), "model": ep.model}
-                if prompt_template_id:
-                    tpl = s.get(PromptTemplate, prompt_template_id)
-                    if tpl is None:
-                        raise RuntimeError("prompt template not found")
-                    text = llm_mod.chat(tpl.prompt, text or "", endpoint=endpoint)
-                elif enable_llm_enhance and endpoint:
-                    # run_llm_enhance lief bereits oben (Review 2026-08-15,
-                    # P1: Doppel-Aufruf = doppelte Latenz + Token-Kosten).
-                    # Hier nur noch der optionale Endpoint-Polish.
-                    text = llm_mod.chat(
-                        "Verbessere folgenden Transkript-Text (keine Einleitung):",
-                        text or "", endpoint=endpoint)
+                    endpoint = None
+                    if llm_endpoint_id:
+                        ep = s.get(UserLlmEndpoint, llm_endpoint_id)
+                        if ep is None:
+                            raise RuntimeError("llm endpoint not found")
+                        endpoint = {"base_url": ep.base_url,
+                                    "api_key": decrypt(ep.api_key), "model": ep.model}
+                    if prompt_template_id:
+                        tpl = s.get(PromptTemplate, prompt_template_id)
+                        if tpl is None:
+                            raise RuntimeError("prompt template not found")
+                        text = llm_mod.chat(tpl.prompt, text or "", endpoint=endpoint)
+                    elif enable_llm_enhance and endpoint:
+                        # run_llm_enhance lief bereits oben (Review 2026-08-15,
+                        # P1: Doppel-Aufruf = doppelte Latenz + Token-Kosten).
+                        # Hier nur noch der optionale Endpoint-Polish.
+                        text = llm_mod.chat(
+                            "Verbessere folgenden Transkript-Text (keine Einleitung):",
+                            text or "", endpoint=endpoint)
+        finally:
+            if hb_stop_llm is not None:
+                hb_stop_llm.set()
     except DiarizationError as exc_d:
         # Präzise Diarization-Fehlermeldung (gated, no-token, …) —
         # ohne TypeName-Prefix, damit der User den Admin-Hinweis direkt liest.

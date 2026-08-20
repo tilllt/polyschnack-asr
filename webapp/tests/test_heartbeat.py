@@ -76,7 +76,9 @@ def test_heartbeat_thread_ticks_last_heartbeat_at(db, monkeypatch):
             rec = s.get(Recording, rec_id)
             first = rec.last_heartbeat_at
             assert first is not None
-            assert rec.progress_pct == 21
+            # Change 035: Heartbeat liest den pct aus der DB — er schreibt
+            # nie einen erfundenen Wert (pct bleibt 1 aus _mk, nicht fix 21).
+            assert rec.progress_pct == 1
             assert rec.progress_note == "asr"
 
         # Auf einen WEITEREN Tick warten (timestamp muss sich bewegen).
@@ -91,7 +93,7 @@ def test_heartbeat_thread_ticks_last_heartbeat_at(db, monkeypatch):
             rec = s.get(Recording, rec_id)
             assert rec.last_heartbeat_at > first
             # pct bewegt sich NICHT (kein erfundener Fortschritt)
-            assert rec.progress_pct == 21
+            assert rec.progress_pct == 1
             assert rec.progress_note == "asr"
     finally:
         stop.set()
@@ -200,3 +202,136 @@ def test_sync_asr_heartbeat_during_blocking_transcribe(db, monkeypatch):
         assert rec.status == "done"
         assert rec.text == "Hallo"
         assert rec.last_heartbeat_at is not None
+
+
+def test_heartbeat_ticks_trotz_async_jobs_true(db, monkeypatch):
+    """Change 035: ps-pk-onnx deklariert async_jobs=True, definiert aber kein
+    eigenes transcribe_async → blockierender Sync-Fallback. Der Heartbeat
+    MUSS auch dann ticken, sonst friert die UI ein und zeigt bei JEDER
+    Transkription die (falsche) Stall-Warnung."""
+    import datetime as dt
+
+    from app import service as service_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    rec_id = _mk(db)
+
+    audio = Path(db.url.database).parent / "async_fallback.m4a"
+    audio.write_bytes(b"M4A")
+
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        rec.stored_path = str(audio)
+        rec.enable_vad = False
+        rec.enable_diarize = False
+        rec.enable_streaming = False
+        rec.enable_noise_reduce = False
+        rec.enable_enhance = "off"
+        rec.enable_punctuation = False
+        rec.enable_llm_enhance = False
+        rec.prompt_template_id = None
+        rec.delivery_target_id = None
+        rec.llm_endpoint_id = None
+        s.add(rec)
+        s.commit()
+
+    class _FakeCaps:
+        streaming = False
+        async_jobs = True  # ← der ps-pk-onnx-Fall (Sync-Fallback!)
+        accepts_compressed = True
+
+    beats = []
+
+    class _FakeClient:
+        capabilities = _FakeCaps()
+
+        def transcribe_async(self, audio_bytes, filename, mime,
+                             noise_reduce=True, on_progress=None):
+            # blockiert wie der Sync-Fallback — Heartbeat muss ticken
+            end = time.monotonic() + 1.2
+            while time.monotonic() < end:
+                with Session(db) as s:
+                    rec = s.get(Recording, rec_id)
+                    if rec and rec.last_heartbeat_at is not None:
+                        beats.append(rec.last_heartbeat_at.isoformat())
+                time.sleep(0.05)
+            return {"text": "Hallo", "duration": 1.0, "language": "de",
+                    "segments": []}
+
+    # Schnelleres Heartbeat-Intervall für den Test (echte Logik, nur Timer
+    # beschleunigt) — sonst tickt der 5-s-Default im 1.2-s-Fenster kaum.
+    real_hb = service_mod._start_heartbeat
+    monkeypatch.setattr(
+        service_mod, "_start_heartbeat",
+        lambda rec_id_, pct, note: real_hb(rec_id_, pct, note, interval_s=0.05),
+    )
+    monkeypatch.setattr(service_mod, "get_client", lambda backend: _FakeClient())
+    monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
+
+    service_mod.process_recording(rec_id, backend="ps-pk-onnx")
+
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        assert rec.status == "done"
+        assert rec.last_heartbeat_at is not None
+        assert rec.progress_note is None or rec.progress_note != "asr"
+
+    # Der Heartbeat muss während des blockierenden Calls MEHRFACH getickt
+    # haben — vor Change 035 blieb last_heartbeat_at bei „20% asr" stehen.
+    assert len(beats) >= 2, f"Heartbeat tickte nicht (nur {len(beats)}× gesehen)"
+
+
+def test_set_processing_resets_heartbeat_fields(db):
+    """Change 035: set_processing setzt last_heartbeat_at/phase_started_at
+    frisch — ein uralter Wert vom letzten Lauf darf nie mehr durchscheinen."""
+    import datetime as dt
+
+    from app import crud
+
+    rec_id = _mk(db, status="uploaded")
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        old = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
+        rec.last_heartbeat_at = old
+        rec.phase_started_at = old
+        s.add(rec)
+        s.commit()
+
+    with Session(db) as s:
+        crud.set_processing(s, rec_id)
+
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        assert rec.status == "processing"
+        assert rec.last_heartbeat_at is not None
+        assert rec.last_heartbeat_at.year == dt.datetime.now(
+            dt.timezone.utc).year
+        assert rec.phase_started_at == rec.last_heartbeat_at
+
+
+def test_set_queued_resets_heartbeat_fields(db):
+    """Change 035: set_queued resettet die Heartbeat-Felder (wie
+    set_processing) — Wartezeit zählt ab Enqueue, nicht ab letztem Lauf."""
+    import datetime as dt
+
+    from app import crud
+
+    rec_id = _mk(db, status="uploaded")
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        old = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
+        rec.last_heartbeat_at = old
+        rec.phase_started_at = old
+        s.add(rec)
+        s.commit()
+
+    with Session(db) as s:
+        crud.set_queued(s, rec_id, backend="ps-pk-onnx")
+
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        assert rec.status == "queued"
+        assert rec.last_heartbeat_at is not None
+        assert rec.last_heartbeat_at.year == dt.datetime.now(
+            dt.timezone.utc).year
+        assert rec.phase_started_at == rec.last_heartbeat_at

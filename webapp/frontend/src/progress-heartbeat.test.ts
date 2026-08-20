@@ -7,7 +7,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fmtEtaS, fmtSince, heartbeatState } from "./components/RecordingCard";
+import {
+  activePhaseIndex,
+  fmtEtaS,
+  fmtSince,
+  heartbeatState,
+} from "./components/RecordingCard";
 
 describe("heartbeatState (Change 011)", () => {
   beforeEach(() => {
@@ -83,5 +88,29 @@ describe("fmtSince / fmtEtaS (Change 011)", () => {
     expect(fmtEtaS(119)).toBe("~119s");
     expect(fmtEtaS(120)).toBe("~2m");
     expect(fmtEtaS(900)).toBe("~15m");
+  });
+});
+
+describe("activePhaseIndex (Change 035 — Phasen-Chips)", () => {
+  it("Noten bestimmen die Phase", () => {
+    expect(activePhaseIndex({ progress_note: "preparing" })).toBe(0);
+    expect(activePhaseIndex({ progress_note: "vad" })).toBe(0);
+    expect(activePhaseIndex({ progress_note: "enhance" })).toBe(0);
+    expect(activePhaseIndex({ progress_note: "asr" })).toBe(1);
+    expect(activePhaseIndex({ progress_note: "diarization" })).toBe(2);
+    expect(activePhaseIndex({ progress_note: "alignment" })).toBe(3);
+    expect(activePhaseIndex({ progress_note: "alignment Gruppe 2/5" })).toBe(3);
+    expect(activePhaseIndex({ progress_note: "postprocessing" })).toBe(4);
+    expect(activePhaseIndex({ progress_note: "finalizing" })).toBe(4);
+  });
+
+  it("ohne Note: pct-Fallback (Streaming-ASR, Lücken)", () => {
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 1 })).toBe(0);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 20 })).toBe(0);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 50 })).toBe(1);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 80 })).toBe(1);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 94 })).toBe(1);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 95 })).toBe(4);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 99 })).toBe(4);
   });
 });

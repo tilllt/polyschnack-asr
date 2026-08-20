@@ -101,15 +101,41 @@ export function fmtEtaS(etaS: number | null | undefined): string {
   return `~${Math.max(1, Math.round(etaS))}s`;
 }
 
-/** Serverseitige progress_note → i18n-Key (alignment traegt einen Zaehler). */
-const NOTE_LABELS: Record<string, string> = {
-  preparing: "preparing",
-  vad: "vad",
-  enhance: "enhance",
-  asr: "transcribing",
-  diarization: "diarizing",
-  finalizing: "finalizing",
-};
+/** Change 035: feste Phasenreihenfolge der Transkription (Chips). */
+export const PHASES = [
+  { key: "preparing", labelKey: "preparing" },
+  { key: "asr", labelKey: "transcribing" },
+  { key: "diarization", labelKey: "diarizing" },
+  { key: "alignment", labelKey: "aligning" },
+  { key: "postprocessing", labelKey: "finalizing" },
+] as const;
+
+/** Change 035: aktive Phase aus progress_note (+ pct-Fallback).
+
+ *  Noten sind die einzige zuverlässige Quelle; ohne Note (Streaming-ASR,
+ *  Lücken zwischen Phasen) hilft der Prozentwert: ≤20 → Anlauf,
+ *  21–94 → ASR, ≥95 → Nachbearbeitung. Keine falsche Präzision: Wo die
+ *  Backend-Noten fehlen, wird konservativ auf die wahrscheinlichste Phase
+ *  geraten, nie auf „fertig". */
+export function activePhaseIndex(r: {
+  progress_note?: string | null;
+  progress_pct?: number;
+}): number {
+  const n = r.progress_note ?? "";
+  if (n === "preparing" || n === "vad" || n === "enhance") return 0;
+  if (n === "asr") return 1;
+  if (n === "diarization") return 2;
+  if (n.startsWith("alignment")) return 3;
+  if (n === "postprocessing" || n === "finalizing") return 4;
+  const pct = r.progress_pct ?? 0;
+  if (pct <= 20) return 0;
+  if (pct < 95) return 1; // Streaming-ASR schreibt pct ohne note
+  return 4; // 95+ ohne note → Nachbearbeitung/Ende
+}
+
+/** Serverseitige progress_note → i18n-Key: entfällt mit Change 035 — die
+ *  Phase wird über die festen Phasen-Chips (PHASES/activePhaseIndex)
+ *  abgebildet. */
 
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -713,9 +739,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   const hasText = (r.text ?? "").trim().length > 0;
   const note = r.progress_note ?? "";
-  const phaseKey = note.startsWith("alignment")
-    ? "aligning"
-    : NOTE_LABELS[note] ?? "transcribing";
   // Live-Details aus der alignment-note: "alignment Gruppe 3/12 — aktiv
   // seit 42s — CLI 45%" → "Gruppe 3/12 — aktiv seit 42s — CLI 45%"
   const phaseDetail =
@@ -1101,18 +1124,26 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         {r.status === "processing" && (
           <div className="px-4 pb-2">
             <div className="flex items-center justify-between gap-2 text-[12px] mb-[6px]">
-              <span className="text-muted min-w-0">
-                {phaseDetail ? (
-                  <span className="text-accent truncate" title={note}>
-                    ⚙ {t(phaseKey)} · {phaseDetail}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-                    {t(phaseKey)}
-                    {hb.sincePhase > 0 ? ` · ${fmtSince(hb.sincePhase)}` : ""}
-                  </span>
-                )}
+              {/* Change 035: Phasen-Chips statt nur Text — jede Phase hat
+                  einen Status (erledigt/aktiv/übersprungen/offen); die
+                  Prozent-Zahl bleibt als Zusatzinfo, wo sie real ist. */}
+              <span className="flex flex-wrap items-center gap-1 min-w-0">
+                {PHASES.map((p, i) => {
+                  const active = activePhaseIndex(r);
+                  const skipped = p.key === "diarization" && !r.enable_diarize;
+                  let chip = "text-muted2 border-border";
+                  if (skipped) chip = "text-muted2/40 border-border line-through";
+                  else if (i < active) chip = "text-ok/80 border-ok/30";
+                  else if (i === active) chip = "text-accent border-accent/50 bg-accent/10 animate-pulse";
+                  return (
+                    <span
+                      key={p.key}
+                      className={`text-[10px] px-[6px] py-[1px] rounded-full border font-semibold uppercase tracking-wide shrink-0 ${chip}`}
+                    >
+                      {t(p.labelKey)}
+                    </span>
+                  );
+                })}
               </span>
               {/* Change 011: ETA-Zeile wird NIE mehr ausgeblendet — auch bei
                   phaseDetail (Alignment). Fallback: „aktiv seit Xs" statt „…". */}
@@ -1125,6 +1156,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     : ""}
               </span>
             </div>
+            {/* Live-Details (Alignment: Gruppe 3/12 · CLI 45%) */}
+            {phaseDetail && (
+              <div className="text-[11px] text-accent truncate mb-1" title={note}>
+                ⚙ {phaseDetail}
+              </div>
+            )}
             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
               <div
                 className={`h-full bg-accent rounded-full transition-[width] duration-700 ease-out ${
@@ -1135,10 +1172,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 style={{ width: `${r.progress_pct}%` }}
               />
             </div>
-            {/* Change 011: Stall-Warnung — Job lebt nicht mehr (kein Heartbeat) */}
+            {/* Change 011/035: Stall-Warnung nur bei totem Job (kein Heartbeat);
+                Text präzisiert — „möglicherweise hängend" statt kryptisch. */}
             {hb.stalled && (
               <div className="mt-[6px] text-[12px] text-warn">
-                ⚠ keine Aktivität {fmtSince(hb.sinceBeat)}
+                ⚠ möglicherweise hängend · keine Aktivität {fmtSince(hb.sinceBeat)}
               </div>
             )}
           </div>
