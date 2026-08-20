@@ -90,6 +90,24 @@ async def import_from_url(
                     "-x",          # extrahieren, natives Format behalten (kein WAV-Zwang)
                     "-o", out_template,
                     "--no-playlist",
+                    "--",  # Ende der Optionen
+                    clean_url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+
+        def _run_ytdlp_client(client: str) -> subprocess.CompletedProcess:
+            """Retry mit alternativem YouTube-Player-Client (Bot-Schutz)."""
+            return subprocess.run(
+                [
+                    "yt-dlp",
+                    "-f", "ba/b",
+                    "-x",
+                    "-o", out_template,
+                    "--no-playlist",
+                    "--extractor-args", f"youtube:player_client={client}",
                     "--",
                     clean_url,
                 ],
@@ -115,6 +133,21 @@ async def import_from_url(
             retry_proc = await asyncio.to_thread(_run_ytdlp)
             if retry_proc.returncode == 0:
                 proc = retry_proc
+
+        # Change 041: Bot-Schutz-Persistenz (403 „Sign in to confirm") —
+        # zwei identische Versuche reichen nicht. Dann mit alternativen
+        # Player-Clients retryen (tv/web_embedded/ios umgehen den Standard-
+        # Client-Block, brauchen aber JS-Runtime im Image → nodejs).
+        if proc.returncode != 0:
+            err = (proc.stderr or "")[:500]
+            low = err.lower()
+            if "sign in to confirm" in low or "http error 403" in low or "http error 400" in low:
+                for client in ("tv", "web_embedded", "ios"):
+                    client_proc = await asyncio.to_thread(
+                        _run_ytdlp_client, client)
+                    if client_proc.returncode == 0:
+                        proc = client_proc
+                        break
 
         if proc.returncode != 0:
             err = (proc.stderr or "no output")[:500]
@@ -209,6 +242,14 @@ def _ytdlp_error_hint(stderr: str, url: str) -> str | None:
     """
     low = stderr.lower()
     is_youtube = "youtube" in url.lower() or "youtu.be" in url.lower()
+    # Change 041: JS-Runtime fehlt im Image (Node/Deno) → YouTube-Player-
+    # Challenge nicht lösbar. Das Image braucht nodejs (Dockerfile).
+    if "no supported javascript runtime was found" in low:
+        return (
+            "yt-dlp kann die YouTube-Player-Challenge nicht lösen — im "
+            "Server-Image fehlt ein JavaScript-Runtime (Node.js). Bitte "
+            "das Webapp-Image neu bauen (enthält seit Change 041 nodejs)."
+        )
     if is_youtube and (
         "sign in to confirm you're not a bot" in low
         or "http error 403" in low

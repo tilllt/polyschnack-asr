@@ -23,7 +23,10 @@ WORKDIR /app
 
 # Resolve Python deps first for layer caching
 COPY pyproject.toml ./
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs && rm -rf /var/lib/apt/lists/*
+# Node.js als JS-Runtime für yt-dlp (YouTube-JS-Challenge, seit 2026 Pflicht):
+# ohne Node/Deno scheitert der YouTube-Import mit 403 "no supported
+# JavaScript runtime was found" (Bot-Schutz der Player-Challenge).
 RUN uv pip install --system "yt-dlp>=2026.05.29"
 RUN uv sync
 # Kein CUDA-torch mehr in der Webapp: Diarization läuft seit Option B im

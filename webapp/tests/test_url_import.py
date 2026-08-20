@@ -360,6 +360,23 @@ def test_from_url_ytdlp_400_youtube_hint(client, patch_ytdlp):
     assert "Bot-Schutz" in res.json()["detail"]
 
 
+def test_from_url_js_runtime_hint(client, patch_ytdlp):
+    """Change 041: Fehlendes JS-Runtime („no supported JavaScript runtime
+    was found") → Hinweis auf Node.js im Server-Image statt roher Fehler."""
+    _rc["v"] = 1
+    _stderr["v"] = (
+        "ERROR: [youtube] cyWa3CgQvBY: Unable to extract player response: "
+        "no supported JavaScript runtime was found (you may need to install "
+        "one, see https://github.com/yt-dlp/yt-dlp#dependencies)"
+    )
+    _wav["v"] = None
+    res = _post(client, url="https://youtu.be/cyWa3CgQvBY")
+    assert res.status_code == 400
+    assert "yt-dlp failed" in res.json()["detail"]
+    assert "JavaScript-Runtime" in res.json()["detail"]
+    assert "nodejs" in res.json()["detail"]
+
+
 def test_from_url_kein_hint_fuer_fremde_quelle(client, patch_ytdlp):
     """Nicht-YouTube-Quellen bekommen keinen YouTube-Hinweis."""
     _rc["v"] = 1
