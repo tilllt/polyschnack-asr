@@ -78,6 +78,14 @@ class FileProvider:
     def stop(self) -> None:
         self._stop = True
 
+    # pycrdt-websocket nutzt die Provider-Factory als `async with` (YRoom._run_provider).
+    async def __aenter__(self) -> "FileProvider":
+        self.start()
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        self.stop()
+
     def _load_snapshots(self) -> list[bytes]:
         if not self._snapshot.exists():
             return []
@@ -111,21 +119,25 @@ class FileProvider:
             log.exception("Yjs-Room %s: Snapshot-Schreiben fehlgeschlagen", self.path)
 
 
-def _room_factory(path: str | None = None):
+def _room_factory(doc: Doc | None = None, path: str | None = None):
     """RoomFactory für WebsocketServer: Doc + FileProvider je Room-Name.
+
+    WICHTIG (Review 2026-08-20): Das von YRoom übergebene `doc` verwenden —
+    das ist das Doc, das mit den Clients synchronisiert wird. Ein eigenes
+    Doc hier wäre vom Room-State entkoppelt und die Snapshot-Persistenz
+    würde ins Leere laufen.
 
     y-websocket-Clients hängen den Room-Namen an die Basis-URL an
     (z.B. /yjs/<recordingUid>) — der Pfad IST der Room-Name. Für den
     Snapshot-Dateinamen wird er normalisiert.
     """
     room_key = (path or "default").replace("/yjs/", "").replace("/", "_")
-    doc = Doc()
-    segments = Map()
-    meta = Map()
-    doc["segments"] = segments
-    doc["meta"] = meta
-    provider = FileProvider(doc, room_key)
-    return provider
+    ydoc = doc if doc is not None else Doc()
+    if ydoc.get("segments", type=Map) is None:
+        ydoc["segments"] = Map()
+    if ydoc.get("meta", type=Map) is None:
+        ydoc["meta"] = Map()
+    return FileProvider(ydoc, room_key)
 
 
 _server: WebsocketServer | None = None
@@ -137,7 +149,7 @@ def get_server() -> WebsocketServer:
     if _server is None:
         _server = WebsocketServer(
             auto_clean_rooms=True,
-            provider_factory=lambda doc=None, log=None, path=None: _room_factory(path),
+            provider_factory=lambda doc=None, log=None, path=None: _room_factory(doc, path),
         )
     return _server
 

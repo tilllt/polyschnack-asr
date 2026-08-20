@@ -18,10 +18,22 @@ def _make_doc_with_segments():
 
 def test_room_factory_creates_doc_and_provider(monkeypatch, tmp_path):
     monkeypatch.setattr("app.yjs.rooms.DATA_DIR", tmp_path)
-    provider = _room_factory("/yjs/abc123")
+    provider = _room_factory(path="/yjs/abc123")
     assert isinstance(provider, FileProvider)
     assert provider.path == "abc123"  # Pfad normalisiert (kein Slash im Dateinamen)
     assert "segments" in provider.doc
+
+
+def test_room_factory_uses_room_doc(monkeypatch, tmp_path):
+    """Review 2026-08-20: Das von YRoom übergebene Doc MUSS verwendet werden
+    (Synchronisation + Snapshot laufen sonst ins Leere)."""
+    monkeypatch.setattr("app.yjs.rooms.DATA_DIR", tmp_path)
+    room_doc = Doc()
+    provider = _room_factory(doc=room_doc, path="/yjs/abc123")
+    assert provider.doc is room_doc
+    # Maps werden auf dem übergebenen Doc angelegt, nicht auf einem eigenen.
+    assert room_doc.get("segments", type=Map) is not None
+    assert room_doc.get("meta", type=Map) is not None
 
 
 def test_file_provider_snapshot_roundtrip(monkeypatch, tmp_path):

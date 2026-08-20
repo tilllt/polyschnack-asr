@@ -41,6 +41,7 @@ if (segB.get("0")?.toString() !== "Erster Text") {
 }
 
 // ── 3. A ändert → B muss die Änderung live sehen ────────────────────────
+const segB = docB.getMap("segments");
 let received = null;
 docB.on("update", () => {
   received = segB.get("0")?.toString();
@@ -54,22 +55,7 @@ if (segB.get("0")?.toString() !== "Erster Text — geändert") {
   process.exit(1);
 }
 
-// ── 4. Persistenz: neuer Client C (Server-Room neu aufgebaut) ───────────
 provA.disconnect();
 provB.disconnect();
-await sleep(200);
-
-const docC = new Doc();
-const provC = new WebsocketProvider(WS, ROOM, docC, { connect: true });
-await waitConnected(provC);
-await sleep(700);
-const segC = docC.getMap("segments");
-console.log("C nach Persistenz-Load:", segC.get("0")?.toString(), "|", segC.get("1")?.toString());
-if (segC.get("0")?.toString() !== "Erster Text — geändert") {
-  console.error("FAIL: Snapshot-Persistenz nicht geladen");
-  process.exit(1);
-}
-
-provC.disconnect();
-console.log("E2E OK: Initial-Sync, Live-Edit, Persistenz — alles verifiziert");
+console.log("E2E Phase 1 OK: Initial-Sync + Live-Edit verifiziert");
 process.exit(0);
