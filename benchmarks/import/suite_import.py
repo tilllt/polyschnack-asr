@@ -39,6 +39,20 @@ def latest_version(benchmark_dir: Path) -> int:
     return max(nums) if nums else 0
 
 
+def wav_fingerprint(vdir: Path) -> str:
+    """sha256 über Dateinamen + Inhalt aller WAVs — unabhängig vom Manifest.
+
+    Der package_sha256 hängt auch am Manifest (version/supersedes werden beim
+    Einspielen finalisiert). Für die Idempotenz zählt aber nur die Daten-
+    grundlage: Sind alle WAVs identisch, ist die Suite bereits eingespielt —
+    dann laufen nur noch die Results (mit der finalisierten IST-SHA)."""
+    h = hashlib.sha256()
+    for wav in sorted((vdir / "audio").glob("*.wav")):
+        h.update(wav.name.encode("utf-8"))
+        h.update(wav.read_bytes())
+    return h.hexdigest()
+
+
 def prepare_package(src_dir: Path, benchmark_dir: Path) -> tuple:
     """Paket (entpacktes versions/vN) einspielen; gibt (version, sha) zurück."""
     src_versions = src_dir / "versions"
@@ -136,6 +150,8 @@ if __name__ == "__main__":
         print(compute_package_sha(Path(sys.argv[2])))
     elif cmd == "latest-version":
         print(latest_version(Path(sys.argv[2])))
+    elif cmd == "wav-fingerprint":
+        print(wav_fingerprint(Path(sys.argv[2])))
     elif cmd == "prepare":
         v, s = prepare_package(Path(sys.argv[2]), Path(sys.argv[3]))
         print(f"VERSION={v}\nSHA={s}")

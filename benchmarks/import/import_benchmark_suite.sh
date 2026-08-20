@@ -83,8 +83,10 @@ echo "== 3/7 IST-Grundlage der Box hashen"
 IST_VER=$(python3 "$PY" latest-version "$BENCH_DIR")
 if [ "$IST_VER" -gt 0 ]; then
   IST_SHA=$(python3 "$PY" compute-sha "$BENCH_DIR/versions/v$IST_VER")
+  IST_FPR=$(python3 "$PY" wav-fingerprint "$BENCH_DIR/versions/v$IST_VER")
 else
   IST_SHA="(keine Version)"
+  IST_FPR=""
 fi
 echo "  IST: v$IST_VER  sha=$IST_SHA"
 echo "  NEU: Paket sha=$PAK_SHA"
@@ -93,16 +95,40 @@ if [ "$IST_SHA" = "$PAK_SHA" ]; then
   echo "== 4/7 Grundlage identisch — keine neue Version nötig (nur Results)"
   NEW_VER=$IST_VER; NEW_SHA=$PAK_SHA
 else
-  echo "== 4/7 Neue Suite wird als Version v$((IST_VER+1)) eingespielt (supersedes=v$IST_VER)"
-  if [ "$YES" -eq 0 ]; then
-    read -r -p "  Einspielen? [j/N] " a
-    [[ "$a" =~ ^[jJyY] ]] || { echo "Abbruch."; exit 0; }
+  # Manifest wird beim Einspielen finalisiert (version/supersedes) — dadurch
+  # weicht die IST-SHA nach dem ersten Import von der Paket-SHA ab, obwohl die
+  # WAVs identisch sind. WAV-Fingerprint = Idempotenz-Check: gleiche Daten,
+  # aber schon eingespielt -> nur Results (mit der finalisierten IST-SHA).
+  PAK_V=$(ls -d "$TMP"/versions/v[0-9]* 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "")
+  if [ -n "$IST_FPR" ] && [ -n "$PAK_V" ]; then
+    PAK_FPR=$(python3 "$PY" wav-fingerprint "$TMP/versions/$PAK_V")
+    if [ "$IST_FPR" = "$PAK_FPR" ]; then
+      echo "== 4/7 WAV-Grundlage bereits eingespielt (v$IST_VER) — nur Results"
+      NEW_VER=$IST_VER; NEW_SHA=$IST_SHA
+    else
+      echo "== 4/7 Neue Suite wird als Version v$((IST_VER+1)) eingespielt (supersedes=v$IST_VER)"
+      if [ "$YES" -eq 0 ]; then
+        read -r -p "  Einspielen? [j/N] " a
+        [[ "$a" =~ ^[jJyY] ]] || { echo "Abbruch."; exit 0; }
+      fi
+      OUT=$(python3 "$PY" prepare "$TMP" "$BENCH_DIR")
+      echo "$OUT"
+      NEW_VER=$(echo "$OUT" | sed -n 's/^VERSION=//p')
+      NEW_SHA=$(echo "$OUT" | sed -n 's/^SHA=//p')
+      [ -n "$NEW_SHA" ] || { echo "FEHLER: prepare lieferte keine SHA"; exit 1; }
+    fi
+  else
+    echo "== 4/7 Neue Suite wird als Version v$((IST_VER+1)) eingespielt (supersedes=v$IST_VER)"
+    if [ "$YES" -eq 0 ]; then
+      read -r -p "  Einspielen? [j/N] " a
+      [[ "$a" =~ ^[jJyY] ]] || { echo "Abbruch."; exit 0; }
+    fi
+    OUT=$(python3 "$PY" prepare "$TMP" "$BENCH_DIR")
+    echo "$OUT"
+    NEW_VER=$(echo "$OUT" | sed -n 's/^VERSION=//p')
+    NEW_SHA=$(echo "$OUT" | sed -n 's/^SHA=//p')
+    [ -n "$NEW_SHA" ] || { echo "FEHLER: prepare lieferte keine SHA"; exit 1; }
   fi
-  OUT=$(python3 "$PY" prepare "$TMP" "$BENCH_DIR")
-  echo "$OUT"
-  NEW_VER=$(echo "$OUT" | sed -n 's/^VERSION=//p')
-  NEW_SHA=$(echo "$OUT" | sed -n 's/^SHA=//p')
-  [ -n "$NEW_SHA" ] || { echo "FEHLER: prepare lieferte keine SHA"; exit 1; }
 fi
 echo "  Aktiv: v$NEW_VER sha=$NEW_SHA"
 
