@@ -239,6 +239,65 @@ services:
     adapter: app.asr_client.adapters.crisp_asr_http:CrispAsrHttpClient
 
   # ===================================================================
+  # SUITE-BACKENDS (vast-Benchmarks, Change 027/036) — remote, OpenAI-kompatibel.
+  # Laufen nur on-demand auf gemieteten GPUs (vast.ai); in der GUI ehrlich
+  # als offline sichtbar, solange <ID>_URL nicht gesetzt ist. Registriert
+  # für die Benchmark-Ergebnis-Einordnung (POST /api/benchmark/submit).
+  - name: whisper-large-v3
+    backend: whisper-large-v3
+    compose_profile: remote
+    type: remote
+    port: 0
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: faster-whisper large-v3 (int8_float16, aufdock-Server-Image)
+    requires: {vram_gb: 12, ram_gb: 16, disk_gb: 30}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    capabilities:
+      word_timestamps: true
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: false
+      languages: [de, en]
+      device: [remote]
+    status: active
+    adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
+    adapter_kwargs:
+      base_url: ${WHISPER_LARGE_V3_URL:-http://127.0.0.1:8000/v1}
+      api_key_env: WHISPER_LARGE_V3_API_KEY
+      model: whisper-1
+
+  - name: voxtral-mini-realtime
+    backend: voxtral-mini-realtime
+    compose_profile: remote
+    type: remote
+    port: 0
+    cost_per_minute_eur: 0.0
+    concurrency: 1
+    model: Mistral Voxtral-Mini-4B-Realtime-2602 (vLLM, bf16)
+    requires: {vram_gb: 16, ram_gb: 24, disk_gb: 30}
+    long_audio: {max_safe_duration_s: 7200, streaming_advice: false}
+    capabilities:
+      word_timestamps: true
+      streaming: false
+      async_jobs: false
+      noise_reduce: false
+      vad: external
+      diarization: external
+      enhance: false
+      languages: [de, en]
+      device: [remote]
+    status: active
+    adapter: app.asr_client.adapters.openai_compat_http:OpenAiCompatHttpClient
+    adapter_kwargs:
+      base_url: ${VOXTRAL_MINI_REALTIME_URL:-http://127.0.0.1:8000/v1}
+      api_key_env: VOXTRAL_MINI_REALTIME_API_KEY
+      model: whisper-1
+
+  # ===================================================================
   # REMOTE-BACKENDS (type: remote) — auskommentierte Beispiele
   # ===================================================================
   # Aktivieren: Block einkommentieren (Einrueckung beachten: 2 Leerzeichen
