@@ -35,3 +35,5 @@
 - [x] benchmark: Stack-Check vor dem Lauf — ps-webapp muss laufen (Container-Gate,
   Abbruch mit Anleitung „./polyschnack-manage.sh start"), plus weicher HTTP-Check
   auf WEBAPP_PORT (Box-Befund: benchmark lief ohne laufenden Stack)
+- [x] benchmark: BENCHMARK_API_KEYS/BENCHMARK_API_KEY explizit aus .env nachladen
+  (Box-Befund: Key stand in .env, Skript las nur die Umgebung und erzeugte neue Keys)

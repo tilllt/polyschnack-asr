@@ -374,6 +374,18 @@ case "$CMD" in
             BENCH_BACKEND_URLS='{"ps-pk-onnx":"http://ps-pk-onnx:5092/v1","crispr-pk-cpp":"http://crispr-pk-cpp:5093/v1","crispr-qwen3":"http://crispr-qwen3:5094/v1","crispr-ark":"http://crispr-ark:5095/v1","crispr-moonshine-de":"http://crispr-moonshine-de:5096/v1","crispr-canary":"http://crispr-canary:5097/v1"}'
             export BENCH_BACKEND_URLS
         fi
+        # ── Benchmark-Key aus .env nachladen ──────────────────────────────
+        # BENCHMARK_API_KEYS/BENCHMARK_API_KEY werden sonst NUR aus der
+        # Umgebung gelesen — die .env muss explizit geparst werden (Box-Befund
+        # 2026-08-20: Key stand in .env, Skript meldete trotzdem "kein Key").
+        if [ -z "${BENCHMARK_API_KEYS:-}" ] && [ -f .env ]; then
+            BENCHMARK_API_KEYS="$(grep -E '^BENCHMARK_API_KEYS=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+            export BENCHMARK_API_KEYS
+        fi
+        if [ -z "${BENCHMARK_API_KEY:-}" ] && [ -f .env ]; then
+            BENCHMARK_API_KEY="$(grep -E '^BENCHMARK_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+            export BENCHMARK_API_KEY
+        fi
         # ── Benchmark-Key (Shared-Key fuer POST /api/benchmark/submit) ─────
         # BENCHMARK_API_KEY = Key fuer den Runner-Container; identischer Wert
         # muss auf Webapp-Seite in BENCHMARK_API_KEYS (Box-.env) stehen,
