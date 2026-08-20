@@ -142,7 +142,7 @@ function SampleRow({
           </div>
           <div className="space-y-1">
             {sampleRows.map(([backend, wer]) => {
-              const pct = Math.max(4, Math.round((wer / (bestW || 0.0001)) * 100));
+              const pct = Math.min(100, Math.max(4, Math.round(((bestW || 0.0001) / (wer || 0.0001)) * 100)));
               return (
                 <div
                   key={backend}
@@ -314,10 +314,11 @@ export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
 
 // ── Modellqualität je Kategorie (REQ-BEN-047) ────────────────────────────
 // Change 040: grafische Darstellung — CSS-Balken statt Mini-Tabelle.
-// Balkenbreite = relative Qualität (bestes Modell = volle Breite),
-// Farbe = WER-Skala (grün = gut … rot = schlecht). Kategorie-Grafiken
-// sind durch ▦-Icon + violette Akzente klar von Sample-Grafiken (▤, grün)
-// unterscheidbar.
+// Balkenbreite = relative Qualität (bestes Modell = volle Breite, schlechtere
+// proportional kürzer: best/wer), Farbe = WER-Skala (grün = gut … rot =
+// schlecht). Kategorie-Grafiken sind durch ▦-Icon + violette Akzente klar
+// von Sample-Grafiken (▤, grün) unterscheidbar. (Change 044: Division
+// korrigiert — vorher wer/best erzeugte >100 % und wurde gedeckelt.)
 
 function werColor(wer: number): string {
   // WER 0 → grün (120°), WER ≥ 0.6 → rot (0°)
@@ -345,7 +346,7 @@ export function CategoryQualityChart({
       </div>
       <div className="space-y-1">
         {sorted.map((r) => {
-          const pct = Math.max(4, Math.round((r.wer / best) * 100));
+          const pct = Math.min(100, Math.max(4, Math.round((best / (r.wer || 0.0001)) * 100)));
           return (
             <div
               key={r.backend}

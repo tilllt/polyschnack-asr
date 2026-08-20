@@ -218,10 +218,12 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
     expect(text[0]).toContain("(3)");
     // Change 040: Balken-Grafik — Label macht Kategorie-Zuordnung klar
     expect(screen.getByText(/Kategorie · Akzente/)).toBeTruthy();
-    // Balken-Füllung hat Breite und WER-Farbe (grafische Repräsentation)
-    const fill = bars[0].querySelector("div[style]");
-    expect(fill).toBeTruthy();
-    expect(fill?.getAttribute("style")).toContain("width:");
+    // Change 044: Balken-Füllung repräsentiert die Werte — bestes Modell
+    // (WER 0,1) = volle Breite, schlechteres (WER 0,3) proportional kürzer.
+    const fillBest = bars[0].querySelector("div[style]");
+    const fillWorse = bars[1].querySelector("div[style]");
+    expect(fillBest?.getAttribute("style")).toContain("width: 100%");
+    expect(fillWorse?.getAttribute("style")).toContain("width: 33%"); // 0.1/0.3
   });
 
   test("keine Balken wenn alle Modelle ausgeblendet (Chart entfällt)", () => {
@@ -239,6 +241,34 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
       </LocaleProvider>,
     );
     expect(screen.queryByTestId(/^cat-bar-/)).toBeNull();
+  });
+});
+
+describe("Sample-Qualitäts-Balken (Change 039/040/044)", () => {
+  test("Sample-Balken: bestes Modell volle Breite, schlechteres proportional kürzer", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkCategory
+          cat={CAT}
+          samples={SAMPLES}
+          open
+          onToggle={() => {}}
+          showText
+          admin={false}
+          previewUrl={(id) => `/api/benchmark/preview/${id}`}
+          audioUrl={(id) => `/api/benchmark/audio/${id}`}
+          qualityRows={[]}
+          perSample={{ "akzent_001": { "crispr-pk-cpp": 0.1, "ps-pk-onnx": 0.2 } }}
+          hiddenModels={new Set()}
+        />
+      </LocaleProvider>,
+    );
+    const best = screen.getByTestId("sample-wer-akzent_001-crispr-pk-cpp");
+    const worse = screen.getByTestId("sample-wer-akzent_001-ps-pk-onnx");
+    const fillBest = best.querySelector("div[style]");
+    const fillWorse = worse.querySelector("div[style]");
+    expect(fillBest?.getAttribute("style")).toContain("width: 100%");
+    expect(fillWorse?.getAttribute("style")).toContain("width: 50%"); // 0.1/0.2
   });
 });
 
