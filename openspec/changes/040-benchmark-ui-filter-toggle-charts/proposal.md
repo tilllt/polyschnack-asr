@@ -35,8 +35,8 @@
 
 ## Tasks
 
-- [ ] „Alle"-Chip als Toggle (deaktivieren wenn alles sichtbar, aktivieren wenn nicht)
-- [ ] CategoryQualityChart: Balken statt Tabelle, Kategorie-Label/Icons
-- [ ] SampleRow: Balken statt Tabelle, Sample-Label/Icons, andere Akzentfarbe
-- [ ] Tests anpassen (data-testids bleiben, Erwartungen auf Balken-Äquivalente)
-- [ ] Build (dist) + Backend-Tests grün
+- [x] „Alle"-Chip als Toggle (deaktivieren wenn alles sichtbar, aktivieren wenn nicht)
+- [x] CategoryQualityChart: Balken statt Tabelle, Kategorie-Label/Icons
+- [x] SampleRow: Balken statt Tabelle, Sample-Label/Icons, andere Akzentfarbe
+- [x] Tests anpassen (data-testids bleiben, Erwartungen auf Balken-Äquivalente)
+- [x] Build (dist) + Backend-Tests grün
