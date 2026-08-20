@@ -19,6 +19,27 @@ export interface WaveSurferHandle {
   getPlaybackRate: () => number;
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Change 049: Streaming-Playback für sehr lange Aufnahmen
+// ────────────────────────────────────────────────────────────────────────
+// WebAudio dekodiert die KOMPLETTE Datei in den RAM — bei 4h52min sind das
+// ~560 MB PCM (16 kHz mono) → auf Mobilgeräten OOM/Timeout, Playback startet
+// nie (Befund 2026-08-20). Ab 2 h nutzt der Player deshalb das
+// MediaElement-Backend: das <audio>-Element streamt die Preview per
+// Range-Request (Server liefert 206) — Playback startet nach wenigen
+// Sekunden Pufferung, kein Voll-Download, kein Voll-Dekode, RAM ~0.
+// Seek (Wort-Klick) via ws.setTime() — identische Handle-API.
+export const LARGE_FILE_THRESHOLD_S = 7200; // 2 h
+
+export type PlayerBackend = "WebAudio" | "MediaElement";
+
+export function resolveBackend(durationHint?: number | null): PlayerBackend {
+  if (durationHint && durationHint > LARGE_FILE_THRESHOLD_S) {
+    return "MediaElement";
+  }
+  return "WebAudio";
+}
+
 interface Props {
   audioUrl: string;
   /** Server-berechnete Peak-Envelope (2000 Werte) — WaveSurfer rendert damit
@@ -113,6 +134,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const regionsRef = useRef<RegionsPlugin | null>(null);
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onPlayStateRef = useRef(onPlayStateChange);
+    // Change 049: sehr lange Aufnahmen (≥ 2 h) streamen statt voll zu
+    // dekodieren — WebAudio würde ~560 MB PCM in den Handy-RAM laden.
+    const backend = resolveBackend(durationHint);
     const onRegionRef = useRef(onRegionChange);
     const onLoadErrorRef = useRef(onLoadError);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,7 +183,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       try {
         ws = WaveSurfer.create({
           container: containerRef.current,
-          backend: "WebAudio",
+          backend: backend,
           waveColor: "rgba(91,140,255,0.3)",
           progressColor: "rgba(91,140,255,0.8)",
           cursorColor: "#3b82f6",
@@ -215,13 +239,19 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // bei langen Aufnahmen dauert das deutlich länger, der alte 10s-Timeout
       // warf dann faelschlich "Waveform data corrupted". 60s fuer den
       // Browser-Decode-Pfad.
+      // Change 049: MediaElement streamt (kein Decode) — aber der erste
+      // Preview-Zugriff kann den Server-ffmpeg synchron triggern (Minuten
+      // bei sehr langen Dateien) → grosszuegiger Timeout, der Fehlerpfad
+      // bleibt ws.on("error").
+      const loadTimeoutMs =
+        backend === "MediaElement" ? 120000 : hasPeaks ? 10000 : 60000;
       timerRef.current = setTimeout(() => {
         if (!cancelled) {
           setError(true);
           setReady(true);
           onLoadErrorRef.current?.();
         }
-      }, hasPeaks ? 10000 : 60000);
+      }, loadTimeoutMs);
 
       // WaveSurfer fires "error" when audio fails to load/decode
       ws.on("error", () => {
@@ -294,10 +324,22 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // getDecodedData() ist der ECHTE decodierte Buffer: null, bis die
       // Datei dekodiert ist (ready/decode-Events feuern im Peaks-Pfad
       // vorher aus den Server-Peaks — deshalb kein Event, sondern Polling).
+      // Change 049: MediaElement-Backend dekodiert NICHT (Streaming) —
+      // dort ist das interne <audio>-Element abspielbar, sobald
+      // readyState >= HAVE_FUTURE_DATA (3) — d.h. genug gepuffert, um
+      // ohne Unterbrechung abzuspielen.
       const decodePoll = window.setInterval(() => {
         if (cancelled) return;
         try {
-          if (ws.getDecodedData()) {
+          let playable: boolean;
+          if (backend === "MediaElement") {
+            const el = (ws as unknown as { getMediaElement?: () => HTMLMediaElement | null })
+              .getMediaElement?.();
+            playable = !!el && el.readyState >= 3;
+          } else {
+            playable = !!ws.getDecodedData();
+          }
+          if (playable) {
             window.clearInterval(decodePoll);
             setCanPlay(true);
           }
@@ -417,7 +459,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         releaseExclusivePlayback(me);
         ws.destroy();
       };
-    }, [audioUrl]);
+    }, [audioUrl, backend]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
