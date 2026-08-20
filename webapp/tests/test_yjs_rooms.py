@@ -2,10 +2,15 @@
 import json
 
 import pytest
-from pycrdt import Doc, Map, Text
 
-from app.yjs import build_yjs_mount, decode_session_cookie, make_on_connect
-from app.yjs.rooms import FileProvider, DATA_DIR, _room_factory
+# Optional: ohne pycrdt im Image/CI-Env wird die ganze Yjs-Suite übersprungen
+# (der Editor fällt dann auf Solo-Modus zurück) — niemals Collection-Fehler.
+pytest.importorskip("pycrdt")
+
+from pycrdt import Doc, Map, Text  # noqa: E402
+
+from app.yjs import build_yjs_mount, decode_session_cookie, make_on_connect  # noqa: E402
+from app.yjs.rooms import FileProvider, DATA_DIR, _room_factory  # noqa: E402
 
 
 def _make_doc_with_segments():

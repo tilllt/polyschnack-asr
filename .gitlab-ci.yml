@@ -37,7 +37,7 @@ test-webapp:
     - shared
   script:
     - apt-get update -qq && apt-get install -y -qq ffmpeg > /dev/null 2>&1
-    - pip install -q pytest httpx fastapi "sqlmodel>=0.0.16" "pydantic>=2" python-multipart numpy cryptography authlib itsdangerous pyyaml 2>/dev/null
+    - pip install -q pytest httpx fastapi "sqlmodel>=0.0.16" "pydantic>=2" python-multipart numpy cryptography authlib itsdangerous pyyaml pycrdt pycrdt-websocket 2>/dev/null
     - cd webapp && python -m pytest tests/ -v --tb=short
   only:
     - main
