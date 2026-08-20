@@ -43,6 +43,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ── Selbst-Update-Metadaten (Change 037) ──────────────────────────────────
+# SELFUPDATE_SHA = Commit-SHA des letzten Repo-Commits, der diese Datei
+# aenderte (wird beim Committen mitgefuehrt). Basis fuer den Update-Check
+# (jeder Lauf) und den selfupdate-Changelog. Deaktivieren des Checks:
+# POLYSCHNACK_SELFUPDATE_CHECK=off in der .env.
+SELFUPDATE_SHA="PENDING"
+
 # --- Projekt-Basis ----------------------------------------------------------
 # compose.backends.yml ist IMMER Teil des Projekts: die Overlays
 # (compose.gpu.yml) referenzieren Backend-Services, die sonst ohne
@@ -291,6 +298,40 @@ usage() {
 }
 
 CMD="${1:-status}"
+
+# ── Update-Check (Change 037) ──────────────────────────────────────────────
+# Weist auf eine neuere polyschnack-manage.sh hin. Stiller Check (max 5 s),
+# Netzwerkfehler werden ignoriert — nie blockieren. Deaktivieren:
+# POLYSCHNACK_SELFUPDATE_CHECK=off in der .env.
+selfupdate_check() {
+    if [ "${POLYSCHNACK_SELFUPDATE_CHECK:-on}" = "off" ]; then
+        return 0
+    fi
+    if [ -z "${SELFUPDATE_SHA:-}" ] || [ "${SELFUPDATE_SHA}" = "PENDING" ]; then
+        return 0
+    fi
+    local url auth=()
+    if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
+        url="${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/polyschnack-manage.sh/raw?ref=main"
+        auth=(-H "PRIVATE-TOKEN: ${POLYSCHNACK_GITLAB_TOKEN:-}")
+    else
+        url="https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/polyschnack-manage.sh"
+    fi
+    local remote
+    remote="$(curl -fsSL --max-time 5 "${auth[@]}" "$url" 2>/dev/null | grep -m1 '^SELFUPDATE_SHA=' | cut -d'"' -f2 || true)"
+    if [ -z "$remote" ] || [ "$remote" = "$SELFUPDATE_SHA" ]; then
+        return 0
+    fi
+    echo ""
+    echo "→ Neuere Version von polyschnack-manage.sh verfügbar (lokal ${SELFUPDATE_SHA:0:7}, remote ${remote:0:7})."
+    echo "  Aktualisieren:      ./polyschnack-manage.sh selfupdate"
+    echo "  Check deaktivieren: POLYSCHNACK_SELFUPDATE_CHECK=off in .env"
+    echo ""
+}
+if [ "$CMD" != "selfupdate" ] && [ "$CMD" != "help" ] && [ "$CMD" != "-h" ] && [ "$CMD" != "--help" ]; then
+    selfupdate_check
+fi
+
 case "$CMD" in
     pull)
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
@@ -427,10 +468,41 @@ case "$CMD" in
             echo "! backends.yaml konnte nicht geladen werden (models braucht sie)" >&2
         fi
         # 2) manage.sh selbst.
+        OLD_SHA="${SELFUPDATE_SHA:-}"
         TMP="$(mktemp)"
         if curl "${CURL_ARGS[@]}" -o "$TMP" "$(_repo_url polyschnack-manage.sh)"; then
             if bash -n "$TMP" && [ "$(wc -c < "$TMP")" -gt 1000 ]; then
                 chmod +x "$TMP"
+                # Change-History seit der letzten Version (Change 037) —
+                # Fehler hier duerfen das Update nie verhindern (|| true).
+                if [ -n "$OLD_SHA" ] && [ "$OLD_SHA" != "PENDING" ]; then
+                    if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
+                        COMMITS_URL="${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/commits?path=polyschnack-manage.sh&ref_name=main&per_page=100"
+                    else
+                        COMMITS_URL="https://api.github.com/repos/tilllt/polyschnack-asr/commits?path=polyschnack-manage.sh&per_page=100"
+                    fi
+                    echo "→ Änderungen an polyschnack-manage.sh seit ${OLD_SHA:0:7}:"
+                    curl "${CURL_ARGS[@]}" "$COMMITS_URL" 2>/dev/null \
+                        | sed 's/},{/}\n{/g' \
+                        | awk -v old="$OLD_SHA" '
+                            # Format-agnostisch: GitLab (id/title/committed_date) und
+                            # GitHub (sha/message/commit.author.date). GitHub-JSON
+                            # pretty-printet mit Leerzeichen nach ':' -> [ ]*.
+                            /"sha":[ ]*"[0-9a-f]{40}"/ { line=$0; sub(/.*"sha":[ ]*"/,"",line); sub(/".*/,"",line); sha=line }
+                            /"id":[ ]*"[0-9a-f]{40}"/ { line=$0; sub(/.*"id":[ ]*"/,"",line); sub(/".*/,"",line); sha=line }
+                            /"title":[ ]*"/ { line=$0; sub(/.*"title":[ ]*"/,"",line); sub(/".*/,"",line); title=line }
+                            /"message":[ ]*"/ { line=$0; sub(/.*"message":[ ]*"/,"",line); sub(/".*/,"",line); title=line }
+                            /"committed_date":[ ]*"/ { line=$0; sub(/.*"committed_date":[ ]*"/,"",line); sub(/".*/,"",line); date=line }
+                            /"date":[ ]*"[0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+                                if (date=="") { line=$0; sub(/.*"date":[ ]*"/,"",line); sub(/".*/,"",line); date=line }
+                            }
+                            date != "" && title != "" {
+                                if (sha==old) exit
+                                print "   - " substr(date,1,10) "  " title
+                                title=""; date=""
+                            }' \
+                        | head -30 || true
+                fi
                 mv "$TMP" "$0"
                 echo "-> Selbst-Update ok. Bitte erneut aufrufen (z.B. ./polyschnack-manage.sh status)."
             else
