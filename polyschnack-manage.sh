@@ -407,6 +407,28 @@ case "$CMD" in
             export BENCHMARK_API_KEY="${BENCHMARK_API_KEYS%%,*}"
             echo "-> Benchmark-Key aus BENCHMARK_API_KEYS (.env) uebernommen."
         fi
+        # ── Stack-Check: Webapp muss laufen (Benchmark postet an /submit) ──
+        # Box-Befund 2026-08-20: benchmark lief, ohne dass der Stack gestartet
+        # war — die Ergebnisse wären beim Submit verloren gegangen.
+        if ! "${COMPOSE[@]}" ps --status running 2>/dev/null | grep -q 'ps-webapp'; then
+            echo ""
+            echo "FEHLER: Der PolySchnack-Stack läuft nicht (Container ps-webapp nicht aktiv)." >&2
+            echo "  Der Benchmark-Container postet die Ergebnisse an die Webapp" >&2
+            echo "  (POST /api/benchmark/submit). Ohne laufende Webapp schlägt der" >&2
+            echo "  Submit fehl und die Ergebnisse gehen verloren." >&2
+            echo "" >&2
+            echo "  Stack starten:  ./polyschnack-manage.sh start" >&2
+            echo "  Danach:         ./polyschnack-manage.sh benchmark" >&2
+            echo "" >&2
+            exit 1
+        fi
+        # Weicher HTTP-Check: Container läuft, aber antwortet die Webapp?
+        # (Nur Warnung — ein vorgeschalteter Reverse-Proxy kann andere Ports nutzen.)
+        _webapp_code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://localhost:${WEBAPP_PORT:-8088}/" 2>/dev/null || true)"
+        if [ -z "$_webapp_code" ] || [ "$_webapp_code" = "000" ]; then
+            echo "! Webapp antwortet nicht auf http://localhost:${WEBAPP_PORT:-8088} (HTTP-Check)." >&2
+            echo "  Container-Status ok — bitte Port/Erreichbarkeit pruefen." >&2
+        fi
         # compose.benchmark.yml fehlt -> Box-Stand veraltet. Klare Meldung
         # statt kryptischem docker-open-Fehler (Box-Befund 2026-08-20).
         if [ ! -f compose.benchmark.yml ]; then
