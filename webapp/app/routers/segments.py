@@ -322,6 +322,53 @@ def realign_recording(
     return {"id": rid, "alignment": "pending"}
 
 
+@router.post("/recordings/{rid}/rediarize")
+def re_diarize_recording(
+    rid: str,
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 057: Sprecher-Zuordnung (Diarization) neu berechnen.
+
+    Analog Re-Align: läuft im Hintergrund (diar_status zeigt
+    pending→running→done|failed|skipped), die Transkription bleibt
+    sichtbar/bearbeitbar. Es werden NUR die ``speaker``-Felder der
+    Segmente ersetzt — Text, Wörter, Timestamps, manuelle Aufteilung und
+    Alignment bleiben unangetastet.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    from ..identity import current_identity
+
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
+
+    if rec.status != "done":
+        raise HTTPException(
+            status_code=409,
+            detail="Transkription ist noch nicht fertig — Re-Diarize erst nach Abschluss möglich",
+        )
+    if getattr(rec, "diar_status", "done") in ("pending", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail="Re-Diarize läuft bereits",
+        )
+
+    from ..service import _schedule_rediarize
+
+    if rec.id is None or not _schedule_rediarize(rec.id):
+        raise HTTPException(
+            status_code=503,
+            detail="Re-Diarize nicht möglich (Audio fehlt oder nicht lesbar)",
+        )
+    return {"id": rid, "diar_status": "pending"}
+
+
 @router.patch("/recordings/{rid}/segments/{idx}")
 def update_segment(
     rid: str,

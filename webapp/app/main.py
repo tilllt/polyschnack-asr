@@ -36,6 +36,7 @@ from .routers.matrix import router as matrix_router
 from .routers.queue_api import router as queue_api_router
 from .routers.admin import router as admin_router
 from .routers.auth import router as auth_router
+from .routers.annotations import router as annotations_router
 from .routers.benchmark import router as benchmark_router
 from .routers.segments import router as segments_router
 from .routers.shares import router as shares_router
@@ -306,6 +307,7 @@ app.include_router(templates_router)
 app.include_router(targets_router)
 app.include_router(url_import_router)
 app.include_router(auth_router)
+app.include_router(annotations_router)
 app.include_router(benchmark_router)
 
 

@@ -87,6 +87,8 @@ export interface Recording {
   /** Change 011: Backend-Name (nur status="queued"). */
   queue_backend?: string | null;
   waveform_peaks: number[] | null;
+  /** Change 057: Status der Diarization (done|pending|running|failed|skipped). */
+  diar_status?: string;
   /** Change 054: letzte Bearbeitung — Basis fürs Sort-Badge „Last edit"
    *  (Backend sortiert; hier für Tooltip/Anzeige). */
   updated_at?: string | null;
@@ -237,6 +239,73 @@ export async function updateRecordingTags(
     body: JSON.stringify({ tags }),
   }).then(checkOk);
   return res.json() as Promise<{ uid: string; tags: string[] }>;
+}
+
+/** Change 056: zeitgebundener Kommentar (Annotation) zu einer Transkription. */
+export interface Annotation {
+  id: number;
+  uid: string;
+  rec_id: number;
+  user_id: number | null;
+  user_name: string | null;
+  /** Change 056: sub des Autors (Frontend-Autor-Check für Edit/Delete). */
+  user_sub: string | null;
+  segment_idx: number;
+  char_start: number;
+  char_end: number;
+  start_s: number;
+  end_s: number;
+  body: string;
+  parent_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Change 056: Annotationen einer Aufnahme laden (flach, nach Zeit sortiert). */
+export async function fetchAnnotations(rid: string): Promise<Annotation[]> {
+  const res = await fetch(`/api/recordings/${encodeURIComponent(rid)}/annotations`).then(checkOk);
+  return res.json() as Promise<Annotation[]>;
+}
+
+/** Change 056: neue Top-Level-Annotation (write). */
+export async function createAnnotation(
+  rid: string,
+  a: { segment_idx: number; char_start: number; char_end: number; body: string },
+): Promise<Annotation> {
+  const res = await fetch(`/api/recordings/${encodeURIComponent(rid)}/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(a),
+  }).then(checkOk);
+  return res.json() as Promise<Annotation>;
+}
+
+/** Change 056: Antwort auf eine Top-Level-Annotation (write). */
+export async function replyToAnnotation(aid: number, body: string): Promise<Annotation> {
+  const res = await fetch(`/api/annotations/${aid}/replies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  }).then(checkOk);
+  return res.json() as Promise<Annotation>;
+}
+
+/** Change 056: Body editieren (Autor/Admin). */
+export async function updateAnnotation(aid: number, body: string): Promise<Annotation> {
+  const res = await fetch(`/api/annotations/${aid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  }).then(checkOk);
+  return res.json() as Promise<Annotation>;
+}
+
+/** Change 056: Annotation + Antworten löschen (Autor/Admin). */
+export async function deleteAnnotation(aid: number): Promise<{ deleted: number; replies_deleted: number }> {
+  const res = await fetch(`/api/annotations/${aid}`, {
+    method: "DELETE",
+  }).then(checkOk);
+  return res.json() as Promise<{ deleted: number; replies_deleted: number }>;
 }
 
 /** Change 015: verfügbare Export-Templates (Name + Endung) für das Dropdown. */
@@ -614,6 +683,16 @@ export async function realignRecording(id: string): Promise<{ id: string; alignm
     method: "POST",
   }).then(checkOk);
   return res.json() as Promise<{ id: string; alignment: string }>;
+}
+
+/** Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR die
+ *  speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet). Läuft im
+ *  Hintergrund, Antwort {id, diar_status: "pending"}. */
+export async function rediarizeRecording(id: string): Promise<{ id: string; diar_status: string }> {
+  const res = await fetch(`/api/recordings/${id}/rediarize`, {
+    method: "POST",
+  }).then(checkOk);
+  return res.json() as Promise<{ id: string; diar_status: string }>;
 }
 
 /* ============================================================

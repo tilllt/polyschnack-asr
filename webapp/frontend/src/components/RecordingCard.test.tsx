@@ -47,12 +47,16 @@ vi.mock("../hooks", () => ({
   useDelete: () => ({ mutate: vi.fn(), isPending: false }),
   useRetranscribe: () => ({ mutate: vi.fn(), isPending: false }),
   useRealign: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRediarize: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useNearViewport: () => ({ ref: { current: null }, near: true }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  // Change 056: Annotationen-Query (und ["me"] in AnnotationThreads) —
+  // leerer Daten-Stand; die Card rendert dann den Empty-State.
+  useQuery: vi.fn(() => ({ data: [], isLoading: false, isError: false, error: null })),
 }));
 
 vi.mock("./Toasts", () => ({

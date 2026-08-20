@@ -12,6 +12,7 @@ import {
   deleteRecording,
   retranscribeRecording,
   realignRecording,
+  rediarizeRecording,
   cancelRecording,
   type Recording,
   type RecordingSort,
@@ -149,6 +150,19 @@ export function useRealign() {
 
   return useMutation<{ id: string; alignment: string }, Error, string>({
     mutationFn: (id) => realignRecording(id),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["recordings"] });
+    },
+  });
+}
+
+/** Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR speaker-
+ *  Felder; Text/Wörter/Zeiten bleiben unangetastet). */
+export function useRediarize() {
+  const qc = useQueryClient();
+
+  return useMutation<{ id: string; diar_status: string }, Error, string>({
+    mutationFn: (id) => rediarizeRecording(id),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
     },

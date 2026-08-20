@@ -11,6 +11,7 @@ import subprocess as sp
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -979,6 +980,169 @@ def _schedule_realign(rec_id: int) -> bool:
     ).start()
     log.info("realign: rec_id=%s Worker gestartet", rec_id)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Change 057 — Re-Diarize (Sprecher-Zuordnung neu berechnen)
+# ---------------------------------------------------------------------------
+
+
+def _schedule_rediarize(rec_id: int) -> bool:
+    """Change 057: Diarization auf dem aktuellen Audio neu berechnen.
+
+    Analog ``_schedule_realign``: lädt die gespeicherte Audiodatei,
+    reproduziert VAD-Trim/Enhance (gleiche Zeitbasis wie beim Job) und
+    startet den Hintergrund-Worker ``_run_background_rediarize``. Ersetzt
+    NUR die ``speaker``-Felder der Segmente — Text, Wörter, Timestamps,
+    manuelle Aufteilung und Alignment bleiben unangetastet.
+
+    Returns False wenn Audio fehlt/nicht lesbar oder status != done — der
+    Aufrufer antwortet dann mit verständlichem Fehler.
+    """
+    from .models import Recording as _Rec
+
+    with Session(engine) as session:
+        rec = session.get(_Rec, rec_id)
+        if rec is None:
+            return False
+        if rec.status != "done":
+            log.info("rediarize: rec_id=%s status=%s — nur done erlaubt", rec_id, rec.status)
+            return False
+        stored = Path(rec.stored_path) if rec.stored_path else None
+        if stored is None or not stored.is_file():
+            log.warning("rediarize: Audio fehlt für rec_id=%s", rec_id)
+            return False
+        try:
+            audio_bytes = stored.read_bytes()
+        except Exception as exc:
+            log.warning("rediarize: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
+            return False
+        trim_offset_s = 0.0
+        if _VAD_TRIM and rec.enable_vad:
+            try:
+                audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
+            except Exception:
+                trim_offset_s = 0.0
+        if rec.enable_enhance and rec.enable_enhance != "off":
+            try:
+                audio_bytes = enhance_audio(audio_bytes, level=rec.enable_enhance)
+            except Exception as exc:
+                log.warning("rediarize: enhance failed rec_id=%s: %s", rec_id, exc)
+        rec.diar_status = "pending"
+        session.add(rec)
+        session.commit()
+
+    threading.Thread(
+        target=_run_background_rediarize,
+        args=(rec_id, audio_bytes, trim_offset_s),
+        daemon=True,
+        name=f"rediarize-{rec_id}",
+    ).start()
+    log.info("rediarize: rec_id=%s Worker gestartet", rec_id)
+    return True
+
+
+def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: float) -> None:
+    """Change 057: Hintergrund-Worker für Re-Diarize.
+
+    - Führt die Diarization auf den verarbeiteten Bytes aus (Zeitbasis wie
+      im Transkriptions-Job) und kompensiert den VAD-Trim-Offset.
+    - Mappt die Sprecher-Intervalle über Wort-Überlappung auf die Segmente
+      (gleiche Logik wie die Pipeline: ``_build_word_stream`` +
+      ``_merge_diarization``).
+    - Versions-Guard: wurden die Segmente seit dem Start geändert (Edit,
+      Re-Transcribe), wird das Ergebnis verworfen (nie fremde Edits
+      überschreiben) → ``skipped``.
+    - Fehler (Diar down, leeres Ergebnis): ``failed`` mit Log — nie ein
+      stilles Verschlucken.
+    """
+    from .diarize import DiarizationError
+    from .models import Recording as _Rec
+
+    with Session(engine) as session:
+        rec = session.get(_Rec, rec_id)
+        if rec is None:
+            return
+        segments_before = _json_deepcopy(rec.segments or [])
+        text = rec.text or ""
+        duration = rec.duration_s or 0.0
+        num_speakers = rec.diarize_num_speakers
+        min_duration_off = rec.diarize_min_duration_off
+        method = rec.diarize_method
+        rec.diar_status = "running"
+        # Ehrlicher Status-Hinweis (kein Fake-Progress); wird am Ende
+        # (done/skipped/failed) wieder geräumt.
+        rec.progress_note = "Re-Diarize läuft …"
+        session.add(rec)
+        session.commit()
+
+    try:
+        _tmp_wav = None
+        diar_path = None
+        try:
+            _tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            _tmp_wav.write(audio_bytes)
+            _tmp_wav.close()
+            diar_path = _tmp_wav.name
+            diar = _run_diarization(
+                diar_path,
+                num_speakers=num_speakers,
+                min_duration_off=min_duration_off,
+                method=method,
+            )
+        finally:
+            if _tmp_wav is not None and diar_path:
+                try:
+                    os.unlink(diar_path)
+                except OSError:
+                    pass
+        if not diar:
+            raise DiarizationError("empty", "Diarization lieferte keine Sprecher-Segmente")
+        # Trim-Offset kompensieren: Segment-Zeiten liegen auf Original-Basis.
+        diar_comp = [
+            {
+                **{k: v for k, v in d.items() if k not in ("start", "end")},
+                "start": float(d["start"]) + trim_offset_s,
+                "end": float(d["end"]) + trim_offset_s,
+            }
+            for d in diar
+        ]
+        word_stream = _build_word_stream(segments_before, duration)
+        merged = _merge_diarization(segments_before, diar_comp, word_stream,
+                                    duration, full_text=text)
+        if not merged:
+            raise DiarizationError("empty", "Keine text-zugeordneten Sprecher-Segmente")
+    except Exception as exc:
+        log.exception("rediarize: rec_id=%s fehlgeschlagen: %s", rec_id, exc)
+        with Session(engine) as session:
+            rec2 = session.get(_Rec, rec_id)
+            if rec2 is not None:
+                rec2.diar_status = "failed"
+                rec2.progress_note = None
+                session.add(rec2)
+                session.commit()
+        return
+
+    with Session(engine) as session:
+        rec2 = session.get(_Rec, rec_id)
+        if rec2 is None:
+            return
+        # Versions-Guard: Segmente seit Job-Start geändert → verwerfen.
+        if not _same_segments(rec2.segments or [], segments_before):
+            log.info("rediarize: Segmente seit Start geändert — Ergebnis verworfen (rec_id=%s)", rec_id)
+            rec2.diar_status = "skipped"
+            rec2.progress_note = None
+            session.add(rec2)
+            session.commit()
+            return
+        rec2.segments = merged
+        rec2.diar_status = "done"
+        rec2.progress_note = None
+        rec2.updated_at = datetime.now(timezone.utc)
+        session.add(rec2)
+        session.commit()
+        log.info("rediarize: rec_id=%s Sprecher-Zuordnung aktualisiert (%d Segmente)",
+                 rec_id, len(merged))
 
 
 def _same_segments(a, b) -> bool:

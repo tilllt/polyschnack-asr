@@ -526,6 +526,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "processing_ms": rec.processing_ms,
         # Change 045: Status des präzisen Alignments (done|pending|running|skipped).
         "alignment": getattr(rec, "alignment", "done"),
+        # Change 057: Status der Diarization (done|pending|running|failed|skipped).
+        "diar_status": getattr(rec, "diar_status", "done"),
         "progress_pct": rec.progress_pct,
         "progress_note": rec.progress_note,
         # Change 011: Aktivitäts-/Phasen-Zeitstempel (Heartbeat).

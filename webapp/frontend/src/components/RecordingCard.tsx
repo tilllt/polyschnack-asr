@@ -1,15 +1,16 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle } from "lucide-react";
-import type { ModelMatrixEntry, Recording, Segment } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
-import { useDelete, useRetranscribe, useRealign, useCancelRecording } from "../hooks";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users } from "lucide-react";
+import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
+import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
@@ -546,6 +547,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
   const realignMut = useRealign();
+  const rediarizeMut = useRediarize();
   const cancelMut = useCancelRecording();
 
   function handleCancelJob() {
@@ -738,6 +740,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     });
   }
 
+  // Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR
+  // speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet). Läuft im
+  // Hintergrund (diar_status-Feld).
+  function handleRediarize() {
+    rediarizeMut.mutate(r.uid, {
+      onSuccess: () => toast(t("rediarize_started"), "ok"),
+      onError: (e) => toast(`${t("rediarize_error")}: ${e.message}`, "err"),
+    });
+  }
+
   // Reset waveform error when audio URL changes
   useEffect(() => { setWaveformError(false); }, [r.audio_url]);
 
@@ -751,6 +763,69 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   const hasText = (r.text ?? "").trim().length > 0;
   const note = r.progress_note ?? "";
+
+  // ──── Change 056: Annotationen (zeitgebundene Kommentare) ────
+  const annQuery = useQuery<Annotation[], Error>({
+    queryKey: ["annotations", r.uid] as const,
+    queryFn: () => fetchAnnotations(r.uid),
+    enabled: !!r.uid && hasText,
+  });
+  const annotations = annQuery.data ?? [];
+  // Playback-Fenster: Annotation, über die gerade gespielt wird (Bubble +
+  // Highlight im Thread-Bereich). Marker-Klick (ohne Playback) setzt
+  // annHighlightId direkt; Playback überschreibt es laufend.
+  const activeAnnotation = useMemo(
+    () =>
+      annotations.find((a) => currentTime >= a.start_s && currentTime <= a.end_s) ?? null,
+    [annotations, currentTime],
+  );
+  const [annHighlightId, setAnnHighlightId] = useState<number | null>(null);
+  useEffect(() => {
+    if (activeAnnotation) setAnnHighlightId(activeAnnotation.id);
+  }, [activeAnnotation]);
+  // Annotate-Popover (Text-Markierung → 💬)
+  const [annotateSel, setAnnotateSel] = useState<{
+    idx: number;
+    charStart: number;
+    charEnd: number;
+    preview: string;
+  } | null>(null);
+  const [annotateBody, setAnnotateBody] = useState("");
+  const [annotateSaving, setAnnotateSaving] = useState(false);
+
+  function handleAnnotate(sel: { idx: number; charStart: number; charEnd: number; preview: string }) {
+    setAnnotateSel(sel);
+    setAnnotateBody("");
+  }
+
+  async function saveAnnotation() {
+    if (!annotateSel) return;
+    const body = annotateBody.trim();
+    if (!body) return;
+    setAnnotateSaving(true);
+    try {
+      await createAnnotation(r.uid, {
+        segment_idx: annotateSel.idx,
+        char_start: annotateSel.charStart,
+        char_end: annotateSel.charEnd,
+        body,
+      });
+      setAnnotateSel(null);
+      toast(t("annot_saved"), "ok");
+      void qc.invalidateQueries({ queryKey: ["annotations", r.uid] });
+    } catch (e) {
+      toast(`${t("annot_save_error")}: ${(e as Error).message}`, "err");
+    } finally {
+      setAnnotateSaving(false);
+    }
+  }
+
+  function handleMarkerClick(t: number) {
+    wsRef.current?.seekToPaused(t);
+    const near = annotations.find((a) => Math.abs(a.start_s - t) < 0.75);
+    setAnnHighlightId(near?.id ?? null);
+  }
+
   // Live-Details aus der alignment-note: "alignment Gruppe 3/12 — aktiv
   // seit 42s — CLI 45%" → "Gruppe 3/12 — aktiv seit 42s — CLI 45%"
   const phaseDetail =
@@ -976,6 +1051,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               if (!previewFailed) setPreviewFailed(true);
             }}
             onPlayStateChange={setIsPlaying}
+            // Change 056: Annotation-Marker auf der Timeline + Klick.
+            annotations={annotations.map((a) => ({ id: a.id, start_s: a.start_s }))}
+            onMarkerClick={handleMarkerClick}
           />
         ) : (
           // Platzhalter mit fester Höhe — verhindert Layout-Springen beim
@@ -989,6 +1067,25 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           <div className="mt-2 text-center">
             <span className="text-[12px] text-err">ⓘ Try Re-transcribe to regenerate waveform data</span>
           </div>
+        )}
+        {/* Change 056: Playback-Bubble — läuft die Wiedergabe über eine
+            Annotation, wird sie hier angezeigt (SoundCloud-Stil). Klick →
+            Highlight im Thread-Bereich. */}
+        {activeAnnotation && isPlaying && (
+          <button
+            onClick={() => setAnnHighlightId(activeAnnotation.id)}
+            className="mt-2 w-full text-left flex items-start gap-1.5 rounded-sm border border-accent/40 bg-accent/5 px-2 py-1.5 hover:bg-accent/10 transition-colors"
+            data-testid={`playback-annotation-${activeAnnotation.id}`}
+            title={t("annot_seek_hint")}
+          >
+            <span aria-hidden className="text-[12px]">💬</span>
+            <span className="text-[11px] text-txt leading-[1.4]">
+              <span className="font-semibold">{activeAnnotation.user_name ?? t("annot_anonymous")}: </span>
+              {activeAnnotation.body.length > 140
+                ? `${activeAnnotation.body.slice(0, 140)}…`
+                : activeAnnotation.body}
+            </span>
+          </button>
         )}
         {r.status === "uploaded" && (
           <div className="mt-2 flex flex-col items-center gap-2">
@@ -1057,6 +1154,17 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <span>Präzises Alignment läuft im Hintergrund …</span>
           </div>
         )}
+        {/* Change 057: Re-Diarize läuft — ehrlicher Hintergrund-Hinweis,
+            kein Fake-Progress; verschwindet beim nächsten Polling. */}
+        {(r.status === "done" && (r.diar_status === "running" || r.diar_status === "pending")) && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-accent/90"
+            data-testid={`bg-diar-${r.uid}`}
+          >
+            <span className="animate-pulse" aria-hidden>⟳</span>
+            <span>{t("rediarize_running")}</span>
+          </div>
+        )}
       </div>
 
       {/* ── Transcript / Segments / Error ── */}
@@ -1121,6 +1229,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onBoundaryDragEnd={handleBoundaryDragEnd}
                   onSegmentDelete={handleSegmentDelete}
                   onSplitSegment={handleSplitSegment}
+                  onAnnotate={handleAnnotate}
                   fillHeight={!!focusMode}
                 />
               </>
@@ -1134,6 +1243,21 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             )}
           </>
+        )}
+        {/* Change 056: Annotation-Threads (Markdown, Antworten, Mentions) —
+            unter der Transkription; lesen können alle, schreiben/antworten
+            nur mit write-Zugriff (canEdit-Prop). */}
+        {hasText && (
+          <div className="mt-1 px-4 pb-2">
+            <AnnotationThreads
+              rid={r.uid}
+              annotations={annotations}
+              isLoading={annQuery.isLoading}
+              canEdit={canEdit}
+              activeId={annHighlightId}
+              onSeek={(sec) => wsRef.current?.seekToPaused(sec)}
+            />
+          </div>
         )}
         {r.status === "processing" && r.text && (
           <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt/70 break-words">
@@ -1315,6 +1439,25 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           >
             <RotateCcw size={12} />
             {t("realign")}
+          </button>
+        )}
+
+        {/* Change 057: Re-Diarize-Button — Sprecher-Zuordnung neu berechnen
+            (NUR speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet).
+            Nur bei done + Schreibzugriff; während des Laufs deaktiviert. */}
+        {r.status === "done" && hasText && canEdit && (
+          <button
+            onClick={handleRediarize}
+            disabled={
+              rediarizeMut.isPending ||
+              r.diar_status === "running" ||
+              r.diar_status === "pending"
+            }
+            title={t("rediarize_title")}
+            className="btn-ghost-sm"
+          >
+            <Users size={12} />
+            {t("rediarize")}
           </button>
         )}
 
@@ -1528,6 +1671,54 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         </button>
       </div>
       </>)}
+
+      {/* Change 056: Annotate-Popover (Text markieren → 💬 → Kommentar).
+          Overlay zentriert; zeigt die markierte Passage + Markdown-Eingabe. */}
+      {annotateSel && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setAnnotateSel(null)}
+          data-testid="annotate-popover"
+        >
+          <div
+            className="bg-panel border border-border rounded-md p-3 max-w-md w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[13px] font-semibold mb-1 flex items-center gap-1.5">
+              <span aria-hidden>💬</span> {t("annotate")}
+            </div>
+            <div className="text-[11px] text-muted2 mb-2 border-l-2 border-accent/40 pl-2 line-clamp-2 italic">
+              „{annotateSel.preview}“
+            </div>
+            <textarea
+              autoFocus
+              value={annotateBody}
+              onChange={(e) => setAnnotateBody(e.target.value)}
+              placeholder={t("annot_placeholder")}
+              className="w-full bg-panel border border-border rounded-sm px-2 py-1.5 text-[13px] text-txt outline-none focus:border-accent placeholder:text-muted2"
+              rows={4}
+            />
+            <div className="text-[10px] text-muted2 mt-1">
+              {t("annot_md_hint")} · @name {t("annot_mention_hint")}
+            </div>
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                onClick={() => setAnnotateSel(null)}
+                className="btn-ghost-sm"
+              >
+                {t("cancel")}
+              </button>
+              <button
+                onClick={() => void saveAnnotation()}
+                disabled={annotateSaving || !annotateBody.trim()}
+                className="bg-accent text-white text-[12px] px-3 py-[5px] rounded-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {annotateSaving ? t("annot_saving") : t("annot_save")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

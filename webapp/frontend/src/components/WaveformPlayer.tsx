@@ -55,6 +55,10 @@ interface Props {
   onPlayStateChange?: (playing: boolean) => void;
   onLoadError?: () => void;
   height?: number;
+  /** Change 056: Annotationen → 💬-Marker auf der Timeline (Top-Level). */
+  annotations?: { id: number; start_s: number }[];
+  /** Change 056: Klick auf einen Annotation-Marker (start_s). */
+  onMarkerClick?: (start_s: number) => void;
 }
 
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
@@ -126,7 +130,7 @@ export function toggleActivePlayback(): void {
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80 }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
@@ -164,11 +168,50 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const canPlayRef = useRef(false);
     canPlayRef.current = canPlay;
 
+    // Change 056: Annotation-Marker als Overlay im Timeline-Container.
+    // wavesurfer 7.x hat KEIN Markers-Plugin (erst 8.x) — ein 8er-Upgrade
+    // wäre ein Breaking-Change-Risiko für Regions/Timeline/Hover/MediaElement.
+    // Stattdessen: 💬-Elemente absolut in der Timeline (left% = start_s/dur)
+    // → bleiben bei Zoom (Breite wächst) und Scroll (Container) korrekt.
+    // onMarkerClick per Ref (stale-closure-sicher).
+    const onMarkerClickRef = useRef(onMarkerClick);
+    onMarkerClickRef.current = onMarkerClick;
+    const updateMarkers = useCallback(() => {
+      const tl = timelineRef.current;
+      if (!tl || !ready || !duration) return;
+      tl.querySelectorAll("[data-ann-marker]").forEach((el) => el.remove());
+      for (const a of annotations ?? []) {
+        if (a.start_s > duration) continue;
+        const btn = document.createElement("button");
+        btn.dataset.annMarker = "1";
+        btn.textContent = "💬";
+        btn.title = `Annotation @ ${a.start_s.toFixed(1)}s`;
+        btn.setAttribute("aria-label", `Annotation @ ${a.start_s.toFixed(1)}s`);
+        btn.style.cssText =
+          "position:absolute;top:-15px;left:" +
+          `${(a.start_s / duration) * 100}%;` +
+          "transform:translateX(-50%);font-size:11px;line-height:1;" +
+          "cursor:pointer;background:transparent;border:none;padding:0;" +
+          "filter:drop-shadow(0 1px 1px rgba(0,0,0,.4));";
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onMarkerClickRef.current?.(a.start_s);
+        });
+        tl.appendChild(btn);
+      }
+    }, [annotations, ready, duration]);
+    // Neu-Zeichnen bei Annotationen/Ready — Zoom läuft über doZoom.
+    useEffect(() => {
+      updateMarkers();
+    }, [updateMarkers]);
+
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       const pps = ZOOM_STEPS[idx];
       ws.zoom(pps);
       setZoomIdx(idx);
-    }, []);
+      // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
+      updateMarkers();
+    }, [updateMarkers]);
 
     // Change 052: Lazy-Loading — Audio erst laden, wenn der Player in den
     // Viewport kommt (IntersectionObserver, 200 px Vorlauf). Ohne das
@@ -532,8 +575,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           </div>
         )}
         <div ref={containerRef} className={`w-full ${ready && !error ? "" : "hidden"}`} style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD }} />
-        {/* Timeline ruler */}
-        <div ref={timelineRef} className={`w-full ${ready && !error ? "mt-0" : "hidden"}`} />
+        {/* Timeline ruler (Change 056: relative → 💬-Marker als Overlay) */}
+        <div ref={timelineRef} className={`w-full relative ${ready && !error ? "mt-0" : "hidden"}`} />
         {ready && !error && (
           <div className="flex items-center gap-3 mt-2">
             <button

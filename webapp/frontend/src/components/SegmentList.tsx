@@ -45,6 +45,15 @@ interface Props {
    *  eigenes Segment. Callback bekommt Segment-Index + Zeichen-Range +
    *  den gewählten Sprecher (Persistenz macht der Parent via PUT). */
   onSplitSegment?: (idx: number, charStart: number, charEnd: number, speaker: string) => void;
+  /** Change 056: Text-Markierung → „Annotate" (Kommentar zur Passage).
+   *  Klick auf den 💬-Button liefert Markierungs-Koordinaten inkl.
+   *  Text-Vorschau; die Karte öffnet das Annotate-Popover. */
+  onAnnotate?: (a: {
+    idx: number;
+    charStart: number;
+    charEnd: number;
+    preview: string;
+  }) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -87,7 +96,7 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
+export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   const {
     conn: yjsConn,
@@ -696,10 +705,12 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             ${editingIdx === i ? "cursor-default" : ""}
           `}
         >
-          {/* Change 013: Split-Symbol links am Rand auf Markierungshöhe —
-              ersetzt das zentrierte Auto-Modal. Erscheint nur, wenn in
-              DIESER Zeile eine Markierung aktiv ist. */}
-          {splitAnchor && splitAnchor.idx === i && onSplitSegment && (
+          {/* Change 013/056: Kontext-Leiste links am Rand auf Markierungshöhe —
+              Split-Symbol (Insert Segment) + 💬 Annotate. Erscheint nur, wenn
+              in DIESER Zeile eine Markierung aktiv ist. */}
+          {splitAnchor && splitAnchor.idx === i && (onSplitSegment || onAnnotate) && (
+            <>
+            {onSplitSegment && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -751,6 +762,41 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 </g>
               </svg>
             </button>
+            )}
+            {onAnnotate && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                splitPopoverOpenRef.current = true;
+                setTouchSel(null);
+                window.getSelection()?.removeAllRanges();
+                const sel = {
+                  idx: splitAnchor.idx,
+                  charStart: splitAnchor.charStart,
+                  charEnd: splitAnchor.charEnd,
+                  preview: splitAnchor.preview,
+                };
+                setSplitAnchor(null);
+                onAnnotate(sel);
+              }}
+              className="absolute left-[42px] z-20 w-[26px] h-[26px] rounded-full flex items-center justify-center flex-shrink-0
+                text-[14px] leading-none bg-white/70
+                hover:bg-accent/15 hover:scale-110 active:scale-95
+                shadow-sm transition-all"
+              style={{
+                top: Math.min(
+                  Math.max(0, splitAnchor.y - 13),
+                  Math.max(0, (rowRefs.current[i]?.offsetHeight ?? 26) - 26),
+                ),
+              }}
+              title={t("annotate")}
+              aria-label={t("annotate")}
+              data-testid="annotate-btn"
+            >
+              💬
+            </button>
+            )}
+            </>
           )}
           {onSegmentDelete && (
             <button
@@ -976,11 +1022,11 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                   touchAction: "pan-y",
                 } as React.CSSProperties
               }
-              onMouseUp={onSplitSegment ? (e) => handleTextMouseUp(i, e.currentTarget) : undefined}
-              onPointerDown={onSplitSegment ? (e) => handleTextPointerDown(i, e) : undefined}
-              onPointerMove={onSplitSegment ? (e) => handleTextPointerMove(i, e) : undefined}
-              onPointerUp={onSplitSegment ? () => handleTextPointerUp(i) : undefined}
-              onPointerCancel={onSplitSegment ? () => setTouchSel(null) : undefined}
+              onMouseUp={onSplitSegment || onAnnotate ? (e) => handleTextMouseUp(i, e.currentTarget) : undefined}
+              onPointerDown={onSplitSegment || onAnnotate ? (e) => handleTextPointerDown(i, e) : undefined}
+              onPointerMove={onSplitSegment || onAnnotate ? (e) => handleTextPointerMove(i, e) : undefined}
+              onPointerUp={onSplitSegment || onAnnotate ? () => handleTextPointerUp(i) : undefined}
+              onPointerCancel={onSplitSegment || onAnnotate ? () => setTouchSel(null) : undefined}
               data-split-container
             >
               {/* Fix 2026-08-18: Wort-Spans IMMER rendern, wenn Split möglich

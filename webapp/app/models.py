@@ -57,6 +57,10 @@ class Recording(SQLModel, table=True):
     # "done" (Default: aligniert/synchron) | "pending" (läuft im Hintergrund) |
     # "running" (Worker aktiv) | "skipped" (Aligner down / deaktiviert)
     alignment: str = "done"
+    # --- Change 057: Status der Diarization (Re-Diarize) ---
+    # "done" (Default: Sprecher zugeordnet) | "pending" | "running" |
+    # "failed" (Diar-Dienst down/Fehler) | "skipped" (Ergebnis verworfen)
+    diar_status: str = "done"
 
     # --- progress (0-100, updated during processing) ---
     progress_pct: int = 0
@@ -279,5 +283,44 @@ class DeliveryTarget(SQLModel, table=True):
     kind: str = "email"  # email | webdav
     config: Optional[str] = None  # JSON-String (Creds verschlüsselt)
     created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class Annotation(SQLModel, table=True):
+    """Change 056 — zeitgebundener Kommentar zu einer Transkription.
+
+    Eine Annotation hängt an einer Text-Markierung (segment_idx +
+    char_start/char_end) und deren Zeitfenster (start_s/end_s, aus den
+    Wort-Timestamps abgeleitet). ``body`` ist Markdown; Antworten (Threads)
+    referenzieren via ``parent_id`` die Top-Level-Annotation (eine Ebene).
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    uid: str = Field(
+        default_factory=lambda: uuid.uuid4().hex,
+        unique=True,
+        index=True,
+    )
+    rec_id: int = Field(foreign_key="recording.id", index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+
+    # --- Markierung ---
+    segment_idx: int = 0
+    char_start: int = 0
+    char_end: int = 0
+    #: Zeitfenster (Sekunden, Original-Zeitbasis) — aus Wort-Timestamps
+    #: abgeleitet; Fallback: Segment-Grenzen.
+    start_s: float = 0.0
+    end_s: float = 0.0
+
+    #: Kommentar (Markdown). Antworten: parent_id = Top-Level-Annotation.
+    body: str = ""
+    parent_id: Optional[int] = Field(default=None, foreign_key="annotation.id", index=True)
+
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    updated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
