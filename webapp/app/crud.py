@@ -88,12 +88,23 @@ def get_recording_by_uid(session: Session, uid: str) -> Optional[Recording]:
 def list_recordings(
     session: Session, q: Optional[str] = None, user_id: Optional[int] = None,
     include_shares: bool = True,
+    sort: str = "date", dir: str = "desc",
+    tags: Optional[List[str]] = None,
 ) -> List[Recording]:
-    """Return recordings ordered by newest first.
+    """Return recordings (Change 054: sortierbar + tag-filtrierbar).
 
     - *user_id* = ``None`` → only recordings with no owner (public/shared space)
     - *user_id* = ``int`` → recordings belonging to that user **plus** recordings
       shared with them (when *include_shares*).
+    - *sort*: ``date`` (created_at, Default) | ``edited`` (updated_at) |
+      ``name`` (Titel, Fallback Originalname) | ``filename`` (original_name) |
+      ``length`` (duration_s, NULLs ans Ende).
+    - *dir*: ``desc`` (Default) | ``asc``.
+    - *tags*: ODER-Filter — eine Aufnahme gehört zum Ergebnis, wenn
+      mindestens eines der Tags gesetzt ist (case-insensitive).
+
+    Sortierung passiert nach dem Laden in Python (stabil, einheitlich —
+    bei der Listen-Größe der Webapp irrelevant für die Performance).
     """
     stmt = select(Recording)
     if user_id is not None:
@@ -112,8 +123,35 @@ def list_recordings(
         stmt = stmt.where(
             Recording.original_name.ilike(term) | Recording.text.ilike(term)  # type: ignore[union-attr]
         )
-    stmt = stmt.order_by(Recording.created_at.desc())  # type: ignore[arg-type]
-    return list(session.exec(stmt).all())
+    rows = list(session.exec(stmt).all())
+
+    if tags:
+        wanted = {t.lower() for t in tags if t}
+        if wanted:
+            rows = [
+                r for r in rows
+                if wanted & {t.lower() for t in (r.tags or [])}
+            ]
+
+    _EPOCH = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    keys = {
+        "date": lambda r: r.created_at or _EPOCH,
+        "edited": lambda r: r.updated_at or _EPOCH,
+        # Titel alphabetisch (Fallback Originalname), case-insensitive.
+        "name": lambda r: (r.title or r.original_name or "").lower(),
+        "filename": lambda r: (r.original_name or "").lower(),
+    }
+    if sort == "length":
+        # Dauer: noch nicht gemessene (None) IMMER ans Ende — unabhängig
+        # von der Richtung (bei desc wären sie sonst vorn, weil None < Zahl).
+        with_val = [r for r in rows if r.duration_s is not None]
+        without_val = [r for r in rows if r.duration_s is None]
+        with_val.sort(key=lambda r: r.duration_s, reverse=(dir == "desc"))
+        rows = with_val + without_val
+    else:
+        key = keys.get(sort, keys["date"])
+        rows.sort(key=key, reverse=(dir == "desc"))
+    return rows
 
 
 def list_recordings_missing_peaks(session: Session, limit: int = 3) -> list[Recording]:

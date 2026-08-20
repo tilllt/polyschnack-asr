@@ -1,6 +1,7 @@
 """PATCH endpoint for inline segment text editing."""
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -384,6 +385,7 @@ def update_segment(
             segments[idx]["speaker"] = new_speaker
     rec.segments = list(segments)  # neue Referenz → SQLAlchemy erkennt die Änderung
     rec.text = " ".join(s["text"] for s in segments)
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -459,6 +461,7 @@ def replace_segments(
     # nutzt segments direkt und re-segmentiert nie automatisch darüber.
     rec.segments_manual = True
     rec.text = " ".join(str(s["text"]).strip() for s in stored)
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
     session.add(rec)
     session.commit()
     session.refresh(rec)

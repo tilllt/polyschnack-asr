@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRecordings, useStats, useModelStatus } from "./hooks";
 import { toggleActivePlayback } from "./components/WaveformPlayer";
 import { ToastProvider } from "./components/Toasts";
 import { useT, type Lang, LocaleProvider } from "./useLocale";
 import { parseSharePath } from "./share";
 import { parseBenchmarkPath } from "./benchmark";
+import { nextSortState, sortParams, type SortState } from "./sortState";
+import type { RecordingSort } from "./api";
 import {
   fetchBenchmarkMeta,
   fetchBenchmarkSamples,
@@ -34,6 +36,9 @@ function AppContent() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [view, setView] = useState<"main" | "settings">("main");
   const { t, lang, setLang } = useT();
+  // Change 054: Sort-Badges (null = Default Date desc) + Tag-Filter (ODER).
+  const [sort, setSort] = useState<SortState>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
 
   // Anon-Share-Link: /r/:uid → read-only-Ansicht ohne Login
   const shareUid = parseSharePath(window.location.pathname)?.uid ?? null;
@@ -98,12 +103,22 @@ function AppContent() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
-  const recordingsQuery = useRecordings(query);
+  const recordingsQuery = useRecordings(query, { ...sortParams(sort), tags: activeTags });
   const statsQuery = useStats();
   const modelStatusQuery = useModelStatus();
 
   const recordings = recordingsQuery.data ?? [];
   const stats = statsQuery.data;
+
+  // Change 054: Badge-Klick-Zyklus (1. desc, 2. asc, 3. Default) + Tag-Toggle.
+  const onSortBadge = useCallback((key: RecordingSort) => {
+    setSort((cur) => nextSortState(cur, key));
+  }, []);
+  const onToggleTag = useCallback((tag: string) => {
+    setActiveTags((cur) =>
+      cur.includes(tag) ? cur.filter((x) => x !== tag) : [...cur, tag],
+    );
+  }, []);
 
   return (
     <div className="min-h-screen bg-bg">
@@ -233,7 +248,16 @@ function AppContent() {
               </div>
             )}
 
-            <RecordingList recordings={recordings} query={query} isOidc={!!user?.authenticated} isAdmin={!!user?.is_admin} />
+            <RecordingList
+              recordings={recordings}
+              query={query}
+              isOidc={!!user?.authenticated}
+              isAdmin={!!user?.is_admin}
+              sort={sort}
+              onSort={onSortBadge}
+              activeTags={activeTags}
+              onToggleTag={onToggleTag}
+            />
           </>
         ) : (
           <UserSettingsPage user={user} />

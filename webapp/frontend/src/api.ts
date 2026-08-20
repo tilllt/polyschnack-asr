@@ -28,6 +28,8 @@ export interface Recording {
   /** Change 014: editierbarer Titel (Fallback original_name), via PATCH
    *  /recordings/{uid}/title setzbar — Sidecar spiegelt ihn. */
   title?: string | null;
+  /** Change 054: freie Tags (PATCH /recordings/{uid}/tags, write-Zugriff). */
+  tags?: string[];
   mime: string;
   size_bytes: number;
   duration_s: number | null;
@@ -85,7 +87,8 @@ export interface Recording {
   /** Change 011: Backend-Name (nur status="queued"). */
   queue_backend?: string | null;
   waveform_peaks: number[] | null;
-  /** Letzter Fortschritts-Heartbeat (ISO) — Basis fuer die ETA-Rate. */
+  /** Change 054: letzte Bearbeitung — Basis fürs Sort-Badge „Last edit"
+   *  (Backend sortiert; hier für Tooltip/Anzeige). */
   updated_at?: string | null;
   backend?: string;
 }
@@ -202,12 +205,38 @@ async function checkOk(res: Response): Promise<Response> {
   return res;
 }
 
-export async function fetchRecordings(q = ""): Promise<Recording[]> {
-  const url = q
-    ? `/api/recordings?q=${encodeURIComponent(q)}`
-    : "/api/recordings";
-  const res = await fetch(url).then(checkOk);
+/** Change 054: Sortier-Kriterien der Recording-Liste (Backend-Parameter). */
+export type RecordingSort = "date" | "edited" | "name" | "filename" | "length";
+export type RecordingSortDir = "asc" | "desc";
+
+export async function fetchRecordings(
+  q = "",
+  opts: { sort?: RecordingSort | null; dir?: RecordingSortDir; tags?: string[] } = {},
+): Promise<Recording[]> {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (opts.sort && opts.dir) {
+    params.set("sort", opts.sort);
+    params.set("dir", opts.dir);
+  }
+  for (const tag of opts.tags ?? []) params.append("tag", tag);
+  const qs = params.toString();
+  const res = await fetch(qs ? `/api/recordings?${qs}` : "/api/recordings").then(checkOk);
   return res.json() as Promise<Recording[]>;
+}
+
+/** Change 054: Tags einer Aufnahme setzen (Backend dedupt case-insensitiv,
+ *  Limits: ≤ 20 Tags, je ≤ 40 Zeichen). */
+export async function updateRecordingTags(
+  uid: string,
+  tags: string[],
+): Promise<{ uid: string; tags: string[] }> {
+  const res = await fetch(`/api/recordings/${encodeURIComponent(uid)}/tags`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tags }),
+  }).then(checkOk);
+  return res.json() as Promise<{ uid: string; tags: string[] }>;
 }
 
 /** Change 015: verfügbare Export-Templates (Name + Endung) für das Dropdown. */

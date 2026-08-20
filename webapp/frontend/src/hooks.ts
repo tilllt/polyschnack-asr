@@ -14,6 +14,8 @@ import {
   realignRecording,
   cancelRecording,
   type Recording,
+  type RecordingSort,
+  type RecordingSortDir,
   type Stats,
   type ModelStatus,
 } from "./api";
@@ -22,10 +24,14 @@ import {
    QUERIES
    ============================================================ */
 
-export function useRecordings(q: string) {
+export function useRecordings(
+  q: string,
+  opts: { sort?: RecordingSort | null; dir?: RecordingSortDir; tags?: string[] } = {},
+) {
+  const { sort = null, dir = "desc", tags = [] } = opts;
   return useQuery<Recording[], Error>({
-    queryKey: ["recordings", q] as const,
-    queryFn: () => fetchRecordings(q),
+    queryKey: ["recordings", q, sort, dir, tags] as const,
+    queryFn: () => fetchRecordings(q, { sort, dir, tags }),
     // Refetch every 2s while any recording is processing; otherwise stop polling
     refetchInterval: (query) => {
       const data = query.state.data as Recording[] | undefined;

@@ -509,6 +509,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "original_name": rec.original_name,
         # Change 014: editierbarer Titel; Fallback original_name.
         "title": rec.title or rec.original_name,
+        # Change 054: freie Tags (Gruppierung/Filtrierung der Liste).
+        "tags": list(rec.tags or []),
         "owner_user_id": rec.owner_user_id,
         "mime": rec.mime,
         "size_bytes": rec.size_bytes,
@@ -933,12 +935,25 @@ def merge_recordings(
 @router.get("/recordings")
 def list_recordings_endpoint(
     q: Optional[str] = None,
+    sort: str = "date",
+    dir: str = "desc",
+    tag: Optional[List[str]] = None,
     request: Request = None,
     session: Session = Depends(get_session),
 ) -> List[Dict[str, Any]]:
-    """Return all recordings (newest first), optionally filtered by *q*."""
+    """Return recordings (Change 054: sortierbar + tag-filtrierbar).
+
+    - *sort*: date (Default) | edited | name | filename | length
+    - *dir*: desc (Default) | asc
+    - *tag*: mehrfach; ODER-Filter auf die Tags der Aufnahmen
+    """
+    if dir not in ("asc", "desc"):
+        dir = "desc"
     uid = _current_user(request, session)
-    rows = list_recordings(session, q=q, user_id=uid, include_shares=uid is not None)
+    rows = list_recordings(
+        session, q=q, user_id=uid, include_shares=uid is not None,
+        sort=sort, dir=dir, tags=tag or None,
+    )
     # Alt-Aufnahmen ohne Peaks (vor dem Peaks-Feature hochgeladen): nur die
     # ERSTEN (sichtbaren) sofort nachziehen — nicht alle. Früher wurde für
     # jede peaks-lose Aufnahme ein eigener ffmpeg-Thread gestartet; bei
@@ -1598,6 +1613,7 @@ def set_recording_title(
         is_admin=_is_admin_session(request),
     )
     rec.title = title
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -1606,6 +1622,58 @@ def set_recording_title(
     except Exception:
         pass  # best-effort — DB bleibt die Wahrheit
     return {"uid": rec.uid, "title": rec.title, "original_name": rec.original_name}
+
+
+# ---------------------------------------------------------------------------
+# Tags (Change 054)
+# ---------------------------------------------------------------------------
+
+
+class TagsBody(BaseModel):
+    tags: List[str] = []
+
+
+@router.patch("/recordings/{rid}/tags")
+def set_recording_tags(
+    rid: str,
+    body: TagsBody,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 054: Tags einer Aufnahme setzen (write-Zugriff wie Segment-Edit).
+
+    - dedup + trim; leere Einträge verworfen
+    - max. 20 Tags, je max. 40 Zeichen (sonst 400)
+    - aktualisiert ``updated_at`` (zählt als Bearbeitung → „Last edit date")
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(
+        session, rec, uid, "write",
+        cap=_key_cap(request, session),
+        is_admin=_is_admin_session(request),
+    )
+    clean: List[str] = []
+    for t in body.tags or []:
+        t = str(t).strip()
+        if not t:
+            continue
+        if len(t) > 40:
+            raise HTTPException(status_code=400, detail=f"Tag zu lang: {t[:40]}…")
+        # Case-insensitives Dedup: „Walzen" und „walzen" sind dasselbe Label;
+        # die erste Schreibweise gewinnt.
+        if not any(t.lower() == existing.lower() for existing in clean):
+            clean.append(t)
+        if len(clean) > 20:
+            raise HTTPException(status_code=400, detail="max. 20 Tags pro Aufnahme")
+    rec.tags = clean
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+    return {"uid": rec.uid, "tags": list(rec.tags or [])}
 
 
 # ---------------------------------------------------------------------------

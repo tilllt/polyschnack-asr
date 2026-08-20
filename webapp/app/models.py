@@ -115,6 +115,12 @@ class Recording(SQLModel, table=True):
     # --- notification URLs ---
     notification_urls: Optional[str] = Field(default=None)
 
+    # --- Change 054: freie Tags zur Gruppierung/Filtrierung ---
+    # JSON-Liste von Strings (z. B. ["walzen", "schellack", "review", "fertig"]);
+    # leer = keine Tags. Gesetzt per PATCH /api/recordings/{uid}/tags
+    # (write-Zugriff). Sortierung/Filterung der Liste nutzt die Spalte.
+    tags: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+
     # --- preprocessing flags ---
     enable_noise_reduce: bool = True
     #: ffmpeg pre-processing level — "off", "light", "medium", "aggressive".

@@ -13,10 +13,11 @@ import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { deriveSegments, insertSegment, deleteSegment, splitSegmentAtRange } from "../resegment";
+import { deriveSegments, deleteSegment, splitSegmentAtRange } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
+import { TagEditor } from "./TagEditor";
 
 /** ETA aus der beobachteten Fortschrittsrate (ms pro Prozentpunkt).
  *  Die alte Formel extrapolierte linear ueber created_at (Upload-Zeit!) —
@@ -631,13 +632,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     }
   }
 
-  function handleSegmentInsert(afterIdx: number) {
-    if (!r.uid || !displaySegments) return;
-    const next = insertSegment(displaySegments, afterIdx) as Segment[];
-    if (next === displaySegments) return; // keine Wörter → nichts zu teilen
-    void persistSegmentList(next);
-  }
-
+  // Change 055: der „+"-Insert-Button zwischen den Segmenten ist entfernt —
+  // Einfügen läuft über den Insert-Segment-Modus (handleSplitSegment).
   function handleSegmentDelete(idx: number) {
     if (!r.uid || !displaySegments || displaySegments.length <= 1) return;
     const next = deleteSegment(displaySegments, idx) as Segment[];
@@ -877,6 +873,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   {r.original_name}
                 </div>
               )}
+              {/* Change 054: Tags (Anzeige + Editor bei write/full/owner) */}
+              <TagEditor uid={r.uid} tags={r.tags ?? []} canEdit={canEdit} />
             </>
           )}
         </div>
@@ -1121,7 +1119,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   searchQuery={searchQuery}
                   searchJump={searchJump}
                   onBoundaryDragEnd={handleBoundaryDragEnd}
-                  onSegmentInsert={handleSegmentInsert}
                   onSegmentDelete={handleSegmentDelete}
                   onSplitSegment={handleSplitSegment}
                   fillHeight={!!focusMode}

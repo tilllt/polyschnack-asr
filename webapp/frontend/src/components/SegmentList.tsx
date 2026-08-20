@@ -35,12 +35,8 @@ interface Props {
    *  Change 009: die Drag-Preview ist LOKAL (dragPreview-State) — der
    *  Callback wird nur beim Loslassen für den Commit gerufen. */
   onBoundaryDragEnd?: (segments: Segment[]) => void;
-  /** Feature 2026-08-16 (Mockup): "+" im Kreis zwischen den Segmenten —
-   *  fügt nach Segment `afterIdx` ein neues Segment ein (gleicher Sprecher,
-   *  letztes Wort wandert). Callback bekommt den neuen Segment-Index. */
-  onSegmentInsert?: (afterIdx: number) => void;
-  /** Feature 2026-08-16 (Mockup): "−" im Kreis vor dem Timecode — löscht
-   *  Segment `idx` (Text wandert ans vorige Segment). */
+  /** Feature 2026-08-16 (Mockup): „−" im Kreis vor dem Timecode — löscht
+   *  Segment `idx` (Text wandert ans vorige Segment). Bleibt (Change 055). */
   onSegmentDelete?: (idx: number) => void;
   /** Feature 2026-08-16 (Edit-Vollbild): true = Liste füllt die verfügbare
    *  Höhe des Parents statt der kompakten 260px-Begrenzung. */
@@ -91,7 +87,7 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
+export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   const {
     conn: yjsConn,
@@ -635,32 +631,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     >
       {shown.map((seg, i) => {
         const speaker = seg.speaker;
-        const prevHasWords = i > 0 && (shown[i - 1].words?.length ?? 0) > 0;
         return (
         <Fragment key={i}>
-        {i > 0 && onSegmentInsert && (
-          /* ── Grenz-Leiste (Feature 2026-08-16, Mockup): "+" im Kreis,
-             40 % Transparenz, daneben die Hairline als Segment-Trennung ── */
+        {i > 0 && (
+          /* ── Hairline als Segment-Trennung (Change 055): der „+"-Insert-
+             Button ist entfernt (Insert-Segment-Modus übernimmt); die
+             Zeilen rücken enger zusammen, die Trennung bleibt. ── */
           <div
-            className="flex items-center gap-1.5 px-3 py-[1px]"
+            className="flex items-center px-3"
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSegmentInsert(i - 1);
-              }}
-              disabled={!prevHasWords}
-              className="w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
-                text-[12px] leading-none text-accent/60 bg-accent/10 border border-accent/25
-                opacity-40 hover:opacity-100 hover:bg-accent/25 hover:text-accent
-                transition-opacity disabled:opacity-15 disabled:hover:opacity-15 disabled:cursor-not-allowed"
-              title={t("segment_insert_hint")}
-              aria-label={t("segment_insert_hint")}
-            >
-              +
-            </button>
             <div className="h-px flex-1 bg-border/60" aria-hidden />
           </div>
         )}
