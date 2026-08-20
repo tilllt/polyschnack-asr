@@ -78,6 +78,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Ensure the static directory exists so the StaticFiles mount never errors.
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
+    # --- Change 048: Boot-Recovery — hängende Hintergrund-Alignments aus
+    # --- einer vorherigen Sitzung (Restart/Stromausfall) auflösen. Muss VOR
+    # --- dem Queue-Start laufen: neue Jobs starten sonst ggf. während der
+    # --- Recovery; außerdem kann es beim Boot noch keine laufenden Worker
+    # --- geben, pending/running ist also sicher verwaist.
+    from sqlmodel import Session as _Session
+
+    from .db import engine as _engine
+    from .service import recover_stale_alignments
+
+    with _Session(_engine) as session:
+        n = recover_stale_alignments(session)
+        if n:
+            log.warning("boot-recovery: %d hängende(s) Alignment(s) bereinigt", n)
+
     # --- Task 6: start the queue and re-enqueue jobs that were still queued
     # --- when the previous process exited.
     from . import crud

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from . import asr_client, crud
 from .asr_client import get_client
@@ -876,6 +876,42 @@ def _run_background_align(rec_id: int) -> None:
     _AlignmentCache.delete(rec_id)
     log.info("bg-align: rec_id=%s fertig (alignment=%s)", rec_id,
              rec.alignment if rec is not None else "?")
+
+
+def recover_stale_alignments(session: Session) -> int:
+    """Change 048: Boot-Recovery — hängende Hintergrund-Alignments auflösen.
+
+    Ein Background-Align-Worker (Change 045/046) stirbt mit dem Prozess
+    (Container-Restart, Stromausfall), ohne ``alignment`` zu setzen —
+    es bleibt ``pending`` (nie gestartet) oder ``running`` (mitten im
+    Aligner-Call). Beim Boot kann es noch KEINE laufenden Alignments geben
+    (Worker starten erst mit neuen Jobs nach dem Boot) → ``pending``/
+    ``running`` ist sicher verwaist.
+
+    Recovery: Status → ``skipped`` (Backend-Timestamps bleiben; der User
+    kann das präzise Alignment über den Re-Align-Button jederzeit manuell
+    nachholen) + verwaiste Cache-Dateien (``.align-cache/<rec_id>.wav`` +
+    ``.json``) löschen. Idempotent; loggt die Anzahl.
+
+    Returns: Anzahl behandelter Recordings.
+    """
+    from .models import Recording as _Rec
+
+    rows = session.exec(
+        select(_Rec).where(_Rec.alignment.in_(["pending", "running"]))
+    ).all()
+    for rec in rows:
+        rec.alignment = "skipped"
+        session.add(rec)
+        if rec.id is not None:
+            _AlignmentCache.delete(rec.id)
+    if rows:
+        session.commit()
+        log.warning(
+            "boot-recovery: %d hängende(s) Alignment(s) (pending/running) "
+            "→ skipped + Cache bereinigt", len(rows),
+        )
+    return len(rows)
 
 
 def _json_deepcopy(obj):
