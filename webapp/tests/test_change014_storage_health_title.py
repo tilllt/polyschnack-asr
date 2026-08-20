@@ -563,7 +563,8 @@ def _make_aiff(tmp_path, name: str = "sine.aiff") -> Path:
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
 def test_health_scan_konvertiert_unbekannte_magic_statt_failed(client, tmp_path):
     """Datei mit unbekannter Magic (AIFF), aber ffmpeg-lesbarem Inhalt:
-    Scan erzeugt conv-Sidecar und markiert NICHT failed."""
+    Scan konvertiert zu MP3, biegt stored_path um und archiviert das
+    Original — statt failed."""
     rec = _upload(client)
     from app.db import engine
     from app.models import Recording
@@ -575,20 +576,30 @@ def test_health_scan_konvertiert_unbekannte_magic_statt_failed(client, tmp_path)
     with Session(engine) as s:
         r = s.get(Recording, rec["id"])
         stored = Path(r.stored_path)
+        # Upload speicherte .mp3 — für den Test als .aiff umbenennen
+        stored = stored.with_suffix(".aiff")
         stored.write_bytes(aiff.read_bytes())
+        r.stored_path = str(stored)
         r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
         s.add(r)
         s.commit()
 
+    from app.audio_utils import original_path
     from app.config import settings
-    from app.recording_health import _conv_sidecar, run_health_scan
+    from app.recording_health import run_health_scan
 
     with Session(engine) as s:
         run_health_scan(s, settings.AUDIO_DIR)
+        s.expire_all()
         r = s.get(Recording, rec["id"])
         assert r.status != "failed", r.error
-        assert _conv_sidecar(stored).exists(), "conv-Sidecar wurde nicht erzeugt"
-        assert _conv_sidecar(stored).stat().st_size >= 256
+        # stored_path zeigt jetzt auf die verarbeitbare MP3
+        new_stored = Path(r.stored_path)
+        assert new_stored.suffix == ".mp3", new_stored
+        assert new_stored.exists() and new_stored.stat().st_size >= 256
+        # Original bleibt archiviert (Change-018-Konvention)
+        orig = original_path(new_stored, ".aiff")
+        assert orig.exists(), f"Original fehlt: {orig}"
 
 
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
@@ -618,3 +629,88 @@ def test_health_scan_ffmpeg_unlesbar_bleibt_failed(client, tmp_path):
         r = s.get(Recording, rec["id"])
         assert r.status == "failed"
         assert "nicht lesbar" in (r.error or "")
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
+def test_health_scan_konvertiert_nicht_natives_ogg(client, tmp_path):
+    """Ogg (bekannte Magic, aber Safari/iOS können kein Ogg) → Konvertierung
+    in verarbeitbare MP3, Original bleibt archiviert."""
+    rec = _upload(client)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+    import subprocess as _sp
+
+    ogg = tmp_path / "sine.ogg"
+    _sp.run(
+        ["ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         "-c:a", "libvorbis", str(ogg)],
+        check=True, capture_output=True)
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        stored = Path(r.stored_path).with_suffix(".ogg")
+        stored.write_bytes(ogg.read_bytes())
+        r.stored_path = str(stored)
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    from app.audio_utils import original_path
+    from app.config import settings
+    from app.recording_health import run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        s.expire_all()
+        r = s.get(Recording, rec["id"])
+        assert r.status != "failed", r.error
+        new_stored = Path(r.stored_path)
+        assert new_stored.suffix == ".mp3", new_stored
+        assert new_stored.exists()
+        assert original_path(new_stored, ".ogg").exists(), "Original fehlt"
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
+def test_health_scan_stellt_preview_sidecar_sicher(client, tmp_path):
+    """User-Vorgabe 20.08.: Preview-Sidecar (`<stem>_preview.mp3`) wird
+    sichergestellt und bei kaputter/fehlender Datei regeneriert."""
+    rec = _upload(client)  # fake-bytes → Upload-Preview scheitert (keine Preview)
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session
+    import datetime as dt
+    import subprocess as _sp
+
+    wav = tmp_path / "sine.wav"
+    _sp.run(
+        ["ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         str(wav)],
+        check=True, capture_output=True)
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        stored = Path(r.stored_path)
+        stored.write_bytes(wav.read_bytes())
+        preview = stored.with_name(stored.stem + "_preview.mp3")
+        preview.write_bytes(b"XXXXXXXXXXXXXXXX")  # kaputte Preview
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    from app.config import settings
+    from app.recording_health import is_valid_audio_file, run_health_scan
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert r.status != "failed", r.error
+        preview = Path(r.stored_path).with_name(
+            Path(r.stored_path).stem + "_preview.mp3")
+        assert preview.exists(), "Preview fehlt"
+        ok, _reason = is_valid_audio_file(preview)
+        assert ok, f"Preview ungültig: {_reason}"
+        assert preview.stat().st_size > 256

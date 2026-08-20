@@ -33,10 +33,19 @@ geprüft).
 - Erkennung als eigene Funktion `_looks_like_audio(head)`: Präfix-Magic
   (RIFF/ID3/MP3-Frame/AAC-ADTS/OggS/fLaC/EBML) **oder** ISO-BMFF-Box-Typ
   an Byte 4–7.
-- **ffmpeg als Entscheidungsinstanz:** `_is_healthy()` prüft Magic; bei
-  „unbekanntes Format" → `reconvert_to_sidecar()` (ffmpeg → `.conv.mp3`);
-  Erfolg (oder Sidecar existiert bereits) → heil, sonst `failed` mit
-  ffmpeg-Fehlertext („nicht lesbar (…)").
+- **ffmpeg als Entscheidungsinstanz:** `_ensure_healthy()` prüft Magic +
+  direkte Verarbeitbarkeit. **Nur wenn das Original NICHT direkt von
+  PolySchnack verarbeitbar ist, wird konvertiert** (User-Vorgabe 20.08.):
+  - nativ verarbeitbar (WAV/MP3/FLAC/MP4/M4A — Browser + ASR + Peaks) →
+    keine Konvertierung;
+  - nicht-nativ (Ogg/WebM/AAC-ADTS: Safari/iOS können kein Ogg/WebM, kein
+    Browser kann ADTS) oder unbekannte Magic → ffmpeg-Konvertierung zu MP3;
+  - Erfolg → `stored_path` wird auf die MP3 umgebogen, Original als
+    `<stored>.orig<ext>` archiviert (Change-018-Konvention, Export-Glob
+    findet es weiter); Fehlschlag → `failed` mit ffmpeg-Fehlertext.
+- **Preview-Sidecar sicherstellen (User-Vorgabe 20.08.):** der Scan
+  prüft die Browser-Preview (`<stem>_preview.mp3`, peaks-Konvention) und
+  regeneriert sie bei Fehlen/Unbrauchbarkeit via `compute_preview_path`.
 - **moov-Atom am Dateiende ist bereits gelöst** (Change 011, `_faststart_remux`
   beim Upload — `-c copy -movflags +faststart`). Der Health-Scan fasst den
   Upload-Pfad nicht an; das conv-Sidecar ist ein ergänzender Heilungs-Pfad
@@ -46,9 +55,10 @@ geprüft).
 - Heilen nur bei `error` mit Präfix „Audio-Datei fehlt oder ist beschädigt"
   UND jetzt gültiger Datei — kein Zurücksetzen anderer Fehler.
 - Tests: M4A/WebM/AAC/WAV/MP3/OGG gültig; Box-Typ „XXXX" weiterhin
-  „unbekanntes Format"; AIFF (unbekannte Magic, ffmpeg-lesbar) → Sidecar
-  statt failed; Müll (ffmpeg unlesbar) → failed mit „nicht lesbar";
-  Fehldiagnose wird geheilt; echter Schaden bleibt.
+  „unbekanntes Format"; AIFF (unbekannte Magic, ffmpeg-lesbar) → MP3 +
+  Original archiviert; OGG (nicht-nativ) → MP3; Preview-Sidecar
+  sichergestellt/regeneriert; Müll (ffmpeg unlesbar) → failed mit
+  „nicht lesbar"; Fehldiagnose wird geheilt; echter Schaden bleibt.
 
 ## Nicht-Ziele
 

@@ -11,6 +11,21 @@ Fehlertext (KEIN stilles Löschen — der User soll sehen, was passiert ist,
 und selbst löschen können). Laufende Uploads werden über ein Alters-Fenster
 geschützt (frisch geschriebene Datei vor dem DB-Commit), analog zum
 Orphan-Sweep.
+
+Change 034 (2026-08-20, User-Vorgaben):
+- Originaldateien können in Formaten vorliegen, mit denen der Rest von
+  PolySchnack nichts anfangen kann (Browser-Player, ASR, Peaks, Export).
+- Unbekannte Magic ≠ kaputt: Der Scan konvertiert die Datei per ffmpeg in
+  eine verarbeitbare MP3 (128k mono — gleiche Konvention wie der
+  Upload-Transcode) und biegt `stored_path` auf die Konvertierung um.
+  Das Original bleibt erhalten (Archivierung) und liegt nach der
+  Change-018-Konvention als `<stored>.orig<ext>` neben der Konvertierung —
+  Exporte finden es per Glob weiterhin.
+- Erst wenn ffmpeg die Datei nicht lesen kann, ist sie wirklich kaputt →
+  `failed` mit ffmpeg-Fehlertext.
+- Fälschlich als `failed` markierte Recordings (Datei inzwischen gültig)
+  werden beim Scan zurückgesetzt (`done` bei Transkription, sonst
+  `uploaded`).
 """
 from __future__ import annotations
 
@@ -22,6 +37,7 @@ from typing import List, Tuple
 
 from sqlmodel import Session, select
 
+from .audio_utils import original_path
 from .models import Recording
 
 log = logging.getLogger(__name__)
@@ -67,10 +83,62 @@ def _looks_like_audio(head: bytes) -> bool:
     return len(head) >= 8 and head[4:8] in _ISO_BMFF_TYPES
 
 
-#: Konvertiertes Sidecar für Dateien mit unbekannter Magic, die ffmpeg aber
-#: lesen kann (Change 034, User-Vorgabe): unbekannter Typ ≠ kaputt — erst
-#: die ffmpeg-Konvertierung entscheidet. Konvention analog original_path()
-#: (audio_utils): `<stored>.conv.mp3` im selben Ordner.
+#: Magic-Präfixe, die der REST von PolySchnack direkt verarbeitet (Browser-
+#: Player + ASR/Peaks): WAV, MP3, FLAC, MP4/M4A (ISO-BMFF). Ogg/WebM/AAC-
+#: ADTS sind zwar Audio (erkennbar), aber NICHT überall abspielbar
+#: (Safari/iOS: kein Ogg/WebM; ADTS: kein Browser) — die werden wie beim
+#: Upload konvertiert (User-Vorgabe 20.08.: Konvertierung nur sparen, wenn
+#: das Original direkt verarbeitbar ist).
+_NATIVE_AUDIO_MAGICS = (
+    b"RIFF",   # WAV
+    b"ID3",    # MP3 mit ID3-Tag
+    b"\xff\xfb", b"\xff\xf3", b"\xff\xf2",  # MP3-Frame ohne ID3
+    b"fLaC",   # FLAC
+)
+
+
+def _is_directly_processable(stored: Path) -> bool:
+    """True, wenn die Datei ohne Konvertierung von PolySchnack nutzbar ist."""
+    try:
+        with open(stored, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return False
+    if not head:
+        return False
+    if head.startswith(_NATIVE_AUDIO_MAGICS):
+        return True
+    return len(head) >= 8 and head[4:8] in _ISO_BMFF_TYPES
+
+
+def is_valid_audio_file(path: Path) -> Tuple[bool, str]:
+    """Prüft, ob *path* eine plausible Audio-Datei ist.
+
+    Returns (ok, reason). Fehlend → (False, "fehlt"). Existierend aber
+    zu klein / falsche Magic → (False, Grund). Ansonsten (True, "").
+    """
+    if not path.exists():
+        return False, "Datei fehlt"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False, "nicht lesbar"
+    if size < MIN_AUDIO_SIZE:
+        return False, f"zu klein ({size} Bytes)"
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return False, "nicht lesbar"
+    if not head:
+        return False, "leer"
+    if not _looks_like_audio(head):
+        return False, f"unbekanntes Format (Magic: {head[:4]!r})"
+    return True, ""
+
+
+#: Zwischenname der ffmpeg-Konvertierung; wird nach Erfolg auf den
+#: regulären `<uuid>.mp3`-Namen umgezogen (stored_path-Umbiegung).
 CONV_SUFFIX = ".conv.mp3"
 
 
@@ -117,55 +185,86 @@ def reconvert_to_sidecar(stored: Path) -> Tuple[bool, str]:
     return True, ""
 
 
-def _is_healthy(stored: Path) -> Tuple[bool, str]:
-    """Gesundheit einer Datei (Scan- und Heil-Pfad).
+def _repoint_to_converted(rec: Recording, stored: Path, conv: Path) -> Tuple[bool, str]:
+    """stored_path auf die Konvertierung umbiegen, Original archivieren.
 
-    1. Magic-Check bestanden → heil.
-    2. Unbekannte Magic → Konvertierungsversuch (ffmpeg → conv-Sidecar):
-       erfolgreich (oder Sidecar existiert bereits) → heil, NICHT kaputt.
-       3. ffmpeg scheitert → wirklich kaputt (mit ffmpeg-Fehlertext).
+    Change-018-Konvention: `stored_path` zeigt auf die verarbeitbare Datei
+    (`<uuid>.mp3`), das Original liegt als `<stored>.orig<ext>` daneben —
+    damit funktionieren Player, ASR, Peaks und Exporte mit dem Rest von
+    PolySchnack, und das Original bleibt für die Archivierung erhalten.
+    """
+    orig_suffix = stored.suffix or ".bin"
+    new_stored = stored.with_suffix(".mp3")
+    if new_stored == stored or new_stored.exists():
+        new_stored = stored.with_name(stored.name + ".mp3")
+    orig_target = original_path(new_stored, orig_suffix)
+    try:
+        if conv.exists():
+            conv.replace(new_stored)
+        else:
+            return False, "Konvertierung fehlt"
+        if stored.exists() and stored != new_stored:
+            if orig_target.exists():
+                # verlustfrei: Duplikat-Namen statt Überschreiben
+                orig_target = orig_target.with_name(orig_target.name + ".dup")
+            stored.rename(orig_target)
+        rec.stored_path = str(new_stored)
+        log.info("recording health: %s → %s (Original: %s)",
+                 stored.name, new_stored.name, orig_target.name)
+        return True, ""
+    except OSError as exc:
+        log.warning("recording health: Umbennung fehlgeschlagen (%s): %s",
+                    stored.name, exc)
+        return False, f"Konvertierung ok, aber Umbennung fehlgeschlagen ({exc})"
+
+
+def _ensure_healthy(rec: Recording) -> Tuple[bool, str]:
+    """Stellt sicher, dass der Rest von PolySchnack die Datei verarbeiten kann.
+
+    1. Magic-Check bestanden UND direkt verarbeitbar (WAV/MP3/FLAC/MP4/M4A)
+       → gesund, keine Konvertierung (User-Vorgabe 20.08.).
+    2. Bekannt, aber nicht nativ verarbeitbar (Ogg/WebM/AAC-ADTS) oder
+       unbekannte Magic → ffmpeg-Konvertierung: Erfolg → stored_path wird
+       auf die MP3 umgebogen, Original als `.orig<ext>` archiviert
+       (Change-018-Konvention). Fehlschlag → wirklich kaputt.
     Andere Gründe (fehlt / zu klein / leer / nicht lesbar) → kaputt.
     """
+    stored = Path(rec.stored_path)
     ok, reason = is_valid_audio_file(stored)
-    if ok:
+    if not ok:
+        if not reason.startswith("unbekanntes Format"):
+            return False, reason
+    elif _is_directly_processable(stored):
         return True, ""
-    if reason.startswith("unbekanntes Format"):
-        conv = _conv_sidecar(stored)
-        if conv.exists() and is_valid_audio_file(conv)[0]:
-            return True, ""
+    # Konvertierung nötig (unbekannte Magic oder nicht-natives Format)
+    conv = _conv_sidecar(stored)
+    if not (conv.exists() and is_valid_audio_file(conv)[0]):
         ok2, note = reconvert_to_sidecar(stored)
-        if ok2:
-            log.info("recording health: %s unbekannte Magic, aber ffmpeg "
-                     "lesbar → Sidecar %s erzeugt", stored.name, conv.name)
-            return True, ""
-        return False, f"nicht lesbar ({note})"
-    return False, reason
+        if not ok2:
+            return False, f"nicht lesbar ({note})"
+    return _repoint_to_converted(rec, stored, conv)
 
 
-def is_valid_audio_file(path: Path) -> Tuple[bool, str]:
-    """Prüft, ob *path* eine plausible Audio-Datei ist.
+def _ensure_preview(rec: Recording) -> None:
+    """Sidecar-Preview für den Browser-Player sicherstellen (User-Vorgabe
+    20.08.): Preview-Datei (`<stem>_preview.mp3`, peaks-Konvention) muss
+    existieren und gültig sein — sonst wird sie (neu) erzeugt."""
+    from .peaks import compute_preview_path
 
-    Returns (ok, reason). Fehlend → (False, "fehlt"). Existierend aber
-    zu klein / falsche Magic → (False, Grund). Ansonsten (True, "").
-    """
-    if not path.exists():
-        return False, "Datei fehlt"
-    try:
-        size = path.stat().st_size
-    except OSError:
-        return False, "nicht lesbar"
-    if size < MIN_AUDIO_SIZE:
-        return False, f"zu klein ({size} Bytes)"
-    try:
-        with open(path, "rb") as fh:
-            head = fh.read(8)
-    except OSError:
-        return False, "nicht lesbar"
-    if not head:
-        return False, "leer"
-    if not _looks_like_audio(head):
-        return False, f"unbekanntes Format (Magic: {head[:4]!r})"
-    return True, ""
+    stored = Path(rec.stored_path)
+    preview = stored.with_name(stored.stem + "_preview.mp3")
+    if preview.exists() and preview.stat().st_size > 0 \
+            and is_valid_audio_file(preview)[0]:
+        return
+    if preview.exists():
+        try:
+            preview.unlink()
+        except OSError:
+            pass
+    compute_preview_path(stored)
+    if preview.exists() and preview.stat().st_size > 0:
+        log.info("recording health: Preview %s sichergestellt/regeneriert",
+                 preview.name)
 
 
 def scan_broken_recordings(
@@ -175,11 +274,16 @@ def scan_broken_recordings(
 ) -> List[Tuple[Recording, str]]:
     """Findet Recordings, deren Audio-Datei fehlt oder ungültig ist.
 
+    Nebenbei (Change 034): unbekannte Formate werden konvertiert und
+    `stored_path` umgebogen; fälschlich als failed markierte Recordings
+    mit inzwischen gültiger Datei werden zurückgesetzt.
+
     Returns list of (recording, reason). Alte Einträge nur — jüngere als
     *min_age_s* werden übersprungen (laufender Upload).
     """
     now = time.time()
     broken: List[Tuple[Recording, str]] = []
+    changed = False
     for rec in session.exec(select(Recording)).all():
         try:
             created = rec.created_at.timestamp()
@@ -191,9 +295,23 @@ def scan_broken_recordings(
             # Laufende Verarbeitung: Datei kann gerade neu geschrieben
             # werden (Re-Transcribe-Crop) — nicht anfassen.
             continue
-        ok, reason = _is_healthy(Path(rec.stored_path))
-        if not ok:
+        ok, reason = _ensure_healthy(rec)
+        changed = True  # repoint/Heilung können stattgefunden haben
+        if ok:
+            _ensure_preview(rec)
+            if (rec.status == "failed"
+                    and (rec.error or "").startswith("Audio-Datei fehlt "
+                                                     "oder ist beschädigt")):
+                rec.status = "done" if (rec.text or rec.segments) else "uploaded"
+                rec.error = None
+                changed = True
+                log.info("recording health: Fehlalarm-Markierung %s geheilt "
+                         "→ %s", (rec.uid or "?")[:8], rec.status)
+        else:
             broken.append((rec, reason))
+            changed = True
+    if changed:
+        session.commit()
     return broken
 
 
@@ -216,40 +334,6 @@ def mark_broken(session: Session, broken: List[Tuple[Recording, str]]) -> int:
     return updated
 
 
-def heal_false_failures(session: Session, audio_dir: Path) -> int:
-    """Heilt Fehlalarme: failed wegen Health-Scan, Datei inzwischen gültig.
-
-    Change 034: Der Magic-Check markierte MP4/M4A (und WebM) fälschlich als
-    "unbekanntes Format" → viele gesunde Recordings wurden als failed
-    markiert. Sobald die Datei laut aktuellem Check gültig ist, war die
-    Markierung falsch → Status zurück auf "done" (mit Transkription) bzw.
-    "uploaded" (ohne), error=None. Echte Schäden (Datei fehlt wirklich,
-    zu klein, keine Audio-Magic) bleiben failed.
-
-    Returns number of healed rows.
-    """
-    healed = 0
-    prefix = "Audio-Datei fehlt oder ist beschädigt"
-    for rec in session.exec(
-        select(Recording).where(Recording.status == "failed")
-    ).all():
-        if not (rec.error or "").startswith(prefix):
-            continue
-        try:
-            ok, _reason = _is_healthy(Path(rec.stored_path))
-        except Exception:
-            ok = False
-        if not ok:
-            continue
-        rec.status = "done" if (rec.text or rec.segments) else "uploaded"
-        rec.error = None
-        healed += 1
-    if healed:
-        session.commit()
-        log.info("recording health: %d Fehlalarm-Markierung(en) geheilt", healed)
-    return healed
-
-
 def run_health_scan(session: Session, audio_dir: Path) -> int:
     """Kurzschluss: Scan + Markieren. Returns number of updated rows."""
     broken = scan_broken_recordings(session, audio_dir)
@@ -258,6 +342,4 @@ def run_health_scan(session: Session, audio_dir: Path) -> int:
         names = ", ".join((b[0].uid or "?")[:8] for b in broken[:5])
         log.info("recording health: %d kaputt (%s%s)", len(broken), names,
                  "…" if len(broken) > 5 else "")
-    marked = mark_broken(session, broken)
-    heal_false_failures(session, audio_dir)
-    return marked
+    return mark_broken(session, broken)
