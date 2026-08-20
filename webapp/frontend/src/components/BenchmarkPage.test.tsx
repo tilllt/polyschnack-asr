@@ -195,7 +195,7 @@ describe("TestSetExplanation", () => {
 });
 
 describe("CategoryQualityChart (REQ-BEN-047)", () => {
-  test("Balken sortiert nach WER aufsteigend, beste Modell oben, mit %-Wert und n", () => {
+  test("Balken sortiert nach WER aufsteigend, beste Modell oben, mit Qualitäts-%-Wert und n", () => {
     render(
       <LocaleProvider>
         <CategoryQualityChart
@@ -213,17 +213,18 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
     expect(bars).toHaveLength(2);
     const text = bars.map((b) => b.textContent ?? "");
     expect(text[0]).toContain("crispr-pk-cpp"); // bestes zuerst
-    expect(text[0]).toContain("10.0%");
-    expect(text[1]).toContain("30.0%");
+    // Change 051: Anzeige = ASR-Qualität (1-WER)*100, nicht WER-Fehlerrate
+    expect(text[0]).toContain("90.0%"); // 1-0.1
+    expect(text[1]).toContain("70.0%"); // 1-0.3
     expect(text[0]).toContain("(3)");
     // Change 040: Balken-Grafik — Label macht Kategorie-Zuordnung klar
     expect(screen.getByText(/Kategorie · Akzente/)).toBeTruthy();
-    // Change 044: Balken-Füllung repräsentiert die Werte — bestes Modell
-    // (WER 0,1) = volle Breite, schlechteres (WER 0,3) proportional kürzer.
+    // Change 051: Balken-Füllung = ASR-Qualität (1-WER)*100, absolut —
+    // bestes Modell (WER 0,1) 90 %, schlechteres (WER 0,3) 70 %.
     const fillBest = bars[0].querySelector("div[style]");
     const fillWorse = bars[1].querySelector("div[style]");
-    expect(fillBest?.getAttribute("style")).toContain("width: 100%");
-    expect(fillWorse?.getAttribute("style")).toContain("width: 33%"); // 0.1/0.3
+    expect(fillBest?.getAttribute("style")).toContain("width: 90%");
+    expect(fillWorse?.getAttribute("style")).toContain("width: 70%"); // 1-0.3
   });
 
   test("keine Balken wenn alle Modelle ausgeblendet (Chart entfällt)", () => {
@@ -244,8 +245,8 @@ describe("CategoryQualityChart (REQ-BEN-047)", () => {
   });
 });
 
-describe("Sample-Qualitäts-Balken (Change 039/040/044)", () => {
-  test("Sample-Balken: bestes Modell volle Breite, schlechteres proportional kürzer", () => {
+describe("Sample-Qualitäts-Balken (Change 039/040/044/051)", () => {
+  test("Sample-Balken: Breite = ASR-Qualität (1-WER)*100 absolut", () => {
     render(
       <LocaleProvider>
         <BenchmarkCategory
@@ -267,8 +268,57 @@ describe("Sample-Qualitäts-Balken (Change 039/040/044)", () => {
     const worse = screen.getByTestId("sample-wer-akzent_001-ps-pk-onnx");
     const fillBest = best.querySelector("div[style]");
     const fillWorse = worse.querySelector("div[style]");
-    expect(fillBest?.getAttribute("style")).toContain("width: 100%");
-    expect(fillWorse?.getAttribute("style")).toContain("width: 50%"); // 0.1/0.2
+    expect(fillBest?.getAttribute("style")).toContain("width: 90%"); // 1-0.1
+    expect(fillWorse?.getAttribute("style")).toContain("width: 80%"); // 1-0.2
+  });
+
+  test("Label heißt 'ASR-Qualität je Modell' (nicht 'Sample-Qualität')", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkCategory
+          cat={CAT}
+          samples={SAMPLES}
+          open
+          onToggle={() => {}}
+          showText
+          admin={false}
+          previewUrl={(id) => `/api/benchmark/preview/${id}`}
+          audioUrl={(id) => `/api/benchmark/audio/${id}`}
+          qualityRows={[]}
+          perSample={{ "akzent_001": { "crispr-pk-cpp": 0.1 } }}
+          hiddenModels={new Set()}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("ASR-Qualität je Modell")).toBeTruthy();
+    expect(screen.queryByText("Sample-Qualität")).toBeNull();
+  });
+
+  test("WER 0.0 (perfekte Erkennung) zeigt 100.0% Qualität — Regression Screenshot-Befund", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkCategory
+          cat={CAT}
+          samples={SAMPLES}
+          open
+          onToggle={() => {}}
+          showText
+          admin={false}
+          previewUrl={(id) => `/api/benchmark/preview/${id}`}
+          audioUrl={(id) => `/api/benchmark/audio/${id}`}
+          qualityRows={[]}
+          perSample={{
+            "akzent_001": { "crispr-pk-cpp": 0.0, "ps-pk-onnx": 0.0, "whisper-large-v3": 0.0 },
+          }}
+          hiddenModels={new Set()}
+        />
+      </LocaleProvider>,
+    );
+    // Alle Modelle erkennen fehlerfrei → Qualität 100 %, nie 0.0 %
+    for (const b of ["crispr-pk-cpp", "ps-pk-onnx", "whisper-large-v3"]) {
+      const row = screen.getByTestId(`sample-wer-akzent_001-${b}`);
+      expect(row.textContent).toContain("100.0%");
+    }
   });
 });
 

@@ -96,14 +96,17 @@ function SampleRow({
   const [draft, setDraft] = useState(sample.text);
 
   // Change 039/040: Qualität pro Modell für dieses Sample als Mini-Balken
-  // (grafisch), sortiert nach WER aufsteigend. ▤-Icon + grüne Akzente =
-  // klar als Sample-Grafik erkennbar (Kategorie-Grafiken: ▦ + violett).
+  // (grafisch), sortiert nach WER aufsteigend (bestes Modell zuerst).
+  // ▤-Icon + grüne Akzente = klar als Sample-Grafik erkennbar
+  // (Kategorie-Grafiken: ▦ + violett).
+  // Change 051: Balkenbreite UND Zahlenwert = ASR-Qualität (1-WER)*100 —
+  // 100 % = fehlerfrei. Vorher zeigte der Wert die WER-Fehlerrate (0.0 %
+  // bei perfekter Erkennung → sah wie „keine Qualität" aus).
   const sampleRows = perSample
     ? Object.entries(perSample)
         .filter(([b]) => !hiddenModels.has(b))
         .sort((a, b) => a[1] - b[1])
     : [];
-  const bestW = sampleRows.length ? sampleRows[0][1] : 0;
 
   return (
     <li className="px-4 py-3">
@@ -138,17 +141,20 @@ function SampleRow({
         <div className="mt-1.5" data-testid={`sample-wer-${sample.id}`}>
           <div className="flex items-center gap-1 text-[9px] text-emerald-300 uppercase tracking-wide mb-0.5">
             <span aria-hidden>▤</span>
-            <span>Sample-Qualität</span>
+            <span>ASR-Qualität je Modell</span>
           </div>
           <div className="space-y-1">
             {sampleRows.map(([backend, wer]) => {
-              const pct = Math.min(100, Math.max(4, Math.round(((bestW || 0.0001) / (wer || 0.0001)) * 100)));
+              // Change 051: Qualität = 1-WER (100 % = fehlerfrei), absolut
+              // skaliert — verständlich ohne Vergleich zum besten Modell.
+              const q = Math.max(0, Math.min(1, 1 - wer));
+              const pct = Math.max(4, Math.round(q * 100));
               return (
                 <div
                   key={backend}
                   data-testid={`sample-wer-${sample.id}-${backend}`}
                   className="flex items-center gap-1.5"
-                  title={`${backend}: WER ${(wer * 100).toFixed(1)} %`}
+                  title={`${backend}: ASR-Qualität ${(q * 100).toFixed(1)} % · WER ${(wer * 100).toFixed(1)} %`}
                 >
                   <span className="w-24 font-mono text-[9px] truncate text-right">{backend}</span>
                   <div className="flex-1 h-[5px] rounded-sm bg-bg/40 overflow-hidden">
@@ -157,7 +163,7 @@ function SampleRow({
                       style={{ width: `${pct}%`, backgroundColor: werColor(wer) }}
                     />
                   </div>
-                  <span className="w-8 text-right text-[9px] tabular-nums">{(wer * 100).toFixed(1)}%</span>
+                  <span className="w-8 text-right text-[9px] tabular-nums">{(q * 100).toFixed(1)}%</span>
                 </div>
               );
             })}
@@ -336,23 +342,25 @@ export function CategoryQualityChart({
 }) {
   const visible = rows.filter((r) => !hiddenModels.has(r.backend));
   if (visible.length === 0) return null;
+  // Change 051: Sortierung bleibt nach WER aufsteigend (bestes zuerst);
+  // Balkenbreite + Zahlenwert = ASR-Qualität (1-WER)*100, absolut.
   const sorted = [...visible].sort((a, b) => a.wer - b.wer);
-  const best = sorted[0].wer || 0.0001; // bestes Modell = volle Balkenbreite
   return (
     <div className="px-3 py-2 border-b border-border/40" data-testid={`cat-quality-${categoryId}`}>
       <div className="flex items-center gap-1 text-[9px] text-violet-300 uppercase tracking-wide mb-1">
         <span aria-hidden>▦</span>
-        <span>Kategorie · {categoryName}</span>
+        <span>Kategorie · {categoryName} — ASR-Qualität</span>
       </div>
       <div className="space-y-1">
         {sorted.map((r) => {
-          const pct = Math.min(100, Math.max(4, Math.round((best / (r.wer || 0.0001)) * 100)));
+          const q = Math.max(0, Math.min(1, 1 - r.wer));
+          const pct = Math.max(4, Math.round(q * 100));
           return (
             <div
               key={r.backend}
               data-testid={`cat-bar-${categoryId}-${r.backend}`}
               className="flex items-center gap-1.5"
-              title={`${r.backend}: WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
+              title={`${r.backend}: ASR-Qualität ${(q * 100).toFixed(1)} % · WER ${(r.wer * 100).toFixed(1)} % (${r.n} Samples)`}
             >
               <span className="w-24 font-mono text-[9px] truncate text-right">{r.backend}</span>
               <div className="flex-1 h-[5px] rounded-sm bg-bg/40 overflow-hidden">
@@ -361,7 +369,7 @@ export function CategoryQualityChart({
                   style={{ width: `${pct}%`, backgroundColor: werColor(r.wer) }}
                 />
               </div>
-              <span className="w-8 text-right text-[9px] tabular-nums">{(r.wer * 100).toFixed(1)}%</span>
+              <span className="w-8 text-right text-[9px] tabular-nums">{(q * 100).toFixed(1)}%</span>
               <span className="w-5 text-right text-[9px] text-dim">({r.n})</span>
             </div>
           );
