@@ -407,6 +407,19 @@ case "$CMD" in
             export BENCHMARK_API_KEY="${BENCHMARK_API_KEYS%%,*}"
             echo "-> Benchmark-Key aus BENCHMARK_API_KEYS (.env) uebernommen."
         fi
+        # compose.benchmark.yml fehlt -> Box-Stand veraltet. Klare Meldung
+        # statt kryptischem docker-open-Fehler (Box-Befund 2026-08-20).
+        if [ ! -f compose.benchmark.yml ]; then
+            echo ""
+            echo "FEHLER: compose.benchmark.yml fehlt — dieser Stack-Stand ist veraltet." >&2
+            echo "  Der Benchmark-Einmal-Container (Change 036) kam mit dieser Compose-Datei." >&2
+            echo "" >&2
+            echo "  Aktualisieren:  ./polyschnack-manage.sh update" >&2
+            echo "  (macht git pull; ohne Git-Repo hier die Datei manuell holen:)" >&2
+            echo "  curl -fsSL -o compose.benchmark.yml https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/compose.benchmark.yml" >&2
+            echo "" >&2
+            exit 1
+        fi
         docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
         ;;
     logs)

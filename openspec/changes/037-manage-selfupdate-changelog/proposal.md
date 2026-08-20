@@ -26,7 +26,9 @@
 
 ## Tasks
 
-- [ ] `SELFUPDATE_SHA` im Kopf + Doku
-- [ ] `selfupdate_check()` (stiller Check, Disable-Env) + Aufruf in der Hauptlogik
-- [ ] selfupdate: OLD_SHA lesen + Change-History ausgeben
-- [ ] Committen (Feature + SHA-Bump), CI prüfen
+- [x] `SELFUPDATE_SHA` im Kopf + Doku
+- [x] `selfupdate_check()` (stiller Check, Disable-Env) + Aufruf in der Hauptlogik
+- [x] selfupdate: OLD_SHA lesen + Change-History ausgeben
+- [x] Committen (Feature + SHA-Bump), CI prüfen
+- [x] benchmark: Existenz-Check für compose.benchmark.yml mit Anleitung (Box-Fehler
+  „open ...: no such file or directory" → klare Meldung + Fix-Weg)
