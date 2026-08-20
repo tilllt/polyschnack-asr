@@ -200,8 +200,11 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
 
   // Auto-scroll zum Such-Treffer (Review-Fix): der Klick auf ein
   // Treffer-Segment in der Suchleiste springt hierher.
+  // User 2026-08-20: Im Edit-Modus (Textbox offen) sind ALLE Auto-Scrolls
+  // ausgeschaltet — sonst scrollt die Wiedergabe/Suche die Textbox weg.
   useEffect(() => {
     if (!searchJump) return;
+    if (editingIdx !== null) return;
     // Nur den Transkriptions-Container scrollen (nicht scrollIntoView —
     // das zöge die SEITE mit; siehe Auto-Scroll-Kommentar 2026-08-16).
     const container = containerRef.current;
@@ -212,7 +215,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     const relTop = tRect.top - cRect.top + container.scrollTop;
     const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
     container.scrollTo({ top: targetTop, behavior: "smooth" });
-  }, [searchJump]);
+  }, [searchJump, editingIdx]);
 
   // Auto-Scroll: das AKTIVE WORT ungefähr in die Mitte des Viewports der
   // Transkription zentrieren (User 2026-08-16: „Scroll soll immer so sein,
@@ -226,6 +229,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     ? activeWordIndex(shown[activeIdx]?.words ?? [], currentTime, isPlaying ? undefined : 0)
     : -1;
   useEffect(() => {
+    // User 2026-08-20: Während der Edit-Modus offen ist (Textbox), kein
+    // Auto-Scroll — die Wiedergabe darf die Textbox nicht wegbewegen.
+    if (editingIdx !== null) return;
     const container = containerRef.current;
     if (!container || activeIdx < 0) return;
     const activeWord = container.querySelector<HTMLElement>("[data-active-word=\"true\"]");
@@ -236,7 +242,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     const relTop = tRect.top - cRect.top + container.scrollTop;
     const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
     container.scrollTo({ top: targetTop, behavior: "smooth" });
-  }, [activeIdx, activeW]);
+  }, [activeIdx, activeW, editingIdx]);
 
   // Auto-focus ohne Anker-Scroll: Das native focus()-Scrollen des Browsers
   // springt in der Segmentliste (Container max-h + overflow) wie zu einem
