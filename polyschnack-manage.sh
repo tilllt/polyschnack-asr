@@ -360,6 +360,16 @@ benchmark_key_status() {
     local env_key="${1:-}" container_key status
     echo "→ Benchmark-Key-Sichtbarkeit (maskiert):"
     echo "    .env:        $(_mask_key "$env_key")"
+    # compose.yml-Verdrahtung pruefen (Box-Befund 2026-08-20: update holte keine
+    # neue compose.yml — Container bekam die Env nie, obwohl .env stimmt)
+    if [ -f compose.yml ] && ! grep -q 'BENCHMARK_API_KEYS' compose.yml; then
+        echo "    Ursache:     ⚠ compose.yml verdrahtet BENCHMARK_API_KEYS nicht (Stand alt)"
+        echo "                 Aktualisieren: ./polyschnack-manage.sh update (git pull)"
+        echo "                 ohne Git-Repo hier manuell holen:"
+        echo "                 curl -fsSL -o compose.yml https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/compose.yml"
+        echo "                 Danach: ./polyschnack-manage.sh start (Container neu erstellen)"
+        return 0
+    fi
     if "${COMPOSE[@]}" ps --status running 2>/dev/null | grep -q 'ps-webapp'; then
         container_key="$(_container_benchmark_key)"
         echo "    Container:   $(_mask_key "$container_key")"

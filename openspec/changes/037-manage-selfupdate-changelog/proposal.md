@@ -39,3 +39,6 @@
   (Box-Befund: Key stand in .env, Skript las nur die Umgebung und erzeugte neue Keys)
 - [x] key-Kommando + benchmark-Integration: Key-Sichtbarkeit im Webapp-Container
   auslesen und maskiert anzeigen (.env vs. Container, Status identisch/abweichend/leer)
+- [x] key: Verdrahtungs-Check — compose.yml muss BENCHMARK_API_KEYS enthalten,
+  sonst Hinweis auf veralteten Box-Stand + manuellen curl (Box-Befund: Container
+  leer trotz korrekter .env, weil compose.yml auf der Box nie aktualisiert wurde)
