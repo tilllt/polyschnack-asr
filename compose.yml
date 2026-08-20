@@ -140,17 +140,10 @@ services:
       POLYSCHNACK_DEFAULT_BACKEND: "${POLYSCHNACK_DEFAULT_BACKEND:-ps-pk-onnx}"
       VAD_TRIM_SILENCE: "false"   # Set "true" to strip leading/trailing silence before ASR
       PUBLIC_RETENTION_MINUTES: "60"  # Auto-delete public recordings after N min (0=off)
-      # Optional OIDC — uncomment to enable per-user workspaces.
-      # WICHTIG: OIDC ist aktiv, sobald OIDC_CLIENT_ID + OIDC_ISSUER gesetzt
-      # sind. Beim IdP Redirect-URI eintragen: <BASE_URL>/auth/callback.
-      # SESSION_SECRET unbedingt setzen (signiert Session-Cookies).
-      # Admins (Admin-Bereich) brauchen OIDC-Login + POLYSCHNACK_ADMINS/-GROUPS.
-      # OIDC_CLIENT_ID: ""
-      # OIDC_CLIENT_SECRET: ""
-      # OIDC_ISSUER: "https://auth.example.org"   # or your Keycloak/Authentik URL
-      # OIDC_SCOPE: "openid profile email"    # email nötig für Admin-Match per E-Mail
-      # SESSION_SECRET: "generate-a-random-secret-here"
-      # BASE_URL: "https://polyschnack.example.org"
+      # OIDC-Login / Admin-Bereich: NICHT hier konfigurieren — eigenes Overlay:
+      #   docker compose -f compose.yml -f compose.oidc.yml up -d
+      # (compose.oidc.yml interpoliert OIDC_*, SESSION_SECRET, BASE_URL,
+      # POLYSCHNACK_ADMINS/-GROUPS aus der .env — siehe Kopf-Kommentar oben.)
     ports:
       # Host-Port konfigurierbar (WEBAPP_PORT in .env) — Default 8088.
       # Bei Konflikt mit anderen Diensten (z. B. netbird-llamacpp): 
