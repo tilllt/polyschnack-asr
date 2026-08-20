@@ -4,6 +4,7 @@ import { LocaleProvider } from "../useLocale";
 import { RecordingCard, resolveAudioUrl } from "./RecordingCard";
 import type { Recording } from "../api";
 import { updateRecordingTitle } from "../api";
+import { useRealign } from "../hooks";
 
 /* Change 014 Frontend: Titel-Inline-Edit, zweite Zeile (original_name),
  * Defekt-Badge. Karte wird kollabiert gerendert (defaultCollapsed) — der
@@ -45,6 +46,7 @@ vi.mock("../api", async () => {
 vi.mock("../hooks", () => ({
   useDelete: () => ({ mutate: vi.fn(), isPending: false }),
   useRetranscribe: () => ({ mutate: vi.fn(), isPending: false }),
+  useRealign: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useNearViewport: () => ({ ref: { current: null }, near: true }),
 }));
@@ -218,5 +220,30 @@ describe("RecordingCard — Change 014 Defekt-Badge", () => {
   test("kein Badge bei done", () => {
     renderCard(makeRec());
     expect(screen.queryByText("Broken")).toBeNull();
+  });
+});
+
+describe("RecordingCard — Change 046 Re-Align-Button", () => {
+  test("Re-Align-Button sichtbar bei done + Schreibzugriff", () => {
+    renderCard(makeRec(), false); // expandiert → Actions sichtbar
+    expect(screen.getByText("Re-align")).toBeTruthy();
+  });
+
+  test("Re-Align-Button fehlt bei Read-Only-Share", () => {
+    renderCard(makeRec({ access_level: "read" }), false);
+    expect(screen.queryByText("Re-align")).toBeNull();
+  });
+
+  test("Re-Align-Klick startet Mutation", () => {
+    const hooks = vi.hoisted(() => ({ realignMutate: vi.fn() }));
+    hooks.realignMutate.mockImplementation((_id: string, opts: unknown) => {
+      if (opts && typeof opts === "object" && "onSuccess" in opts) {
+        (opts as { onSuccess?: () => void }).onSuccess?.();
+      }
+    });
+    vi.mocked(useRealign).mockReturnValue({ mutate: hooks.realignMutate as never, isPending: false } as never);
+    renderCard(makeRec(), false); // expandiert → Re-Align-Button sichtbar
+    screen.getByText("Re-align").click();
+    expect(hooks.realignMutate).toHaveBeenCalled();
   });
 });

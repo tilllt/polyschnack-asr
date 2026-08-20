@@ -278,6 +278,49 @@ def rename_speaker(
     return {"segments": rec.segments, "text": rec.text, "renamed": renamed}
 
 
+@router.post("/recordings/{rid}/realign")
+def realign_recording(
+    rid: str,
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
+
+    Der User hat die Transkription korrigiert (Ground Truth) → der
+    Forced-Aligner verifiziert die Word-Timestamps erneut gegen die
+    Akustik. Segment-Grenzen bleiben unangetastet, nur die Wörter
+    (Timestamps) werden ersetzt. Läuft im Hintergrund (alignment-Feld
+    zeigt pending→running→done|skipped); die Transkription bleibt
+    sichtbar/bearbeitbar.
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    from ..identity import current_identity
+
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
+
+    if rec.status != "done":
+        raise HTTPException(
+            status_code=409,
+            detail="Transkription ist noch nicht fertig — Re-Alignment erst nach Abschluss möglich",
+        )
+
+    from ..service import _schedule_realign
+
+    if rec.id is None or not _schedule_realign(rec.id):
+        raise HTTPException(
+            status_code=503,
+            detail="Re-Alignment nicht möglich (Aligner deaktiviert, Audio fehlt oder nicht lesbar)",
+        )
+    return {"id": rid, "alignment": "pending"}
+
+
 @router.patch("/recordings/{rid}/segments/{idx}")
 def update_segment(
     rid: str,

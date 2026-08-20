@@ -577,6 +577,16 @@ export async function cancelRecording(id: string): Promise<{ cancelled: boolean 
   return res.json() as Promise<{ cancelled: boolean }>;
 }
 
+/** Change 046: Re-Alignment auf dem aktuellen (korrigierten) Text.
+ *  POST /api/recordings/{rid}/realign — startet den Hintergrund-Worker,
+ *  Antwort {id, alignment: "pending"}. */
+export async function realignRecording(id: string): Promise<{ id: string; alignment: string }> {
+  const res = await fetch(`/api/recordings/${id}/realign`, {
+    method: "POST",
+  }).then(checkOk);
+  return res.json() as Promise<{ id: string; alignment: string }>;
+}
+
 /* ============================================================
    QUEUE (Task 7)
    ============================================================ */

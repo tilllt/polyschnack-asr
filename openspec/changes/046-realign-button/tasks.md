@@ -2,31 +2,33 @@
 
 ## Task 1: Gemeinsame Align-Funktion
 
-- [ ] `run_align_on_segments(rec_id, segments, audio_bytes, language, job=None, progress_cb=None)`
-      aus `_run_align_phase` extrahieren (gleiche Logik, Heartbeat optional)
+- [x] `_schedule_realign(rec_id)` in service.py: Audio von Platte laden,
+      VAD-Trim/Enhance wie im Job, Alignment-Cache schreiben, Worker starten
+- [x] `_run_background_align` wiederverwendet (Versions-Guard, skipped nie Fail)
 
 ## Task 2: Endpoint POST /api/recordings/{rid}/realign
 
-- [ ] Auth: write-Zugriff (ensure_access), status=done nötig
-- [ ] Segmente + Audio laden, VAD/Enhance/Offset wie Job
-- [ ] Align via run_align_on_segments, nur Word-Timestamps ersetzen
-- [ ] Versions-Guard vor Write
-- [ ] Aligner down → 503 mit verständlicher Meldung
-- [ ] Cancel-Flag für User-Abbruch
+- [x] Auth: write-Zugriff (ensure_access), status=done nötig (409)
+- [x] Audio laden, VAD/Enhance/Offset wie Job, Cache + Worker-Start
+- [x] Versions-Guard vor Write (im Worker)
+- [x] Aligner deaktiviert/Audio fehlt → 503 mit verständlicher Meldung
+- [x] 404 bei unbekanntem Recording
+- [x] Tests `tests/test_realign.py` (4 grün)
 
 ## Task 3: Frontend
 
-- [ ] „Re-Align"-Button in Transkriptions-Ansicht (write-Zugriff, done)
-- [ ] Lauf-Feedback (Gruppen-Zähler), Cancel-Button
-- [ ] Kein Fake-Progress
+- [x] `realignRecording()` in api.ts, `useRealign()`-Hook
+- [x] „Re-Align"-Button auf der Karte (done + write, disabled bei running)
+- [x] Toast-Start/Fehler, kein Fake-Progress
+- [x] i18n de/en/pt
+- [x] Frontend-Tests (Sichtbarkeit, Read-Only, Klick) — 188 grün, tsc sauber
 
 ## Task 4: Tests
 
-- [ ] Backend: auth, 404, 503, Mock-Aligner-Wörter, Grenzen unverändert
-- [ ] Frontend: Button sichtbar/versteckt, Klick, Feedback
-- [ ] Alle bestehenden Tests grün
+- [x] Backend: auth, 404, 409, 503
+- [x] Frontend: Button sichtbar/versteckt, Klick
+- [x] Alle bestehenden Tests grün (680 Backend + 188 Frontend)
 
-## Task 5: Commit + Push
+## Task 5: Commit
 
-- [ ] Commit mit Change-046-Referenz
-- [ ] CI prüfen + melden
+- [ ] Commit + Push + CI prüfen

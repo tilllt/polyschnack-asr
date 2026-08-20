@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
-import { useDelete, useRetranscribe, useCancelRecording } from "../hooks";
+import { useDelete, useRetranscribe, useRealign, useCancelRecording } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -270,6 +270,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const isBroken = r.status === "failed" && !!r.error && /Audio-Datei fehlt/.test(r.error);
   // Titel nur für Besitzer/Full-Share editierbar (Backend: Owner/Admin).
   const canEditTitle = r.access_level === "owner" || r.access_level === "full";
+  // Change 046: Re-Align braucht write-Zugriff (Backend: ensure_access write).
+  const canEdit =
+    r.access_level === "owner" ||
+    r.access_level === "full" ||
+    r.access_level === "write";
   // Review-Fix 2026-08-15 (Such-UI): Query + Sprung-Ziel liegen hier, damit
   // SegmentSearch (eingeben) und SegmentList (hervorheben + scrollen) den
   // gleichen Suchzustand teilen.
@@ -539,6 +544,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
+  const realignMut = useRealign();
   const cancelMut = useCancelRecording();
 
   function handleCancelJob() {
@@ -724,6 +730,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       onError: (e) => toast(`${t("retranscribe_error")}: ${e.message}`, "err"),
     });
     setReArmed(false);
+  }
+
+  // Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) — der
+  // Forced-Aligner verifiziert die Word-Timestamps erneut. Läuft im
+  // Hintergrund (alignment-Feld), Transkription bleibt sichtbar.
+  function handleRealign() {
+    realignMut.mutate(r.uid, {
+      onSuccess: () => toast(t("realign_started"), "ok"),
+      onError: (e) => toast(`${t("realign_error")}: ${e.message}`, "err"),
+    });
   }
 
   // Reset waveform error when audio URL changes
@@ -1287,6 +1303,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             )}
           </div>
+        )}
+
+        {/* Change 046: Re-Align-Button — nach User-Korrekturen (Ground
+            Truth) die Word-Timestamps akustisch verifizieren. Nur bei
+            done + Schreibzugriff; während des Laufs deaktiviert (der
+            Hinweis "Präzises Alignment läuft…" erscheint oben). */}
+        {r.status === "done" && hasText && canEdit && (
+          <button
+            onClick={handleRealign}
+            disabled={realignMut.isPending || r.alignment === "running"}
+            title={t("realign_title")}
+            className="btn-ghost-sm"
+          >
+            <RotateCcw size={12} />
+            {t("realign")}
+          </button>
         )}
 
         {/* Share dropdown (nur Owner — Backend liefert access_level "full") */}

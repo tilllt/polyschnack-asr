@@ -11,6 +11,7 @@ import {
   uploadRecording,
   deleteRecording,
   retranscribeRecording,
+  realignRecording,
   cancelRecording,
   type Recording,
   type Stats,
@@ -132,6 +133,18 @@ export function useRetranscribe() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+/** Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) starten. */
+export function useRealign() {
+  const qc = useQueryClient();
+
+  return useMutation<{ id: string; alignment: string }, Error, string>({
+    mutationFn: (id) => realignRecording(id),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["recordings"] });
     },
   });
 }

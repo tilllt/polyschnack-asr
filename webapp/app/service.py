@@ -884,6 +884,67 @@ def _json_deepcopy(obj):
     return _json.loads(_json.dumps(obj))
 
 
+def _schedule_realign(rec_id: int) -> bool:
+    """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
+
+    Lädt die gespeicherte Audiodatei, reproduziert VAD-Trim/Enhance wie im
+    Job (gleiche Zeitbasis), schreibt den Alignment-Cache und startet den
+    Hintergrund-Worker (_run_background_align). Der User kann die
+    Transkription weiter sehen/bearbeiten; die Word-Timestamps werden
+    akustisch verifiziert, sobald der Worker fertig ist.
+
+    Returns False wenn Aligner deaktiviert, Datei fehlt oder Audio nicht
+    lesbar — der Aufrufer antwortet dann mit verständlichem Fehler.
+    """
+    from .aligner_client import ALIGN_WORDS_ENABLED
+    from .models import Recording as _Rec
+
+    if not ALIGN_WORDS_ENABLED:
+        log.info("realign: ALIGN_WORDS_ENABLED=false (rec_id=%s)", rec_id)
+        return False
+
+    with Session(engine) as session:
+        rec = session.get(_Rec, rec_id)
+        if rec is None:
+            return False
+        if rec.status != "done":
+            log.info("realign: rec_id=%s status=%s — nur done erlaubt", rec_id, rec.status)
+            return False
+        stored = Path(rec.stored_path) if rec.stored_path else None
+        if stored is None or not stored.is_file():
+            log.warning("realign: Audio fehlt für rec_id=%s", rec_id)
+            return False
+        try:
+            audio_bytes = stored.read_bytes()
+        except Exception as exc:
+            log.warning("realign: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
+            return False
+        trim_offset_s = 0.0
+        if _VAD_TRIM and rec.enable_vad:
+            try:
+                audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
+            except Exception:
+                trim_offset_s = 0.0
+        if rec.enable_enhance and rec.enable_enhance != "off":
+            try:
+                audio_bytes = enhance_audio(audio_bytes, level=rec.enable_enhance)
+            except Exception as exc:
+                log.warning("realign: enhance failed rec_id=%s: %s", rec_id, exc)
+        rec.alignment = "pending"
+        session.add(rec)
+        session.commit()
+
+    _AlignmentCache.write(rec_id, audio_bytes, trim_offset_s)
+    threading.Thread(
+        target=_run_background_align,
+        args=(rec_id,),
+        daemon=True,
+        name=f"realign-{rec_id}",
+    ).start()
+    log.info("realign: rec_id=%s Worker gestartet", rec_id)
+    return True
+
+
 def _same_segments(a, b) -> bool:
     """True, wenn beide Segment-Listen identisch sind (Versions-Guard)."""
     try:
