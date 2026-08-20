@@ -15,6 +15,9 @@ dependencies = [
     "itsdangerous>=2.2",
     "pyyaml>=6.0",
     "numpy>=2.5.2",
+    # Change 053: kollaboratives Transkriptions-Editing (Yjs-CRDT-Sync)
+    "pycrdt>=0.14.3",
+    "pycrdt-websocket>=0.16.4",
 ]
 
 [dependency-groups]

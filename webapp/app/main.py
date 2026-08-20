@@ -170,11 +170,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     threading.Thread(target=_peaks_loop, daemon=True, name="peaks-backfill").start()
 
+    # --- Change 053: Yjs-Sync-Server starten (falls pycrdt im Image) ---
+    _yjs_task = None
+    try:
+        import asyncio as _asyncio
+
+        from .yjs.rooms import get_server
+
+        # start() ist ein blockierender Server-Task (wartet bis stop).
+        _yjs_task = _asyncio.create_task(get_server().start())
+        await get_server().started.wait()
+        log.info("Yjs-Sync-Server gestartet (Change 053)")
+    except Exception:
+        log.warning("Yjs-Sync-Server nicht gestartet — Editor läuft im Solo-Modus", exc_info=True)
+
     yield
 
     _sweep_stop.set()
     _peaks_stop.set()
     queue_manager.stop()
+    try:
+        from .yjs.rooms import get_server
+
+        await get_server().stop()
+        if _yjs_task is not None and not _yjs_task.done():
+            _yjs_task.cancel()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="PolySchnack Web UI", lifespan=lifespan)
@@ -247,6 +269,18 @@ app.add_middleware(
     max_age=86400 * 7,
     https_only=settings.BASE_URL.startswith("https"),
 )
+
+# ------------------------------------------------------------------
+# Yjs-Kollaboration (Change 053) — optionaler ASGI-Mount /yjs
+# (nur aktiv, wenn pycrdt/pycrdt-websocket im Image verfügbar sind).
+# ------------------------------------------------------------------
+try:
+    from .yjs import build_yjs_mount
+
+    app.mount("/yjs", build_yjs_mount(settings.SESSION_SECRET))
+    log.info("Yjs-Sync-Mount aktiv unter /yjs (Change 053)")
+except Exception as _yjs_err:  # noqa: BLE001 — Image ohne pycrdt: sauber starten
+    log.warning("Yjs-Sync-Mount NICHT aktiv (%s) — Editor läuft im Solo-Modus", _yjs_err)
 
 # ------------------------------------------------------------------
 # API router + health — registered BEFORE the SPA mount so /api/*

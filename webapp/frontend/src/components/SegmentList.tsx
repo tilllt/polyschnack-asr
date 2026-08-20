@@ -2,6 +2,7 @@ import { Fragment, useRef, useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
+import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
 import { moveBoundary, wordRangeToCharRange, type ResegWord } from "../resegment";
@@ -91,6 +92,21 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
 }
 
 export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentInsert, onSegmentDelete, fillHeight, onSplitSegment }: Props) {
+  // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
+  const {
+    conn: yjsConn,
+    activeUsers,
+    hasCollab,
+    setSegmentText,
+    finalize: yjsFinalize,
+    saving: yjsSaving,
+  } = useYjsTranscription(recordingId, segmentsProp, (texts) => {
+    if (!onEdited) return;
+    onEdited(
+      texts.map((text, i) => ({ ...(segmentsProp[i] ?? {}), text })),
+      texts.join(" "),
+    );
+  });
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -329,6 +345,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
 
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
+    if (hasCollab) {
+      // Change 053: Kollaboration — Änderung geht live an alle Clients,
+      // DB-Persistenz erst beim Finalisieren ("In DB speichern").
+      setSegmentText(idx, editText);
+      setEditingIdx(null);
+      return;
+    }
     setSaving(true);
     try {
       const result = await updateSegment(recordingId, idx, editText);
@@ -577,6 +600,24 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
 
   return (
     <>
+    {hasCollab && onEdited && (
+      <div className="flex items-center gap-2 px-3 py-1 text-[12px] text-fg-muted border-b border-border">
+        <span title={yjsConn === "connected" ? "Live-Sync aktiv — Änderungen sind sofort für alle sichtbar" : "Verbindung zum Sync-Server wird aufgebaut"}>
+          {yjsConn === "connected" ? "●" : "◌"} Kollaboration {yjsConn === "connected" ? "aktiv" : "verbinde…"}
+        </span>
+        {activeUsers.length > 0 && (
+          <span title={activeUsers.join(", ")}>· {activeUsers.length} bearbeiten gerade</span>
+        )}
+        <button
+          onClick={() => void yjsFinalize()}
+          disabled={yjsSaving || yjsConn !== "connected"}
+          className="ml-auto text-accent hover:underline disabled:opacity-40"
+          title="Yjs-Text in die Datenbank schreiben (Export-Brücke Change 053)"
+        >
+          {yjsSaving ? "Speichert…" : "In DB speichern"}
+        </button>
+      </div>
+    )}
     <div
       ref={containerRef}
       className={`
