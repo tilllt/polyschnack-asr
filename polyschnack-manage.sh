@@ -333,6 +333,39 @@ case "$CMD" in
             BENCH_BACKEND_URLS='{"ps-pk-onnx":"http://ps-pk-onnx:5092/v1","crispr-pk-cpp":"http://crispr-pk-cpp:5093/v1","crispr-qwen3":"http://crispr-qwen3:5094/v1","crispr-ark":"http://crispr-ark:5095/v1","crispr-moonshine-de":"http://crispr-moonshine-de:5096/v1","crispr-canary":"http://crispr-canary:5097/v1"}'
             export BENCH_BACKEND_URLS
         fi
+        # ── Benchmark-Key (Shared-Key fuer POST /api/benchmark/submit) ─────
+        # BENCHMARK_API_KEY = Key fuer den Runner-Container; identischer Wert
+        # muss auf Webapp-Seite in BENCHMARK_API_KEYS (Box-.env) stehen,
+        # sonst antwortet /submit mit 503/401. Fehlt beides: Key erzeugen,
+        # ausgeben und Abbruch — der User traegt ihn in die .env ein.
+        if [ -z "${BENCHMARK_API_KEY:-}" ]; then
+            if [ -z "${BENCHMARK_API_KEYS:-}" ]; then
+                NEW_KEY="$(openssl rand -hex 32 2>/dev/null || true)"
+                if [ -z "${NEW_KEY}" ]; then
+                    echo "FEHLER: openssl fehlt — Key manuell erzeugen:" >&2
+                    echo "  python3 -c 'import secrets; print(secrets.token_hex(32))'" >&2
+                    exit 1
+                fi
+                echo ""
+                echo "!! Kein Benchmark-Key konfiguriert (BENCHMARK_API_KEYS fehlt in .env)."
+                echo "   Erzeugter Key (einmalig angezeigt):"
+                echo ""
+                echo "   BENCHMARK_API_KEYS=${NEW_KEY}"
+                echo ""
+                echo "   So aktivieren (auf der Box):"
+                echo "   1. Zeile oben in die .env kopieren"
+                echo "   2. ./polyschnack-manage.sh update   (Webapp bekommt die Variable)"
+                echo "   3. Diesen Lauf erneut starten."
+                echo ""
+                echo "   Hinweis: Der Import der vast-Ergebnisse (benchmarks/import/"
+                echo "   import_benchmark_suite.sh) nutzt dieselbe Variable."
+                echo ""
+                exit 1
+            fi
+            # Erster Key aus der kommaseparierten Liste (Webapp-kompatibel)
+            export BENCHMARK_API_KEY="${BENCHMARK_API_KEYS%%,*}"
+            echo "-> Benchmark-Key aus BENCHMARK_API_KEYS (.env) uebernommen."
+        fi
         docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
         ;;
     logs)

@@ -37,9 +37,12 @@ services:
       # Beispiel extern: BENCH_BACKEND_URLS='{"whisper-remote":"https://api.openai.com/v1"}'
       BENCH_BACKEND_URLS: '${BENCH_BACKEND_URLS}'
       # API-Keys (optional): fuer externe OpenAI-kompatible Endpunkte sendet
-      # run.py dann Authorization: Bearer <key> mit (OpenAI/Mistral/Groq/…).
+      # run.py dann Authorization: Bearer *** mit (OpenAI/Mistral/Groq/…).
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       LITELLM_API_KEY: "${LITELLM_API_KEY:-}"
+      # Shared-Key fuer POST /api/benchmark/submit an die Webapp (Change 031/036):
+      # identischer Wert wie BENCHMARK_API_KEYS (erster Key) in der Box-.env.
+      BENCHMARK_API_KEY: "${BENCHMARK_API_KEY:-}"
     volumes:
       # Least-Privilege: Nur das Benchmark-Verzeichnis ist beschreibbar
       # (latest.json + pricing.json), der Rest des Daten-Volumes bleibt read-only.
