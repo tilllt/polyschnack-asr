@@ -193,3 +193,26 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  ps-tor:
+    profiles: ["ps-tor"]
+    # Change 043: Tor-Sidecar für den YouTube-Import-Fallback (letzte Stufe
+    # der Download-Kaskade bei Bot-Erkennung). Startet NICHT automatisch —
+    # die Webapp startet ihn on-demand per Docker-Proxy (POLYSCHNACK_TOR_FALLBACK=on)
+    # und stoppt ihn nach Leerlauf. Kein Host-Port-Expose (nur Container-Netz).
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-ps-tor:latest
+    restart: "no"
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      # BusyBox-nc TCP-Check auf den SOCKS-Port (Container läuft erst,
+      # wenn der Socket akzeptiert — reicht als Bootstrap-Signal).
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s

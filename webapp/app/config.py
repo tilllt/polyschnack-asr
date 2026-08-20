@@ -120,6 +120,20 @@ class _Settings:
     #: Optional token the proxy requires (empty = no auth header).
     DOCKER_PROXY_TOKEN: str = os.getenv("DOCKER_PROXY_TOKEN", "")
 
+    #: Change 043 — YouTube-Import-Tor-Fallback (letzte Download-Kaskaden-
+    #: Stufe bei Bot-Erkennung). Default AUS; Admin schaltet pro Installation
+    #: an (User-Entscheidung 2026-08-20).
+    POLYSCHNACK_TOR_FALLBACK: bool = os.getenv("POLYSCHNACK_TOR_FALLBACK", "").lower() in ("1", "true", "yes", "on")
+    #: Max. Circuit-Versuche (jeder Versuch = neuer Tor-Exit nach restart).
+    POLYSCHNACK_TOR_MAX_CIRCUITS: int = int(os.getenv("POLYSCHNACK_TOR_MAX_CIRCUITS", "5"))
+    #: Max. Audio-Größe in MB für Tor-Downloads (yt-dlp --max-filesize).
+    POLYSCHNACK_TOR_MAX_SIZE_MB: int = int(os.getenv("POLYSCHNACK_TOR_MAX_SIZE_MB", "500"))
+    #: Rate-Limit: max. Tor-Downloads pro User pro Stunde (rolling window).
+    POLYSCHNACK_TOR_MAX_PER_HOUR: int = int(os.getenv("POLYSCHNACK_TOR_MAX_PER_HOUR", "2"))
+    #: Leerlauf-Minuten nach dem letzten Tor-Download, dann stoppt die Webapp
+    #: den ps-tor-Container wieder (on-demand, kein Dauerbetrieb).
+    POLYSCHNACK_TOR_IDLE_MINUTES: int = int(os.getenv("POLYSCHNACK_TOR_IDLE_MINUTES", "30"))
+
     #: Default ASR backend for new jobs (Task 6; concurrency is derived, not configured).
     POLYSCHNACK_DEFAULT_BACKEND: str = os.getenv("POLYSCHNACK_DEFAULT_BACKEND", "ps-pk-onnx")
 
