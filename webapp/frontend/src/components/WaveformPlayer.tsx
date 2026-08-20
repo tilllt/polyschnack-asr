@@ -170,8 +170,38 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       setZoomIdx(idx);
     }, []);
 
+    // Change 052: Lazy-Loading — Audio erst laden, wenn der Player in den
+    // Viewport kommt (IntersectionObserver, 200 px Vorlauf). Ohne das
+    // fetchen beim Öffnen einer Benchmark-Kategorie ALLE Sample-Player
+    // gleichzeitig (belegt: 8× Preview-Request in einem Schub) — bei
+    // langsamem Netz queueen die Requests und der Play-Klick bleibt
+    // wirkungslos, weil die Datei noch nicht geladen ist.
+    const [inView, setInView] = useState(false);
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      if (typeof IntersectionObserver === "undefined") {
+        setInView(true); // jsdom/ohne IO: sofort laden (Tests, alte Browser)
+        return;
+      }
+      const obs = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              setInView(true);
+              obs.disconnect();
+            }
+          }
+        },
+        { rootMargin: "200px" },
+      );
+      obs.observe(el);
+      return () => obs.disconnect();
+    }, []);
+
     useEffect(() => {
       if (!containerRef.current) return;
+      if (!inView) return; // Change 052: erst laden, wenn sichtbar
 
       let cancelled = false;
 
@@ -459,7 +489,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         releaseExclusivePlayback(me);
         ws.destroy();
       };
-    }, [audioUrl, backend]);
+    }, [audioUrl, backend, inView]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
