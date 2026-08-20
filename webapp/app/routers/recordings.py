@@ -522,6 +522,8 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "audio_missing": bool(rec.stored_path)
         and not Path(rec.stored_path).is_file(),
         "processing_ms": rec.processing_ms,
+        # Change 045: Status des präzisen Alignments (done|pending|running|skipped).
+        "alignment": getattr(rec, "alignment", "done"),
         "progress_pct": rec.progress_pct,
         "progress_note": rec.progress_note,
         # Change 011: Aktivitäts-/Phasen-Zeitstempel (Heartbeat).

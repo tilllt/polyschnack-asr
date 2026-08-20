@@ -335,3 +335,87 @@ def test_set_queued_resets_heartbeat_fields(db):
         assert rec.last_heartbeat_at.year == dt.datetime.now(
             dt.timezone.utc).year
         assert rec.phase_started_at == rec.last_heartbeat_at
+
+
+# ============================================================
+# Change 047 — Job-weiter Heartbeat (alle Phasen, keine Lücken)
+# ============================================================
+
+def test_job_heartbeat_ticks_without_touching_note(db, monkeypatch):
+    """_start_job_heartbeat tickt last_heartbeat_at über den gesamten Job,
+    ändert aber NICHT progress_note/phase_started_at (note=None-Guard).
+
+    Befund 2026-08-20: Lücken in den phasen-spezifischen Heartbeats
+    (preparing/vad/enhance/Konvertierung/Streaming) erzeugten eine falsche
+    Stall-Warnung bei langen Audios. Der Job-Heartbeat schließt sie."""
+    from app import service as service_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    rec_id = _mk(db, status="processing")
+    assert rec_id is not None
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        rec.progress_note = "preparing"
+        rec.progress_pct = 10
+        s.add(rec)
+        s.commit()
+
+    stop = service_mod._start_job_heartbeat(rec_id, interval_s=0.05)
+
+    try:
+        # Erster Tick: last_heartbeat_at gesetzt.
+        def _ticked():
+            with Session(db) as s:
+                return s.get(Recording, rec_id).last_heartbeat_at is not None
+
+        assert _wait_for(_ticked), "Job-Heartbeat-Tick kam nie an"
+
+        with Session(db) as s:
+            rec = s.get(Recording, rec_id)
+            assert rec.last_heartbeat_at is not None
+            # note=None-Guard: Phasen-Note bleibt unangetastet, pct bleibt.
+            assert rec.progress_note == "preparing"
+            assert rec.progress_pct == 10
+
+        # Weiterer Tick → Timestamp bewegt sich.
+        with Session(db) as s:
+            first = s.get(Recording, rec_id).last_heartbeat_at
+
+        def _advanced():
+            with Session(db) as s:
+                hb = s.get(Recording, rec_id).last_heartbeat_at
+                return hb is not None and hb > first
+
+        assert _wait_for(_advanced), "Job-Heartbeat tickte nicht weiter"
+        with Session(db) as s:
+            rec = s.get(Recording, rec_id)
+            assert rec.progress_note == "preparing"  # weiterhin unangetastet
+            assert rec.progress_pct == 10
+    finally:
+        stop.set()
+
+
+def test_job_heartbeat_stops_on_event(db, monkeypatch):
+    """Nach stop.set() tickt der Job-Heartbeat nicht weiter (Re-Transcribe-
+    Sicherheit: ein alter Heartbeat darf den frischen nicht überschreiben)."""
+    from app import service as service_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    rec_id = _mk(db, status="processing")
+    assert rec_id is not None
+    stop = service_mod._start_job_heartbeat(rec_id, interval_s=0.05)
+
+    def _ticked():
+        with Session(db) as s:
+            return s.get(Recording, rec_id).last_heartbeat_at is not None
+
+    assert _wait_for(_ticked), "Job-Heartbeat-Tick kam nie an"
+    stop.set()
+    time.sleep(0.2)
+
+    with Session(db) as s:
+        frozen = s.get(Recording, rec_id).last_heartbeat_at
+    time.sleep(0.2)
+
+    with Session(db) as s:
+        assert s.get(Recording, rec_id).last_heartbeat_at == frozen

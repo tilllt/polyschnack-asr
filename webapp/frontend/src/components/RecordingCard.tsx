@@ -1031,6 +1031,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             </button>
           </div>
         )}
+        {/* Change 045: Hintergrund-Alignment — Transkription ist sichtbar,
+            das präzise Forced-Alignment läuft noch. Dezenter Hinweis, kein
+            Fake-Progress; verschwindet beim nächsten Polling (done/skipped). */}
+        {r.status === "done" && r.alignment === "running" && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-accent/90"
+            data-testid={`bg-align-${r.uid}`}
+          >
+            <span className="animate-pulse" aria-hidden>⟳</span>
+            <span>Präzises Alignment läuft im Hintergrund …</span>
+          </div>
+        )}
       </div>
 
       {/* ── Transcript / Segments / Error ── */}

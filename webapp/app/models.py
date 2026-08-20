@@ -53,6 +53,10 @@ class Recording(SQLModel, table=True):
     segments_manual: bool = False
     error: Optional[str] = None
     processing_ms: Optional[float] = None
+    # --- Change 045: Status des präzisen (Forced-)Alignments ---
+    # "done" (Default: aligniert/synchron) | "pending" (läuft im Hintergrund) |
+    # "running" (Worker aktiv) | "skipped" (Aligner down / deaktiviert)
+    alignment: str = "done"
 
     # --- progress (0-100, updated during processing) ---
     progress_pct: int = 0

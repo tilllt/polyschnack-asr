@@ -541,7 +541,8 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
 
 
 def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: bytes,
-                     audio_name: str, language: Optional[str], job=None) -> List[Dict[str, Any]]:
+                     audio_name: str, language: Optional[str], job=None,
+                     background: bool = False) -> List[Dict[str, Any]]:
     """Forced-Alignment-Phase: ersetzt Word-Timestamps durch akustisch
     verifizierte Grenzen (crispr-align). Failt der Aligner (Container down,
     Chunk > 400 s), bleiben die Backend-Timestamps — nie ein Job-Fail.
@@ -553,6 +554,11 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     Lebenszeichen schreibt: „alignment 3/12 — aktiv seit 42 s" + ggml-%
     (falls die CLI es ausgibt). Nie erfundene Werte: ohne Status-Infos
     bleibt die letzte echte Gruppe stehen.
+
+    ``background`` (Change 045): True = Worker-Lauf nach „done" — KEINE
+    progress_pct-Schreibzugriffe (der Job ist fertig, 96 % wäre Fake) und
+    kein Heartbeat auf progress. Der Worker pflegt stattdessen das
+    ``alignment``-Feld des Recordings.
     """
     from .aligner_client import AlignerClient
     from .models import Recording as _Rec
@@ -562,8 +568,9 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
         log.info("align: crispr-align nicht erreichbar (rec_id=%s) — Backend-Timestamps behalten", rec_id)
         return segments
 
-    with Session(engine) as session:
-        set_progress(session, rec_id, 96, note="alignment")
+    if not background:
+        with Session(engine) as session:
+            set_progress(session, rec_id, 96, note="alignment")
 
     tmp_audio = ""
     aligned_any = False
@@ -599,6 +606,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                 # ---- Heartbeat-Poller für DIESEN align()-Call ----
                 # align() blockiert; der Thread meldet echte Lebenszeichen
                 # vom Aligner (/status) an die DB → UI zeigt Live-Fortschritt.
+                # (background=True: kein progress-Schreiben — Job ist done.)
                 stop = threading.Event()
 
                 def _heartbeat():
@@ -616,12 +624,21 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                             if last:
                                 parts.append(f"· {last[:60]}")
                             note = "alignment " + " — ".join(parts)
-                            with Session(engine) as s2:
-                                set_progress(
-                                    s2, rec_id,
-                                    96 + int((gi + 1) / len(groups) * 3.99),
-                                    note=note,
-                                )
+                            if background:
+                                with Session(engine) as s2:
+                                    rec_b = s2.get(_Rec, rec_id)
+                                    if rec_b is not None:
+                                        rec_b.alignment = "running"
+                                        rec_b.progress_note = None
+                                        s2.add(rec_b)
+                                        s2.commit()
+                            else:
+                                with Session(engine) as s2:
+                                    set_progress(
+                                        s2, rec_id,
+                                        96 + int((gi + 1) / len(groups) * 3.99),
+                                        note=note,
+                                    )
                         stop.wait(3.0)
 
                 hb = threading.Thread(target=_heartbeat, daemon=True, name=f"align-hb-{gi}")
@@ -655,12 +672,14 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                 # Echter Gruppenfortschritt (96–99): die Phase kann bei langen
                 # Audios 10–25 min dauern — kein starrer 96-Hinweis. Der note
                 # traegt den Gruppen-Zaehler, die UI zeigt "Alignment…".
-                with Session(engine) as session:
-                    set_progress(
-                        session, rec_id,
-                        96 + int((gi + 1) / len(groups) * 3.99),
-                        note=f"alignment {gi + 1}/{len(groups)}",
-                    )
+                # (background=True: Job ist done — kein progress-Schreiben.)
+                if not background:
+                    with Session(engine) as session:
+                        set_progress(
+                            session, rec_id,
+                            96 + int((gi + 1) / len(groups) * 3.99),
+                            note=f"alignment {gi + 1}/{len(groups)}",
+                        )
             except Exception as exc_g:
                 log.warning("align: Gruppe %d/%d übersprungen (rec_id=%s): %s",
                             gi + 1, len(groups), rec_id, exc_g)
@@ -669,19 +688,208 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     finally:
         if tmp_audio and os.path.exists(tmp_audio):
             os.unlink(tmp_audio)
-        with Session(engine) as session:
-            rec2 = session.get(_Rec, rec_id)
-            if rec2 is not None:
-                # Loop-Max ist 99 — kein Rueckwaerts-Sprung auf 97 (die UI
-                # wuerde sonst minutenlang auf 97% stehenbleiben).
-                rec2.progress_pct = 99
-                rec2.progress_note = None
-                session.add(rec2)
-                session.commit()
+        if not background:
+            with Session(engine) as session:
+                rec2 = session.get(_Rec, rec_id)
+                if rec2 is not None:
+                    # Loop-Max ist 99 — kein Rueckwaerts-Sprung auf 97 (die UI
+                    # wuerde sonst minutenlang auf 97% stehenbleiben).
+                    rec2.progress_pct = 99
+                    rec2.progress_note = None
+                    session.add(rec2)
+                    session.commit()
 
     if aligned_any:
         log.info("align: Word-Timestamps für rec_id=%s ersetzt", rec_id)
     return segments
+
+
+# ---------------------------------------------------------------------------
+# Change 045: Hintergrund-Alignment (präzises Alignment nach "done")
+# ---------------------------------------------------------------------------
+# Der User sieht die Transkription sofort mit Backend-/linear verteilten
+# Word-Timestamps; der Aligner-Worker verfeinert sie anschließend. Cache
+# hält die VERARBEITETEN Audio-Bytes (nach VAD-Trim/Enhance/Konvertierung)
+# — dieselbe Zeitbasis wie die Segment-Zeiten im Job. Versions-Guard:
+# überschreibt nie Segmente, die seit dem Job-Ende geändert wurden
+# (Edit/Re-Transcribe/Re-Align).
+
+class _AlignmentCache:
+    """Temporäre Ablage der verarbeiteten Audio-Bytes je Recording.
+
+    Datei: {DATA_DIR}/.align-cache/<rec_id>.wav (+ <rec_id>.json mit
+    trim_offset_s). Geschrieben im Job-Fluss an der Stelle des früheren
+    synchronen Align-Aufrufs — die Bytes sind also EXAKT die, die der
+    Aligner synchron bekommen hätte (nach VAD-Trim/Enhance/Konvertierung,
+    gleiche Zeitbasis wie die Segment-Zeiten). Gelesen vom
+    Hintergrund-Worker, danach gelöscht. Fehlt die Datei (Restart,
+    Cache-Cleanup), überspringt der Worker still.
+    """
+
+    _DIR = Path(os.getenv("DATA_DIR", "/data")) / ".align-cache"
+
+    @classmethod
+    def _ensure_dir(cls) -> None:
+        cls._DIR.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def path(cls, rec_id: int) -> Path:
+        return cls._DIR / f"{rec_id}.wav"
+
+    @classmethod
+    def meta_path(cls, rec_id: int) -> Path:
+        return cls._DIR / f"{rec_id}.json"
+
+    @classmethod
+    def write(cls, rec_id: int, audio_bytes: bytes, trim_offset_s: float = 0.0) -> None:
+        try:
+            import json as _json
+
+            cls._ensure_dir()
+            cls.path(rec_id).write_bytes(audio_bytes)
+            cls.meta_path(rec_id).write_text(
+                _json.dumps({"trim_offset_s": trim_offset_s})
+            )
+        except Exception as exc:
+            log.warning("align-cache: write failed rec_id=%s: %s", rec_id, exc)
+
+    @classmethod
+    def read(cls, rec_id: int) -> Optional[bytes]:
+        p = cls.path(rec_id)
+        try:
+            if p.is_file():
+                return p.read_bytes()
+        except Exception as exc:
+            log.warning("align-cache: read failed rec_id=%s: %s", rec_id, exc)
+        return None
+
+    @classmethod
+    def read_meta(cls, rec_id: int) -> float:
+        """trim_offset_s des Jobs (0.0 wenn unbekannt/fehlt)."""
+        try:
+            import json as _json
+
+            p = cls.meta_path(rec_id)
+            if p.is_file():
+                return float(_json.loads(p.read_text()).get("trim_offset_s", 0.0))
+        except Exception:
+            pass
+        return 0.0
+
+    @classmethod
+    def delete(cls, rec_id: int) -> None:
+        try:
+            for p in (cls.path(rec_id), cls.meta_path(rec_id)):
+                if p.is_file():
+                    p.unlink()
+        except Exception as exc:
+            log.warning("align-cache: delete failed rec_id=%s: %s", rec_id, exc)
+
+
+def _run_background_align(rec_id: int) -> None:
+    """Hintergrund-Worker (Change 045): präzises Forced-Alignment nach „done".
+
+    - Setzt ``alignment``: pending → running → done|skipped.
+    - Liest das Cache-Audio (verarbeitete Bytes = Zeitbasis der Segmente).
+    - Versions-Guard: wurden die Segmente seit dem Job geändert (Edit,
+      Re-Transcribe), wird das Ergebnis verworfen (nie fremde Edits
+      überschreiben).
+    - Fehler (Cache weg, Aligner down): ``skipped``, Backend-Timestamps
+      bleiben — nie ein Job-Fail.
+    """
+    from .aligner_client import ALIGN_WORDS_ENABLED
+    from .models import Recording as _Rec
+
+    if not ALIGN_WORDS_ENABLED:
+        return
+
+    audio_bytes = _AlignmentCache.read(rec_id)
+    if audio_bytes is None:
+        try:
+            with Session(engine) as session:
+                rec = session.get(_Rec, rec_id)
+                if rec is not None and rec.alignment == "pending":
+                    rec.alignment = "skipped"
+                    session.add(rec)
+                    session.commit()
+        except Exception as exc:
+            log.warning("bg-align: Cache fehlt, Status-Update fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+        log.info("bg-align: Cache fehlt für rec_id=%s — skipped", rec_id)
+        return
+
+    # Baseline der Segmente (für den Versions-Guard) + Job-Parameter.
+    try:
+        with Session(engine) as session:
+            rec = session.get(_Rec, rec_id)
+            if rec is None or rec.status != "done":
+                _AlignmentCache.delete(rec_id)
+                return
+            segments: List[Dict[str, Any]] = _json_deepcopy(rec.segments or [])
+            language = rec.language
+            # Cache-Bytes sind die VERARBEITETE Audio (nach Trim/Enhance) — der
+            # Aligner bekommt sie direkt. Nur die Segment-Zeiten sind im Job um
+            # trim_offset_s kompensiert → vor dem Align abziehen, danach wieder
+            # aufschlagen (identische Zeitbasis wie der synchrone Lauf).
+            trim_offset_s = _AlignmentCache.read_meta(rec_id)
+            if trim_offset_s > 0:
+                _shift_segments(segments, -trim_offset_s)
+            rec.alignment = "running"
+            session.add(rec)
+            session.commit()
+    except Exception as exc:
+        # Defensiv: Worker-Fehler nie als unhandled Thread-Exception enden
+        # (Tests/Isolation, DB weg) — still aufräumen, Backend-Timestamps
+        # bleiben (nie ein Job-Fail).
+        log.warning("bg-align: Baseline-Lesen fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+        _AlignmentCache.delete(rec_id)
+        return
+
+    try:
+        new_segments = _run_align_phase(
+            rec_id, segments, audio_bytes,
+            f"{rec_id}.wav", language, job=None, background=True,
+        )
+        if trim_offset_s > 0:
+            _shift_segments(new_segments, trim_offset_s)
+    except Exception as exc:
+        log.warning("bg-align: rec_id=%s failed: %s", rec_id, exc)
+        new_segments = None
+
+    try:
+        with Session(engine) as session:
+            rec = session.get(_Rec, rec_id)
+            if rec is None:
+                _AlignmentCache.delete(rec_id)
+                return
+            if new_segments is not None and _same_segments(rec.segments, segments):
+                rec.segments = new_segments
+                rec.alignment = "done"
+            elif new_segments is not None:
+                log.info("bg-align: Segmente geändert während des Laufs (rec_id=%s) — Ergebnis verworfen", rec_id)
+                rec.alignment = "skipped"
+            else:
+                rec.alignment = "skipped"
+            session.add(rec)
+            session.commit()
+    except Exception as exc:
+        log.warning("bg-align: Write fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+    _AlignmentCache.delete(rec_id)
+    log.info("bg-align: rec_id=%s fertig (alignment=%s)", rec_id,
+             rec.alignment if rec is not None else "?")
+
+
+def _json_deepcopy(obj):
+    import json as _json
+
+    return _json.loads(_json.dumps(obj))
+
+
+def _same_segments(a, b) -> bool:
+    """True, wenn beide Segment-Listen identisch sind (Versions-Guard)."""
+    try:
+        return _json_deepcopy(a) == _json_deepcopy(b)
+    except Exception:
+        return False
 
 
 def _cancelled(job, rec_id: int) -> bool:
@@ -760,6 +968,46 @@ def _start_heartbeat(rec_id: int, pct: int, note: str,
     return stop
 
 
+def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0) -> threading.Event:
+    """Job-weiter Heartbeat (Change 047): tickt last_heartbeat_at über den
+    GESAMTEN Job — auch in Phasen ohne eigenen Heartbeat (preparing/vad/
+    enhance/16k-Konvertierung/Streaming-ASR).
+
+    Befund 2026-08-20: Die phasen-spezifischen Heartbeats (asr/diar/llm)
+    lassen Lücken — bei langen Audios (4h52m-YouTube) blockiert z. B. die
+    WAV-Konvertierung Minuten OHNE Heartbeat → UI zeigt nach 45 s eine
+    FALSCHE Stall-Warnung („keine Aktivität seit 120m"), obwohl der Job
+    läuft. Auch nach komplett neuem Start wiederholte sich das (lange
+    Datei → gleiche heartbeat-lose Phase).
+
+    Der Job-Heartbeat übergibt ``note=None`` an set_progress → er tickt
+    NUR last_heartbeat_at (+pct aus der DB) und überschreibt niemals die
+    Phasen-Note der phasen-spezifischen Heartbeats. Kein Konflikt.
+    """
+    stop = threading.Event()
+
+    def _tick() -> None:
+        while not stop.is_set():
+            try:
+                with Session(engine) as s:
+                    from .models import Recording as _Rec
+
+                    rec = s.get(_Rec, rec_id)
+                    cur_pct = rec.progress_pct if rec is not None else 1
+                    set_progress(s, rec_id, cur_pct, note=None)
+            except Exception:
+                log.exception("job-heartbeat: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
+                return
+            stop.wait(interval_s)
+
+    t = threading.Thread(
+        target=_tick, daemon=True,
+        name=f"job-heartbeat-{rec_id}",
+    )
+    t.start()
+    return stop
+
+
 def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> None:
     """Load row → read audio → call ASR → persist result.
 
@@ -808,10 +1056,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
     segments: List[Dict[str, Any]] = []
     error = None
     peaks = None
+    alignment_pending = False
+    hb_job: Optional[threading.Event] = None
 
     try:
         audio_bytes = audio_path.read_bytes()
         trim_offset_s = 0.0
+
+        # Change 047: Job-weiter Heartbeat — tickt last_heartbeat_at über
+        # ALLE Phasen (auch preparing/vad/enhance/Konvertierung/Streaming),
+        # nicht nur asr/diar/llm. Beendet im finally unten.
+        hb_job = _start_job_heartbeat(rec_id)
 
         # Mark progress: 10% — loaded
         with Session(engine) as session:
@@ -998,15 +1253,22 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             else:
                 log.warning("Diarization returned no text-mapped segments "
                             "for rec_id=%s (falling back to ASR segments)", rec_id)
-        # Forced Alignment (Karaoke-Word-Sync): präzise Word-Timestamps gegen
-        # die Akustik (crispr-align). Ersetzt die groben Backend-Timestamps,
-        # die über Chunk-Grenzen driften. Optional — nie ein Job-Fail.
+        # Change 045: Forced Alignment (Karaoke-Word-Sync) läuft NICHT mehr
+        # synchron — der User sieht die Transkription sofort mit den
+        # Backend-/linear verteilten Word-Timestamps (_build_word_stream).
+        # Das präzise Alignment startet nach "done" im Hintergrund-Worker
+        # (AlignmentCache schreibt die verarbeiteten Bytes für ihn).
         from .aligner_client import ALIGN_WORDS_ENABLED
 
         if ALIGN_WORDS_ENABLED and segments:
-            segments = _run_align_phase(
-                rec_id, segments, audio_bytes, audio_path.name, language, job=job
-            )
+            # Cache-Bytes = verarbeitete Audio (nach Trim/Enhance/Konvertierung)
+            # — exakt die Zeitbasis des synchronen Align-Laufs. trim_offset_s
+            # als Sidecar, damit der Worker die kompensierten Segment-Zeiten
+            # vor dem Align zurückrechnen kann.
+            _AlignmentCache.write(rec_id, audio_bytes, trim_offset_s)
+            alignment_pending = True
+        else:
+            alignment_pending = False
 
         # VAD-Trim-Offset kompensieren: ASR/Aligner liefen auf dem getrimmten
         # Audio, das Playback nutzt die Originaldatei → alle Timestamps um die
@@ -1093,6 +1355,12 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         status = "failed"
         error = f"{type(exc).__name__}: {exc}"
         log.exception("process_recording rec_id=%d failed", rec_id)
+    finally:
+        # Change 047: Job-Heartbeat stoppen — Job ist beendet (done/failed),
+        # kein weiteres Ticken (sonst wuerde ein alter Heartbeat nach einem
+        # Re-Transcribe den frischen ueberschreiben).
+        if hb_job is not None:
+            hb_job.set()
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -1137,6 +1405,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                             rec.delivery_error = f"{type(exc).__name__}: {exc}"[:500]
                     session.add(rec)
                     session.commit()
+                # Change 045: Hintergrund-Alignment — sobald der Job "done"
+                # ist, startet der Worker das präzise Forced-Alignment
+                # (liest das Cache-Audio, aktualisiert die Segmente per
+                # Versions-Guard). Nie ein Job-Fail, nie blockierend.
+                if alignment_pending:
+                    threading.Thread(
+                        target=_run_background_align,
+                        args=(rec_id,),
+                        daemon=True,
+                        name=f"bg-align-{rec_id}",
+                    ).start()
 
 
 # ---------------------------------------------------------------------------

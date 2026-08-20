@@ -198,3 +198,125 @@ def test_run_align_phase_skip_wenn_down(monkeypatch):
     segs = [{"start": 0, "end": 1, "text": "Hallo"}]
     out = _run_align_phase(7, segs, b"x", "a.wav", "de")
     assert out == segs  # unverändert
+
+
+# ============================================================
+# Change 045 — Hintergrund-Alignment (_run_background_align)
+# ============================================================
+
+class _FakeRecording:
+    """Minimales Recording-Objekt für den Worker-Test (attributbasiert)."""
+
+    def __init__(self, segments, status="done", alignment="pending"):
+        self.id = 7
+        self.status = status
+        self.segments = list(segments)
+        self.language = "de"
+        self.alignment = alignment
+        self.commits = 0
+
+    def __repr__(self):
+        return f"<FakeRecording alignment={self.alignment}>"
+
+
+class _FakeSession:
+    def __init__(self, rec):
+        self.rec = rec
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, model, rid):
+        return self.rec
+
+    def add(self, obj):
+        pass
+
+    def commit(self):
+        if self.rec is not None:
+            self.rec.commits += 1
+
+
+def test_alignment_cache_roundtrip(tmp_path, monkeypatch):
+    from app.service import _AlignmentCache
+
+    monkeypatch.setattr(_AlignmentCache, "_DIR", tmp_path / "cache")
+    _AlignmentCache.write(7, b"audio-bytes", trim_offset_s=1.5)
+    assert _AlignmentCache.read(7) == b"audio-bytes"
+    assert _AlignmentCache.read_meta(7) == 1.5
+    _AlignmentCache.delete(7)
+    assert _AlignmentCache.read(7) is None
+    assert _AlignmentCache.read_meta(7) == 0.0
+
+
+def test_background_align_cache_fehlt_skipped(tmp_path, monkeypatch):
+    from app import service as svc
+
+    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    monkeypatch.setattr(svc, "engine", object())
+    rec = _FakeRecording([], alignment="pending")
+    monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
+
+    svc._run_background_align(7)
+    assert rec.alignment == "skipped"
+
+
+def test_background_align_ersetzt_words(aligner_server, wav_bytes, tmp_path, monkeypatch):
+    """Worker: Cache-Audio → Aligner → Segmente aktualisiert, alignment=done."""
+    from app import service as svc
+    from app import aligner_client as ac
+
+    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    monkeypatch.setattr(ac, "ALIGN_URL", aligner_server)
+    monkeypatch.setattr(svc, "engine", object())
+
+    rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
+    monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
+
+    # Cache wie der Job-Fluss schreiben (verarbeitete Bytes, kein Trim).
+    svc._AlignmentCache.write(7, wav_bytes, trim_offset_s=0.0)
+
+    svc._run_background_align(7)
+    assert rec.alignment == "done"
+    words = rec.segments[0].get("words") or []
+    assert [w["word"] for w in words] == ["Hallo", "Welt"]
+    # Cache aufgeräumt
+    assert svc._AlignmentCache.read(7) is None
+
+
+def test_background_align_versionsguard_verwirft(tmp_path, monkeypatch):
+    """Worker: Segmente während des Laufs geändert → Ergebnis verworfen."""
+    from app import service as svc
+
+    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    monkeypatch.setattr(svc, "engine", object())
+
+    # Geteilter Zähler über alle Session-Instanzen (Session() wird pro
+    # with-Block neu erzeugt — der Zähler darf nicht pro Instanz starten).
+    counter = {"reads": 0}
+
+    class _MutableFakeSession(_FakeSession):
+        """get() mutiert die Segmente beim 2. Read (simuliert User-Edit)."""
+
+        def get(self, model, rid):
+            counter["reads"] += 1
+            if counter["reads"] >= 2:
+                # User-Edit zwischen Baseline-Read und Write-Check
+                self.rec.segments = [{"start": 0, "end": 1, "text": "User-Korrektur"}]
+            return self.rec
+
+    # Aligner down → _run_align_phase gibt segments unverändert zurück,
+    # aber der Guard vergleicht trotzdem: Baseline != aktuell → skipped.
+    from app import aligner_client as ac
+
+    monkeypatch.setattr(ac, "ALIGN_URL", "http://127.0.0.1:1")
+
+    rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
+    monkeypatch.setattr(svc, "Session", lambda engine: _MutableFakeSession(rec))
+    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+
+    svc._run_background_align(7)
+    assert rec.alignment == "skipped"
