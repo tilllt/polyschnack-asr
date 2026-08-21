@@ -157,6 +157,12 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   const [editText, setEditText] = useState("");
   // Change 077: Cursor-Position für die Edit-Textarea (Doppelklick-Wort).
   const [editCursor, setEditCursor] = useState<{ start: number; end: number } | null>(null);
+  // Change 077-Fix (Mobile 2026-08-21): letzter Touch-Tap (Segment + Wort
+  // + Zeitstempel) für den Doppeltap-Detektor — iOS/Android feuern kein
+  // onDoubleClick bei Touch, und die native Wort-Selektion gibt es auf
+  // Touch nicht (user-select:none, Change 013). Zwei Taps auf dasselbe
+  // Wort innerhalb 350 ms öffnen den Edit-Modus mit Cursor auf dem Wort.
+  const lastTouchTapRef = useRef<{ idx: number; wi: number; t: number } | null>(null);
 
   // Change 067-Fix: eigenes editing-Flag in die Awareness melden —
   // Andere sehen „X bearbeitet gerade" nur, während wirklich ein
@@ -471,6 +477,32 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   }
   useEffect(() => cancelClickTimer, []);
 
+  // Change 077: Gemeinsamer Edit-Einstieg für Desktop-Doppelklick UND
+  // Touch-Doppeltap (Fix 2026-08-21). charStart/charEnd = Cursor-Range
+  // in der Textarea; Desktop liefert sie aus der Browser-Wort-Selektion
+  // (selectionCharRange), Touch aus wordRangeToCharRange des getippten
+  // Wortes (native Selektion gibt es auf Touch nicht).
+  function openEditorAt(i: number, charStart?: number, charEnd?: number) {
+    if (!recordingId) return;
+    // Erster Klick des Doppelklicks/Doppeltaps: Playback-Timer verwerfen —
+    // Doppelklick = Edit-Modus, KEIN Playback.
+    cancelClickTimer();
+    // Change 013: Doppelklick darf kein Split-Symbol hinterlassen —
+    // die Browser-Wort-Selektion des Doppelklicks setzt sonst über
+    // handleTextMouseUp einen Anker, der im Edit stört.
+    setSplitAnchor(null);
+    setSplitSpeakerOpen(false);
+    setSplitPopoverOpen(false);
+    setTouchSel(null);
+    setEditingIdx(i);
+    setEditText(shown[i]?.text ?? "");
+    setEditCursor(
+      charStart !== undefined && charEnd !== undefined
+        ? { start: charStart, end: charEnd }
+        : null,
+    );
+  }
+
   // ── Feature 2026-08-15: draggable Grenz-Marker ─────────────────────
   // Ziehen nach OBEN (dy < 0) = Grenze in der Zeit zurück → Segment N
   // verliert am Ende Wörter, Segment N+1 gewinnt vorne (moveBoundary
@@ -666,13 +698,42 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   function handleTextPointerUp(i: number) {
     const ts = touchSel;
     if (!ts || ts.idx !== i) return;
-    // Fix 2026-08-18 (User-Vorgabe): Ein TAP auf ein Wort ist ein Klick
-    // (= Play ab dem Wort) und KEINE Markierung — kein Split-Anker. Erst
-    // ein Drag über 2+ Wörter markiert und zeigt das Split-Symbol.
-    if (ts.startWord === ts.endWord) return;
+    // Change 077-Fix (Mobile 2026-08-21): TAP-Zweig — Doppeltap auf
+    // dasselbe Wort = Edit-Modus mit Cursor auf dem Wort. iOS/Android
+    // feuern bei Touch kein onDoubleClick (Desktop-Event), und die native
+    // Wort-Selektion existiert auf Touch nicht (user-select:none,
+    // Change 013) — deshalb über die Pointer-Events: zwei Taps auf
+    // dasselbe Wort innerhalb 350 ms öffnen den Editor. Wort-Char-Range
+    // aus wordRangeToCharRange (analog Desktop: selectionCharRange).
+    if (ts.startWord === ts.endWord) {
+      const now = Date.now();
+      const prev = lastTouchTapRef.current;
+      lastTouchTapRef.current = { idx: i, wi: ts.startWord, t: now };
+      if (
+        prev &&
+        prev.idx === i &&
+        prev.wi === ts.startWord &&
+        now - prev.t <= 350
+      ) {
+        // Doppeltap erkannt: Ref zurücksetzen (kein Triple-Tap-Fehlstart)
+        lastTouchTapRef.current = null;
+        const words = (shown[i]?.words ?? []) as ResegWord[];
+        const r = wordRangeToCharRange(words, ts.startWord, ts.startWord);
+        openEditorAt(i, r?.start, r?.end);
+        return;
+      }
+      // Einfacher TAP = Klick (= Play ab dem Wort) und KEINE Markierung —
+      // kein Split-Anker. (Fix 2026-08-18: Erst ein Drag über 2+ Wörter
+      // markiert und zeigt das Split-Symbol.)
+      return;
+    }
     // Fix 2026-08-17: Markierung NACH dem Loslassen sichtbar lassen —
     // sie verschwindet erst beim Klick aufs Split-Symbol (dort
     // setTouchSel(null) + Popover). Kein setTouchSel(null) hier!
+    // Change 077-Fix (Mobile): ein DRAG ist kein Tap — den Doppeltap-Zähler
+    // zurücksetzen, sonst zählte ein schneller Tap nach dem Drag als
+    // zweiter Tap (Fehlstart des Edit-Modus).
+    lastTouchTapRef.current = null;
     const words = (shown[i]?.words ?? []) as ResegWord[];
     if (words.length === 0) return;
     const r = wordRangeToCharRange(words, ts.startWord, ts.endWord);
@@ -833,18 +894,6 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
           onClick={() => scheduleClick(() => handleClick(i))}
           onDoubleClick={() => {
             if (!recordingId) return;
-            // Erster Klick des Doppelklicks: Playback-Timer verwerfen —
-            // Doppelklick = Edit-Modus, KEIN Playback.
-            cancelClickTimer();
-            // Change 013: Doppelklick darf kein Split-Symbol hinterlassen —
-            // die Browser-Wort-Selektion des Doppelklicks setzt sonst über
-            // handleTextMouseUp einen Anker, der im Edit stört.
-            setSplitAnchor(null);
-            setSplitSpeakerOpen(false);
-            setSplitPopoverOpen(false);
-            setTouchSel(null);
-            setEditingIdx(i);
-            setEditText(seg.text);
             // Change 077 (Doppelklick-Cursor): der Browser hat beim
             // Doppelklick genau das geklickte Wort selektiert — diese Range
             // (in Zeichen des Segment-Texts) merken; die Textarea setzt den
@@ -852,10 +901,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             // Textende/-anfang und man musste die Stelle neu suchen.
             const rowEl = rowRefs.current[i];
             const textEl = rowEl?.querySelector("[data-split-container]");
-            if (textEl) {
-              const r = selectionCharRange(textEl as HTMLElement, seg.text);
-              setEditCursor(r ? { start: r.start, end: r.end } : null);
-            }
+            let r: { start: number; end: number } | null = null;
+            if (textEl) r = selectionCharRange(textEl as HTMLElement, seg.text);
+            openEditorAt(i, r?.start, r?.end);
           }}
           onKeyDown={(e) => {
             // Guard: Tasten in Edit-Feldern (Text-Edit, Sprecher-Rename)

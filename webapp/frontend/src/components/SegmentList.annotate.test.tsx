@@ -4,8 +4,29 @@
  * Wort-Spans (data-word-index) + mouseup auf dem Split-Container.
  */
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { LocaleProvider } from "../useLocale";
+
+// jsdom 25 hat kein window.PointerEvent — fireEvent.pointerDown erzeugt
+// dann ein generisches Event OHNE pointerType, und die Touch-Handler
+// (handleTextPointerDown: `e.pointerType !== "touch" → return`) feuern
+// nie. Echte Browser haben PointerEvent immer; hier minimal polyfillen,
+// damit die Touch-Pointer-Tests die Realität abbilden.
+beforeAll(() => {
+  if (typeof window.PointerEvent === "undefined") {
+    class PointerEventPolyfill extends MouseEvent {
+      pointerType: string;
+      isPrimary: boolean;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerType = params.pointerType ?? "mouse";
+        this.isPrimary = params.isPrimary ?? true;
+      }
+    }
+    (window as unknown as { PointerEvent: typeof PointerEvent }).PointerEvent =
+      PointerEventPolyfill as unknown as typeof PointerEvent;
+  }
+});
 
 vi.mock("../hooks/useYjsTranscription", () => ({
   useYjsTranscription: () => ({
@@ -180,5 +201,47 @@ describe("SegmentList — Change 077 Fixes", () => {
     vi.waitFor(() => {
       expect(onSeekTo).not.toHaveBeenCalled();
     });
+  });
+
+  // Change 077-Fix (Mobile 2026-08-21): iOS/Android feuern bei Touch kein
+  // onDoubleClick, und die native Wort-Selektion gibt es dort nicht
+  // (user-select:none). Der Edit-Einstieg läuft deshalb über den
+  // Doppeltap-Detektor (2 Taps auf dasselbe Wort ≤ 350 ms) — dieser Test
+  // simuliert den Touch-Pfad über Pointer-Events mit pointerType touch.
+  it("Touch: Doppeltap auf ein Wort öffnet den Edit-Modus mit Cursor am Wort", () => {
+    const { container } = renderList(undefined, { onEdited: vi.fn() });
+    const spans = container.querySelectorAll("[data-word-index]");
+    const w1 = spans[1] as HTMLElement; // „Welt" (Char 6–10)
+    // Zwei Taps auf dasselbe Wort (Pointer-Events wie ein echter Touch)
+    fireEvent.pointerDown(w1, { pointerType: "touch" });
+    fireEvent.pointerUp(w1, { pointerType: "touch" });
+    fireEvent.pointerDown(w1, { pointerType: "touch" });
+    fireEvent.pointerUp(w1, { pointerType: "touch" });
+    const ta = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(ta).toBeTruthy();
+    // Cursor an der Doppeltap-Stelle („Hallo " = 6, „Welt" = 4)
+    expect(ta.selectionStart).toBe(6);
+    expect(ta.selectionEnd).toBe(10);
+  });
+
+  it("Touch: einfacher Tap startet KEINEN Edit-Modus", () => {
+    const { container } = renderList(undefined, { onEdited: vi.fn() });
+    const spans = container.querySelectorAll("[data-word-index]");
+    const w1 = spans[1] as HTMLElement;
+    fireEvent.pointerDown(w1, { pointerType: "touch" });
+    fireEvent.pointerUp(w1, { pointerType: "touch" });
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("Touch: Doppeltap auf VERSCHIEDENE Wörter startet KEINEN Edit-Modus", () => {
+    const { container } = renderList(undefined, { onEdited: vi.fn() });
+    const spans = container.querySelectorAll("[data-word-index]");
+    const w0 = spans[0] as HTMLElement; // „Hallo"
+    const w1 = spans[1] as HTMLElement; // „Welt"
+    fireEvent.pointerDown(w0, { pointerType: "touch" });
+    fireEvent.pointerUp(w0, { pointerType: "touch" });
+    fireEvent.pointerDown(w1, { pointerType: "touch" });
+    fireEvent.pointerUp(w1, { pointerType: "touch" });
+    expect(container.querySelector("textarea")).toBeNull();
   });
 });

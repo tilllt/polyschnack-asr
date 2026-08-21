@@ -11,6 +11,13 @@
 - [x] onDoubleClick: Browser-Wort-Selection → `selectionCharRange` → nach
       focus() `setSelectionRange(start, end)` auf der Textarea
 - [x] Cursor-Setup NACH dem Auto-Grow (Höhe) — erst dann setSelectionRange
+- [x] **Mobile-Fix 2026-08-21:** Touch-Doppeltap-Detektor (lastTouchTapRef,
+      zwei Taps auf dasselbe Wort ≤350 ms) → Edit-Modus mit Cursor am Wort;
+      gemeinsamer Einstieg openEditorAt(i, charStart, charEnd) für Desktop-
+      und Touch-Pfad; Drag setzt Tap-Zähler zurück
+- [x] Test: Touch-Doppeltap öffnet Edit mit Cursor (selectionStart 6/End 10);
+      einfacher Tap und Doppeltap auf verschiedene Wörter = kein Edit
+      (3 Tests, PointerEvent-Polyfill für jsdom 25)
 
 ## T3 — Fix 3: Playback-Gating (WaveformPlayer.tsx + RecordingCard.tsx)
 - [x] Root Cause: WaveSurfer-Default `interact:true` startet Play direkt beim
@@ -42,9 +49,10 @@
 - [x] AnnotationThreads.test.tsx: Scope-Modus (nur activeId sichtbar),
       Export-Format, kein-Thread-ohne-activeId + 12 bestehende
 - [x] SegmentList.annotate.test.tsx: Edit-Save zeigt Text sofort (localTexts),
-      Doppelklick-Cursor-Range, Markierung startet kein Playback (6 Tests)
-- [x] Gates: tsc --noEmit 0, npm test 265/265, npm run build ok
-- [ ] Backend-Vollsuite (läuft: proc_a7380afc38df)
+      Doppelklick-Cursor-Range, Markierung startet kein Playback + 3
+      Touch-Doppeltap-Tests (9 Tests gesamt)
+- [x] Gates: tsc --noEmit 0, npm test 268/268, npm run build ok
+- [x] Backend-Vollsuite GESAMT fail=0 (proc_a7380afc38df, SUITE_EXIT=0)
 
 ## T7 — Doku
 - [x] docs/webui.md: Annotation-Scope-Konzept + Export-Button dokumentiert

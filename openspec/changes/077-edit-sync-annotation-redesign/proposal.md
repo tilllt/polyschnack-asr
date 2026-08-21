@@ -63,6 +63,26 @@ Beim `onDoubleClick`: Browser selektiert das Wort → `selectionCharRange`
 Textarea `setSelectionRange(r.start, r.end)` (bzw. Cursor an r.start,
 Ende der Wort-Auswahl). Damit steht der Cursor exakt am Doppelklick-Wort.
 
+**Mobile-Fix 2026-08-21 (User-Befund: „funktioniert auf mobile immer
+noch nicht"):** iOS/Android feuern bei Touch KEIN `onDoubleClick`
+(Desktop-Mouse-Event), und die native Wort-Selektion existiert auf Touch
+nicht (`user-select:none` via pointer-coarse, Change 013) — beide
+Desktop-Mechanismen greifen auf Mobile nie.
+
+Lösung: **Touch-Doppeltap-Detektor über das bestehende Pointer-System**
+(`touchSel`). In `handleTextPointerUp` zählt ein Tap-Ref
+(`lastTouchTapRef`: Segment + Wort + Zeitstempel); zwei Taps auf
+DASSELBE Wort innerhalb 350 ms öffnen den Edit-Modus mit Cursor auf dem
+Wort — die Char-Range kommt aus `wordRangeToCharRange(words, wi, wi)`
+(analog Desktop: selectionCharRange). Ein Drag (2+ Wörter) setzt den
+Tap-Zähler zurück (kein Fehlstart nach Markieren).
+
+Gemeinsamer Einstieg `openEditorAt(i, charStart?, charEnd?)` für beide
+Pfade: cancelt den Playback-Timer (Doppeltap ≠ Play), räumt
+Split-Anker/Popover/Touch-Markierung und setzt `editingIdx` + `editText`
++ `editCursor`. Desktop-Doppelklick ruft ihn mit der
+`selectionCharRange`-Range, Touch-Doppeltap mit der Wort-Range.
+
 ### Fix 3 — Playback-Gating (WaveformPlayer.tsx)
 
 **Root Cause:** WaveSurfer-Default `interact: true` startet beim Klick auf
@@ -156,6 +176,9 @@ Name), eingerückte Antworten mit Autor/Datum. i18n de/en/pt.
       Edit-Öffnen oder Hin-und-Her) — localTexts + pending-Guard, Test grün
 - [x] Doppelklick → Cursor in der Textarea am Doppelklick-Wort
       (selectionCharRange → setSelectionRange, Test grün)
+- [x] Mobile: Doppeltap auf dasselbe Wort (≤350 ms) öffnet den Edit-Modus
+      mit Cursor am Wort (lastTouchTapRef + wordRangeToCharRange;
+      einfacher Tap und Tap auf verschiedene Wörter = kein Edit, Tests grün)
 - [x] Play ohne geladenes Audio: kein Pfad startet Playback (Button,
       Space, Seek, Waveform-Klick via interact:false + canPlay-Guard)
 - [x] Text markieren (Split/Annotation) startet NIE Playback
