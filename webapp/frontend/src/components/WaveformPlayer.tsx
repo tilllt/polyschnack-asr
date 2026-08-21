@@ -270,6 +270,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         ws = WaveSurfer.create({
           container: containerRef.current,
           backend: backend,
+          // Change 077 (Playback-Regression 2026-08-21): WaveSurfer-Default
+          // `interact:true` startet beim Klick auf die Waveform sofort Play —
+          // auch wenn die Audio-Datei noch nicht geladen/dekodiert ist
+          // (Cursor läuft über die Server-Peaks, aber kein Ton). Interact
+          // aus; der eigene Click-Handler unten sucht + spielt NUR bei
+          // canPlay (echter Decode-Buffer vorhanden).
+          interact: false,
           waveColor: "rgba(91,140,255,0.3)",
           progressColor: "rgba(91,140,255,0.8)",
           cursorColor: "#3b82f6",
@@ -474,6 +481,26 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       regions.on("region-updated", (r) => onRegionRef.current?.(r.start, r.end));
 
+      // ── Change 077: eigener Waveform-Klick (interact:false ersetzt) ──
+      // WaveSurfer-`interact` ist aus (kein Play vor Decode). Klick auf die
+      // Waveform sucht zur Position und spielt NUR bei canPlay (echter
+      // Decode-Buffer/MediaElement readyState>=3); sonst nur Seek pausiert.
+      // So funktioniert „klicken zum Hören" wie gewohnt, aber nie stumm.
+      const onContainerClick = (e: MouseEvent) => {
+        if (!canPlayRef.current) return; // kein Play-Pfad vor Decode
+        const el = containerRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const ratio = (e.clientX - rect.left) / rect.width;
+        const dur = ws.getDuration();
+        if (!(dur > 0)) return;
+        const t = Math.max(0, Math.min(dur, ratio * dur));
+        ws.setTime(t);
+        ws.play();
+      };
+      containerRef.current.addEventListener("click", onContainerClick);
+
       // ── Karaoke-Timing: rAF-Sync-Loop (2026-08-14) ──
       // `timeupdate` feuert nur ~4x/Sekunde (Browser-HTMLMediaElement) — das
       // Wort-Highlight hinkte dadurch bis 250ms hinterher („beginnt genau,
@@ -537,6 +564,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       regionsRef.current = regions;
       return () => {
         cancelled = true;
+        containerRef.current?.removeEventListener("click", onContainerClick);
         window.clearInterval(decodePoll);
         window.clearTimeout(canPlayTimeout);
         if (timerRef.current) {

@@ -48,13 +48,18 @@ function ann(over: Partial<Annotation>): Annotation {
 }
 
 function renderThreads(annotations: Annotation[], opts: { canEdit?: boolean; activeId?: number | null; onSeek?: (t: number) => void } = {}) {
+  // Change 077 (Scope-Modus): ohne explizite activeId wird im Test die
+  // ERSTE Top-Level-Annotation als Scope aktiv gesetzt — die Thread-
+  // Interaktionen (Reply/Mention/Edit) brauchen einen sichtbaren Thread.
+  const defaultActive = annotations.find((a) => a.parent_id === null)?.id ?? null;
+  const activeId = opts.activeId !== undefined ? opts.activeId : defaultActive;
   return render(
     <LocaleProvider>
       <AnnotationThreads
         rid="r1"
         annotations={annotations}
         canEdit={opts.canEdit ?? true}
-        activeId={opts.activeId ?? null}
+        activeId={activeId}
         onSeek={opts.onSeek}
       />
     </LocaleProvider>,
@@ -142,5 +147,56 @@ describe("AnnotationThreads (Change 056)", () => {
       expect(deleteAnnotation).toHaveBeenCalledWith(1);
       expect(invalidate).toHaveBeenCalled();
     });
+  });
+});
+
+describe("AnnotationThreads Scope-Modus (Change 077)", () => {
+  it("zeigt NUR die aktive Annotation + Antworten, andere Threads sind unsichtbar", () => {
+    renderThreads(
+      [
+        ann({ id: 1, body: "Erster Thread" }),
+        ann({ id: 2, body: "Antwort auf 1", parent_id: 1 }),
+        ann({ id: 3, uid: "a3", body: "Zweiter Thread (nicht im Scope)" }),
+      ],
+      { activeId: 1 },
+    );
+    expect(screen.getByText("Erster Thread")).toBeTruthy();
+    expect(screen.getByText("Antwort auf 1")).toBeTruthy();
+    // Nicht-im-Scope-Thread wird NICHT gerendert (keine endlose Liste)
+    expect(screen.queryByText("Zweiter Thread (nicht im Scope)")).toBeNull();
+  });
+
+  it("ohne aktive Annotation: kein Thread, aber Export-Button bleibt", () => {
+    const { container } = renderThreads([ann({ id: 1, body: "Thread" })], { activeId: null });
+    expect(container.querySelector("[data-active]")).toBeNull();
+    expect(screen.getByTestId("annot-export")).toBeTruthy();
+  });
+
+  it("Export erzeugt txt-Download mit Zeitfenster, Autor und Antworten", () => {
+    const createURL = vi.fn((_b: Blob) => "blob:mock");
+    const revokeURL = vi.fn();
+    const click = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL: createURL, revokeObjectURL: revokeURL });
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName?: string) => {
+      const el = realCreateElement(tagName ?? "div") as HTMLElement;
+      if (tagName === "a") {
+        (el as HTMLAnchorElement).click = click;
+      }
+      return el;
+    });
+    renderThreads(
+      [
+        ann({ id: 1, body: "Hallo **Welt**" }),
+        ann({ id: 2, body: "Antwort [@ben](#mention:ben)", parent_id: 1 }),
+      ],
+      { activeId: 1 },
+    );
+    fireEvent.click(screen.getByTestId("annot-export"));
+    expect(createURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    const blob = createURL.mock.calls[0]?.[0] as unknown as Blob;
+    expect(blob?.type).toBe("text/plain;charset=utf-8");
+    vi.restoreAllMocks();
   });
 });

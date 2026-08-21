@@ -78,12 +78,22 @@ zwei Versionen und **Restore** auf einen beliebigen Stand.
 
 Geteilte Aufnahmen sind in der Liste markiert („🔗 Geteilt"-Badge).
 
-## Annotate — zeitgebundene Kommentare (Change 056)
+## Annotate — zeitgebundene Kommentare (Change 056/077)
 
 Text markieren → 💬 öffnet den Kommentar-Dialog. Kommentare hängen an der
-**Zeitposition**, erscheinen als Marker auf der Timeline und als Threads
-unter der Transkription (Markdown + `@name`-Mentions). Andere User können
-antworten. Klick auf eine Annotation springt zur Stelle.
+**Zeitposition**, erscheinen als Marker auf der Timeline und als
+**Markierung im Transkript** (lila hervorgehobene Passage, Change 077).
+Andere User können antworten.
+
+**Scope-Modus (Change 077):** Unter der Transkription steht KEINE endlose
+Thread-Liste mehr — sichtbar ist immer nur die Annotation, die gerade im
+Scope liegt (Playback-Fenster oder Klick auf Waveform-Marker /
+Text-Markierung), samt Antworten. Der Klick auf eine Markierung scrollt
+die Transkription zur Stelle und öffnet den Thread.
+
+**Export (Change 077):** Der Button **„Annotationen exportieren"** lädt
+alle Annotationen als `.txt` (Zeitfenster, Autor, Datum, Body, Antworten
+eingerückt) — gleiche Download-Mechanik wie der Transkriptions-Export.
 
 ## Export & Download
 

@@ -59,6 +59,7 @@ export function AnnotationThreads({ rid, annotations, isLoading = false, canEdit
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exported, setExported] = useState(false);
 
   const meQuery = useQuery({ queryKey: ["me"] as const, queryFn: fetchMe });
   const mySub = meQuery.data?.sub ?? null;
@@ -74,6 +75,65 @@ export function AnnotationThreads({ rid, annotations, isLoading = false, canEdit
     }
     return m;
   }, [annotations]);
+
+  // Change 077 (Scope-Modus): statt der endlosen Liste ist NUR die
+  // Annotation sichtbar, die gerade im Scope liegt — das ist die aktive
+  // (Playback-Fenster via activeId ODER Klick auf Waveform-/Text-Markierung,
+  // die setzt activeId im Parent). Keine aktive Annotation → nichts wird
+  // gerendert (kein Listen-Scrollen mehr; User-Vorgabe 2026-08-21).
+  const activeTop = useMemo(() => {
+    if (activeId == null) return null;
+    const direct = tops.find((t) => t.id === activeId);
+    if (direct) return direct;
+    // Antwort aktiv → zugehörige Top-Level-Annotation finden.
+    for (const t of tops) {
+      if ((repliesByParent.get(t.id) ?? []).some((r) => r.id === activeId)) return t;
+    }
+    return null;
+  }, [activeId, tops, repliesByParent]);
+
+  // Change 077: Export als .txt (Blob-Download) — gleiches Muster wie der
+  // Transkriptions-Export (Datei zum Speichern), nur clientseitig erzeugt.
+  // Format: je Top-Level-Annotation Zeitfenster, Autor, Datum, Body
+  // (Markdown als Klartext), eingerückte Antworten.
+  function exportAnnotations() {
+    const lines: string[] = [];
+    for (const top of tops) {
+      lines.push(`[${fmtTime(top.start_s)}–${fmtTime(top.end_s)}] ${top.user_name ?? "Anonym"} (${fmtDate(top.created_at ?? "")})`);
+      lines.push("─".repeat(Math.min(64, 8 + (top.user_name ?? "Anonym").length)));
+      lines.push(stripMarkdown(top.body));
+      const replies = repliesByParent.get(top.id) ?? [];
+      for (const rep of replies) {
+        lines.push("");
+        lines.push(`  → ${rep.user_name ?? "Anonym"} (${fmtDate(rep.created_at ?? "")}):`);
+        lines.push(`    ${indentReply(stripMarkdown(rep.body))}`);
+      }
+      lines.push("");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `annotations-${rid}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setExported(true);
+    window.setTimeout(() => setExported(false), 2500);
+  }
+
+  // Change 077: Markdown-Verweise in Klartext für den Export.
+  function stripMarkdown(body: string): string {
+    return body
+      .replace(/\[([^\]]*)\]\(#mention:[^)]*\)/g, "$1") // Mentions → Name
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // Links → Text
+      .replace(/[*_`#>\-]/g, "") // Markdown-Zeichen raus
+      .trim();
+  }
+  function indentReply(body: string): string {
+    return body.replace(/\n/g, "\n    ");
+  }
 
   async function invalidate() {
     await qc.invalidateQueries({ queryKey: ["annotations", rid] });
@@ -164,196 +224,215 @@ export function AnnotationThreads({ rid, annotations, isLoading = false, canEdit
 
   return (
     <div className="mt-3 flex flex-col gap-2" data-testid="annotation-threads">
-      {tops.map((top) => {
-        const replies = repliesByParent.get(top.id) ?? [];
-        const isActive = activeId === top.id || replies.some((r) => r.id === activeId);
-        const isAuthor = mySub !== null && top.user_sub === mySub;
-        const canEditThis = canEdit && isAuthor;
-        return (
-          <div
-            key={top.id}
-            className={`rounded-sm border p-2 transition-colors ${
-              isActive
-                ? "border-accent bg-accent/5"
-                : "border-border2 bg-panel2"
-            }`}
-            data-active={isActive ? "1" : "0"}
-          >
-            {/* Kopf: Autor + Zeitfenster */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[12px] font-semibold text-txt">
-                {top.user_name ?? t("annot_anonymous")}
-              </span>
-              <span className="text-[11px] text-muted2">
-                {fmtDate(top.created_at ?? "")}
-              </span>
-              {onSeek && (
-                <button
-                  onClick={() => onSeek(top.start_s)}
-                  className="text-[11px] px-1.5 py-[1px] rounded-sm border border-border2 text-accent hover:bg-accent/10 transition-colors"
-                  title={t("annot_seek_hint")}
-                >
-                  ▶ {fmtTime(top.start_s)}–{fmtTime(top.end_s)}
-                </button>
-              )}
-              {canEditThis && !busy && (
-                <span className="ml-auto flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setEditingId(top.id);
-                      setEditDraft(top.body);
-                    }}
-                    aria-label={t("annot_edit")}
-                    title={t("annot_edit")}
-                    className="text-muted2 hover:text-accent transition-colors"
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    onClick={() => remove(top.id)}
-                    aria-label={t("annot_delete")}
-                    title={t("annot_delete")}
-                    className="text-muted2 hover:text-err transition-colors"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+      {/* Change 077: Export-Button (immer sichtbar, wenn Annotationen
+          existieren) — gleiche Mechanik wie der Transkriptions-Export:
+          Datei zum Speichern, hier clientseitig als .txt erzeugt. */}
+      <div className="flex items-center justify-end">
+        <button
+          onClick={exportAnnotations}
+          data-testid="annot-export"
+          className="text-[11px] px-1.5 py-[1px] rounded-sm border border-border2 text-muted2 hover:text-accent hover:border-accent/40 transition-colors"
+          title={t("annot_export_hint")}
+        >
+          {exported ? "✓ " : ""}{t("annot_export")}
+        </button>
+      </div>
+      {/* Change 077 (Scope-Modus): NUR die aktive Annotation (Playback-
+          Fenster/Klick) + Antworten. Ohne aktive Annotation: nichts —
+          die Markierung im Text bleibt als Einstiegspunkt. */}
+      {activeTop ? (
+        (() => {
+          const top = activeTop;
+          const replies = repliesByParent.get(top.id) ?? [];
+          const isActive = activeId === top.id || replies.some((r) => r.id === activeId);
+          const isAuthor = mySub !== null && top.user_sub === mySub;
+          const canEditThis = canEdit && isAuthor;
+          return (
+            <div
+              key={top.id}
+              className={`rounded-sm border p-2 transition-colors ${
+                isActive
+                  ? "border-accent bg-accent/5"
+                  : "border-border2 bg-panel2"
+              }`}
+              data-active={isActive ? "1" : "0"}
+            >
+              {/* Kopf: Autor + Zeitfenster */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[12px] font-semibold text-txt">
+                  {top.user_name ?? t("annot_anonymous")}
                 </span>
-              )}
-            </div>
-
-            {/* Body (Markdown + Mentions) bzw. Edit-Textarea */}
-            {editingId === top.id ? (
-              <div className="mt-1.5 flex items-start gap-1">
-                <textarea
-                  value={editDraft}
-                  onChange={(e) => setEditDraft(e.target.value)}
-                  className="flex-1 min-w-0 bg-panel border border-accent/50 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none"
-                  rows={3}
-                />
-                <button
-                  onClick={() => saveEdit(top.id)}
-                  aria-label={t("annot_save")}
-                  className="text-accent hover:text-accent/80 mt-0.5"
-                >
-                  <Check size={14} />
-                </button>
-                <button
-                  onClick={() => setEditingId(null)}
-                  aria-label={t("split_segment_cancel")}
-                  className="text-muted2 hover:text-txt mt-0.5"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="mt-1 text-[13px] text-txt leading-[1.5] prose-sm [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4">
-                {md(top)}
-              </div>
-            )}
-
-            {/* Antworten */}
-            {replies.length > 0 && (
-              <div className="mt-2 ml-3 border-l-2 border-border2 pl-2 flex flex-col gap-1.5">
-                {replies.map((rep) => {
-                  const repIsActive = activeId === rep.id;
-                  const repIsAuthor = mySub !== null && rep.user_sub === mySub;
-                  const canEditRep = canEdit && repIsAuthor;
-                  return (
-                    <div
-                      key={rep.id}
-                      className={`rounded-sm border p-1.5 ${
-                        repIsActive ? "border-accent bg-accent/5" : "border-border2"
-                      }`}
-                      data-active={repIsActive ? "1" : "0"}
+                <span className="text-[11px] text-muted2">
+                  {fmtDate(top.created_at ?? "")}
+                </span>
+                {onSeek && (
+                  <button
+                    onClick={() => onSeek(top.start_s)}
+                    className="text-[11px] px-1.5 py-[1px] rounded-sm border border-border2 text-accent hover:bg-accent/10 transition-colors"
+                    title={t("annot_seek_hint")}
+                  >
+                    ▶ {fmtTime(top.start_s)}–{fmtTime(top.end_s)}
+                  </button>
+                )}
+                {canEditThis && !busy && (
+                  <span className="ml-auto flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setEditingId(top.id);
+                        setEditDraft(top.body);
+                      }}
+                      aria-label={t("annot_edit")}
+                      title={t("annot_edit")}
+                      className="text-muted2 hover:text-accent transition-colors"
                     >
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[11px] font-semibold text-txt">
-                          {rep.user_name ?? t("annot_anonymous")}
-                        </span>
-                        <span className="text-[10px] text-muted2">
-                          {fmtDate(rep.created_at ?? "")}
-                        </span>
-                        {canEditRep && !busy && (
-                          <span className="ml-auto flex items-center gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingId(rep.id);
-                                setEditDraft(rep.body);
-                              }}
-                              aria-label={t("annot_edit")}
-                              className="text-muted2 hover:text-accent transition-colors"
-                            >
-                              <Pencil size={11} />
-                            </button>
-                            <button
-                              onClick={() => remove(rep.id)}
-                              aria-label={t("annot_delete")}
-                              className="text-muted2 hover:text-err transition-colors"
-                            >
-                              <Trash2 size={11} />
-                            </button>
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={() => remove(top.id)}
+                      aria-label={t("annot_delete")}
+                      title={t("annot_delete")}
+                      className="text-muted2 hover:text-err transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              {/* Body (Markdown + Mentions) bzw. Edit-Textarea */}
+              {editingId === top.id ? (
+                <div className="mt-1.5 flex items-start gap-1">
+                  <textarea
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    className="flex-1 min-w-0 bg-panel border border-accent/50 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none"
+                    rows={3}
+                  />
+                  <button
+                    onClick={() => saveEdit(top.id)}
+                    aria-label={t("annot_save")}
+                    className="text-accent hover:text-accent/80 mt-0.5"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    aria-label={t("split_segment_cancel")}
+                    className="text-muted2 hover:text-txt mt-0.5"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-1 text-[13px] text-txt leading-[1.5] prose-sm [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4">
+                  {md(top)}
+                </div>
+              )}
+
+              {/* Antworten */}
+              {replies.length > 0 && (
+                <div className="mt-2 ml-3 border-l-2 border-border2 pl-2 flex flex-col gap-1.5">
+                  {replies.map((rep) => {
+                    const repIsActive = activeId === rep.id;
+                    const repIsAuthor = mySub !== null && rep.user_sub === mySub;
+                    const canEditRep = canEdit && repIsAuthor;
+                    return (
+                      <div
+                        key={rep.id}
+                        className={`rounded-sm border p-1.5 ${
+                          repIsActive ? "border-accent bg-accent/5" : "border-border2"
+                        }`}
+                        data-active={repIsActive ? "1" : "0"}
+                      >
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-txt">
+                            {rep.user_name ?? t("annot_anonymous")}
                           </span>
+                          <span className="text-[10px] text-muted2">
+                            {fmtDate(rep.created_at ?? "")}
+                          </span>
+                          {canEditRep && !busy && (
+                            <span className="ml-auto flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingId(rep.id);
+                                  setEditDraft(rep.body);
+                                }}
+                                aria-label={t("annot_edit")}
+                                className="text-muted2 hover:text-accent transition-colors"
+                              >
+                                <Pencil size={11} />
+                              </button>
+                              <button
+                                onClick={() => remove(rep.id)}
+                                aria-label={t("annot_delete")}
+                                className="text-muted2 hover:text-err transition-colors"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                        {editingId === rep.id ? (
+                          <div className="mt-1 flex items-start gap-1">
+                            <textarea
+                              value={editDraft}
+                              onChange={(e) => setEditDraft(e.target.value)}
+                              className="flex-1 min-w-0 bg-panel border border-accent/50 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none"
+                              rows={2}
+                            />
+                            <button
+                              onClick={() => saveEdit(rep.id)}
+                              aria-label={t("annot_save")}
+                              className="text-accent hover:text-accent/80 mt-0.5"
+                            >
+                              <Check size={13} />
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              aria-label={t("split_segment_cancel")}
+                              className="text-muted2 hover:text-txt mt-0.5"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 text-[12px] text-txt leading-[1.45]">
+                            {md(rep)}
+                          </div>
                         )}
                       </div>
-                      {editingId === rep.id ? (
-                        <div className="mt-1 flex items-start gap-1">
-                          <textarea
-                            value={editDraft}
-                            onChange={(e) => setEditDraft(e.target.value)}
-                            className="flex-1 min-w-0 bg-panel border border-accent/50 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none"
-                            rows={2}
-                          />
-                          <button
-                            onClick={() => saveEdit(rep.id)}
-                            aria-label={t("annot_save")}
-                            className="text-accent hover:text-accent/80 mt-0.5"
-                          >
-                            <Check size={13} />
-                          </button>
-                          <button
-                            onClick={() => setEditingId(null)}
-                            aria-label={t("split_segment_cancel")}
-                            className="text-muted2 hover:text-txt mt-0.5"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="mt-0.5 text-[12px] text-txt leading-[1.45]">
-                          {md(rep)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
 
-            {/* Antwort-Formular (write) */}
-            {canEdit && (
-              <div className="mt-1.5 flex items-start gap-1">
-                <textarea
-                  value={replyDrafts[top.id] ?? ""}
-                  onChange={(e) =>
-                    setReplyDrafts((d) => ({ ...d, [top.id]: e.target.value }))
-                  }
-                  placeholder={`${t("annot_reply_placeholder")} @name`}
-                  className="flex-1 min-w-0 bg-panel border border-border2 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none focus:border-accent placeholder:text-muted2"
-                  rows={2}
-                />
-                <button
-                  onClick={() => saveReply(top.id)}
-                  disabled={busy || !(replyDrafts[top.id] ?? "").trim()}
-                  className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 disabled:opacity-40 transition-colors mt-0.5"
-                >
-                  <MessageSquarePlus size={13} />
-                  {t("annot_reply")}
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+              {/* Antwort-Formular (write) */}
+              {canEdit && (
+                <div className="mt-1.5 flex items-start gap-1">
+                  <textarea
+                    value={replyDrafts[top.id] ?? ""}
+                    onChange={(e) =>
+                      setReplyDrafts((d) => ({ ...d, [top.id]: e.target.value }))
+                    }
+                    placeholder={`${t("annot_reply_placeholder")} @name`}
+                    className="flex-1 min-w-0 bg-panel border border-border2 rounded-sm px-1.5 py-1 text-[12px] text-txt outline-none focus:border-accent placeholder:text-muted2"
+                    rows={2}
+                  />
+                  <button
+                    onClick={() => saveReply(top.id)}
+                    disabled={busy || !(replyDrafts[top.id] ?? "").trim()}
+                    className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 disabled:opacity-40 transition-colors mt-0.5"
+                  >
+                    <MessageSquarePlus size={13} />
+                    {t("annot_reply")}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()
+      ) : null}
     </div>
   );
 }

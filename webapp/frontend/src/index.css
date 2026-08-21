@@ -97,6 +97,28 @@ audio {
   border-radius: 2px;
 }
 
+/* ============================================================
+   ANNOTATION-MARK (Change 077)
+   Text-Markierung annotierter Passagen — eigene Farbe (lila),
+   bewusst getrennt von search-hit (grün) / karaoke-active (gelb) /
+   touch-sel (blau). Layout-neutral wie die anderen Marker: nur
+   background-color + color, kein padding/underline (kein Reflow).
+   .annot-active = die aktuell im Scope liegende Annotation
+   (Playback-Fenster oder Klick) — kräftigere Variante.
+   ============================================================ */
+.annot-mark {
+  background-color: rgba(168, 85, 247, 0.35) !important;
+  color: inherit !important;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.annot-active {
+  background-color: rgba(168, 85, 247, 0.6) !important;
+  color: #ffffff !important;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
 /* Android: lange Touch-Selektion (Google-Popup) auch auf dem
    Segment-Text unterbinden — die App rendert die Markierung selbst
    (.touch-sel). Nur Touch-Geräte (pointer: coarse); Desktop-Maus

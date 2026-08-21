@@ -59,6 +59,19 @@ interface Props {
     charEnd: number;
     preview: string;
   }) => void;
+  /** Change 077: Annotationen (flach) für die Text-Markierung — annotierte
+   *  Zeichenbereiche werden im Transkript mit eigener Farbe markiert. */
+  annotations?: Array<{
+    id: number;
+    segment_idx: number;
+    char_start: number;
+    char_end: number;
+  }>;
+  /** Change 077: aktuell im Scope liegende Annotation (Klick/Waveform) —
+   *  deren Segment wird in den Viewport gescrollt. */
+  activeAnnotationId?: number | null;
+  /** Change 077: Klick auf eine Text-Markierung → Annotation öffnen. */
+  onAnnotateJump?: (a: { id: number; segment_idx: number; start_s: number }) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -101,7 +114,22 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, collabEnabled = false }: Props) {
+/** Change 077: Char-Range JEDES Wortes (analog wordRangeToCharRange, aber
+ *  pro Wort): [start, end) im Segment-Text, Trenn-Space zählt mit. Dient
+ *  der Annotation-Text-Markierung — ein Wort ist annotiert, wenn sein
+ *  Bereich eine Annotation-Range überlappt. */
+function wordCharRanges(words: readonly { word: string }[]): Array<{ start: number; end: number }> {
+  let pos = 0;
+  return words.map((w) => {
+    const s = pos;
+    pos += typeof w.word === "string" ? w.word.length : 0;
+    const e = pos;
+    pos += 1; // Trenn-Space
+    return { start: s, end: e };
+  });
+}
+
+export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -127,6 +155,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   const editAreaRef = useRef<HTMLTextAreaElement>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+  // Change 077: Cursor-Position für die Edit-Textarea (Doppelklick-Wort).
+  const [editCursor, setEditCursor] = useState<{ start: number; end: number } | null>(null);
 
   // Change 067-Fix: eigenes editing-Flag in die Awareness melden —
   // Andere sehen „X bearbeitet gerade" nur, während wirklich ein
@@ -140,7 +170,37 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // des Ziehens zeigt die Liste `dragPreview`, sonst die Prop (Modell).
   // Kein Parent-State, keine Referenz-/Inhalts-Vergleiche zur Sync.
   const [dragPreview, setDragPreview] = useState<Segment[] | null>(null);
-  const shown = dragPreview ?? segmentsProp;
+  // Change 077 (Edit-Sync-Fix): optimistisches lokales Update. Beim
+  // Verlassen des Edit-Mode zeigt die Anzeige SOFORT den neuen Text —
+  // die API/Yjs-Antwort (segmentsProp) kommt erst später. Ohne das zeigte
+  // die Span nach dem Verlassen kurz den ALTEN Text (User-Befund
+  // 2026-08-21: „bearbeite, verlasse Edit → alter Text; erst nach
+  // Hin-und-Her erscheinen die Änderungen").
+  const [localTexts, setLocalTexts] = useState<Segment[] | null>(null);
+  const shown = dragPreview ?? localTexts ?? segmentsProp;
+  // Change 077: pending-Flag während des eigenen Saves + Fingerprint-Guard.
+  // localTexts wird verworfen, sobald (a) die eigene API/Yjs-Antwort den
+  // identischen Stand liefert (Prop gewinnt) oder (b) eine FREMD-Änderung
+  // (anderer Client/Refetch mit anderem Text) ankommt. Solange der eigene
+  // Save läuft (pending), gewinnt KEIN Prop-Wechsel mit anderem Fingerprint
+  // — sonst würde ein paralleler Refetch mit dem ALTEN DB-Stand den
+  // optimistischen Text wieder wegreißen (der ursprüngliche Bug).
+  const localPendingRef = useRef(false);
+  useEffect(() => {
+    if (!localTexts) return;
+    const propFp = segmentsProp.map((s) => s.text ?? "").join("\u0000");
+    const localFp = localTexts.map((s) => s.text ?? "").join("\u0000");
+    if (localPendingRef.current) {
+      if (propFp === localFp) {
+        // Eigene Bestätigung (API-Antwort/Yjs-Roundtrip) → Prop ist die Wahrheit.
+        localPendingRef.current = false;
+        setLocalTexts(null);
+      }
+      return;
+    }
+    // Kein eigener Save pending → jeder Prop-Wechsel ist fremd → Fremd gewinnt.
+    setLocalTexts(null);
+  }, [segmentsProp]);
   const [renameText, setRenameText] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
   // Feature 2026-08-16: Dropdown „Sprecher wählen" (Klick auf den Namen) —
@@ -304,6 +364,25 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     container.scrollTo({ top: targetTop, behavior: "smooth" });
   }, [activeIdx, activeW, editingIdx]);
 
+  // Change 077 (Annotation-Scope): Klick auf Annotation (Waveform-Marker
+  // oder Text-Markierung) → Transkription scrollt zum Segment der
+  // Annotation. Analog zum activeIdx-Scroll: zentriert im Container.
+  useEffect(() => {
+    if (editingIdx !== null) return;
+    if (activeAnnotationId == null) return;
+    const ann = annotations?.find((a) => a.id === activeAnnotationId);
+    const idx = ann?.segment_idx;
+    if (idx == null) return;
+    const container = containerRef.current;
+    const target = rowRefs.current[idx];
+    if (!container || !target) return;
+    const tRect = target.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const relTop = tRect.top - cRect.top + container.scrollTop;
+    const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
+    container.scrollTo({ top: targetTop, behavior: "smooth" });
+  }, [activeAnnotationId, annotations, editingIdx]);
+
   // Auto-focus ohne Anker-Scroll: Das native focus()-Scrollen des Browsers
   // springt in der Segmentliste (Container max-h + overflow) wie zu einem
   // Anchor zur Zeile — auch wenn der Klick die Zeile schon sichtbar gemacht
@@ -323,17 +402,38 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
       const el = editAreaRef.current;
       el.style.height = "auto";
       el.style.height = el.scrollHeight + "px";
+      // Change 077 (Doppelklick-Cursor): Cursor an die Doppelklick-Stelle
+      // setzen — der Browser hat beim Doppelklick das Wort selektiert; die
+      // Range (char_start/end) wurde im onDoubleClick gemerkt. Erst NACH
+      // dem Auto-Grow, sonst springt setSelectionRange durchs Resizing.
+      if (editCursor && el.setSelectionRange) {
+        el.setSelectionRange(editCursor.start, editCursor.end);
+        setEditCursor(null);
+      }
     }
-  }, [editingIdx]);
+  }, [editingIdx, editCursor]);
 
   function handleClick(idx: number) {
     if (editingIdx !== null) return;  // don't seek while editing
+    // Change 077 (Fix 2026-08-21-Regression): Text-Markierung startet
+    // KEIN Playback. Der alte Guard saß nur im Wort-Span-Click; die
+    // ZEILEN-Ebene (role=button, onClick → scheduleClick) umging ihn:
+    // nach einer Markierung im Text feuert der Browser den Click auf dem
+    // Container/der Zeile → Playback startete trotzdem. Guard zentral hier
+    // + im scheduleClick-Timer + in handleWordClick.
+    if (hasActiveTextSelection()) return;
+    if (touchSel && touchSel.idx === idx && touchSel.startWord !== touchSel.endWord) return;
     onActiveChange(idx);
     onSeekTo?.(shown[idx].start);
   }
 
   function handleWordClick(idx: number, seconds: number) {
     if (editingIdx !== null) return;
+    // Change 077: gleicher Markierungs-Guard wie in handleClick — der
+    // Wort-Span-Click prüft die Selection zwar schon, aber der 280-ms-Timer
+    // kann nach dem Loslassen feuern, wenn die Selection noch aktiv ist.
+    if (hasActiveTextSelection()) return;
+    if (touchSel && touchSel.idx === idx && touchSel.startWord !== touchSel.endWord) return;
     onActiveChange(idx);
     onSeekTo?.(seconds);
   }
@@ -349,10 +449,23 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
       clickTimer.current = null;
     }
   }
+  // Change 077 (Regression 2026-08-21): aktive Text-Markierung erkennen —
+  // native Selection nicht kollabiert. Wird VOR jedem Playback-Start
+  // geprüft (Zeilen-Klick, Wort-Klick, 280-ms-Timer), damit Markieren zum
+  // Split/Annotieren nie Playback auslöst.
+  function hasActiveTextSelection(): boolean {
+    const sel = window.getSelection();
+    return !!sel && !sel.isCollapsed && sel.rangeCount > 0;
+  }
   function scheduleClick(fn: () => void) {
     cancelClickTimer();
     clickTimer.current = window.setTimeout(() => {
       clickTimer.current = null;
+      // Change 077: auch hier — der Timer feuert 280 ms nach dem Klick;
+      // ist die Markierung (noch) aktiv (z.B. nach Loslassen über Text),
+      // kein Playback. (Fix 2026-08-18 saß nur im Wort-Span-Click und
+      // wurde von der Zeilen-Ebene umgangen.)
+      if (hasActiveTextSelection()) return;
       fn();
     }, 280);
   }
@@ -416,17 +529,28 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
       // Clients (Yjs) und wird automatisch gespeichert: Autosave nach
       // Debounce (ohne Version), beim Verlassen des Edit-Mode genau eine
       // Version (create_version=true). Kein manueller Button mehr.
+      // Change 077: optimistisch — die Anzeige zeigt den neuen Text SOFORT,
+      // der Yjs-Roundtrip (onEdited via doc-update) bestätigt danach.
+      setLocalTexts(shown.map((s, i) => (i === idx ? { ...s, text: editText } : s)));
+      localPendingRef.current = true;
       setSegmentText(idx, editText);
       setEditingIdx(null);
       return;
     }
     setSaving(true);
+    // Change 077: optimistisches Update VOR dem API-Call — die Anzeige
+    // zeigt den neuen Text sofort, `onEdited` (mit Server-Segments)
+    // bestätigt und ersetzt localTexts via Fingerprint-Guard.
+    setLocalTexts(shown.map((s, i) => (i === idx ? { ...s, text: editText } : s)));
+    localPendingRef.current = true;
     try {
       const result = await updateSegment(recordingId, idx, editText);
       onEdited(result.segments, result.text);
       setEditingIdx(null);
     } catch {
       // keep edit open on error, user can retry
+      setLocalTexts(null); // kein Fake-Erfolg: zurück zur Prop
+      localPendingRef.current = false;
     } finally {
       setSaving(false);
     }
@@ -721,6 +845,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             setTouchSel(null);
             setEditingIdx(i);
             setEditText(seg.text);
+            // Change 077 (Doppelklick-Cursor): der Browser hat beim
+            // Doppelklick genau das geklickte Wort selektiert — diese Range
+            // (in Zeichen des Segment-Texts) merken; die Textarea setzt den
+            // Cursor nach dem Fokus dorthin. Vorher sprang der Cursor ans
+            // Textende/-anfang und man musste die Stelle neu suchen.
+            const rowEl = rowRefs.current[i];
+            const textEl = rowEl?.querySelector("[data-split-container]");
+            if (textEl) {
+              const r = selectionCharRange(textEl as HTMLElement, seg.text);
+              setEditCursor(r ? { start: r.start, end: r.end } : null);
+            }
           }}
           onKeyDown={(e) => {
             // Guard: Tasten in Edit-Feldern (Text-Edit, Sprecher-Rename)
@@ -1035,7 +1170,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 el.style.height = el.scrollHeight + "px";
               }}
               onKeyDown={async (e) => {
-                if (e.key === "Escape") { setEditingIdx(null); return; }
+                if (e.key === "Escape") {
+                  // Change 077: Abbruch verwirft das optimistische Update —
+                  // Anzeige bleibt beim alten (Prop-)Text.
+                  setLocalTexts(null);
+                  localPendingRef.current = false;
+                  setEditingIdx(null);
+                  return;
+                }
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   await handleSave(i);
@@ -1084,11 +1226,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                   Spans → Markieren/Split ging erst nach einem Playback-Zyklus.
                   Ohne Confidence/Playback bleibt die Optik identisch
                   (confidenceClass liefert ""). */}
-              {seg.words && seg.words.length > 0 && (onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx))
+              {seg.words && seg.words.length > 0 && (onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx) || (annotations && annotations.some((a) => a.segment_idx === i)))
                 ? (() => {
                     const activeW = i === activeIdx && currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
                     // Change 013 (Tablet): eigene Touch-Markierung hervorheben.
                     const ts = touchSel && touchSel.idx === i ? touchSel : null;
+                    // Change 077: Annotationen DIESES Segments + Wort-Ranges —
+                    // ein Wort ist annotiert, wenn sein Bereich eine
+                    // Annotation-Range überlappt (eigene Markierungsfarbe,
+                    // getrennt von search-hit/karaoke-active/touch-sel).
+                    const annsForSeg = annotations?.filter((a) => a.segment_idx === i) ?? [];
+                    const wRanges = wordCharRanges(seg.words);
                     return seg.words!.map((w, wi) => {
                       const isActive = wi === activeW;
                       // Such-Treffer: grüner Marker (.search-hit) — bewusst
@@ -1104,13 +1252,22 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                         ? wi >= Math.min(ts.startWord, ts.endWord) &&
                           wi + 1 <= Math.max(ts.startWord, ts.endWord)
                         : false;
+                      // Change 077: Annotation-Markierung (eigene Farbe). Bei
+                      // mehreren Annotationen im selben Wort: die aktive zuerst.
+                      const wr = wRanges[wi];
+                      const annForWord = wr
+                        ? (annsForSeg.find((a) => a.id === activeAnnotationId && wr.start < a.char_end && wr.end > a.char_start)
+                            ?? annsForSeg.find((a) => wr.start < a.char_end && wr.end > a.char_start))
+                        : undefined;
                       const cls = isHit
                         ? "search-hit"
                         : inTouchSel
                           ? "touch-sel"
                           : isActive
                             ? "karaoke-active"
-                            : `${confidenceClass(w.confidence)} hover:text-accent/70`;
+                            : annForWord
+                              ? (annForWord.id === activeAnnotationId ? "annot-active" : "annot-mark")
+                              : `${confidenceClass(w.confidence)} hover:text-accent/70`;
                       return (
                         <>
                         <span
@@ -1129,6 +1286,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                           style={{ display: "inline-block", touchAction: "none" } as React.CSSProperties}
                           onClick={(e) => {
                             e.stopPropagation();
+                            // Change 077: Klick auf eine Annotation-Markierung
+                            // öffnet die Annotation (Scope) statt Playback —
+                            // der User will zur Stelle springen, nicht abspielen.
+                            if (annForWord && onAnnotateJump) {
+                              onAnnotateJump({ id: annForWord.id, segment_idx: i, start_s: seg.start ?? 0 });
+                              return;
+                            }
                             // Fix 2026-08-18 (User-Vorgabe): Markieren darf
                             // KEIN Play auslösen — nach einer Textauswahl
                             // feuert der Browser zusätzlich ein click auf dem

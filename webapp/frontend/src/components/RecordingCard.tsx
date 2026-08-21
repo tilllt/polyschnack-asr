@@ -834,13 +834,17 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!body) return;
     setAnnotateSaving(true);
     try {
-      await createAnnotation(r.uid, {
+      // Change 077: createAnnotation liefert die neue Annotation — sie
+      // wird sofort aktiv (Scope-Modus zeigt sie + Antworten unten),
+      // statt nach dem Speichern „nichts" anzuzeigen.
+      const created = await createAnnotation(r.uid, {
         segment_idx: annotateSel.idx,
         char_start: annotateSel.charStart,
         char_end: annotateSel.charEnd,
         body,
       });
       setAnnotateSel(null);
+      setAnnHighlightId(created.id);
       toast(t("annot_saved"), "ok");
       void qc.invalidateQueries({ queryKey: ["annotations", r.uid] });
     } catch (e) {
@@ -1276,6 +1280,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onSegmentDelete={handleSegmentDelete}
                   onSplitSegment={handleSplitSegment}
                   onAnnotate={handleAnnotate}
+                  // Change 077: Annotation-Text-Markierung + Scope —
+                  // annotierte Passagen werden im Transkript markiert;
+                  // Klick öffnet die Annotation (Scroll + Seek pausiert),
+                  // `annHighlightId` steuert den Scope unten.
+                  annotations={annotations}
+                  activeAnnotationId={annHighlightId}
+                  onAnnotateJump={(a) => {
+                    setAnnHighlightId(a.id);
+                    wsRef.current?.seekToPaused(a.start_s);
+                  }}
                   fillHeight={!!focusMode}
                   // Change 067-Fix: Kollaboration nur bei geteilten
                   // Aufnahmen — sonst keine Yjs-Verbindung/Checks.
