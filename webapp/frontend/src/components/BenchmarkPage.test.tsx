@@ -188,6 +188,13 @@ describe("TestSetExplanation", () => {
     expect(screen.getAllByText(/Piper/).length).toBeGreaterThan(0);
   });
 
+  test("Change 074: nennt DEMAND-Umweltgeräusche als Quelle", () => {
+    render(<TestSetExplanation meta={META} />);
+    expect(screen.getByText(/demand/)).toBeTruthy();
+    expect(screen.getByText(/CC-BY-4.0/)).toBeTruthy();
+    expect(screen.getByText(/strassenlaerm\/auto\/oepnv\/babble/)).toBeTruthy();
+  });
+
   test("nennt die Sample-Gesamtzahl", () => {
     render(<TestSetExplanation meta={META} />);
     expect(screen.getByText(/2 Samples/)).toBeTruthy();

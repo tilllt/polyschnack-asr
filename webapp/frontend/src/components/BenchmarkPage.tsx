@@ -308,7 +308,9 @@ export function TestSetExplanation({ meta }: { meta: BenchmarkMeta }) {
         )}
         <li>
           <strong className="text-txt">Quelle:</strong> <code className="text-xs">cv</code> =
-          echte Stimmen (CC0), <code className="text-xs">tts</code> = synthetisch (Piper)
+          echte Stimmen (CC0), <code className="text-xs">tts</code> = synthetisch (Piper),{" "}
+          <code className="text-xs">demand</code> = echte Umweltgeräusche
+          (CC-BY-4.0, Zenodo) für die Kanalkategorien strassenlaerm/auto/oepnv/babble
         </li>
       </ul>
       <p>
