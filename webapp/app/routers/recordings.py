@@ -689,7 +689,17 @@ async def upload_recording(
     # Storage-Policy (2026-08-14): native Formate (MP3/OGG/WebM/…) werden
     # UNKONVERTIERT gespeichert — WaveSurfer (Browser) und die ASR-Backends
     # (ffmpeg-Decode) können sie nativ. Nur exotische Formate → 16-kHz-mono-WAV.
-    audio_data, new_ext, conv_note = prepare_storage(raw, file.filename)
+    # Befund 2026-08-21: sehr kurze/kaputte Recorder-Blobs warfen hier einen
+    # RuntimeError → 500. Jetzt sauberes 422, damit der Pending-Upload-Flow
+    # („recording saved locally, upload pending") verständlich fehlschlägt
+    # und der Eintrag nicht endlos hängt.
+    try:
+        audio_data, new_ext, conv_note = prepare_storage(raw, file.filename)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Audio konnte nicht gelesen werden (Datei zu kurz oder beschädigt): {exc}",
+        ) from None
 
     # Review 2026-08-15 (P1): Quota-Check VOR dem Write — der bisherige
     # Ablauf schrieb die Datei zuerst und prüfte dann, so blieben bei

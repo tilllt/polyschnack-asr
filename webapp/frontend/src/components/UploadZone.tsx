@@ -51,10 +51,24 @@ export function UploadZone({ user }: Props) {
   //  bei jedem online-Event, Banner in allen Tabs sichtbar.)
   const [pendingCount, setPendingCount] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  // Change 069: Pending-Liste im Banner — Dateiname/Größe sichtbar +
+  // Discard pro Eintrag (User-Befund 2026-08-21: „man kann nicht
+  // herausfinden was das für eine Datei ist, Discard geht nicht").
+  const [pendingRecs, setPendingRecs] = useState<PendingRecording[]>([]);
 
   const refreshPending = useCallback(async () => {
-    setPendingCount((await loadPendingRecordings()).length);
+    const recs = await loadPendingRecordings();
+    setPendingRecs(recs);
+    setPendingCount(recs.length);
   }, []);
+
+  const discardPending = useCallback(
+    async (id: string) => {
+      await deletePendingRecording(id);
+      await refreshPending();
+    },
+    [refreshPending],
+  );
 
   const retryPending = useCallback(async () => {
     if (retrying) return;
@@ -63,15 +77,25 @@ export function UploadZone({ user }: Props) {
       const recs = await loadPendingRecordings();
       for (const rec of recs) {
         try {
-          const res = await fetch("/api/recordings", { method: "POST", body: pendingToFormData(rec) }).then((r) => {
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r;
-          });
+          const res = await fetch("/api/recordings", { method: "POST", body: pendingToFormData(rec) });
+          if (!res.ok) {
+            // Change 069: Server-Detail durchreichen (z. B. 422 „Audio
+            // konnte nicht gelesen werden") — der User soll wissen, was
+            // mit der Datei los ist, statt nur „HTTP 500".
+            let detail = "";
+            try {
+              const body = await res.clone().json();
+              if (body && typeof body.detail === "string") detail = body.detail;
+            } catch {
+              // kein JSON-Body
+            }
+            throw new Error(detail || `HTTP ${res.status}`);
+          }
           await res.json();
           await deletePendingRecording(rec.id);
           toast(`Upload ok: ${rec.fileName}`, "ok");
         } catch (e) {
-          toast(`Retry fehlgeschlagen: ${(e as Error).message}`, "err");
+          toast(`Retry fehlgeschlagen (${rec.fileName}): ${(e as Error).message}`, "err");
         }
       }
       await refreshPending();
@@ -309,17 +333,40 @@ export function UploadZone({ user }: Props) {
 
       {/* Tab content */}
       {pendingCount > 0 && (
-        <div className="w-full bg-[rgba(217,158,43,.1)] border border-[#d99e2b]/40 rounded-sm px-3 py-2 flex items-center gap-2 mt-2">
-          <span className="text-[12px] text-txt flex-1">
-            💾 {t("offline_pending")}: {pendingCount}
-          </span>
-          <button
-            onClick={() => void retryPending()}
-            disabled={retrying}
-            className="bg-[#d99e2b] text-white text-[11px] px-2.5 py-1 rounded-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
-          >
-            {retrying ? t("offline_retrying") : t("offline_retry")}
-          </button>
+        <div className="w-full bg-[rgba(217,158,43,.1)] border border-[#d99e2b]/40 rounded-sm px-3 py-2 mt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-txt flex-1">
+              💾 {t("offline_pending")}: {pendingCount}
+            </span>
+            <button
+              onClick={() => void retryPending()}
+              disabled={retrying}
+              className="bg-[#d99e2b] text-white text-[11px] px-2.5 py-1 rounded-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+            >
+              {retrying ? t("offline_retrying") : t("offline_retry")}
+            </button>
+          </div>
+          {/* Change 069: Pending-Liste — Dateiname/Größe sichtbar + Discard */}
+          <ul className="mt-1.5 space-y-1">
+            {pendingRecs.map((pr) => (
+              <li key={pr.id} className="flex items-center gap-2 text-[11px] text-fg-muted">
+                <span className="truncate flex-1" title={pr.fileName}>
+                  🎙 {pr.fileName}
+                </span>
+                <span className="whitespace-nowrap text-muted2">
+                  {pr.blob.size > 0 ? fmtBytes(pr.blob.size) : "0 B"} · {new Date(pr.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <button
+                  onClick={() => void discardPending(pr.id)}
+                  disabled={retrying}
+                  className="text-err hover:underline disabled:opacity-40 whitespace-nowrap"
+                  title="Lokale Aufnahme verwerfen"
+                >
+                  ✕ Discard
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {inputMode === "upload" && (
