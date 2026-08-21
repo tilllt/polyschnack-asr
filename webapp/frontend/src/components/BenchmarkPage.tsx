@@ -554,10 +554,25 @@ export function ResultsTable({ results, hiddenModels }: { results: BenchmarkResu
 export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
   if (!vad || !vad.length) {
     return (
-      <p className="text-sm text-dim">
-        Noch keine VAD-Ergebnisse. VAD-Container submitten über
-        <code className="mx-1 font-mono text-xs">/api/benchmark/vadpackage</code>.
-      </p>
+      <div className="text-sm text-dim space-y-2">
+        {/* Change 071: Empty-State erklärt, was der VAD-Benchmark ist —
+            vorher nur „Noch keine VAD-Ergebnisse …". */}
+        <p>
+          Noch keine VAD-Ergebnisse. Der VAD-Benchmark misst
+          Voice-Activity-Detection auf dem Testset{" "}
+          <span className="font-mono text-xs">V3.1-public</span> (235 Samples:
+          Common Voice + DEMAND-SNR + Noise/Musik/Babble) — Metriken:
+          F1, Boundary-Genauigkeit (B-Start/B-Ende), FP-Speech und RTF.
+          VAD-Container submitten über{" "}
+          <code className="mx-1 font-mono text-xs">/api/benchmark/vadpackage</code>.
+        </p>
+        <p className="text-xs">
+          Referenz-Modelle mit lizenz-inkompatiblen Bedingungen (z. B. TEN VAD,
+          Cobra, MarbleNet) sind nur zum Vergleich im Benchmark — produktiv
+          nutzbar sind die MIT/Apache-Modelle (siehe Lizenz-Matrix in{" "}
+          <code className="mx-1 font-mono text-xs">benchmarks/vad/containers/README.md</code>).
+        </p>
+      </div>
     );
   }
   const version = vad[0]?.testset_version;
@@ -632,7 +647,12 @@ interface PageProps {
 }
 
 export function BenchmarkPageContent({ meta, data, results, pricing, admin, onReject, onEdit, onReload }: PageProps) {
-  const [openCat, setOpenCat] = useState<string | null>(null);
+  // Change 071 (User-Befund 2026-08-21): erste Kategorie initial OFEN —
+  // vorher starteten alle zugeklappt (openCat=null) → Samples + WAV-Player
+  // waren ohne manuellen Klick unsichtbar („keine wav Player").
+  const [openCat, setOpenCat] = useState<string | null>(
+    meta?.categories?.[0]?.id ?? null,
+  );
   const [showText, setShowText] = useState(true);
   const [matrixCell, setMatrixCell] = useState<{ kanal: string; inhalt: string } | null>(null);
   const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
@@ -734,6 +754,23 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
         <h2 className="font-semibold mb-1">Methodik</h2>
         <p className="text-sm text-dim">{meta.methodology}</p>
         <p className="text-sm text-dim mt-1">{meta.disclaimer}</p>
+        {/* Change 071: VAD-Methodik — das Backend-Manifest (v2) beschreibt
+            nur den ASR-Benchmark; der VAD-Benchmark (Change 062/064/065)
+            läuft mit eigenem Testset. Statischer Text, bis das Manifest
+            VAD-Metadaten trägt. */}
+        <div className="text-sm text-dim mt-3 border-t border-border pt-2">
+          <strong className="text-txt">VAD-Benchmark:</strong>{" "}
+          misst Voice-Activity-Detection auf dem Testset{" "}
+          <span className="font-mono text-xs">V3.1-public</span> (235 Samples:
+          echte Common-Voice-Aufnahmen + DEMAND-SNR-Mixe + Noise/Musik/Babble).
+          Metriken: <strong className="text-txt">F1</strong> (Grenzwert-Matching),
+          Boundary-Genauigkeit (<strong className="text-txt">B-Start/B-Ende</strong>,
+          median in ms), <strong className="text-txt">FP-Speech</strong>
+          (falsch-positive Sprachzeit in Sekunden) und{" "}
+          <strong className="text-txt">RTF</strong> (Echtzeitfaktor). Held-out-
+          Samples (126) bleiben geheim (Anti-Gaming). Das Paket + Provenienz
+          liegt als Release-Artefakt (SHA256-geprüft) vor.
+        </div>
       </section>
 
       {/* 2-Achsen-Matrix */}

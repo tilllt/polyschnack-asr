@@ -412,8 +412,8 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
 
   test("Kategorie-Graph je Kategorie mit Daten; leere Kategorie (0 Samples) unsichtbar", () => {
     renderPage();
-    // Change 039: Qualität ist Teil der Kategorie-Blöcke — Kategorie öffnen
-    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
+    // Change 071: categories[0] (akzent) ist initial OFEN — Graph sichtbar
+    // ohne Klick; ein Klick würde sie SCHLIESSEN (Toggle).
     expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     // clean hat 0 Samples: weder als Kategorie-Box noch als Chart
     expect(screen.queryByText(/Hochdeutsch/)).toBeNull();
@@ -423,7 +423,7 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
 
   test("Modell-Filter oben blendet Modell aus allen Graphen aus", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
+    // Change 071: akzent initial offen — kein Öffnungs-Klick nötig
     expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     fireEvent.click(screen.getByTestId("model-chip-ps-pk-onnx"));
     await waitFor(() => expect(screen.queryByTestId("cat-bar-akzent-ps-pk-onnx")).toBeNull());
@@ -435,8 +435,7 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
 
   test("Change 040: 'Alle' de-klick blendet alle Modelle aus, Klick zeigt alle", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /Akzente/ }));
-    // Ausgangslage: alle sichtbar, „Alle" aktiv
+    // Change 071: akzent initial offen — kein Öffnungs-Klick nötig
     expect(screen.getByTestId("model-chip-alle").getAttribute("data-active")).toBe("true");
     expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     // De-Klick: alle ausgeblendet
@@ -490,5 +489,80 @@ describe("VadResultsTable (Change 062/065)", () => {
   test("zeigt Hinweis, wenn keine VAD-Ergebnisse", () => {
         render(<VadResultsTable vad={null} />);
     expect(screen.getByText(/Noch keine VAD-Ergebnisse/)).toBeTruthy();
+  });
+
+  test("Change 071: Empty-State erklärt den VAD-Benchmark (Testset + Metriken)", () => {
+    render(<VadResultsTable vad={null} />);
+    expect(screen.getByText(/V3.1-public/)).toBeTruthy();
+    expect(screen.getByText(/235 Samples/)).toBeTruthy();
+    expect(screen.getByText(/FP-Speech/)).toBeTruthy();
+    expect(screen.getByText(/RTF/)).toBeTruthy();
+  });
+});
+
+describe("BenchmarkPageContent — Change 071 (VAD-Methodik + Player sichtbar)", () => {
+  const META2 = {
+    version: 2,
+    created_at: "2026-08-19T14:22:25Z",
+    supersedes: 1,
+    sample_count: 207,
+    matrix_total: 207,
+    methodology: "WER/CER auf CommonVoice-de + TTS",
+    disclaimer: "Held-out-Samples bleiben privat.",
+    axes: {},
+    categories: [
+      { id: "akzent", name: "Akzente" },
+      { id: "babble", name: "Babble" },
+    ],
+  };
+  const DATA2 = {
+    version: 2,
+    samples: [
+      { id: "akzent_001", category: "akzent", text: "Kisten und Möbel", preview_url: "/p", audio_url: "/a" },
+      { id: "babble_001", category: "babble", text: "Hintergrund", preview_url: "/p", audio_url: "/a" },
+    ],
+  };
+
+  test("Methodik-Sektion enthält den VAD-Benchmark-Text (Change 071)", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META2 as never}
+          data={DATA2 as never}
+          results={null}
+          pricing={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    // „VAD-Benchmark:" erscheint nur in der Methodik-Sektion (Change 071)
+    expect(screen.getByText(/VAD-Benchmark:/)).toBeTruthy();
+    // Metriken-Liste aus der Methodik (B-Start/B-Ende erscheint auch im
+    // VAD-Empty-State → getAllByText)
+    expect(screen.getAllByText(/B-Start\/B-Ende/).length).toBeGreaterThan(0);
+    // Held-out-Hinweis (126 Samples geheim)
+    expect(screen.getByText(/126/)).toBeTruthy();
+  });
+
+  test("erste Kategorie ist initial geöffnet — Sample + Player sichtbar ohne Klick (Change 071)", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META2 as never}
+          data={DATA2 as never}
+          results={null}
+          pricing={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    // akzent ist categories[0] → initial offen → Sample sofort sichtbar
+    expect(screen.getByText("akzent_001")).toBeTruthy();
   });
 });
