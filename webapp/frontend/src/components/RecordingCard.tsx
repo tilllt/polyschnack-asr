@@ -1277,6 +1277,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onSplitSegment={handleSplitSegment}
                   onAnnotate={handleAnnotate}
                   fillHeight={!!focusMode}
+                  // Change 067-Fix: Kollaboration nur bei geteilten
+                  // Aufnahmen — sonst keine Yjs-Verbindung/Checks.
+                  collabEnabled={!!(r.has_shares || r.is_anon_shared || r.shared_with_me)}
                 />
               </>
             ) : hasText ? (

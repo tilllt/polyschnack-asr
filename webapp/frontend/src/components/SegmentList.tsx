@@ -46,6 +46,10 @@ interface Props {
    *  eigenes Segment. Callback bekommt Segment-Index + Zeichen-Range +
    *  den gewählten Sprecher (Persistenz macht der Parent via PUT). */
   onSplitSegment?: (idx: number, charStart: number, charEnd: number, speaker: string) => void;
+  /** Change 067-Fix: Kollaboration nur bei geteilten Aufnahmen
+   *  (has_shares || is_anon_shared || shared_with_me) — sonst keine
+   *  Yjs-Verbindung, keine unnötigen Checks. */
+  collabEnabled?: boolean;
   /** Change 056: Text-Markierung → „Annotate" (Kommentar zur Passage).
    *  Klick auf den 💬-Button liefert Markierungs-Koordinaten inkl.
    *  Text-Vorschau; die Karte öffnet das Annotate-Popover. */
@@ -97,28 +101,39 @@ function selectionCharRange(container: HTMLElement, segText: string): { start: n
   return { start, end: Math.min(end, segText.length) };
 }
 
-export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate }: Props) {
+export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, collabEnabled = false }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
+  // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
+  // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
+  // Change 068: Autosave statt Button — Debounce ohne Version, Version
+  // erst beim Verlassen des Edit-Mode.
   const {
     conn: yjsConn,
-    activeUsers,
+    activeEditors,
     hasCollab,
     setSegmentText,
-    finalize: yjsFinalize,
     saving: yjsSaving,
+    setEditingActive,
   } = useYjsTranscription(recordingId, segmentsProp, (texts) => {
     if (!onEdited) return;
     onEdited(
       texts.map((text, i) => ({ ...(segmentsProp[i] ?? {}), text })),
       texts.join(" "),
     );
-  });
+  }, collabEnabled);
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const editAreaRef = useRef<HTMLTextAreaElement>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+
+  // Change 067-Fix: eigenes editing-Flag in die Awareness melden —
+  // Andere sehen „X bearbeitet gerade" nur, während wirklich ein
+  // Textfeld aktiv ist (nicht beim bloßen Öffnen der Seite).
+  useEffect(() => {
+    setEditingActive(editingIdx !== null);
+  }, [editingIdx, setEditingActive]);
   const [saving, setSaving] = useState(false);
   const [renamingSpeakerIdx, setRenamingSpeakerIdx] = useState<number | null>(null);
   // Change 009 (Single Source of Truth): Drag-Preview ist LOKAL — während
@@ -397,8 +412,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
     if (hasCollab) {
-      // Change 053: Kollaboration — Änderung geht live an alle Clients,
-      // DB-Persistenz erst beim Finalisieren ("In DB speichern").
+      // Change 053 + 068: Kollaboration — Änderung geht live an alle
+      // Clients (Yjs) und wird automatisch gespeichert: Autosave nach
+      // Debounce (ohne Version), beim Verlassen des Edit-Mode genau eine
+      // Version (create_version=true). Kein manueller Button mehr.
       setSegmentText(idx, editText);
       setEditingIdx(null);
       return;
@@ -651,22 +668,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
 
   return (
     <>
-    {hasCollab && onEdited && (
+    {hasCollab && onEdited && activeEditors.length > 0 && (
       <div className="flex items-center gap-2 px-3 py-1 text-[12px] text-fg-muted border-b border-border">
-        <span title={yjsConn === "connected" ? "Live-Sync aktiv — Änderungen sind sofort für alle sichtbar" : "Verbindung zum Sync-Server wird aufgebaut"}>
-          {yjsConn === "connected" ? "●" : "◌"} Kollaboration {yjsConn === "connected" ? "aktiv" : "verbinde…"}
+        <span title={yjsConn === "connected" ? "Live-Sync aktiv — Änderungen werden automatisch gespeichert (Autosave)" : "Verbindung zum Sync-Server wird aufgebaut"}>
+          {yjsConn === "connected" ? "●" : "◌"} Kollaboration aktiv
         </span>
-        {activeUsers.length > 0 && (
-          <span title={activeUsers.join(", ")}>· {activeUsers.length} bearbeiten gerade</span>
-        )}
-        <button
-          onClick={() => void yjsFinalize()}
-          disabled={yjsSaving || yjsConn !== "connected"}
-          className="ml-auto text-accent hover:underline disabled:opacity-40"
-          title="Yjs-Text in die Datenbank schreiben (Export-Brücke Change 053)"
-        >
-          {yjsSaving ? "Speichert…" : "In DB speichern"}
-        </button>
+        <span title={activeEditors.join(", ")}>· {activeEditors.join(", ")} bearbeitet gerade</span>
+        {yjsSaving && <span className="ml-auto">Speichert…</span>}
       </div>
     )}
     <div

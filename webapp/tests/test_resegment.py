@@ -217,3 +217,62 @@ def test_download_srt_with_max_duration(client):
     # Mehrere Cues statt einem 10-s-Block
     assert len(cues) > 1
     assert "charset=utf-8" in r.headers.get("content-type", "").lower()
+
+
+def _count_versions(rid: str) -> int:
+    from app.db import engine
+    from app.models import Recording, TranscriptVersion
+    from sqlmodel import Session, select
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec is not None
+        return len(
+            s.exec(
+                select(TranscriptVersion).where(TranscriptVersion.rec_id == rec.id)
+            ).all()
+        )
+
+
+def test_put_segments_create_version_false_no_snapshot(client):
+    """Change 068: Autosave (create_version=false) schreibt die Segmente,
+    aber erzeugt KEINE neue TranscriptVersion — die Version entsteht erst
+    beim Verlassen des Edit-Mode (create_version=True, Default)."""
+    rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
+    before = _count_versions(rid)
+
+    r = client.put(
+        f"/api/recordings/{rid}/segments?create_version=false",
+        json={"segments": [_seg(0, 10, _long_words())]},
+    )
+    assert r.status_code == 200, r.text
+    # DB-Stand ist aktuell, aber keine neue Version
+    assert _count_versions(rid) == before
+
+    # Default (True) erzeugt eine Version
+    r = client.put(
+        f"/api/recordings/{rid}/segments",
+        json={"segments": [_seg(0, 10, _long_words())]},
+    )
+    assert r.status_code == 200, r.text
+    assert _count_versions(rid) == before + 1
+
+
+def test_put_segments_create_version_false_still_persists(client):
+    """Change 068: Auch ohne Version ist der Write atomar persistiert —
+    der Text ist in der DB, obwohl keine TranscriptVersion angelegt wurde."""
+    rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
+    new_text = "Autosave hat diesen Text atomar gespeichert"
+    r = client.put(
+        f"/api/recordings/{rid}/segments?create_version=false",
+        json={"segments": [{"start": 0, "end": 10, "text": new_text}]},
+    )
+    assert r.status_code == 200, r.text
+
+    from app.db import engine
+    from app.models import Recording
+    from sqlmodel import Session, select
+
+    with Session(engine) as s:
+        rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
+        assert rec.text == new_text

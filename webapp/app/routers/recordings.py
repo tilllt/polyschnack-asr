@@ -987,10 +987,23 @@ def list_recordings_endpoint(
             ).all()
         }
     out = []
+    # Change 067-Fix (Kollaboration): has_shares = der OWNER hat User-Shares
+    # vergeben (rec_id in RecordingShare) — einmalige Query für die ganze
+    # Liste. Das Frontend baut die Yjs-Verbindung nur dann auf („Kollaboration
+    # möglich"), wenn has_shares || is_anon_shared || shared_with_me.
+    shared_out_ids: set[int] = set()
+    if uid is not None:
+        shared_out_ids = {
+            s.rec_id
+            for s in session.exec(
+                select(RecordingShare).where(RecordingShare.rec_id.in_([r.id for r in rows]))
+            ).all()
+        }
     for r in rows:
         d = _recording_to_dict(r, access_level=get_access_level(
             session, r, uid, cap=_key_cap(request, session)), lite=lite)
         d["shared_with_me"] = r.user_id != uid and r.id in share_rec_ids
+        d["has_shares"] = r.id in shared_out_ids
         out.append(d)
     return out
 
@@ -1018,6 +1031,11 @@ def get_recording_endpoint(
             )
         ).first() is not None
     d["shared_with_me"] = shared_with_me
+    # Change 067-Fix: has_shares (Owner hat User-Shares vergeben) → Frontend
+    # baut die Yjs-Verbindung nur bei geteilten Aufnahmen auf.
+    d["has_shares"] = session.exec(
+        select(RecordingShare).where(RecordingShare.rec_id == rec.id)
+    ).first() is not None
     # Debug: include word presence info without changing data
     segs = d.get("segments") or []
     d["_words_debug"] = {

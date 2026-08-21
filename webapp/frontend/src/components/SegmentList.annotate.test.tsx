@@ -10,12 +10,13 @@ import { LocaleProvider } from "../useLocale";
 vi.mock("../hooks/useYjsTranscription", () => ({
   useYjsTranscription: () => ({
     conn: null,
-    activeUsers: [],
+    activeEditors: [],
     hasCollab: false,
     setSegmentText: () => {},
     getSegmentTexts: () => [],
-    finalize: () => {},
+    save: () => {},
     saving: false,
+    setEditingActive: () => {},
   }),
 }));
 

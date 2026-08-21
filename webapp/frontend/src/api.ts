@@ -68,6 +68,8 @@ export interface Recording {
   delivery_error?: string | null;
   access_level?: "owner" | "read" | "write" | "full" | "public" | "none";
   is_anon_shared?: boolean;
+  /** Change 067-Fix: Owner hat User-Shares vergeben → Kollaboration möglich. */
+  has_shares?: boolean;
   shared_with_me?: boolean;
   retention_minutes?: number;
   shared_at?: string | null;
@@ -425,12 +427,15 @@ export async function updateRecordingTitle(
 
 /** Feature 2026-08-15: komplette Segmentliste persistieren (Re-Segmentierung
  *  / verschobene Grenzen) — Export nutzt danach dieselben Segmente wie die
- *  Preview. */
+ *  Preview. Change 068: createVersion=false (Autosave) → nur DB-Write ohne
+ *  TranscriptVersion; die Version entsteht beim Verlassen des Edit-Mode. */
 export async function replaceSegments(
   recordingId: string,
   segments: Segment[],
+  createVersion = true,
 ): Promise<{ segments: Segment[]; text: string; segments_manual: boolean }> {
-  const res = await fetch(`/api/recordings/${recordingId}/segments`, {
+  const qs = createVersion ? "" : "?create_version=false";
+  const res = await fetch(`/api/recordings/${recordingId}/segments${qs}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ segments }),

@@ -85,9 +85,9 @@ describe("AnnotationThreads (Change 056)", () => {
     expect(screen.getByText("wichtig").tagName).toBe("STRONG");
   });
 
-  it("zeigt Empty-State ohne Annotationen", () => {
-    renderThreads([]);
-    expect(screen.getByText(/No annotations yet/)).toBeTruthy();
+  it("rendert NICHTS ohne Annotationen (Change 067-Fix: kein Empty-State-Hinweis)", () => {
+    const { container } = renderThreads([]);
+    expect(container.textContent).toBe("");
   });
 
   it("Zeitfenster-Chip ruft onSeek mit start_s", () => {

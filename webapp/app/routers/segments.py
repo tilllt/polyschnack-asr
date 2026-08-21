@@ -463,6 +463,10 @@ def replace_segments(
     body: SegmentListUpdate,
     request: Request = None,
     session: Session = Depends(get_session),
+    # Change 068: Autosave ruft ohne create_version auf (nur DB-Write,
+    # keine Versions-Spam je Tastenanschlag); die Version entsteht erst
+    # beim Verlassen des Edit-Mode (create_version=True, Default).
+    create_version: bool = True,
 ) -> Dict[str, Any]:
     """Ersetzt die komplette Segmentliste einer fertigen Aufnahme.
 
@@ -471,6 +475,10 @@ def replace_segments(
     ein Segment; jedes Segment braucht start/end/text. Wörter sind
     optional, bleiben aber für Karaoke + Wort-für-Wort-Verschiebung
     erhalten.
+
+    Change 068: ``create_version=False`` (Autosave) schreibt nur den
+    DB-Stand ohne TranscriptVersion; ``True`` (Default, Edit-Mode-Ende)
+    legt zusätzlich eine Version an.
     """
     rec = get_recording_by_uid(session, rid)
     if rec is None:
@@ -513,9 +521,13 @@ def replace_segments(
     session.commit()
     session.refresh(rec)
 
-    from ..versions import snapshot
+    # Change 068: Autosave (create_version=False) → nur DB-Write, keine
+    # TranscriptVersion (keine Versions-Spam je Tastenanschlag). Version
+    # erst beim Verlassen des Edit-Mode (True, Default).
+    if create_version:
+        from ..versions import snapshot
 
-    snapshot(session, rec, "edit", user_id=uid)
+        snapshot(session, rec, "edit", user_id=uid)
 
     return {"segments": rec.segments, "text": rec.text,
             "segments_manual": rec.segments_manual}

@@ -128,12 +128,10 @@ export function AnnotationThreads({ rid, annotations, isLoading = false, canEdit
   if (isLoading) {
     return <div className="mt-3 text-[12px] text-muted2">{t("annot_loading")}</div>;
   }
+  // Change 067-Fix (User-Befund 2026-08-21): KEIN „Noch keine
+  // Annotationen"-Hinweis — leere Liste rendert nichts.
   if (!annotations.length) {
-    return (
-      <div className="mt-3 text-[12px] text-muted2">
-        {t("annot_empty")}
-      </div>
-    );
+    return null;
   }
 
   const md = (a: Annotation) => (
