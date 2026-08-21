@@ -122,6 +122,30 @@ export interface VadSamplesResponse {
   count: number;
 }
 
+/** Change 075: Status des Benchmark-Set-Auto-Updates (öffentlich, keine Secrets). */
+export interface BenchmarkSetStatus {
+  mechanism: string;
+  configured: boolean;
+  url: string;
+  /** SHA256 nur als 8-Zeichen-Präfix (kein voller Hash nach außen). */
+  sha_prefix: string;
+  auto_install: boolean;
+  current_version: number | null;
+  installed_versions: number[];
+  last_error: string | null;
+}
+
+export interface SetInstallResponse {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  installed_version?: number | null;
+  current_version?: number | null;
+  sha256?: string;
+  sample_count?: number;
+  supersedes?: number | null;
+}
+
 export function parseBenchmarkPath(path: string): boolean {
   const p = path.split("?")[0].replace(/\/+$/, "");
   return p === "/benchmark" || p.startsWith("/benchmark/");
@@ -179,5 +203,24 @@ export async function editBenchmarkSample(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
+  }).then(checkOk).then((r) => r.json());
+}
+
+/** Change 075: Status des Set-Updaters (öffentlich). */
+export async function fetchBenchmarkSetStatus(): Promise<BenchmarkSetStatus | null> {
+  const res = await fetch("/api/benchmark/sets");
+  if (res.status === 404) return null;
+  return checkOk(res).then((r) => r.json());
+}
+
+/** Change 075: Benchmark-Set installieren (Admin). */
+export async function installBenchmarkSet(
+  url?: string,
+  sha256?: string,
+): Promise<SetInstallResponse> {
+  return fetch("/api/benchmark/sets/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: url ?? undefined, sha256: sha256 ?? undefined }),
   }).then(checkOk).then((r) => r.json());
 }

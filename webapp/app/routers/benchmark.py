@@ -457,6 +457,39 @@ def edit_sample(sample_id: str, body: SampleEdit) -> Dict[str, Any]:
     return {"ok": True, "sample": s}
 
 
+# ── Benchmark-Set-Auto-Update (Change 075) ───────────────────────────────
+
+
+class SetInstallBody(BaseModel):
+    """Optionaler Override für URL/SHA beim manuellen Install (Admin)."""
+
+    url: Optional[str] = None
+    sha256: Optional[str] = None
+
+
+@router.get("/sets")
+def set_status() -> Dict[str, Any]:
+    """Status des Set-Update-Mechanismus (öffentlich, keine Secrets)."""
+    svc = _require_data()
+    return svc.set_status()
+
+
+@router.post("/sets/install", dependencies=[Depends(require_admin)])
+def set_install(body: SetInstallBody | None = None) -> Dict[str, Any]:
+    """Installiert ein Benchmark-Set aus dem konfigurierten Release (Admin).
+
+    Body optional: {url, sha256} als Override der Env-Konfiguration.
+    """
+    svc = _require_data()
+    body = body or SetInstallBody()
+    try:
+        return svc.install_set_from_release(
+            url=body.url, expected_sha=body.sha256
+        )
+    except RuntimeError as e:
+        raise HTTPException(422, str(e))
+
+
 # ── Helfer ────────────────────────────────────────────────────────────────
 
 

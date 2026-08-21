@@ -542,6 +542,164 @@ class BenchmarkService:
             parts.append(hashlib.sha256(wav.read_bytes()).digest())
         return hashlib.sha256(b"".join(parts)).hexdigest()
 
+    # ── Benchmark-Set-Auto-Update (Change 075) ────────────────────────────
+
+    def set_status(self) -> Dict[str, Any]:
+        """Status des Set-Update-Mechanismus (öffentlich, keine Secrets).
+
+        current_version: aktive Version; installed_versions: alle; URL/SHA
+        nur als Präfix (SHA 8 Zeichen), auto_install-Flag, letzter Fehler.
+        """
+        from app.config import settings
+
+        try:
+            cur = self.latest_manifest().get("version")
+        except FileNotFoundError:
+            cur = None
+        sha = settings.BENCHMARK_SET_SHA256.strip()
+        return {
+            "mechanism": "benchmark-set",
+            "configured": bool(settings.BENCHMARK_SET_URL.strip()),
+            "url": settings.BENCHMARK_SET_URL.strip(),
+            "sha_prefix": sha[:8] if sha else "",
+            "auto_install": settings.BENCHMARK_SET_AUTO_INSTALL,
+            "current_version": cur,
+            "installed_versions": self.version_numbers(),
+            "last_error": getattr(self, "_set_last_error", None),
+        }
+
+    def install_set_from_release(
+        self, url: Optional[str] = None, expected_sha: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Lädt ein Benchmark-Set-Release (ZIP) und installiert es.
+
+        Ablauf: HTTPS-Check → Download → SHA256-Verifikation (Mismatch =
+        RuntimeError, KEIN Zustand geändert) → manifest.json lesen → Version
+        ≤ aktuell = skip → sicher entpacken (nur manifest.json/audio/preview,
+        sanitized) → Vollständigkeitsprüfung → atomic rename versions/v{N}.
+        """
+        from app.config import settings
+
+        url = (url or settings.BENCHMARK_SET_URL).strip()
+        expected_sha = (expected_sha or settings.BENCHMARK_SET_SHA256).strip()
+        if not url:
+            raise RuntimeError("BENCHMARK_SET_URL ist nicht konfiguriert")
+        if not url.lower().startswith("https://"):
+            raise RuntimeError(f"URL muss HTTPS sein (bekam {url[:40]}…)")
+        self._set_last_error = None
+
+        import urllib.request
+        import zipfile
+
+        # 1) Download
+        raw = None
+        try:
+            with urllib.request.urlopen(url, timeout=300) as r:
+                raw = r.read()
+        except Exception as e:  # noqa: BLE001 — Netzwerkfehler → Meldung
+            self._set_last_error = f"Download fehlgeschlagen: {e}"
+            raise RuntimeError(self._set_last_error)
+        # 2) SHA256
+        if not expected_sha:
+            self._set_last_error = "BENCHMARK_SET_SHA256 fehlt — kein Install ohne Verifikation"
+            raise RuntimeError(self._set_last_error)
+        got = hashlib.sha256(raw).hexdigest()
+        if got.lower() != expected_sha.lower():
+            self._set_last_error = (
+                f"SHA256-Mismatch: erwartet {expected_sha[:12]}…, "
+                f"erhalten {got[:12]}… — nichts installiert"
+            )
+            raise RuntimeError(self._set_last_error)
+        # 3) manifest.json lesen (nur das — Rest erst nach Checks entpacken)
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                names = z.namelist()
+                manifest_name = "manifest.json"
+                if manifest_name not in names:
+                    raise KeyError(manifest_name)
+                manifest = json.loads(
+                    z.read(manifest_name).decode("utf-8")
+                )
+                new_version = int(manifest["version"])
+        except Exception as e:  # noqa: BLE001
+            self._set_last_error = f"Release-Paket ungültig: {e}"
+            raise RuntimeError(self._set_last_error)
+        # 4) Version ≤ aktuell → skip (nie überschreiben)
+        try:
+            current = self.latest_manifest().get("version")
+        except FileNotFoundError:
+            current = None
+        if current is not None and new_version <= current:
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": "bereits installiert",
+                "installed_version": None,
+                "current_version": current,
+            }
+        # 5) Sicher entpacken (nur erlaubte Pfade, sanitized)
+        allowed_top = {"manifest.json", "audio/", "preview/"}
+        tmp = self._versions_dir() / f".tmp-v{new_version}"
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        (tmp / "audio").mkdir(parents=True, exist_ok=True)
+        (tmp / "preview").mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                for info in z.infolist():
+                    name = info.filename
+                    if name.endswith("/"):
+                        continue
+                    if name == "manifest.json":
+                        target = tmp / "manifest.json"
+                    elif name.startswith("audio/") and name.lower().endswith(".wav"):
+                        target = tmp / "audio" / Path(name).name
+                    elif name.startswith("preview/") and name.lower().endswith((".mp3", ".wav")):
+                        target = tmp / "preview" / Path(name).name
+                    else:
+                        raise RuntimeError(f"unerlaubter Zip-Eintrag: {name}")
+                    target.write_bytes(z.read(info))
+        except Exception as e:  # noqa: BLE001
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._set_last_error = f"Entpacken abgebrochen: {e}"
+            raise RuntimeError(self._set_last_error)
+        # 6) Vollständigkeitsprüfung: audio/preview == samples
+        n_samples = len(manifest.get("samples", []))
+        n_audio = len(list((tmp / "audio").glob("*.wav")))
+        n_preview = len(list((tmp / "preview").glob("*")))
+        if n_audio < n_samples:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._set_last_error = (
+                f"Unvollständiges Paket: {n_audio} WAVs für {n_samples} Samples"
+            )
+            raise RuntimeError(self._set_last_error)
+        if n_preview < n_samples:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._set_last_error = (
+                f"Unvollständiges Paket: {n_preview} Previews für {n_samples} Samples"
+            )
+            raise RuntimeError(self._set_last_error)
+        # 7) supersedes ergänzen, falls fehlend
+        if "supersedes" not in manifest or not manifest.get("supersedes"):
+            manifest["supersedes"] = current
+        (tmp / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        # 8) Atomic rename → aktiv (höchste Versionsnummer = latest)
+        target = self._versions_dir() / f"v{new_version}"
+        if target.exists():
+            shutil.rmtree(target)
+        tmp.replace(target)
+        self._set_last_error = None
+        return {
+            "ok": True,
+            "skipped": False,
+            "installed_version": new_version,
+            "sha256": got,
+            "sample_count": n_samples,
+            "supersedes": manifest.get("supersedes"),
+        }
+
     def build_package_tarball(self, version: Optional[int] = None) -> bytes:
         """Tarball der Version: manifest.json + audio/*.wav (+ preview/*.mp3).
 

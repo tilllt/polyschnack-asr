@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { WaveformPlayer } from "./WaveformPlayer";
 import type {
   BenchmarkCategory,
@@ -7,10 +7,12 @@ import type {
   BenchmarkSamplesResponse,
   BenchmarkPricing,
   BenchmarkResults,
+  BenchmarkSetStatus,
   VadResultRow,
   VadSample,
   VadSamplesResponse,
 } from "../benchmark";
+import { fetchBenchmarkSetStatus, installBenchmarkSet } from "../benchmark";
 
 // ── Collapsible Kategorie (nur eine offen, State in Page) ────────────────
 
@@ -727,6 +729,91 @@ export function BenchmarkVadSamples({ samples }: { samples: VadSample[] }) {
   );
 }
 
+// ── Benchmark-Set-Auto-Update (Change 075) ──────────────────────────────
+// Admin kann neue Benchmark-Sets (GitHub-Release-ZIP) direkt aus der GUI
+// installieren — kein SSH/tar/curl auf der Box mehr. Status-Endpoint ist
+// öffentlich (keine Secrets), Install nur für Admins.
+
+export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void }) {
+  const [status, setStatus] = useState<BenchmarkSetStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    fetchBenchmarkSetStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const install = async () => {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await installBenchmarkSet();
+      if (res.skipped) {
+        setMsg(`Aktuell: v${res.current_version} — kein Update nötig.`);
+      } else {
+        setMsg(
+          `v${res.installed_version} installiert (${res.sample_count} Samples, SHA ${(res.sha256 ?? "").slice(0, 12)}…)`,
+        );
+        onInstalled?.();
+      }
+    } catch (e) {
+      setError(`Install fehlgeschlagen: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+      load();
+    }
+  };
+
+  return (
+    <div className="text-sm space-y-2" data-testid="benchmark-set-updater">
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          type="button"
+          onClick={install}
+          disabled={busy}
+          className="btn text-xs"
+          data-testid="install-set-btn"
+        >
+          {busy ? "Installiere…" : "⟳ Neues Set installieren"}
+        </button>
+        <span className="text-xs text-dim">
+          {status?.configured
+            ? `Quelle: ${status.url.replace(/^https?:\/\//, "").slice(0, 60)} (SHA ${status.sha_prefix}…)`
+            : "Kein Release konfiguriert (BENCHMARK_SET_URL)."}
+        </span>
+      </div>
+      <div className="text-xs text-dim space-y-0.5">
+        {status && (
+          <p>
+            Aktuelle Version:{" "}
+            <span className="font-mono text-txt">
+              v{status.current_version ?? "–"}
+            </span>{" "}
+            · installiert:{" "}
+            <span className="font-mono">
+              {status.installed_versions.map((v) => `v${v}`).join(", ") || "–"}
+            </span>
+            {status.auto_install ? " · Auto-Install an" : " · Auto-Install aus"}
+          </p>
+        )}
+        {error && <p className="text-red-400" data-testid="set-error">{error}</p>}
+        {msg && <p className="text-green-400" data-testid="set-msg">{msg}</p>}
+        {status?.last_error && !error && (
+          <p className="text-amber-400" data-testid="set-last-error">
+            Letzter Fehler: {status.last_error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────
 
 interface PageProps {
@@ -868,6 +955,15 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
           liegt als Release-Artefakt (SHA256-geprüft) vor.
         </div>
       </section>
+
+      {/* Change 075: Benchmark-Set-Auto-Update — nur Admin sieht die
+          Install-UI; Status-Endpoint selbst ist öffentlich. */}
+      {admin && (
+        <section className="border border-border rounded-lg p-4">
+          <h2 className="font-semibold mb-1">Benchmark-Set</h2>
+          <BenchmarkSetUpdater onInstalled={onReload} />
+        </section>
+      )}
 
       {/* 2-Achsen-Matrix */}
       <section className="border border-border rounded-lg p-4">

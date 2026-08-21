@@ -1,8 +1,18 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, BenchmarkVadSamples, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
+import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, BenchmarkSetUpdater, BenchmarkVadSamples, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
 import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse, VadSample } from "../benchmark";
+
+vi.mock("../benchmark", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../benchmark")>();
+  return {
+    ...mod,
+    fetchBenchmarkSetStatus: vi.fn(),
+    installBenchmarkSet: vi.fn(),
+  };
+});
+import { fetchBenchmarkSetStatus, installBenchmarkSet } from "../benchmark";
 
 const CAT: Cat = { id: "akzent", name: "Akzente", description: "Regionale Färbungen" };
 
@@ -703,5 +713,90 @@ describe("BenchmarkPageContent — Change 073 (VAD-Sample-Liste in Sektion)", ()
       </LocaleProvider>,
     );
     expect(screen.queryByText(/Testset-Samples/)).toBeNull();
+  });
+});
+
+describe("BenchmarkSetUpdater (Change 075)", () => {
+  const STATUS = {
+    mechanism: "benchmark-set",
+    configured: true,
+    url: "https://github.com/tilllt/polyschnack-benchmark-data/releases/download/benchmark-set-v3/benchmark-set-v3.zip",
+    sha_prefix: "1190936d",
+    auto_install: false,
+    current_version: 1,
+    installed_versions: [1],
+    last_error: null,
+  };
+
+  beforeEach(() => {
+    vi.mocked(fetchBenchmarkSetStatus).mockResolvedValue(STATUS as never);
+    vi.mocked(installBenchmarkSet).mockResolvedValue({ ok: true, installed_version: 2, sample_count: 207, sha256: "ab".repeat(32) } as never);
+  });
+
+  test("zeigt Status: Quelle, aktuelle Version, installierte Versionen", async () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("benchmark-set-updater")).toBeTruthy());
+    expect(screen.getByText(/Aktuelle Version:/)).toBeTruthy();
+    expect(screen.getAllByText(/v1/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/SHA 1190936d/)).toBeTruthy();
+    expect(screen.getByTestId("install-set-btn")).toBeTruthy();
+  });
+
+  test("Install-Button ruft API und zeigt Erfolgsmeldung", async () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater onInstalled={() => {}} />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(installBenchmarkSet).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("set-msg")).toBeTruthy());
+    expect(screen.getByText(/v2 installiert \(207 Samples/)).toBeTruthy();
+  });
+
+  test("skipped-Response zeigt 'kein Update nötig'", async () => {
+    vi.mocked(installBenchmarkSet).mockResolvedValue({ ok: true, skipped: true, reason: "bereits installiert", current_version: 1 } as never);
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(screen.getByTestId("set-msg")).toBeTruthy());
+    expect(screen.getByText(/kein Update nötig/)).toBeTruthy();
+  });
+
+  test("Fehler wird sichtbar angezeigt (kein stiller Fehler)", async () => {
+    vi.mocked(installBenchmarkSet).mockRejectedValue(new Error("SHA256-Mismatch"));
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(screen.getByTestId("set-error")).toBeTruthy());
+    expect(screen.getByText(/Install fehlgeschlagen: SHA256-Mismatch/)).toBeTruthy();
+  });
+
+  test("ohne Konfiguration zeigt Hinweis statt Quelle", async () => {
+    vi.mocked(fetchBenchmarkSetStatus).mockResolvedValue({
+      ...STATUS,
+      configured: false,
+      url: "",
+      sha_prefix: "",
+    } as never);
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Kein Release konfiguriert/)).toBeTruthy());
   });
 });

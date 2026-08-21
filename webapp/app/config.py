@@ -80,6 +80,17 @@ class _Settings:
         "b48bb9e9abd5a4a69c6a8fc9848a563daea0056813d3d6716e5aa5abee9b9788",
     )
 
+    #: Benchmark-Set-Auto-Update (Change 075): die Webapp kann sich neue
+    #: ASR-Testsets selbst von einem GitHub-Release holen (analog VAD-Paket).
+    #: URL + SHA256 (pflicht für Auto-Install) zeigen auf ein Release-Asset
+    #: `benchmark-set-v<N>.zip` (manifest.json + audio/ + preview/). Ohne URL
+    #: ist der Mechanismus inaktiv — manuelles Deploy bleibt möglich.
+    BENCHMARK_SET_URL: str = os.getenv("BENCHMARK_SET_URL", "")
+    BENCHMARK_SET_SHA256: str = os.getenv("BENCHMARK_SET_SHA256", "")
+    BENCHMARK_SET_AUTO_INSTALL: bool = os.getenv(
+        "BENCHMARK_SET_AUTO_INSTALL", ""
+    ).lower() in ("1", "true", "yes", "on")
+
     #: Base URL of the ASR inference service (no trailing slash).
     #: Env-Var = Backend-ID (Option C): PS_PK_ONNX_URL.
     ASR_URL: str = os.getenv("PS_PK_ONNX_URL", "http://ps-pk-onnx:5092").rstrip("/")

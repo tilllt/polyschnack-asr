@@ -1,6 +1,7 @@
 """Tests für die Benchmark-Routen (öffentliche GETs + Admin-POSTs)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -300,3 +301,191 @@ def test_vadpreview_returns_mp3(client):
 
 def test_vadpreview_unknown_404(client):
     assert client.get("/api/benchmark/vadpreview/nope").status_code == 404
+
+
+# ── Benchmark-Set-Auto-Update (Change 075) ───────────────────────────────
+
+
+def test_sets_status_public(client):
+    """Status öffentlich: Konfiguration + Versionen, aber kein voller SHA."""
+    r = client.get("/api/benchmark/sets")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["mechanism"] == "benchmark-set"
+    assert data["current_version"] == 1
+    assert data["installed_versions"] == [1]
+    assert "url" in data
+    assert "sha_prefix" in data
+    assert "last_error" in data
+
+
+def test_sets_install_requires_admin(client):
+    r = client.post("/api/benchmark/sets/install")
+    assert r.status_code in (401, 403)
+
+
+def _make_set_zip(version: int = 2, n_samples: int = 1, evil: bool = False) -> bytes:
+    """Benchmark-Set-ZIP-Fixture: manifest.json + audio/preview-WAVs."""
+    import io
+    import struct
+    import zipfile
+
+    buf = io.BytesIO()
+    wav = _miniwav()
+    samples = [
+        {"id": f"clean_{i:03d}", "category": "clean", "kanal": "clean",
+         "inhalt": "allgemein", "text": f"Text {i}", "source_path": f"src_{i}.mp3",
+         "accent": "", "age": "", "held_out": False, "status": "active"}
+        for i in range(n_samples)
+    ]
+    manifest = {
+        "version": version,
+        "created_at": "2026-08-21T00:00:00Z",
+        "created_by": "admin",
+        "supersedes": None,
+        "categories": [{"id": "clean", "name": "Hochdeutsch", "kanal": "clean",
+                        "inhalt": "allgemein", "description": "Klare Sätze"}],
+        "axes": {"kanal": {"beschreibung": "x", "kategorien": {"clean": {"name": "Clean"}}},
+                 "inhalt": {"beschreibung": "x", "kategorien": {"allgemein": {"name": "Allgemein"}}}},
+        "samples": samples,
+    }
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        for i in range(n_samples):
+            z.writestr(f"audio/clean_{i:03d}.wav", wav)
+            z.writestr(f"preview/clean_{i:03d}.wav", wav)
+        if evil:
+            z.writestr("../../etc/passwd", "boom")
+    return buf.getvalue()
+
+
+def test_sets_installer_happy_path(tmp_path, monkeypatch):
+    """Installer: Download+Verifikation+Entpacken+aktivieren (v2 > v1)."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=2, n_samples=2)
+    sha = hashlib.sha256(zdata).hexdigest()
+
+    class FakeResp:
+        def read(self): return zdata
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=300: FakeResp())
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(json.dumps({"version": 1, "rows": []}))
+
+    svc = BenchmarkService(root)
+    res = svc.install_set_from_release(
+        url="https://example.com/set.zip", expected_sha=sha
+    )
+    assert res["ok"] and not res["skipped"]
+    assert res["installed_version"] == 2
+    assert res["sample_count"] == 2
+    assert res["supersedes"] == 1
+    # v2 ist jetzt latest + Manifest supersedes gesetzt
+    assert svc.latest_manifest()["version"] == 2
+    assert svc.latest_manifest()["supersedes"] == 1
+    # audio vorhanden
+    assert (root / "versions" / "v2" / "audio" / "clean_000.wav").exists()
+    # kein tmp-Rest
+    assert not (root / "versions" / ".tmp-v2").exists()
+
+
+def test_sets_installer_sha_mismatch(tmp_path, monkeypatch):
+    """SHA-Mismatch: RuntimeError, KEIN Zustand geändert, kein tmp-Rest."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=2)
+
+    class FakeResp:
+        def read(self): return zdata
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=300: FakeResp())
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(json.dumps({"version": 1, "rows": []}))
+
+    svc = BenchmarkService(root)
+    with pytest.raises(RuntimeError, match="SHA256-Mismatch"):
+        svc.install_set_from_release(
+            url="https://example.com/set.zip", expected_sha="0" * 64
+        )
+    assert svc.latest_manifest()["version"] == 1  # unverändert
+    assert not (root / "versions" / ".tmp-v2").exists()
+
+
+def test_sets_installer_skips_older(tmp_path, monkeypatch):
+    """Version ≤ aktuell → skipped, kein Überschreiben."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=1)
+
+    class FakeResp:
+        def read(self): return zdata
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=300: FakeResp())
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(json.dumps({"version": 1, "rows": []}))
+
+    svc = BenchmarkService(root)
+    res = svc.install_set_from_release(
+        url="https://example.com/set.zip",
+        expected_sha=hashlib.sha256(zdata).hexdigest(),
+    )
+    assert res["skipped"] and res["reason"] == "bereits installiert"
+    assert svc.latest_manifest()["version"] == 1
+
+
+def test_sets_installer_rejects_traversal(tmp_path, monkeypatch):
+    """Zip mit Pfad-Traversal (../../etc/passwd) → abgelehnt, nichts geändert."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=2, evil=True)
+
+    class FakeResp:
+        def read(self): return zdata
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=300: FakeResp())
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(json.dumps({"version": 1, "rows": []}))
+
+    svc = BenchmarkService(root)
+    with pytest.raises(RuntimeError, match="unerlaubter Zip-Eintrag"):
+        svc.install_set_from_release(
+            url="https://example.com/set.zip",
+            expected_sha=hashlib.sha256(zdata).hexdigest(),
+        )
+    assert svc.latest_manifest()["version"] == 1
+    assert not (root / "versions" / ".tmp-v2").exists()
+    # nichts außerhalb entpackt
+    assert not (tmp_path / "etc").exists()

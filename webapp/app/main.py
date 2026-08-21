@@ -120,6 +120,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     diar_ok = _check_diarize()
     log.info("diarization (CrispASR-diar): %s", "✓ reachable" if diar_ok else "✗ NOT reachable — container 'diar' prüfen")
 
+    # --- Change 075: Benchmark-Set-Auto-Update beim Start (optional) ---
+    # Wenn BENCHMARK_SET_AUTO_INSTALL=true + URL/SHA konfiguriert: einmalig
+    # prüfen, ob ein neueres Release vorliegt, und installieren. Fehler nur
+    # loggen — die App startet immer (Status via /api/benchmark/sets).
+    if settings.BENCHMARK_SET_AUTO_INSTALL and settings.BENCHMARK_SET_URL.strip():
+        try:
+            from .benchmark_service import BenchmarkService
+
+            svc = BenchmarkService(settings.BENCHMARK_DATA_DIR)
+            res = svc.install_set_from_release()
+            if res.get("skipped"):
+                log.info("benchmark-set: aktuell (v%s) — kein Update", res.get("current_version"))
+            else:
+                log.info(
+                    "benchmark-set: v%s installiert (%d Samples, SHA %s…)",
+                    res.get("installed_version"), res.get("sample_count"),
+                    (res.get("sha256") or "")[:12],
+                )
+        except Exception:  # noqa: BLE001 — Startup darf nie crashen
+            log.exception("benchmark-set auto-install fehlgeschlagen (siehe /api/benchmark/sets)")
+
     # --- Task B4: Retention-Sweep für anonyme Sessions (alle 5 min) ---
     # Im selben Loop: Stale-Processing-Watchdog (hängende Transkriptionen,
     # z.B. nach Container-OOM oder abgerissener SSE-Verbindung → failed)
