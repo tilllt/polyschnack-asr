@@ -34,13 +34,17 @@ def test_pk_python_capabilities():
 
 
 def test_no_funasr_anywhere():
-    """FunASR fliegt raus — kein Vorkommen in aktivem Code/Doku (nur zh/en, kein Deutsch).
+    """FunASR fliegt aus der WEBAPP — kein Vorkommen in webapp-Code/Doku.
 
-    .hermes/plans/ ist ausgenommen: Plan-Dateien dokumentieren den Rauswurf selbst.
+    Change 060: die Webapp ist torch-frei (onnxruntime statt silero-vad-Paket);
+    Change 063: benchmarks/vad nutzt funasr BEWUSST als Benchmark-Engine
+    (FSMN-VAD, Apache-2.0, nur Referenz — nicht produktiv). Der Scan
+    beschränkt sich daher auf webapp/.
     """
     repo = Path(__file__).resolve().parent.parent.parent  # pk-asr/
+    webapp = repo / "webapp"
     hits = []
-    for root, dirs, files in os.walk(repo):
+    for root, dirs, files in os.walk(webapp):
         dirs[:] = [d for d in dirs if d not in (".git", ".venv", "node_modules", "__pycache__", ".hermes")]
         for fn in files:
             if not fn.endswith((".py", ".md", ".yml", ".yaml", ".toml", ".ts", ".tsx", ".txt")):
@@ -54,4 +58,4 @@ def test_no_funasr_anywhere():
                 continue
             if re.search(r"funasr", text, re.IGNORECASE):
                 hits.append(str(p))
-    assert hits == [], f"FunASR-Referenzen gefunden: {hits}"
+    assert hits == [], f"FunASR-Referenzen in webapp/ gefunden: {hits}"

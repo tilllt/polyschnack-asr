@@ -78,10 +78,13 @@ export interface BenchmarkPerCategoryRow {
   n: number;
 }
 
-/** Change 062: gepoolte VAD-Ergebnisse (kind="vad" aus latest.json). */
+/** Change 062/065: gepoolte VAD-Ergebnisse (kind="vad" aus latest.json). */
 export interface VadResultRow {
   backend: string;
   kind: "vad";
+  /** Change 065: Testset-Version (z. B. "v4-public") + Release-Link. */
+  testset_version?: string;
+  testset_release_url?: string;
   n_samples: number;
   vad_f1_mean: number;
   boundary_start_ms_median: number;

@@ -54,6 +54,46 @@ def _miniwav() -> bytes:
     return header + data
 
 
+def _make_v31_fixture(tmp_path: Path) -> Path:
+    """Mini-V3.1-ZIP (Change 065): testset.json + audio/, wie Release v4.
+
+    Gibt den ZIP-Pfad zurück; Settings (URL als file:// + SHA256) setzt die
+    client-Fixture per monkeypatch — kein Netz nötig.
+    """
+    import zipfile
+
+    root = tmp_path / "v31fix"
+    audio = root / "audio"
+    audio.mkdir(parents=True)
+    testset = {
+        "version": 4,
+        "split": "public",
+        "sample_rate": 16000,
+        "split_seed": 42,
+        "public_ratio": 0.6,
+        "samples": [
+            {"id": "clean_001", "kind": "de_synth", "variant": "lead2",
+             "split": "public", "source": "piper-tts",
+             "gt": [{"start": 2.0, "end": 2.4}]},
+            {"id": "clean_002", "kind": "de_synth", "variant": "trail2",
+             "split": "public", "source": "piper-tts",
+             "gt": [{"start": 0.0, "end": 2.4}]},
+            {"id": "clean_003", "kind": "de_synth", "variant": "both2",
+             "split": "public", "source": "piper-tts",
+             "gt": [{"start": 2.0, "end": 4.4}]},
+        ],
+    }
+    (root / "testset.json").write_text(json.dumps(testset, ensure_ascii=False))
+    for sid in ("clean_001", "clean_002", "clean_003"):
+        (audio / f"{sid}.wav").write_bytes(_miniwav())
+    zip_path = tmp_path / "vad-benchmark-v3.1-public.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(root / "testset.json", "testset.json")
+        for sid in ("clean_001", "clean_002", "clean_003"):
+            z.write(audio / f"{sid}.wav", f"audio/{sid}.wav")
+    return zip_path
+
+
 def package_hash(root: Path) -> str:
     """Deterministischer Paket-Hash (REQ-WEB-040): sha256(manifest) + je Audio-Datei."""
     vdir = root / "versions" / "v1"
@@ -84,6 +124,11 @@ def client(tmp_path: Path, monkeypatch):
         json.dumps({"version": 1, "rows": [{"backend": "ps-pk-onnx", "wer": 0.05}]})
     )
     (root / "pricing.json").write_text(json.dumps({"rows": []}))
+    # Change 065: VAD-Paket kommt aus der V3.1-ZIP-Fixture (file://, kein Netz)
+    v31 = _make_v31_fixture(tmp_path)
+    monkeypatch.setattr(settings, "VAD_PACKAGE_URL", v31.as_uri())
+    monkeypatch.setattr(settings, "VAD_PACKAGE_SHA256",
+                        hashlib.sha256(v31.read_bytes()).hexdigest())
     monkeypatch.setattr(settings, "OIDC_ENABLED", False)
     monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
     monkeypatch.setattr(settings, "AUDIO_DIR", tmp_path / "audio")
@@ -366,10 +411,23 @@ def test_vad_submit_ok_pools_separately(client):
     assert vad[0]["boundary_start_ms_median"] == pytest.approx(16.0)
     assert vad[0]["boundary_end_ms_median"] == pytest.approx(72.0)
     assert vad[0]["fp_time_s"] == pytest.approx(0.5)
+    # Change 065: testset_version + Release-URL aus dem V3.1-Paket
+    assert vad[0]["testset_version"] == "v4-public"
+    assert "vad-benchmark-v3.1-public.zip" in vad[0]["testset_release_url"]
     # Run-Datei trägt kind="vad"
     runs = list((Path(settings.BENCHMARK_DATA_DIR) / "results" / "runs").glob("silero-onnx_*.json"))
     assert len(runs) == 1
     assert json.loads(runs[0].read_text())["kind"] == "vad"
+
+
+def test_vadpackage_sha256_reports_testset_version(client):
+    """Change 065: /vadpackage/sha256 verrät Testset-Version + Release-URL."""
+    r = client.get("/api/benchmark/vadpackage/sha256", headers=_auth_headers())
+    assert r.status_code == 200
+    d = r.json()
+    assert d["testset_version"] == "v4-public"
+    assert "vad-benchmark-v3.1-public.zip" in d["testset_release_url"]
+    assert len(d["sha256"]) == 64
 
 
 def test_vad_submit_unknown_model_rejected(client):

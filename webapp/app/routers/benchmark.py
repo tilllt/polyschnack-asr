@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import io
+import json
 import tarfile
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -287,11 +288,25 @@ def vad_package() -> Response:
 
 @router.get("/vadpackage/sha256", dependencies=[Depends(require_benchmark_key)])
 def vad_package_sha256() -> Dict[str, Any]:
-    """Leichtgewichtiger VAD-Paket-Hash (Vorab-Prüfung durch VAD-Container)."""
+    """Leichtgewichtiger VAD-Paket-Hash (Vorab-Prüfung durch VAD-Container).
+
+    Change 065: zusätzlich testset_version + release_url des V3.1-Pakets.
+    """
     svc = _require_data()
     m = svc.latest_manifest()
     sha = svc.vad_package_sha256(m["version"])
-    return {"version": m["version"], "manifest_version": m["version"], "sha256": sha}
+    pkg = svc.build_vad_package(m["version"])
+    try:
+        pm = json.loads((pkg / "vad-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pm = {}
+    return {
+        "version": m["version"],
+        "manifest_version": m["version"],
+        "sha256": sha,
+        "testset_version": pm.get("testset_version", ""),
+        "testset_release_url": pm.get("testset_release_url", ""),
+    }
 
 
 class SampleResultRow(BaseModel):

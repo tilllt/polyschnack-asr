@@ -205,5 +205,14 @@ gegen einen Wechsel. heldout-Zahlen sind die ehrliche finale Bewertung
 (kein Leakage-Risiko), public-Zahlen dienen externen Usern zur
 Reproduzierbarkeit.
 
+**Webapp-Anbindung (Change 065):** Seit Change 065 importiert die Webapp das
+VAD-Benchmark-Paket aus dem offiziellen V3.1-Artefakt (GitHub-Release v4,
+SHA256-verifiziert) statt es selbst aus dem ASR-Manifest zu generieren —
+`/api/benchmark/vadpackage` liefert damit dasselbe Set (235 public Samples),
+auf dem die offiziellen Zahlen basieren. Die Benchmark-Seite zeigt die
+Testset-Version + Release-Link; Submitter-Ergebnisse (kind="vad") werden
+getrennt vom ASR-Pool gepoolt. Held-out-Samples sind in der Webapp nicht
+vorhanden (nur lokal, Leakage-Schutz).
+
 **Quellen:** [Common Voice DE (CC0-1.0)](https://commonvoice.mozilla.org/de) ·
 `cv_selection.json` (Seed 42) · eigener Lauf (2026-08-21)

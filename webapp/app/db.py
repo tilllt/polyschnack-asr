@@ -19,6 +19,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import event, inspect, text as sa_text
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
@@ -27,9 +28,16 @@ from .models import User as _User  # noqa: F401
 
 log = logging.getLogger(__name__)
 
+# Change 066: NullPool statt QueuePool-Default (5 + 10 Overflow). SQLite ist
+# datei-basiert — Connections sind billig (Datei-Handle), eine künstliche
+# Pool-Obergrenze führt unter Last zu TimeoutError ("QueuePool limit of size
+# 5 overflow 10 reached") für normale Requests. NullPool: jede Session
+# bekommt eine frische Connection und gibt sie beim Schließen sofort frei.
+# Parallele Leser erlaubt WAL; busy_timeout=30000 schützt Schreib-Kollisionen.
 engine = create_engine(
     f"sqlite:///{settings.DB_PATH}",
     connect_args={"check_same_thread": False},
+    poolclass=NullPool,
 )
 
 

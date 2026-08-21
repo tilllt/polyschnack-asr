@@ -549,7 +549,7 @@ export function ResultsTable({ results, hiddenModels }: { results: BenchmarkResu
   );
 }
 
-// ── VAD-Ergebnisse (Change 062) ──────────────────────────────────────────
+// ── VAD-Ergebnisse (Change 062/065) ───────────────────────────────────────
 
 export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
   if (!vad || !vad.length) {
@@ -560,8 +560,28 @@ export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
       </p>
     );
   }
+  const version = vad[0]?.testset_version;
+  const releaseUrl = vad[0]?.testset_release_url;
   return (
     <div className="overflow-x-auto">
+      {version ? (
+        <p className="text-xs text-dim mb-2">
+          Testset: <span className="font-mono">{version}</span>
+          {releaseUrl ? (
+            <>
+              {" · "}
+              <a
+                href={releaseUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-accent"
+              >
+                Release-Artefakt + Provenienz
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-dim border-b border-border">

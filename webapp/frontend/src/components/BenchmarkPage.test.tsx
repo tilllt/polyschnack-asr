@@ -451,9 +451,9 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
   });
 });
 
-// ── Change 062: VAD-Ergebnis-Tabelle ──────────────────────────────────────
+// ── Change 062/065: VAD-Ergebnis-Tabelle ──────────────────────────────────
 
-describe("VadResultsTable (Change 062)", () => {
+describe("VadResultsTable (Change 062/065)", () => {
   test("zeigt VAD-Metriken je Modell", () => {
         const vad = [
       { backend: "silero-onnx", kind: "vad" as const, n_samples: 59,
@@ -470,6 +470,21 @@ describe("VadResultsTable (Change 062)", () => {
     expect(screen.getByText("0.824")).toBeTruthy();
     expect(screen.getByText("7.5")).toBeTruthy();
     expect(screen.getByText(/lizenz-inkompatiblen Bedingungen/)).toBeTruthy();
+  });
+
+  test("zeigt Testset-Version + Release-Link (Change 065)", () => {
+    const vad = [
+      { backend: "silero-onnx", kind: "vad" as const, n_samples: 235,
+        testset_version: "v4-public",
+        testset_release_url: "https://github.com/tilllt/vad-benchmark-data/releases/download/v4/vad-benchmark-v3.1-public.zip",
+        vad_f1_mean: 0.995, boundary_start_ms_median: 32,
+        boundary_end_ms_median: 64, fp_time_s: 0.0, rtf_mean: 0.0222 },
+    ];
+    render(<VadResultsTable vad={vad} />);
+    expect(screen.getByText(/Testset:/)).toBeTruthy();
+    expect(screen.getByText("v4-public")).toBeTruthy();
+    const link = screen.getByText("Release-Artefakt + Provenienz") as HTMLAnchorElement;
+    expect(link.href).toContain("vad-benchmark-v3.1-public.zip");
   });
 
   test("zeigt Hinweis, wenn keine VAD-Ergebnisse", () => {

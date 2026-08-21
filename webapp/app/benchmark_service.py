@@ -21,6 +21,7 @@ import hashlib
 import io
 import json
 import logging
+import shutil
 import subprocess
 import tarfile
 import time
@@ -160,19 +161,36 @@ class BenchmarkService:
             raise FileNotFoundError("keine Benchmark-Version vorhanden")
         return self._load_manifest(nums[-1])
 
-    def _vad_summary(self, runs_dir: Path, sha: str) -> List[dict]:
-        """VAD-Ergebnis-Zusammenfassung (Change 062): je Backend F1/Boundaries/FP/RTF.
+    def _vad_summary(self, runs_dir: Path) -> List[dict]:
+        """VAD-Ergebnis-Zusammenfassung (Change 062/065): je Backend F1/Boundaries/FP/RTF.
 
-        Sammelt Runs mit kind=="vad" + aktuellem Manifest-Hash; ASR-Runs
+        Sammelt Runs mit kind=="vad" + aktuellem VAD-Paket-Hash; ASR-Runs
         (ohne vad_f1) werden ignoriert — der ASR-Pool bleibt unberührt.
+        Change 065: Hash = vad_package_sha256 (vorher fälschlich der ASR-Hash
+        → VAD-Sektion blieb leer); testset_version/release_url aus dem
+        Paket-Manifest.
         """
+        from app.config import settings
+
+        m = self.latest_manifest()
+        vad_sha = self.vad_package_sha256(m["version"])
+        try:
+            pkg_manifest = json.loads(
+                (self.data_dir / "versions" / f"v{m['version']}" / "vad" /
+                 "vad-manifest.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pkg_manifest = {}
+        testset_version = pkg_manifest.get("testset_version", "")
+        release_url = pkg_manifest.get(
+            "testset_release_url", settings.VAD_PACKAGE_URL.strip()
+            or self.V31_RELEASE_URL)
         by_backend: Dict[str, List[dict]] = {}
         for rf in runs_dir.glob("*.json"):
             try:
                 data = json.loads(rf.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            if data.get("kind") != "vad" or data.get("manifest_sha256") != sha:
+            if data.get("kind") != "vad" or data.get("manifest_sha256") != vad_sha:
                 continue
             rows = [r for r in data.get("rows", []) if r.get("vad_f1") is not None]
             by_backend.setdefault(data["backend"], []).extend(rows)
@@ -186,6 +204,8 @@ class BenchmarkService:
             out.append({
                 "backend": bname,
                 "kind": "vad",
+                "testset_version": testset_version,
+                "testset_release_url": release_url,
                 "n_samples": n,
                 "vad_f1_mean": round(sum(r["vad_f1"] for r in rows) / n, 4),
                 "boundary_start_ms_median": _median(bs),
@@ -196,64 +216,89 @@ class BenchmarkService:
         out.sort(key=lambda r: r["backend"])
         return out
 
-    # ── VAD-Benchmark-Paket (Change 062) ────────────────────────────────
+    # ── VAD-Benchmark-Paket (Change 062/065) ────────────────────────────────
+
+    V31_RELEASE_URL = ("https://github.com/tilllt/vad-benchmark-data/releases/"
+                       "download/v4/vad-benchmark-v3.1-public.zip")
+
+    def _fetch_v31_zip(self, version: int) -> Path:
+        """V3.1-public-ZIP herunterladen (SHA256-verifiziert), gecacht.
+
+        Change 065: Das VAD-Paket wird aus dem offiziellen Testset-Artefakt
+        (GitHub-Release v4) importiert statt aus dem ASR-Manifest generiert.
+        SHA256-Mismatch → RuntimeError (kein stiller Fallback auf das alte
+        Set — das wäre ein still falsches Paket).
+        """
+        import urllib.request
+        import zipfile
+
+        from app.config import settings
+
+        pkg = self.data_dir / "versions" / f"v{version}" / "vad"
+        pkg.mkdir(parents=True, exist_ok=True)
+        cache = pkg / "v3.1-public.zip"
+        expected = settings.VAD_PACKAGE_SHA256.strip().lower()
+        url = settings.VAD_PACKAGE_URL.strip() or self.V31_RELEASE_URL
+
+        def _verify(path: Path) -> bool:
+            if not path.exists():
+                return False
+            return hashlib.sha256(path.read_bytes()).hexdigest() == expected
+
+        if not _verify(cache):
+            print(f"[benchmark] Lade V3.1-public-Paket von {url} …")
+            with urllib.request.urlopen(url, timeout=300) as r:
+                raw = r.read()
+            got = hashlib.sha256(raw).hexdigest()
+            if got != expected:
+                raise RuntimeError(
+                    f"V3.1-Paket-SHA256-Mismatch: erwartet {expected}, "
+                    f"erhalten {got} — Abbruch (kein Fallback auf altes Set)")
+            cache.write_bytes(raw)
+            print(f"[benchmark] V3.1-Paket gecacht ({len(raw) / 1e6:.1f} MB)")
+        with zipfile.ZipFile(cache) as z:
+            z.extractall(pkg / "import", members=[m for m in z.namelist() if not m.startswith("__")])
+        return pkg / "import" / "testset.json"
 
     def build_vad_package(self, version: int) -> Path:
-        """Erzeugt deterministisch das VAD-Paket (Change 062).
+        """VAD-Paket (Change 065): importiert das V3.1-public-Testset.
 
-        Pro ASR-Sample werden Stille-Insertions-Varianten generiert
-        (lead2/trail2/both2/mid1 — gleiche Methodik wie benchmarks/vad);
-        die Ground Truth ist die Energie-GT der Quelle + Insertions-Offsets
-        (deterministisch, VAD-frei). Gecacht unter versions/v{version}/vad/.
+        Statt Stille-Insertions-Varianten aus dem ASR-Manifest zu generieren
+        (V2-Methodik) wird das offizielle V3.1-Artefakt verwendet (235 public
+        Samples: Piper-TTS + Common-Voice, DEMAND-SNR, Noise/Musik-FP, exakte
+        GT). Gecacht unter versions/v{version}/vad/.
         """
+        from app.config import settings
+
         pkg = self.data_dir / "versions" / f"v{version}" / "vad"
         if (pkg / "vad-manifest.json").exists():
             return pkg
-        m = self._load_manifest(version)
-        audio_dir = self.data_dir / "versions" / f"v{version}" / "audio"
         pkg.mkdir(parents=True, exist_ok=True)
         out_audio = pkg / "audio"
         out_audio.mkdir(exist_ok=True)
+
+        ts_path = self._fetch_v31_zip(version)
+        ts = json.loads(ts_path.read_text(encoding="utf-8"))
+        import_dir = ts_path.parent
         samples_out: List[dict] = []
-        for s in m.get("samples", []):
-            src = audio_dir / f"{s['id']}.wav"
+        for s in ts.get("samples", []):
+            sid = s["id"]
+            src = import_dir / "audio" / f"{sid}.wav"
             if not src.exists():
                 continue
-            wav = _wav_to_float16k(src)
-            gt = _energy_gt(wav)
-            if not gt:
-                continue
-            dur = wav.size / 16_000
-            variants = [("lead2", 2.0, None), ("trail2", 0.0, None), ("both2", 2.0, None)]
-            if dur >= 4.0:
-                variants.append(("mid1", 0.0, (1.5, 1.0)))
-            for vname, lead, mid in variants:
-                if mid is not None:
-                    mid_at, mid_len = mid
-                    out_wav = np.concatenate([
-                        wav[: int(mid_at * 16_000)],
-                        np.zeros(int(mid_len * 16_000)),
-                        wav[int(mid_at * 16_000):],
-                        np.zeros(int(2.0 * 16_000)),
-                    ])
-                    g: List[tuple] = []
-                    for seg in gt:
-                        g.extend(_shift_mid(seg, mid_at, mid_len))
-                else:
-                    trail = 2.0 if vname in ("both2", "trail2") else 0.0
-                    out_wav = np.concatenate([
-                        np.zeros(int(lead * 16_000)), wav,
-                        np.zeros(int(trail * 16_000)),
-                    ])
-                    g = [(seg[0] + lead, seg[1] + lead) for seg in gt]
-                sid = f"{s['id']}_{vname}"
-                _write_wav16k(out_audio / f"{sid}.wav", out_wav)
-                samples_out.append({
-                    "id": sid, "source": s["id"], "variant": vname,
-                    "gt": [{"start": round(a, 4), "end": round(b, 4)} for a, b in g],
-                })
+            shutil.copyfile(src, out_audio / f"{sid}.wav")
+            samples_out.append({
+                "id": sid,
+                "source": s.get("source", ""),
+                "variant": s.get("variant", ""),
+                "split": s.get("split", "public"),
+                "gt": s.get("gt", []),
+            })
+        testset_version = f"v{ts.get('version', '?')}-{ts.get('split', 'public')}"
         (pkg / "vad-manifest.json").write_text(json.dumps({
             "version": version,
+            "testset_version": testset_version,
+            "testset_release_url": settings.VAD_PACKAGE_URL.strip() or self.V31_RELEASE_URL,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "samples": samples_out,
         }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -280,14 +325,13 @@ class BenchmarkService:
         """
         p = self.data_dir / "results" / "latest.json"
         latest = json.loads(p.read_text(encoding="utf-8"))
-        # Change 062: VAD-Sektion immer on-the-fly anreichern (auch wenn
-        # latest.json vor dem VAD-Deploy gepoolt wurde).
+        # Change 062/065: VAD-Sektion immer on-the-fly anreichern (auch wenn
+        # latest.json vor dem VAD-Deploy gepoolt wurde). Change 065:
+        # _vad_summary berechnet den VAD-Paket-Hash selbst.
         try:
-            m = self.latest_manifest()
-            sha = self.package_sha256(m["version"])
             runs_dir = self.data_dir / "results" / "runs"
             if runs_dir.exists():
-                latest["vad"] = self._vad_summary(runs_dir, sha)
+                latest["vad"] = self._vad_summary(runs_dir)
         except (FileNotFoundError, KeyError):
             latest.setdefault("vad", [])
         if latest.get("per_category") and latest.get("per_sample"):
@@ -649,7 +693,7 @@ class BenchmarkService:
                 sid: {b: round(w, 4) for b, w in backs.items()}
                 for sid, backs in sorted(per_sample.items())
             },
-            "vad": self._vad_summary(runs_dir, sha),  # Change 062
+            "vad": self._vad_summary(runs_dir),  # Change 062/065
         }
         (self.data_dir / "results" / "latest.json").write_text(
             json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"
