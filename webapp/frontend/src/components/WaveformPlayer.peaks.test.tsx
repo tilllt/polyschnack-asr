@@ -63,12 +63,15 @@ type IOCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
 
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
+  static observed: (Element | null)[] = [];
   callback: IOCallback;
   constructor(cb: IOCallback) {
     this.callback = cb;
     FakeIntersectionObserver.instances.push(this);
   }
-  observe() {}
+  observe(el: Element) {
+    FakeIntersectionObserver.observed.push(el);
+  }
   unobserve() {}
   disconnect() {}
   fire(intersecting: boolean) {
@@ -79,6 +82,7 @@ class FakeIntersectionObserver {
 beforeEach(() => {
   vi.clearAllMocks();
   FakeIntersectionObserver.instances = [];
+  FakeIntersectionObserver.observed = [];
   (globalThis as Record<string, unknown>).IntersectionObserver =
     FakeIntersectionObserver;
   getDecodedDataMock.mockReturnValue(null);
@@ -168,5 +172,46 @@ describe("WaveformPlayer asynchrone Peaks (Change 059-Fix)", () => {
     // Cleanup des ersten Laufs destroyt den alten ws
     expect(destroyMock).toHaveBeenCalledTimes(1);
     expect(createMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("WaveformPlayer Change 072 — Deadlock (Observer auf hidden Container)", () => {
+  it("beobachtet den ÄUSSEREN Wrapper, nicht den hidden Canvas-Container", () => {
+    // Regression: Vor 072 beobachtete der Observer den Container, der bis
+    // `ready` display:none (hidden) ist. display:none-Elemente liefern NIE
+    // isIntersecting:true → inView blieb false → Init-Effekt lief nie →
+    // „Loading waveform…" für immer. Der beobachtete Knoten muss also ein
+    // SICHTBARER Vorfahre des Containers sein (nicht der Container selbst).
+    const { container } = render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={5} />
+      </LocaleProvider>,
+    );
+    const observed = FakeIntersectionObserver.observed[0];
+    expect(observed).toBeTruthy();
+
+    const canvasContainer = container.querySelector(
+      "[class*='hidden']",
+    ) as HTMLElement | null;
+    // Der Canvas-Container trägt vor ready die hidden-Klasse …
+    expect(canvasContainer).toBeTruthy();
+    // … und darf NICHT das beobachtete Element sein (sonst Deadlock).
+    expect(observed).not.toBe(canvasContainer);
+    // Der Wrapper ist ein Vorfahre des hidden Containers.
+    expect(observed!.contains(canvasContainer)).toBe(true);
+  });
+
+  it("startet den Init auch, wenn der Container hidden bleibt (fire auf Wrapper)", () => {
+    render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={5} />
+      </LocaleProvider>,
+    );
+    const obs = FakeIntersectionObserver.instances[0];
+    act(() => obs.fire(true));
+    // WaveSurfer wird trotz hidden-Container initialisiert (070-Fix greift)
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(loadMock).toHaveBeenCalledTimes(1);
+    expect(loadMock.mock.calls[0][1]).toEqual([[1, 2, 3]]);
   });
 });

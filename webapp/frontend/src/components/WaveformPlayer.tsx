@@ -133,6 +133,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
   function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
+    // Change 072 (User-Befund 2026-08-21, „Waveforms lade endlos“ trotz 070):
+    // DEADLOCK — der IntersectionObserver (Change 052) beobachtete den
+    // Canvas-Container, der bis `ready` die Klasse `hidden` (display:none)
+    // trägt. display:none-Elemente liefern NIE isIntersecting:true → inView
+    // blieb false → der Init-Effekt (if (!inView) return) startete WaveSurfer
+    // nie → ready blieb false → Container blieb hidden → „Loading waveform…“
+    // für immer. Der 070-Fix (peaks als Dependency) konnte nicht greifen,
+    // weil der Effekt gar nicht erst lief. Jetzt beobachtet der Observer den
+    // ÄUSSEREN Wrapper (immer sichtbar, nie hidden).
+    const outerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
     const regionsRef = useRef<RegionsPlugin | null>(null);
@@ -221,7 +231,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // wirkungslos, weil die Datei noch nicht geladen ist.
     const [inView, setInView] = useState(false);
     useEffect(() => {
-      const el = containerRef.current;
+      // Change 072: outerRef statt containerRef beobachten — der Container
+      // ist bis `ready` hidden (display:none) und liefert nie eine
+      // Intersection; der Wrapper ist immer sichtbar.
+      const el = outerRef.current;
       if (!el) return;
       if (typeof IntersectionObserver === "undefined") {
         setInView(true); // jsdom/ohne IO: sofort laden (Tests, alte Browser)
@@ -571,7 +584,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     }), []);
 
     return (
-      <div className="w-full">
+      // Change 072: outerRef auf dem ÄUSSEREN Wrapper — der ist nie hidden
+      // (der Canvas-Container darunter bleibt bis ready display:none).
+      <div ref={outerRef} className="w-full">
         {!ready && (
           <div className="flex items-center justify-center h-[80px] text-muted2 text-[13px] gap-2">
             <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
