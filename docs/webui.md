@@ -26,7 +26,7 @@ Enhance.
   nur dieser Ausschnitt wird transkribiert.
 - **Queue & ETA:** Jobs werden pro Backend serialisiert; Position, Warte-ETA
   und Fortschritts-Phasen (Upload → ASR → Align → Diar → Post) zeigt die
-  Karte live (2-s-Polling, Change 035/036).
+  Karte live (2-s-Polling, Change 035).
 - **Abbrechen:** laufende/queued Jobs können gestoppt werden.
 - **Re-Transkribieren:** Klick auf „Re-transcribe" klappt die Optionen auf
   und wird zum ▶-Button (kein Bestätigungsdialog); auch nach `failed`
@@ -60,7 +60,7 @@ Enhance.
 | Sprecher umbenennen | ✎-Symbol; neue Sprecher manuell ergänzbar |
 | Segmentlänge | freies Zahlenfeld (Sekunden) → Auto-Re-Segmentierung als Vorschau |
 | Suchen & Ersetzen | 🔍-Button: Treffer-Sprünge + Ersetzen (einzeln/alle) |
-| **Vollbild-Edit (Change 040)** | ⛶-Button: nur diese Transkription, maximale Fläche; Escape/✕ verlässt |
+| **Vollbild-Edit** | ⛶-Button: nur diese Transkription, maximale Fläche; Escape/✕ verlässt |
 | **Kollaboration (Change 053)** | mehrere User bearbeiten gleichzeitig (Yjs, Cursor-Awareness); wird als Version persistiert |
 
 ## Versionen & Diff
@@ -101,8 +101,8 @@ antworten. Klick auf eine Annotation springt zur Stelle.
 
 ## Weitere UI-Features
 
-- **i18n:** Deutsch · Englisch · Portugiesisch (umschaltbar, Change 003)
-- **PWA/Install-Banner** (Change 037); **Offline-Queue**: Aufnahmen puffern
+- **i18n:** Deutsch · Englisch · Portugiesisch (umschaltbar)
+- **PWA/Install-Banner**; **Offline-Queue**: Aufnahmen puffern
   bei fehlender Verbindung und werden beim Wiederverbinden hochgeladen
 - **API-Keys** (Account-Bereich) für programmatischen Zugriff
 - **Stats-Leiste** (Header): Aufnahmen, verarbeitete Minuten, GPU/CPU-Badge
