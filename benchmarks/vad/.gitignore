@@ -1,0 +1,10 @@
+# Große Binaries/Modelle — nicht versionieren (Download-Anleitung in README.md)
+assets/tenvad/*.onnx
+assets/tenvad/*.so
+assets/tenvad/testset-audio-*.wav
+assets/tenvad/testset-audio-*.scv
+assets/demand/*.wav
+assets/*.tar.bz2
+assets/tenvad-sherpa.onnx
+out/
+.venv/

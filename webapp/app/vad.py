@@ -1,9 +1,15 @@
 """Silero VAD pre-processing for the webapp backend.
 
-Uses ONNX runtime (no PyTorch) to detect speech regions. Exposes:
+Uses ONNX Runtime directly (no PyTorch — Change 060: das PyPI-Paket
+silero-vad zieht torch+torchaudio transitiv in das Webapp-Image, ~2,5 GB
+Ballast). Das Modell ``silero_vad.onnx`` (~2 MB, MIT) wird einmalig nach
+``DATA_DIR/models/`` geladen und per onnxruntime-Session inferiert.
+
+Exposes:
 
 - ``trim_silence(audio_bytes) -> bytes`` — trims leading/trailing silence
-- ``detect_speech_regions(audio_bytes) -> list[dict]`` — returns VAD segments
+- ``trim_silence_with_offset(audio_bytes) -> (bytes, offset_s)``
+- ``detect_speech_regions(audio_bytes) -> list[dict]`` — VAD segments
 """
 from __future__ import annotations
 
@@ -11,28 +17,168 @@ import io
 import logging
 import subprocess
 import wave
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .config import settings
+
 TARGET_SR = 16_000
+WINDOW_SAMPLES = 512  # Silero: 512 Samples @ 16 kHz = 32 ms pro Frame
 log = logging.getLogger(__name__)
 
-_vad_model = None
+MODEL_FILENAME = "silero_vad.onnx"
+MODEL_URLS = [
+    # GitHub raw (snakers4/silero-vad) — das HF-Repo existiert nicht
+    # (HF-Pfad liefert 401). ~2,3 MB, MIT.
+    "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx",
+]
+
+_session = None  # onnxruntime.InferenceSession (lazy)
+_session_checked = False
 
 
-def _get_vad():
-    global _vad_model
-    if _vad_model is not None:
-        return _vad_model
+def model_path() -> Path:
+    """Cache-Pfad des ONNX-Modells (gemeinsames Modelle-Verzeichnis)."""
+    return settings.DATA_DIR / "models" / MODEL_FILENAME
+
+
+def _ensure_model(timeout: float = 30.0) -> Optional[Path]:
+    """Download ``silero_vad.onnx`` einmalig nach ``DATA_DIR/models/``.
+
+    Returns Pfad oder None bei Fehlschlag (VAD bleibt dann deaktiviert —
+    gleiches Verhalten wie vor Change 060, nur ohne pip-Install).
+    """
+    path = model_path()
+    if path.exists() and path.stat().st_size > 100_000:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import httpx
+
+    tmp = path.with_suffix(".onnx.tmp")
+    for url in MODEL_URLS:
+        try:
+            log.info("Silero VAD: lade Modell von %s", url)
+            r = httpx.get(url, timeout=timeout, follow_redirects=True)
+            r.raise_for_status()
+            if len(r.content) < 100_000:
+                log.warning("Silero VAD: Download zu klein (%d B) — übersprungen", len(r.content))
+                continue
+            tmp.write_bytes(r.content)
+            tmp.rename(path)
+            log.info("Silero VAD: Modell gecacht unter %s", path)
+            return path
+        except Exception as exc:  # noqa: BLE001 — Download-Fehler sind nicht fatal
+            log.warning("Silero VAD: Download von %s fehlgeschlagen: %s", url, exc)
+    return None
+
+
+def _get_session():
+    """Lazy onnxruntime-Session (CPU). None wenn Modell nicht verfügbar."""
+    global _session, _session_checked
+    if _session_checked:
+        return _session
+    _session_checked = True
     try:
-        from silero_vad import load_silero_vad
-        _vad_model = load_silero_vad(onnx=True)
-        log.info("Loaded Silero VAD (ONNX)")
-    except Exception:
-        log.warning("Silero VAD unavailable — VAD preprocessing disabled")
-        _vad_model = False
-    return _vad_model
+        import onnxruntime as ort
+
+        path = _ensure_model()
+        if path is None:
+            return None
+        _session = ort.InferenceSession(
+            str(path), providers=["CPUExecutionProvider"]
+        )
+        log.info("Silero VAD: ONNX-Session bereit (%s)", path)
+    except Exception:  # noqa: BLE001
+        log.warning("Silero VAD unavailable — VAD preprocessing disabled", exc_info=True)
+        _session = None
+    return _session
+
+
+def vad_available() -> bool:
+    """True wenn die VAD-Session ladbar ist (für /api/models/status)."""
+    return _get_session() is not None
+
+
+def speech_probs(wav: np.ndarray, session) -> np.ndarray:
+    """Frame-Wahrscheinlichkeiten [0..1] für 512er-Chunks @ 16 kHz.
+
+    Stateful-Forward (Silero v6-ONNX): das Modell hat LSTM-State
+    (Inputs ``input``, ``state`` [2,1,128], ``sr``), der über das ganze
+    Audio fortgeführt wird — identische Semantik wie das frühere
+    silero-vad-6.x-Paket (Change 060: gleiches Verhalten, ohne torch).
+    Wichtig: pro Chunk werden die letzten 64 Samples des vorherigen
+    Chunks als Kontext vorangestellt (Input-Länge 512+64=576) — ohne
+    den Kontext liefert das Modell keine brauchbaren Probs
+    (verifiziert 2026-08-21 gegen die offizielle utils_vad.py).
+    """
+    num_samples = wav.size
+    n_chunks = (num_samples - WINDOW_SAMPLES) // WINDOW_SAMPLES + 1
+    probs = np.empty(n_chunks, dtype=np.float32)
+    state = np.zeros((2, 1, 128), dtype=np.float32)
+    sr = np.array(TARGET_SR, dtype=np.int64)
+    context = np.zeros(64, dtype=np.float32)  # Kontext: letzte 64 Samples
+    for i in range(n_chunks):
+        chunk = wav[i * WINDOW_SAMPLES:(i + 1) * WINDOW_SAMPLES]
+        x = np.concatenate([context, chunk]).reshape(1, WINDOW_SAMPLES + 64)
+        x = np.ascontiguousarray(x, dtype=np.float32)
+        out, state = session.run(None, {"input": x, "state": state, "sr": sr})
+        probs[i] = float(np.asarray(out).reshape(-1)[0])
+        context = x[0, -64:]
+    return probs
+
+
+def regions_from_probs(
+    probs: np.ndarray,
+    num_samples: int,
+    sampling_rate: int = TARGET_SR,
+    threshold: float = 0.5,
+    min_speech_ms: int = 250,
+    min_silence_ms: int = 400,
+    speech_pad_ms: int = 120,
+) -> List[Dict[str, Any]]:
+    """Regionen aus Frame-Wahrscheinlichkeiten (silero-Semantik).
+
+    Reine Funktion (unit-testbar ohne Modell). Rückgabe:
+    ``[{"start": s, "end": e}, ...]`` in Sekunden. Stille-Lücken >=
+    min_silence_ms beenden eine Region; kurze Regionen (< min_speech_ms)
+    werden verworfen; jede Region wird um speech_pad_ms erweitert und auf
+    [0, num_samples] geklemmt.
+    """
+    window = WINDOW_SAMPLES
+    min_speech = int(sampling_rate * min_speech_ms / 1000)
+    min_silence = int(sampling_rate * min_silence_ms / 1000)
+    pad = int(sampling_rate * speech_pad_ms / 1000)
+
+    regions: List[Dict[str, int]] = []
+    current: Optional[Dict[str, int]] = None
+    silence = 0
+    for i, prob in enumerate(probs):
+        start = i * window
+        end = start + window
+        if prob >= threshold:
+            silence = 0
+            if current is None:
+                current = {"start": start, "end": end}
+            else:
+                current["end"] = end
+        else:
+            silence += window
+            if current is not None and silence >= min_silence:
+                if current["end"] - current["start"] > min_speech:
+                    regions.append(current)
+                current = None
+    if current is not None and current["end"] - current["start"] > min_speech:
+        regions.append(current)
+
+    out: List[Dict[str, Any]] = []
+    for r in regions:
+        start = max(0, r["start"] - pad)
+        end = min(num_samples, r["end"] + pad)
+        if end > start:
+            out.append({"start": start / sampling_rate, "end": end / sampling_rate})
+    return out
 
 
 def _decode_to_wav(audio_bytes: bytes) -> np.ndarray:
@@ -56,8 +202,8 @@ def detect_speech_regions(
     speech_pad_ms: int = 120,
 ) -> List[Dict[str, Any]]:
     """Run VAD and return speech region dicts [{start, end}, ...] in seconds."""
-    model = _get_vad()
-    if not model:
+    session = _get_session()
+    if session is None:
         return []
 
     try:
@@ -67,18 +213,13 @@ def detect_speech_regions(
         return []
 
     try:
-        from silero_vad import get_speech_timestamps
-        import torch
-        t = torch.from_numpy(wav)
-        ts = get_speech_timestamps(
-            t, model,
-            sampling_rate=TARGET_SR,
+        probs = speech_probs(wav, session)
+        return regions_from_probs(
+            probs, wav.size,
             threshold=threshold,
-            min_silence_duration_ms=min_silence_ms,
+            min_silence_ms=min_silence_ms,
             speech_pad_ms=speech_pad_ms,
-            return_seconds=True,
         )
-        return [{"start": s["start"], "end": s["end"]} for s in ts]
     except Exception:
         log.exception("VAD inference failed")
         return []

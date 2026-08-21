@@ -3,6 +3,11 @@
 set -u
 cd "$(dirname "$0")"
 export DATA_DIR=/tmp/ps_debug
+# Test-Isolation: DATA_DIR vor dem Lauf vollständig leeren — Reste aus
+# abgebrochenen Läufen erzeugten UNIQUE-Constraint-Fails (recording.id)
+# in test_yjs_rooms.py / test_cancel.py (2026-08-21, Change 060-Diagnose).
+rm -rf "$DATA_DIR"
+mkdir -p "$DATA_DIR"
 OUT=/tmp/ps_full_suite.log
 : > "$OUT"
 fail=0

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 import threading
 from typing import Any, Dict
 
@@ -27,12 +25,10 @@ _download_progress: Dict[str, str] = {}
 
 
 def _check_vad() -> bool:
-    """Check if Silero VAD model is importable (lazy)."""
-    try:
-        from silero_vad import load_silero_vad  # noqa: F401
-        return True
-    except Exception:
-        return False
+    """Check if Silero VAD is available (onnxruntime-Session, Change 060)."""
+    from app import vad as vad_mod
+
+    return vad_mod.vad_available()
 
 
 def _pyannote_importable() -> bool:
@@ -150,20 +146,16 @@ def _aligner_diagnosis() -> Dict[str, Any]:
 
 
 def _download_vad():
-    """Download Silero VAD model (ONNX, lightweight)."""
+    """Download Silero VAD model (ONNX, ~2 MB) — Change 060 (kein pip mehr)."""
     if _downloading.get("vad"):
         return
     _downloading["vad"] = True
     _download_progress["vad"] = "starting"
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "silero-vad"],
-            capture_output=True, check=True,
-        )
-        # Force model download by importing
-        from silero_vad import load_silero_vad  # noqa: F811
-        load_silero_vad(onnx=True)
-        _download_progress["vad"] = "done"
+        from app import vad as vad_mod
+
+        path = vad_mod._ensure_model()
+        _download_progress["vad"] = "done" if path else "failed: download failed"
     except Exception as exc:
         _download_progress["vad"] = f"failed: {exc}"
     finally:

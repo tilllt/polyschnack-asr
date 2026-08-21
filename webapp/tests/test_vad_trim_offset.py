@@ -102,3 +102,79 @@ def test_shift_segments_null_offset_unveraendert():
     service._shift_segments(segments, 0.0)
     assert segments[0]["start"] == 1.0
     assert segments[0]["words"][0]["start"] == 1.1
+
+
+# -------------------------------------------------- Change 060: pure ONNX-Logik
+
+def _probs(segments_s, sr=16000, window=512):
+    """probs-Array aus (start_s, end_s)-Speech-Segmenten (1.0 = speech)."""
+    n = int((segments_s[-1][1]) * sr) // window + 1
+    p = np.zeros(n, dtype=np.float32)
+    for start_s, end_s in segments_s:
+        i0 = int(start_s * sr) // window
+        i1 = int(end_s * sr) // window
+        p[i0:i1 + 1] = 1.0
+    return p
+
+
+def test_regions_from_probs_eine_region_mit_pad():
+    # 1 s Speech (0.0..1.0) in 3 s Audio → Region mit 120 ms Pad, geklemmt.
+    # Ende liegt auf der Chunk-Grenze (32 ms Quantisierung): letzter
+    # Speech-Chunk endet bei 1.024 s + 120 ms Pad = 1.144 s.
+    probs = _probs([(0.0, 1.0)])
+    num = int(3.0 * 16000)
+    regions = vad.regions_from_probs(probs, num)
+    assert len(regions) == 1
+    assert regions[0]["start"] == pytest.approx(0.0)          # pad nach 0 geklemmt
+    assert regions[0]["end"] == pytest.approx(1.144, abs=0.01)
+
+
+def test_regions_from_probs_stille_luecke_teilt_regionen():
+    # 1 s Speech, 1 s Stille, 1 s Speech → 2 Regionen (Lücke >= 400 ms)
+    probs = _probs([(0.0, 1.0), (2.0, 3.0)])
+    num = int(4.0 * 16000)
+    regions = vad.regions_from_probs(probs, num)
+    assert len(regions) == 2
+    assert regions[0]["end"] <= regions[1]["start"]
+
+
+def test_regions_from_probs_kurze_region_verworfen():
+    # 100 ms Speech (< min_speech 250 ms) → keine Region
+    probs = _probs([(0.0, 0.1)])
+    regions = vad.regions_from_probs(probs, int(1.0 * 16000))
+    assert regions == []
+
+
+def test_regions_from_probs_leer():
+    assert vad.regions_from_probs(np.array([], dtype=np.float32), 16000) == []
+    # alles Stille → keine Region
+    p = np.zeros(64, dtype=np.float32)
+    assert vad.regions_from_probs(p, 64 * 512) == []
+
+
+class _FakeSession:
+    """Minimaler ONNX-Session-Fake: liefert Speech-Prob je Chunk."""
+    def __init__(self, probs):
+        self._probs = list(probs)
+        self._i = 0
+
+    def get_inputs(self):
+        return [type("I", (), {"name": "input"})(),
+                type("I", (), {"name": "state"})(),
+                type("I", (), {"name": "sr"})()]
+
+    def run(self, *_a, **_k):
+        out = self._probs[self._i]
+        self._i += 1
+        state = np.zeros((2, 1, 128), dtype=np.float32)
+        return [np.array([[out]], dtype=np.float32), state]
+
+
+def test_speech_probs_chunking():
+    wav = np.zeros(512 * 4 + 100, dtype=np.float32)
+    wav[:512] = 0.9
+    session = _FakeSession([0.9, 0.1, 0.1, 0.1])
+    probs = vad.speech_probs(wav, session)
+    assert probs.shape == (4,)
+    assert probs[0] == pytest.approx(0.9)
+    assert probs[1] == pytest.approx(0.1)

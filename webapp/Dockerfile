@@ -29,9 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs &
 # JavaScript runtime was found" (Bot-Schutz der Player-Challenge).
 RUN uv pip install --system "yt-dlp>=2026.05.29"
 RUN uv sync
-# Kein CUDA-torch mehr in der Webapp: Diarization läuft seit Option B im
-# separaten CrispASR-diar-Container (diar:5096). Die Webapp bleibt CPU-only
-# (~2,5-3 GB kleiner); GPU-Zugriff bekommen asr + diar via compose.gpu.yml.
+# Kein torch/torchaudio in der Webapp (Change 060): Diarization läuft im
+# separaten CrispASR-diar-Container, VAD nutzt silero_vad.onnx direkt via
+# onnxruntime (das PyPI-Paket silero-vad zog torch transitiv ins Image —
+# ~2,5-3 GB). Die Webapp bleibt CPU-only; GPU-Zugriff bekommen asr + diar
+# via compose.gpu.yml.
 
 # Copy application source
 COPY app ./app

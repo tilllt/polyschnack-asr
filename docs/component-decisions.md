@@ -55,3 +55,50 @@ aktuelle Empfehlung: **Parakeet (cpp/onnx) als primäre DE-Backends**,
 canary als Alternative. moonshine-de bleibt nur für Sonderfälle
 (extreme Echtzeit-Anforderung) relevant. EN-Sprachmaterial gehört über
 ein EN-fähiges Backend verarbeitet (aktuell nicht im Fokus).
+
+## VAD für Silence-Trimming (Change 060, 2026-08-21)
+
+**Ausgangslage:** Das Webapp-Image war auf 3,06 GB komprimiert gewachsen —
+das PyPI-Paket `silero-vad>=6.0.0` zog torch/torchaudio/triton transitiv in
+den `uv sync`-Layer (`/.venv` = 4,9 GB unkomprimiert, verifiziert per
+Layer-Streaming). Genutzt wird VAD nur für Silence-Trimming (3 Aufrufe in
+`service.py`), `detect_speech_regions` ist ungenutzt.
+
+**Vergleich (eigener Benchmark, `benchmarks/vad/`, 37 Samples: 31 DE-Synth
+mit deterministischer Stille-Insertion + exakter GT, 2 TEN-Testset,
+4 Noise-FP inkl. DEMAND Küche/Metro):**
+
+| Engine | F1 (mean) | Boundary-Start (med. ms) | Boundary-Ende (med. ms) | FP auf Noise (s) | RTF |
+|---|---|---|---|---|---|
+| **Silero-onnx (Webapp)** | **0,963** | **16** | 72 | **0,0** | 0,025 |
+| TEN VAD (sherpa-Port) | 0,843 | 110 | **26** | 2,5 | 0,018 |
+| Energy-Baseline | 0,949 | 16 | 16 | 76,7 | 0,0005 |
+
+**Einordnung:**
+- **Silero-onnx gewinnt klar:** bestes F1 (0,963), keine False Positives auf
+  Rauschen — auch nicht auf echtem DEMAND-Umgebungsrauschen (Küche/Metro,
+  0,0 s), sehr gute Start-Boundary (16 ms). Das Ende (+72 ms) ist
+  der Chunk-Quantisierung + Pad-Logik geschuldet und für den Trim unkritisch
+  (Trailing-Silence darf ruhig minimal stehen bleiben).
+- **TEN VAD:** schlechteres F1 (0,843), spät einsetzende Boundaries
+  (110 ms) und **2,5 s FP auf reinem Rauschen** im sherpa-Port
+  (Pitch-Feature = 0 laut k2-fsa, degradiert die Performance). Unabhängig
+  davon ist die **Lizenz ein Ausschlusskriterium**: Apache-2.0 mit
+  Agora-Zusatzklauseln — Punkt 1 verbietet Deploy, das mit Agoras Angeboten
+  konkurriert (self-hosted ASR = kollidierend).
+- **Energy-Baseline:** Boundary-technisch perfekt (GT ist Energie-basiert),
+  aber **versagt auf Rauschen (76,7 s FP auf 100 s Noise)** — keine
+  Alternative für echte Audios (YouTube-Imports!).
+
+**Entscheidung:** **Silero VAD bleibt das Modell**, läuft künftig direkt
+via **onnxruntime** (silero_vad.onnx, MIT, 2,3 MB) statt über das
+torch-ziehende PyPI-Paket. Image-Einsparung ≈ 2,5–3 GB. TEN VAD und
+Energy scheiden aus (Lizenz bzw. Rausch-Anfälligkeit). CrispASR-nativ
+(`--vad`, Silero-GGUF) bleibt als Option für eine spätere Backend-Verlegung
+notiert (unverändert Silero-Qualität).
+
+**Quellen:** eigener Benchmark-Lauf `benchmarks/vad/out/results.md`
+(2026-08-21) · [silero-vad (MIT)](https://github.com/snakers4/silero-vad) ·
+[TEN-VAD-Lizenz](https://github.com/TEN-framework/ten-vad/blob/main/LICENSE)
+· [sherpa ten-vad-Port (pitch=0)](https://k2-fsa.github.io/sherpa/onnx/vad/ten-vad.html)
+· Picovoice-Methodik (FPR/TPR) [voice-activity-benchmark](https://github.com/Picovoice/voice-activity-benchmark)
