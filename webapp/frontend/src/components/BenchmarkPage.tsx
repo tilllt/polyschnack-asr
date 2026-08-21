@@ -7,6 +7,7 @@ import type {
   BenchmarkSamplesResponse,
   BenchmarkPricing,
   BenchmarkResults,
+  VadResultRow,
 } from "../benchmark";
 
 // ── Collapsible Kategorie (nur eine offen, State in Page) ────────────────
@@ -548,6 +549,55 @@ export function ResultsTable({ results, hiddenModels }: { results: BenchmarkResu
   );
 }
 
+// ── VAD-Ergebnisse (Change 062) ──────────────────────────────────────────
+
+export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
+  if (!vad || !vad.length) {
+    return (
+      <p className="text-sm text-dim">
+        Noch keine VAD-Ergebnisse. VAD-Container submitten über
+        <code className="mx-1 font-mono text-xs">/api/benchmark/vadpackage</code>.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-dim border-b border-border">
+            <th className="py-2 pr-2">VAD-Modell</th>
+            <th className="py-2 pr-2">n</th>
+            <th className="py-2 pr-2">F1</th>
+            <th className="py-2 pr-2">B-Start (med ms)</th>
+            <th className="py-2 pr-2">B-Ende (med ms)</th>
+            <th className="py-2 pr-2">FP-Speech (s)</th>
+            <th className="py-2 pr-2">RTF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {vad.map((r) => (
+            <tr key={r.backend} className="border-b border-border/50">
+              <td className="py-2 pr-2 font-mono">{r.backend}</td>
+              <td className="py-2 pr-2">{r.n_samples}</td>
+              <td className="py-2 pr-2">{r.vad_f1_mean != null ? r.vad_f1_mean.toFixed(3) : "–"}</td>
+              <td className="py-2 pr-2">{r.boundary_start_ms_median != null ? r.boundary_start_ms_median.toFixed(0) : "–"}</td>
+              <td className="py-2 pr-2">{r.boundary_end_ms_median != null ? r.boundary_end_ms_median.toFixed(0) : "–"}</td>
+              <td className="py-2 pr-2">{r.fp_time_s != null ? r.fp_time_s.toFixed(1) : "–"}</td>
+              <td className="py-2 pr-2">{r.rtf_mean != null ? r.rtf_mean.toFixed(4) : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-dim mt-2">
+        Referenz-Modelle mit lizenz-inkompatiblen Bedingungen (z. B. TEN VAD,
+        Cobra, MarbleNet) sind nur zum Vergleich im Benchmark — produktiv
+        nutzbar sind die MIT/Apache-Modelle (siehe Lizenz-Matrix in
+        <code className="mx-1 font-mono text-xs">benchmarks/vad/containers/README.md</code>).
+      </p>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────
 
 interface PageProps {
@@ -719,6 +769,12 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-2">Ergebnisse</h2>
         <ResultsTable results={results} hiddenModels={hiddenModels} />
+      </section>
+
+      {/* VAD-Ergebnisse (Change 062) */}
+      <section className="border border-border rounded-lg p-4">
+        <h2 className="font-semibold mb-2">VAD-Modelle</h2>
+        <VadResultsTable vad={results?.vad} />
       </section>
 
       {/* Preisvergleich */}

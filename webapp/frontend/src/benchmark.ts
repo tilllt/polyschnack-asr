@@ -78,6 +78,18 @@ export interface BenchmarkPerCategoryRow {
   n: number;
 }
 
+/** Change 062: gepoolte VAD-Ergebnisse (kind="vad" aus latest.json). */
+export interface VadResultRow {
+  backend: string;
+  kind: "vad";
+  n_samples: number;
+  vad_f1_mean: number;
+  boundary_start_ms_median: number;
+  boundary_end_ms_median: number;
+  fp_time_s: number;
+  rtf_mean: number;
+}
+
 export interface BenchmarkResults {
   version?: number;
   run_id?: string;
@@ -86,6 +98,8 @@ export interface BenchmarkResults {
   per_category?: BenchmarkPerCategoryRow[];
   /** Change 039: sample_id -> { backend: wer } für Sample-Mini-Tabellen. */
   per_sample?: Record<string, Record<string, number>>;
+  /** Change 062: VAD-Modell-Ergebnisse (getrennt vom ASR-Pool). */
+  vad?: VadResultRow[];
 }
 
 export function parseBenchmarkPath(path: string): boolean {

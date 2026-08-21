@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation } from "./BenchmarkPage";
+import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
 import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse } from "../benchmark";
 
 const CAT: Cat = { id: "akzent", name: "Akzente", description: "Regionale Färbungen" };
@@ -448,5 +448,32 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
     fireEvent.click(screen.getByTestId("model-chip-alle"));
     await waitFor(() => expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy());
     expect(screen.getByTestId("cat-bar-akzent-crispr-pk-cpp")).toBeTruthy();
+  });
+});
+
+// ── Change 062: VAD-Ergebnis-Tabelle ──────────────────────────────────────
+
+describe("VadResultsTable (Change 062)", () => {
+  test("zeigt VAD-Metriken je Modell", () => {
+        const vad = [
+      { backend: "silero-onnx", kind: "vad" as const, n_samples: 59,
+        vad_f1_mean: 0.976, boundary_start_ms_median: 16,
+        boundary_end_ms_median: 24, fp_time_s: 0.0, rtf_mean: 0.0222 },
+      { backend: "ten-vad", kind: "vad" as const, n_samples: 59,
+        vad_f1_mean: 0.824, boundary_start_ms_median: 110,
+        boundary_end_ms_median: 32, fp_time_s: 7.5, rtf_mean: 0.0132 },
+    ];
+    render(<VadResultsTable vad={vad} />);
+    expect(screen.getByText("silero-onnx")).toBeTruthy();
+    expect(screen.getByText("ten-vad")).toBeTruthy();
+    expect(screen.getByText("0.976")).toBeTruthy();
+    expect(screen.getByText("0.824")).toBeTruthy();
+    expect(screen.getByText("7.5")).toBeTruthy();
+    expect(screen.getByText(/lizenz-inkompatiblen Bedingungen/)).toBeTruthy();
+  });
+
+  test("zeigt Hinweis, wenn keine VAD-Ergebnisse", () => {
+        render(<VadResultsTable vad={null} />);
+    expect(screen.getByText(/Noch keine VAD-Ergebnisse/)).toBeTruthy();
   });
 });
