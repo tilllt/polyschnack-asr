@@ -721,25 +721,15 @@ describe("BenchmarkSetUpdater (Change 075/076)", () => {
     mechanism: "benchmark-set",
     configured: true,
     pinning_mode: false,
-    repo: "tilllt/polyschnack-benchmark-data",
+    git_url: "https://git.example.org/benchmark-data.git",
     url: "",
     sha_prefix: "1190936d",
     auto_install: false,
     current_version: 1,
     installed_versions: [1],
     available: [
-      {
-        version: 2,
-        tag: "benchmark-set-v2",
-        published_at: "2026-08-25T10:00:00Z",
-        zip_size: 12345678,
-      },
-      {
-        version: 1,
-        tag: "benchmark-set-v1",
-        published_at: "2026-08-21T17:46:09Z",
-        zip_size: 47526124,
-      },
+      { version: 2, tag: "benchmark-set-v2" },
+      { version: 1, tag: "benchmark-set-v1" },
     ],
     last_error: null,
   };
@@ -758,7 +748,7 @@ describe("BenchmarkSetUpdater (Change 075/076)", () => {
     await waitFor(() => expect(screen.getByTestId("benchmark-set-updater")).toBeTruthy());
     expect(screen.getByText(/Aktuelle Version:/)).toBeTruthy();
     expect(screen.getAllByText(/v1/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/tilllt\/polyschnack-benchmark-data/)).toBeTruthy();
+    expect(screen.getByText(/benchmark-data\.git/)).toBeTruthy();
   });
 
   test("verfügbare Releases werden gelistet (neueste zuerst, v1 als Aktuell)", async () => {
@@ -832,7 +822,7 @@ describe("BenchmarkSetUpdater (Change 075/076)", () => {
     vi.mocked(fetchBenchmarkSetStatus).mockResolvedValue({
       ...STATUS,
       pinning_mode: true,
-      repo: "",
+      git_url: "",
       url: "https://github.com/x/y.zip",
       available: [],
     } as never);
@@ -850,7 +840,7 @@ describe("BenchmarkSetUpdater (Change 075/076)", () => {
       ...STATUS,
       configured: false,
       pinning_mode: false,
-      repo: "",
+      git_url: "",
       url: "",
       sha_prefix: "",
       available: [],

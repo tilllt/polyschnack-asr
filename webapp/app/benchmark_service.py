@@ -21,6 +21,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -546,16 +547,41 @@ class BenchmarkService:
 
     # ── Benchmark-Set-Auto-Update (Change 075/076) ────────────────────────
 
-    #: Discovery-Cache (Change 076): (repo, timestamp) → Liste. GitHub-API
-    #: unauthenticated: 60 req/h — Cache 300 s, kein Polling-Loop.
+    #: Discovery-Cache (Change 076): (git_url, timestamp) → Liste. ls-remote
+    #: ist billig, aber manche Hosts raten-limitieren — Cache 300 s.
     _set_discovery_cache: Dict[str, Any] = {}
+
+    #: Git-Befehlszeilen-Basis (env-überschreibbar für Tests/Container).
+    GIT_BIN: str = os.getenv("GIT_BIN", "git")
+
+    @staticmethod
+    def _run_git(args: List[str], timeout: int) -> str:
+        """Führt git aus: GIT_TERMINAL_PROMPT=0 (kein interaktives Hängen),
+        Timeout, wirft RuntimeError bei Fehler."""
+        env = dict(os.environ)
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = "true"  # keine Credential-Prompts
+        try:
+            proc = subprocess.run(
+                [BenchmarkService.GIT_BIN, *args],
+                capture_output=True, text=True, timeout=timeout, env=env,
+            )
+        except FileNotFoundError:
+            raise RuntimeError("git ist nicht installiert (GIT_BIN?)")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"git {args[0]} timeout nach {timeout}s")
+        if proc.returncode != 0:
+            tail = (proc.stderr or "").strip().splitlines()
+            msg = tail[-1] if tail else "unbekannter git-Fehler"
+            raise RuntimeError(f"git {args[0]} fehlgeschlagen: {msg}")
+        return proc.stdout
 
     def set_status(self) -> Dict[str, Any]:
         """Status des Set-Update-Mechanismus (öffentlich, keine Secrets).
 
         current_version: aktive Version; installed_versions: alle; URL/SHA
         nur als Präfix (SHA 8 Zeichen), auto_install-Flag, letzter Fehler.
-        Change 076: `repo` + `available` (verfügbare Releases, gecacht) +
+        Change 076: `git_url` + `available` (verfügbare Releases, gecacht) +
         `pinning_mode` (true wenn env-URL gesetzt → kein Discovery).
         """
         from app.config import settings
@@ -565,19 +591,19 @@ class BenchmarkService:
         except FileNotFoundError:
             cur = None
         sha = settings.BENCHMARK_SET_SHA256.strip()
-        repo = (settings.BENCHMARK_SET_REPO or "").strip()
+        git_url = (settings.BENCHMARK_SET_GIT_URL or "").strip()
         pinning = bool(settings.BENCHMARK_SET_URL.strip())
         available: List[Dict[str, Any]] = []
-        if repo and not pinning:
+        if git_url and not pinning:
             try:
-                available = self.discover_sets(repo)
+                available = self.discover_sets(git_url)
             except Exception as e:  # noqa: BLE001 — Status darf nie crashen
                 self._set_last_error = f"Discovery fehlgeschlagen: {e}"
         return {
             "mechanism": "benchmark-set",
-            "configured": pinning or bool(repo),
+            "configured": pinning or bool(git_url),
             "pinning_mode": pinning,
-            "repo": repo,
+            "git_url": git_url,
             "url": settings.BENCHMARK_SET_URL.strip(),
             "sha_prefix": sha[:8] if sha else "",
             "auto_install": settings.BENCHMARK_SET_AUTO_INSTALL,
@@ -587,62 +613,46 @@ class BenchmarkService:
             "last_error": getattr(self, "_set_last_error", None),
         }
 
-    def discover_sets(self, repo: str) -> List[Dict[str, Any]]:
-        """Listet benchmark-set-v<N>-Releases eines GitHub-Repos (Change 076).
+    def discover_sets(self, git_url: str) -> List[Dict[str, Any]]:
+        """Listet benchmark-set-v<N>-Tags eines Git-Repos (Change 076).
 
-        Fragt die GitHub-API (GET /repos/{repo}/releases, per_page=100),
-        filtert Tags `benchmark-set-v<N>`, liefert je Release:
-        {version, tag, published_at, zip_url, sha_url, zip_size}.
-        Gecacht (300 s). API-Fehler → RuntimeError mit Meldung.
+        `git ls-remote --tags <url>` — host-agnostisch (GitHub, GitLab,
+        selbst gehostet, lokaler Pfad). Kein GitHub-API-Call.
+        Gecacht (300 s). Fehler → RuntimeError mit Meldung.
         """
-        repo = repo.strip().strip("/")
-        if "/" not in repo:
-            raise RuntimeError(f"Repo muss 'owner/name' sein (bekam {repo!r})")
+        git_url = git_url.strip()
+        if not git_url:
+            raise RuntimeError("keine Git-URL übergeben")
         now = time.time()
-        cached = self._set_discovery_cache.get(repo)
+        cached = self._set_discovery_cache.get(git_url)
         if cached and now - cached[0] < 300:
             return cached[1]
 
-        api_url = f"https://api.github.com/repos/{repo}/releases?per_page=100"
         try:
-            req = urllib.request.Request(
-                api_url,
-                headers={"Accept": "application/vnd.github+json",
-                         "User-Agent": "polyschnack-webapp"},
-            )
-            with urllib.request.urlopen(req, timeout=30) as r:
-                releases = json.loads(r.read().decode("utf-8"))
-        except Exception as e:  # noqa: BLE001
-            raise RuntimeError(f"GitHub-API nicht erreichbar ({api_url}): {e}")
+            out = self._run_git(["ls-remote", "--tags", git_url], timeout=60)
+        except RuntimeError as e:
+            raise RuntimeError(f"git ls-remote {git_url[:40]}…: {e}")
 
-        if not isinstance(releases, list):
-            raise RuntimeError("GitHub-API-Antwort unerwartet (kein Array)")
-        out: List[Dict[str, Any]] = []
-        for rel in releases:
-            tag = rel.get("tag_name", "")
-            m = re.fullmatch(r"benchmark-set-v(\d+)", tag)
+        out_list: List[Dict[str, Any]] = []
+        for line in out.splitlines():
+            # Zeilenformat: "<sha>\trefs/tags/<name>" — Peeled-Annotationen
+            # ("^{}") überspringen; Tags, die kein benchmark-set-v<N> sind, filtern.
+            parts = line.split("\t")
+            if len(parts) != 2:
+                continue
+            ref = parts[1]
+            if ref.endswith("^{}"):
+                continue
+            m = re.fullmatch(r"refs/tags/benchmark-set-v(\d+)", ref)
             if not m:
                 continue
-            version = int(m.group(1))
-            assets = {a.get("name"): a for a in rel.get("assets", [])}
-            zip_name = f"benchmark-set-v{version}.zip"
-            sha_name = f"{zip_name}.sha256"
-            zip_asset = assets.get(zip_name)
-            sha_asset = assets.get(sha_name)
-            if not zip_asset:
-                continue  # ohne ZIP kein installierbares Set
-            out.append({
-                "version": version,
-                "tag": tag,
-                "published_at": rel.get("published_at"),
-                "zip_url": zip_asset.get("browser_download_url"),
-                "zip_size": zip_asset.get("size"),
-                "sha_url": sha_asset.get("browser_download_url")
-                if sha_asset else None,
+            out_list.append({
+                "version": int(m.group(1)),
+                "tag": f"benchmark-set-v{m.group(1)}",
             })
-        out.sort(key=lambda s: s["version"], reverse=True)
-        self._set_discovery_cache[repo] = (time.time(), out)
-        return out
+        out_list.sort(key=lambda s: s["version"], reverse=True)
+        self._set_discovery_cache[git_url] = (time.time(), out_list)
+        return out_list
 
     def _download_bytes(self, url: str, timeout: int = 300) -> bytes:
         """HTTPS-Pflicht-Download (gemeinsamer Helfer für Set-Install)."""
@@ -656,22 +666,22 @@ class BenchmarkService:
 
     @staticmethod
     def _parse_sha_asset(content: bytes) -> str:
-        """Erste Hex-Zeichenfolge aus einem .sha256-Asset.
+        """Erste Hex-Zeichenfolge aus einer .sha256-Datei.
 
         Unterstützt sha256sum-Format (`<hash>  <filename>`) und nacktes
-        `<hash>` — beides verbreitet bei GitHub-Release-Assets.
+        `<hash>` — beides verbreitet.
         """
         text = content.decode("utf-8", errors="replace")
         m = re.search(r"([0-9a-fA-F]{64})", text)
         if not m:
-            raise RuntimeError(".sha256-Asset enthält keinen SHA256-Hash")
+            raise RuntimeError(".sha256-Datei enthält keinen SHA256-Hash")
         return m.group(1).lower()
 
     def install_set_from_release(
         self,
         url: Optional[str] = None,
         expected_sha: Optional[str] = None,
-        repo: Optional[str] = None,
+        git_url: Optional[str] = None,
         version: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Installiert ein Benchmark-Set (Change 075 + 076).
@@ -679,8 +689,8 @@ class BenchmarkService:
         Priorität:
         1. `url` (Body-Override) → Pin-Pfad wie Change 075
         2. `BENCHMARK_SET_URL` env → Pin-Pfad
-        3. sonst: Discovery über Repo (arg oder BENCHMARK_SET_REPO) →
-           Zielversion = `version`-Arg oder neueste; SHA aus `.sha256`-Asset.
+        3. sonst: git-basiert über `git_url` (arg oder BENCHMARK_SET_GIT_URL)
+           → Zielversion = `version`-Arg oder neueste; SHA aus `.sha256`-Datei.
         """
         from app.config import settings
 
@@ -697,22 +707,22 @@ class BenchmarkService:
             raw = self._download_bytes(url)
             return self._install_zip_bytes(raw, expected_sha)
 
-        # Discovery-Pfad (Change 076)
-        repo = (repo or "").strip() or settings.BENCHMARK_SET_REPO.strip()
-        if not repo:
+        # Git-Pfad (Change 076)
+        git_url = (git_url or "").strip() or settings.BENCHMARK_SET_GIT_URL.strip()
+        if not git_url:
             self._set_last_error = (
-                "Keine Quelle konfiguriert: BENCHMARK_SET_REPO (Discovery) "
+                "Keine Quelle konfiguriert: BENCHMARK_SET_GIT_URL (git) "
                 "oder BENCHMARK_SET_URL (Pin) setzen"
             )
             raise RuntimeError(self._set_last_error)
         try:
-            sets = self.discover_sets(repo)
+            sets = self.discover_sets(git_url)
         except RuntimeError as e:
             self._set_last_error = str(e)
             raise
         if not sets:
             self._set_last_error = (
-                f"Keine benchmark-set-v<N>-Releases in {repo} gefunden"
+                f"Keine benchmark-set-v<N>-Tags in {git_url[:40]}… gefunden"
             )
             raise RuntimeError(self._set_last_error)
         target = version
@@ -720,21 +730,42 @@ class BenchmarkService:
             target = max(s["version"] for s in sets)
         entry = next((s for s in sets if s["version"] == target), None)
         if entry is None:
-            self._set_last_error = f"Release benchmark-set-v{target} nicht gefunden"
+            self._set_last_error = f"Tag benchmark-set-v{target} nicht gefunden"
             raise RuntimeError(self._set_last_error)
-        if entry.get("sha_url"):
-            sha_raw = self._download_bytes(entry["sha_url"], timeout=60)
-            expected_sha = self._parse_sha_asset(sha_raw)
-        else:
-            # Fallback ohne .sha256-Asset: env-SHA als Anker (wenn gesetzt)
-            expected_sha = settings.BENCHMARK_SET_SHA256.strip()
-        if not expected_sha:
-            self._set_last_error = (
-                f"benchmark-set-v{target} hat kein .sha256-Asset und "
-                "BENCHMARK_SET_SHA256 ist nicht gesetzt — kein Install"
-            )
-            raise RuntimeError(self._set_last_error)
-        raw = self._download_bytes(entry["zip_url"])
+
+        # git clone --depth 1 --branch <tag> --single-branch → Checkout
+        import tempfile
+
+        tag = entry["tag"]
+        with tempfile.TemporaryDirectory(prefix="benchmark-set-") as td:
+            try:
+                self._run_git(
+                    ["clone", "--depth", "1", "--branch", tag,
+                     "--single-branch", git_url, td],
+                    timeout=300,
+                )
+            except RuntimeError as e:
+                self._set_last_error = f"git clone {tag} fehlgeschlagen: {e}"
+                raise RuntimeError(self._set_last_error)
+            checkout = Path(td)
+            zip_path = checkout / f"{tag}.zip"
+            sha_path = checkout / f"{tag}.zip.sha256"
+            if not zip_path.exists():
+                self._set_last_error = (
+                    f"{tag}.zip fehlt im Checkout — Repo-Konvention nicht erfüllt"
+                )
+                raise RuntimeError(self._set_last_error)
+            if not sha_path.exists():
+                expected_sha = settings.BENCHMARK_SET_SHA256.strip()
+            else:
+                expected_sha = self._parse_sha_asset(sha_path.read_bytes())
+            if not expected_sha:
+                self._set_last_error = (
+                    f"{tag} hat keine .sha256-Datei und BENCHMARK_SET_SHA256 "
+                    "ist nicht gesetzt — kein Install"
+                )
+                raise RuntimeError(self._set_last_error)
+            raw = zip_path.read_bytes()
         return self._install_zip_bytes(raw, expected_sha)
 
     def _install_zip_bytes(

@@ -1,56 +1,54 @@
-# Tasks — Change 076: Benchmark-Set-Discovery
+# Tasks — Change 076: Benchmark-Set-Discovery (git-basiert)
 
 ## T0 — Konfiguration (config.py)
-- [ ] `BENCHMARK_SET_REPO` (Default "") ergänzen; Kommentar: Priorität
-  url-Body > BENCHMARK_SET_URL env > Discovery über Repo
+- [ ] `BENCHMARK_SET_GIT_URL` (Default "") ergänzen; Kommentar: Priorität
+  Body-url > BENCHMARK_SET_URL env > git-URL (BENCHMARK_SET_GIT_URL)
 
 ## T1 — Discovery (benchmark_service.py)
-- [ ] `discover_sets(repo)` → GitHub-API GET /repos/{repo}/releases
-  (per_page=100), Filter Tag `^benchmark-set-v(\d+)$`; Ergebnis je Release:
-  {version, tag, published_at, zip_url, sha_url, zip_size}
-- [ ] Cache 300 s (Klassen-/Modul-Cache mit Timestamp); API-Fehler →
-  last_error setzen, [] zurückgeben (kein Crash)
-- [ ] `.sha256`-Asset-Inhalt parsen: erste Hex-Zeichenfolge (sha256sum-
-  Format `<hash>  <filename>` oder nacktes `<hash>`)
+- [ ] `discover_sets(git_url)` → `git ls-remote --tags <url>` via subprocess
+  (timeout 60, GIT_TERMINAL_PROMPT=0), Filter Tag `^benchmark-set-v(\d+)$`;
+  Ergebnis je Version: {version, tag}
+- [ ] Cache 300 s; Fehler → RuntimeError (kein Crash)
+- [ ] `_parse_sha_asset` bleibt (sha256sum-Format `<hash>  <filename>`)
 
 ## T2 — Installer-Erweiterung (benchmark_service.py)
-- [ ] `install_set_from_release(url=None, expected_sha=None, repo=None, version=None)`:
+- [ ] `install_set_from_release(url=None, expected_sha=None, git_url=None, version=None)`:
   - url gesetzt → Change-075-Pin-Pfad (unverändert)
-  - sonst: repo (arg oder env) → discover_sets → Zielversion = version-arg
-    oder max; sha aus sha_url laden (erste Hex-Folge); zip_url downloaden
-  - Verifikation + Entpacken + Vollständigkeit + atomic rename (Code aus 075
-    wiederverwenden — gemeinsamer `_install_zip_bytes(raw, expected_sha)`)
-- [ ] `set_status()` erweitert: `repo`, `available` (aus discover_sets,
+  - sonst: git_url (arg oder env) → discover_sets → Zielversion = version-arg
+    oder max → `git clone --depth 1 --branch benchmark-set-v<N> --single-branch
+    <git_url> <tmp>` → `benchmark-set-v<N>.zip` + `.zip.sha256` aus Checkout
+    lesen → SHA parsen → Kern `_install_zip_bytes(raw, sha)`
+- [ ] `set_status()` erweitert: `git_url`, `available` (aus discover_sets,
   gecacht), `pinning_mode` (true wenn BENCHMARK_SET_URL gesetzt)
 
 ## T3 — Router (routers/benchmark.py)
-- [ ] `SetInstallBody` erweitert: `repo: Optional[str]`, `version: Optional[int]`
-- [ ] POST /sets/install reicht repo/version durch
+- [ ] `SetInstallBody`: `repo` → `git_url` (Optional[str]), `version` bleibt
+- [ ] POST /sets/install reicht git_url/version durch
 
 ## T4 — Frontend
-- [ ] `benchmark.ts`: `BenchmarkSetStatus` um `repo`, `available` ergänzt
-  (AvailableSet: version, tag, published_at, zip_size); `installBenchmarkSet`
-  akzeptiert {repo?, version?}
+- [ ] `benchmark.ts`: `BenchmarkSetStatus` um `git_url` + `available`
+  (AvailableSet: version, tag); `installBenchmarkSet(url, sha256, gitUrl, version)`
 - [ ] `BenchmarkPage.tsx` (BenchmarkSetUpdater): Liste verfügbarer Sets —
-  je Zeile Version + Datum + Größe + Button „Installieren" (disabled wenn
-  ≤ aktuelle Version oder busy); neueste zuerst, „Neueste"-Badge; Hinweis
-  „Pinning-Modus (env)" wenn kein Repo konfiguriert
+  je Zeile Version + Button „Installieren" (disabled wenn ≤ aktuelle oder
+  busy); neueste zuerst, „Neueste"-Badge; „Neuestes Set installieren"-Button;
+  Pinning-Hinweis wenn kein git_url
 - [ ] Erfolg/Fehler sichtbar (kein stiller Fehler)
 
-## T5 — Tests
-- [ ] Backend: discover_sets parst Releases (monkeypatch urlopen mit
-  GitHub-JSON-Fixture), filtert fremde Tags, Cache (2. Aufruf kein 2. GET)
-- [ ] Install via Discovery: sha aus Asset, Download, aktiviert
-- [ ] version-Auswahl: installiert genau v2 obwohl v3 da
+## T5 — Tests (lokal, ohne Netz)
+- [ ] Fixture-Helper: legt lokales Git-Repo in tmp_path an (git init, ZIP +
+  .sha256 committen, Tag benchmark-set-v<N>)
+- [ ] discover_sets parst ls-remote-Ausgabe (Tags), filtert fremde Tags,
+  Cache (2. Aufruf kein 2. ls-remote)
+- [ ] Install via git: clone, SHA aus Datei, aktiviert
+- [ ] version-Auswahl: installiert genau diese Version
 - [ ] Version ≤ aktuell → skip
-- [ ] Pin-Pfad (url+sha wie 075) funktioniert weiterhin (bestehende Tests grün)
-- [ ] API-Fehler → last_error + leere Liste, kein Crash
-- [ ] Frontend: Verfügbarkeits-Liste rendert, Install-Button je Release,
-  Pinning-Hinweis ohne Repo
+- [ ] Pin-Pfad (url+sha wie 075) funktioniert weiterhin
+- [ ] git nicht installiert / Fehler → last_error, kein Crash
+- [ ] Frontend: Liste rendert, Install-Button je Release, Pinning-Hinweis
 - [ ] Gates: tsc --noEmit, npm test, Backend-Suite GESAMT fail=0
 
-## T6 — Release/Assets + Doku
-- [ ] Release v1: `.sha256`-Asset `benchmark-set-v1.zip.sha256` hochladen
-  (Inhalt `<sha>  benchmark-set-v1.zip`)
-- [ ] README (GitHub): Konvention um .sha256-Asset + Discovery-Env ergänzen
-- [ ] `docs/benchmark/admin.md`: Discovery statt URL-Pinning dokumentieren
+## T6 — Beispiel-Repo + Doku
+- [ ] `polyschnack-benchmark-data`: ZIP + .sha256 auf main committen,
+  Tag benchmark-set-v1 setzen (Konvention erfüllt)
+- [ ] README (GitHub): Repo-Konvention + git-URL-Konfiguration
+- [ ] `docs/benchmark/admin.md`: git-basiert statt URL-Pinning dokumentieren

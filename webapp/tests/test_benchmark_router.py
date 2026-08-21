@@ -491,33 +491,44 @@ def test_sets_installer_rejects_traversal(tmp_path, monkeypatch):
     assert not (tmp_path / "etc").exists()
 
 
-# ── Benchmark-Set-Discovery (Change 076) ─────────────────────────────────
+# ── Benchmark-Set-Discovery (Change 076, git-basiert) ────────────────────
 
 
-def _github_releases_fixture(versions=(1, 2)) -> list:
-    """GitHub-API-Fixture: Releases mit ZIP + .sha256-Asset (Konvention 076)."""
-    out = []
+def _make_git_repo(tmp_path, versions=(1, 2), foreign_tag=True) -> Path:
+    """Legt ein lokales Git-Repo mit benchmark-set-v<N>.zip + .sha256 an.
+
+    Jede Version bekommt einen Tag benchmark-set-v<N>. Ein Fremd-Tag
+    (foreign_tag) testet das Filtern. Rückgabe: Repo-Pfad (git_url).
+    """
+    import subprocess
+
+    repo = tmp_path / "sets-repo"
+    repo.mkdir()
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True,
+                       capture_output=True, text=True,
+                       env={**dict(__import__("os").environ),
+                            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
     for v in versions:
-        assets = [
-            {
-                "name": f"benchmark-set-v{v}.zip",
-                "size": 1000 + v,
-                "browser_download_url": f"https://github.com/x/releases/download/benchmark-set-v{v}/benchmark-set-v{v}.zip",
-            },
-            {
-                "name": f"benchmark-set-v{v}.zip.sha256",
-                "size": 100,
-                "browser_download_url": f"https://github.com/x/releases/download/benchmark-set-v{v}/benchmark-set-v{v}.zip.sha256",
-            },
-        ]
-        out.append({
-            "tag_name": f"benchmark-set-v{v}",
-            "published_at": f"2026-08-{10+v:02d}T00:00:00Z",
-            "assets": assets,
-        })
-    # Fremd-Release (anderer Tag) muss rausgefiltert werden
-    out.append({"tag_name": "other-release", "published_at": "2026-08-01T00:00:00Z", "assets": []})
-    return out
+        zdata = _make_set_zip(version=v, n_samples=1)
+        sha = hashlib.sha256(zdata).hexdigest()
+        (repo / f"benchmark-set-v{v}.zip").write_bytes(zdata)
+        (repo / f"benchmark-set-v{v}.zip.sha256").write_text(
+            f"{sha}  benchmark-set-v{v}.zip\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", f"set v{v}")
+        git("tag", f"benchmark-set-v{v}")
+    if foreign_tag:
+        (repo / "README.md").write_text("fremd")
+        git("add", "-A")
+        git("commit", "-q", "-m", "readme")
+        git("tag", "other-release")
+    return repo
 
 
 def _install_root(tmp_path) -> Path:
@@ -531,141 +542,81 @@ def _install_root(tmp_path) -> Path:
     return root
 
 
-def test_discover_sets_parses_releases(tmp_path, monkeypatch):
-    """Discovery: parst Releases, filtert fremde Tags, liefert URLs + SHA."""
-    import urllib.request
-
-    fixture = _github_releases_fixture()
-
-    class FakeResp:
-        def read(self): return json.dumps(fixture).encode()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30: FakeResp())
+def test_discover_sets_parses_tags(tmp_path):
+    """Discovery via git ls-remote: parst Tags, filtert fremde, absteigend."""
+    repo = _make_git_repo(tmp_path)
     svc = BenchmarkService(_install_root(tmp_path))
     svc._set_discovery_cache.clear()
-    sets = svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    sets = svc.discover_sets(str(repo))
     assert [s["version"] for s in sets] == [2, 1]  # absteigend
-    assert sets[0]["sha_url"]  # v2 hat .sha256
-    assert sets[1]["sha_url"]  # v1 hat .sha256 (Konvention 076)
+    assert sets[0]["tag"] == "benchmark-set-v2"
     assert "other-release" not in [s["tag"] for s in sets]
 
 
 def test_discover_sets_cached(tmp_path, monkeypatch):
-    """Cache: zweiter Aufruf innerhalb 300 s → kein zweiter API-Call."""
-    import urllib.request
-
+    """Cache: zweiter Aufruf innerhalb 300 s → kein zweiter ls-remote."""
+    repo = _make_git_repo(tmp_path)
     calls = []
+    orig = BenchmarkService._run_git
 
-    class FakeResp:
-        def read(self):
+    def counting_git(args, timeout):
+        if args[0] == "ls-remote":
             calls.append(1)
-            return json.dumps(_github_releases_fixture()).encode()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+        return orig(args, timeout)
 
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30: FakeResp())
+    monkeypatch.setattr(BenchmarkService, "_run_git", staticmethod(counting_git))
     svc = BenchmarkService(_install_root(tmp_path))
-    # Klassen-Cache leeren (vorherige Tests haben dasselbe Repo evtl. gecacht)
     svc._set_discovery_cache.clear()
-    svc.discover_sets("tilllt/polyschnack-benchmark-data")
-    svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    svc.discover_sets(str(repo))
+    svc.discover_sets(str(repo))
     assert len(calls) == 1  # Cache-Treffer
 
 
-def test_install_via_discovery_uses_sha_asset(tmp_path, monkeypatch):
-    """Discovery-Install: SHA aus .sha256-Asset, Download, aktiviert v2."""
-    import urllib.request
-
-    zdata = _make_set_zip(version=2, n_samples=1)
-    sha = hashlib.sha256(zdata).hexdigest()
-    fixture = _github_releases_fixture(versions=(1, 2))
-
-    def fake_urlopen(req_or_url, timeout=300):
-        url = req_or_url if isinstance(req_or_url, str) else req_or_url.full_url
-
-        class FakeResp:
-            def __init__(self, payload):
-                self._p = payload
-            def read(self): return self._p
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-
-        if "api.github.com" in url:
-            return FakeResp(json.dumps(fixture).encode())
-        if url.endswith(".sha256"):
-            return FakeResp(f"{sha}  benchmark-set-v2.zip".encode())
-        if url.endswith("v2.zip"):
-            return FakeResp(zdata)
-        raise AssertionError(f"unerwartete URL: {url}")
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+def test_install_via_git_uses_sha_file(tmp_path):
+    """git-Install: clone des Tags, SHA aus .sha256-Datei, aktiviert v2."""
+    repo = _make_git_repo(tmp_path, versions=(1, 2))
     svc = BenchmarkService(_install_root(tmp_path))
-    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
-    res = svc.install_set_from_release(repo="tilllt/polyschnack-benchmark-data")
+    svc._set_discovery_cache.clear()
+    res = svc.install_set_from_release(git_url=str(repo))
     assert res["ok"] and not res["skipped"]
     assert res["installed_version"] == 2
-    assert res["sha256"] == sha
+    assert res["sha256"] == hashlib.sha256(
+        _make_set_zip(version=2, n_samples=1)).hexdigest()
     assert svc.latest_manifest()["version"] == 2
 
 
-def test_install_discovery_version_choice(tmp_path, monkeypatch):
-    """version-Arg wählt genau diese Release-Version (v1 trotz vorhandenem v2)."""
-    import urllib.request
-
-    zdata = _make_set_zip(version=1, n_samples=1)
-    sha = hashlib.sha256(zdata).hexdigest()
-    fixture = _github_releases_fixture(versions=(1, 2))
-
-    def fake_urlopen(req_or_url, timeout=300):
-        url = req_or_url if isinstance(req_or_url, str) else req_or_url.full_url
-
-        class FakeResp:
-            def __init__(self, payload):
-                self._p = payload
-            def read(self): return self._p
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-
-        if "api.github.com" in url:
-            return FakeResp(json.dumps(fixture).encode())
-        if url.endswith(".sha256"):
-            return FakeResp(f"{sha}  benchmark-set-v1.zip".encode())
-        if url.endswith("v1.zip"):
-            return FakeResp(zdata)
-        raise AssertionError(f"unerwartete URL: {url}")
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+def test_install_git_version_choice(tmp_path):
+    """version-Arg wählt genau diese Version (v1 trotz vorhandenem v2)."""
+    repo = _make_git_repo(tmp_path, versions=(1, 2))
     svc = BenchmarkService(_install_root(tmp_path))
-    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
+    svc._set_discovery_cache.clear()
     # Version 1 ist ≤ aktuell (1) → skip, aber korrekt aufgelöst (nicht v2)
-    res = svc.install_set_from_release(
-        repo="tilllt/polyschnack-benchmark-data", version=1
-    )
+    res = svc.install_set_from_release(git_url=str(repo), version=1)
     assert res["skipped"] and res["reason"] == "bereits installiert"
 
 
-def test_discovery_api_error_sets_last_error(tmp_path, monkeypatch):
-    """API-Fehler → last_error gesetzt, kein Crash (Status bleibt nutzbar)."""
-    import urllib.request
-
-    def boom(req_or_url, timeout=30):
-        raise OSError("rate limit")
-
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
+def test_git_error_sets_last_error(tmp_path, monkeypatch):
+    """git-Fehler (Repo existiert nicht) → RuntimeError, Status crasht nicht."""
     svc = BenchmarkService(_install_root(tmp_path))
-    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
-    with pytest.raises(RuntimeError, match="GitHub-API nicht erreichbar"):
-        svc.discover_sets("tilllt/polyschnack-benchmark-data")
-    # Status-Aufruf darf nicht crashen und setzt last_error
+    svc._set_discovery_cache.clear()
+    with pytest.raises(RuntimeError, match="git ls-remote"):
+        svc.discover_sets(str(tmp_path / "gibtsnicht"))
     from app.config import settings
 
-    monkeypatch.setattr(settings, "BENCHMARK_SET_REPO", "tilllt/polyschnack-benchmark-data")
+    monkeypatch.setattr(settings, "BENCHMARK_SET_GIT_URL", str(tmp_path / "gibtsnicht"))
     monkeypatch.setattr(settings, "BENCHMARK_SET_URL", "")
     st = svc.set_status()
     assert st["available"] == []
     assert "Discovery fehlgeschlagen" in (st["last_error"] or "")
+
+
+def test_git_missing_binary(tmp_path, monkeypatch):
+    """git nicht installiert → klare RuntimeError-Meldung."""
+    svc = BenchmarkService(_install_root(tmp_path))
+    svc._set_discovery_cache.clear()
+    monkeypatch.setattr(BenchmarkService, "GIT_BIN", "/nonexistent/git")
+    with pytest.raises(RuntimeError, match="git ist nicht installiert"):
+        svc.discover_sets("https://example.invalid/x.git")
 
 
 def test_parse_sha_asset_formats():

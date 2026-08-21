@@ -463,13 +463,13 @@ def edit_sample(sample_id: str, body: SampleEdit) -> Dict[str, Any]:
 class SetInstallBody(BaseModel):
     """Optionaler Override für den Set-Install (Admin).
 
-    - url/sha256: Pin-Pfad (Change 075) — direkter Download
-    - repo/version: Discovery-Pfad (Change 076) — Release aus dem Repo
+    - url/sha256: Pin-Pfad (Change 075) — direkter HTTPS-Download
+    - git_url/version: git-Pfad (Change 076) — Tag aus beliebigem Git-Repo
     """
 
     url: Optional[str] = None
     sha256: Optional[str] = None
-    repo: Optional[str] = None
+    git_url: Optional[str] = None
     version: Optional[int] = None
 
 
@@ -484,8 +484,9 @@ def set_status() -> Dict[str, Any]:
 def set_install(body: SetInstallBody | None = None) -> Dict[str, Any]:
     """Installiert ein Benchmark-Set (Admin).
 
-    Body optional: {url, sha256} = Pin-Pfad, {repo, version} = Discovery.
-    Ohne Body: Discovery auf neueste Release-Version des konfigurierten Repos.
+    Body optional: {url, sha256} = Pin-Pfad, {git_url, version} = git.
+    Ohne Body: git-Discovery auf neueste Release-Version der konfigurierten
+    Git-URL.
     """
     svc = _require_data()
     body = body or SetInstallBody()
@@ -493,7 +494,7 @@ def set_install(body: SetInstallBody | None = None) -> Dict[str, Any]:
         return svc.install_set_from_release(
             url=body.url,
             expected_sha=body.sha256,
-            repo=body.repo,
+            git_url=body.git_url,
             version=body.version,
         )
     except RuntimeError as e:

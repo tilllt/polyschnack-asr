@@ -779,9 +779,9 @@ export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void 
         <span className="text-xs text-dim">
           {status?.pinning_mode
             ? `Pinning-Modus (env-URL): ${status.url.replace(/^https?:\/\//, "").slice(0, 60)}`
-            : status?.repo
-              ? `Quelle: ${status.repo}${status.sha_prefix ? ` (SHA ${status.sha_prefix}…)` : ""}`
-              : "Keine Quelle konfiguriert (BENCHMARK_SET_REPO oder BENCHMARK_SET_URL)."}
+            : status?.git_url
+              ? `Quelle (git): ${status.git_url.replace(/^https?:\/\//, "").slice(0, 60)}`
+              : "Keine Quelle konfiguriert (BENCHMARK_SET_GIT_URL oder BENCHMARK_SET_URL)."}
         </span>
         {available.length > 0 && (
           <button
@@ -798,7 +798,7 @@ export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void 
         )}
       </div>
 
-      {/* Change 076: verfügbare Releases je Zeile installierbar */}
+      {/* Change 076: verfügbare Release-Tags je Zeile installierbar */}
       {available.length > 0 && (
         <ul className="space-y-1 border-t border-border pt-2" data-testid="available-sets">
           {available.map((s, i) => {
@@ -809,14 +809,7 @@ export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void 
                   v{s.version}
                   {i === 0 && <span className="ml-1 text-green-400">(neueste)</span>}
                 </span>
-                <span className="text-dim flex-1">
-                  {s.published_at
-                    ? new Date(s.published_at).toLocaleDateString("de-DE")
-                    : "–"}
-                  {s.zip_size != null && s.zip_size > 0
-                    ? ` · ${(s.zip_size / 1024 / 1024).toFixed(1)} MB`
-                    : ""}
-                </span>
+                <span className="text-dim flex-1 font-mono">{s.tag}</span>
                 <button
                   type="button"
                   onClick={() => install(s.version)}

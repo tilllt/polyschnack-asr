@@ -126,25 +126,21 @@ export interface VadSamplesResponse {
 export interface AvailableSet {
   version: number;
   tag: string;
-  published_at?: string | null;
-  zip_url?: string;
-  zip_size?: number | null;
-  sha_url?: string | null;
 }
 
 export interface BenchmarkSetStatus {
   mechanism: string;
   configured: boolean;
-  /** Change 076: true = env-URL-Pinning aktiv (kein Discovery). */
+  /** Change 076: true = env-URL-Pinning aktiv (kein git-Discovery). */
   pinning_mode: boolean;
-  repo: string;
+  git_url: string;
   url: string;
   /** SHA256 nur als 8-Zeichen-Präfix (kein voller Hash nach außen). */
   sha_prefix: string;
   auto_install: boolean;
   current_version: number | null;
   installed_versions: number[];
-  /** Change 076: verfügbare Releases aus dem Repo (gecacht). */
+  /** Change 076: verfügbare Release-Tags aus der Git-URL (gecacht). */
   available: AvailableSet[];
   last_error: string | null;
 }
@@ -231,7 +227,7 @@ export async function fetchBenchmarkSetStatus(): Promise<BenchmarkSetStatus | nu
 export async function installBenchmarkSet(
   url?: string,
   sha256?: string,
-  repo?: string,
+  gitUrl?: string,
   version?: number,
 ): Promise<SetInstallResponse> {
   return fetch("/api/benchmark/sets/install", {
@@ -240,7 +236,7 @@ export async function installBenchmarkSet(
     body: JSON.stringify({
       url: url ?? undefined,
       sha256: sha256 ?? undefined,
-      repo: repo ?? undefined,
+      git_url: gitUrl ?? undefined,
       version: version ?? undefined,
     }),
   }).then(checkOk).then((r) => r.json());

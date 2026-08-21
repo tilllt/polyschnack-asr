@@ -80,19 +80,17 @@ class _Settings:
         "b48bb9e9abd5a4a69c6a8fc9848a563daea0056813d3d6716e5aa5abee9b9788",
     )
 
-    #: Benchmark-Set-Auto-Update (Change 075): die Webapp kann sich neue
-    #: ASR-Testsets selbst von einem GitHub-Release holen (analog VAD-Paket).
-    #: URL + SHA256 (pflicht für Auto-Install) zeigen auf ein Release-Asset
-    #: `benchmark-set-v<N>.zip` (manifest.json + audio/ + preview/). Ohne URL
-    #: ist der Mechanismus inaktiv — manuelles Deploy bleibt möglich.
-    #: Change 076: stattdessen Discovery über das Repo — BENCHMARK_SET_REPO
-    #: (z. B. "tilllt/polyschnack-benchmark-data"); die Webapp listet
-    #: benchmark-set-v<N>-Releases und installiert per Klick. URL/SHA bleiben
-    #: als Pinning-Fallback/Override erhalten (Priorität: Body-url > env-URL
-    #: > Discovery).
+    #: Benchmark-Set-Auto-Update (Change 075/076): die Webapp kann sich neue
+    #: ASR-Testsets selbst holen (analog VAD-Paket). Change 076: git-basiert
+    #: und host-agnostisch (User-Vorgabe: kein GitHub-Hardcode) — die Quelle
+    #: ist ein beliebiges Git-Repo (GitHub, GitLab, selbst gehostet, lokal),
+    #: Konvention: benchmark-set-v<N>.zip + .sha256 im Repo, Tag
+    #: benchmark-set-v<N>. BENCHMARK_SET_GIT_URL ist die einmalige Quelle;
+    #: URL/SHA bleiben als Pinning-Fallback (Priorität: Body-url > env-URL >
+    #: git-URL).
     BENCHMARK_SET_URL: str = os.getenv("BENCHMARK_SET_URL", "")
     BENCHMARK_SET_SHA256: str = os.getenv("BENCHMARK_SET_SHA256", "")
-    BENCHMARK_SET_REPO: str = os.getenv("BENCHMARK_SET_REPO", "")
+    BENCHMARK_SET_GIT_URL: str = os.getenv("BENCHMARK_SET_GIT_URL", "")
     BENCHMARK_SET_AUTO_INSTALL: bool = os.getenv(
         "BENCHMARK_SET_AUTO_INSTALL", ""
     ).lower() in ("1", "true", "yes", "on")
