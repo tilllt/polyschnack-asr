@@ -65,26 +65,29 @@ plugins:
 nav:
   - Start: index.md
   - Quickstart: quickstart.md
+  - Architektur: architecture.md
   - API: API.md
   - Backends:
       - Übersicht: backends/overview.md
       - Feature-Matrix: backends/matrix.md
       - Modelle laden: backends/models.md
-  - Web UI: webui.md
+  - Web UI & Features: webui.md
   - Diarization: diarization.md
   - Benchmark:
       - Übersicht: benchmark/index.md
       - 2-Achsen-Taxonomie: benchmark/taxonomy.md
       - Admin-Workflow: benchmark/admin.md
+      - Backend-Anforderungen: benchmark/requirements/README.md
   - Konfiguration:
       - Env-Variablen: configuration/env.md
       - OIDC-Auth: configuration/oidc.md
       - Admin-Bereich: configuration/admin.md
       - Post-Processing: configuration/postprocessing.md
   - Compose-Referenz: compose.md
-  - Architektur: architecture.md
   - Entwicklung:
       - Setup: development/setup.md
       - Tests: development/tests.md
+      - Code-Guide: development/code-guide.md
       - OpenSpec: development/openspec.md
+  - Component Decisions: component-decisions.md
   - License: license.md

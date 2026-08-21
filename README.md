@@ -3,1013 +3,140 @@
 # PolySchnack — Multi-Backend Speech-to-Text
 
 <p align="center">
-  <a href="#quickstart">Quickstart</a> · <a href="#backend-auswahl">Backends</a> ·
-  <a href="#architektur">Architektur</a> · <a href="#web-ui">Web UI</a> ·
-  <a href="#benchmark">Benchmark</a> · <a href="#konfiguration">Konfiguration</a> ·
-  <a href="#oidc-auth">OIDC</a> · <a href="#entwicklung">Entwicklung</a> ·
-  <a href="docs/">📚 Vollständige Doku (docs/)</a>
+  <a href="#quickstart">Quickstart</a> · <a href="#architektur">Architektur</a> ·
+  <a href="#weiterführende-dokumentation">Doku</a> ·
+  <a href="docs/index.md">📚 Vollständige Dokumentation</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT">
   <img src="https://img.shields.io/badge/docker-compose-2496ED" alt="Docker Compose">
-  <img src="https://img.shields.io/badge/ASR-6%20Backends-success" alt="6 ASR-Backends">
-  <img src="https://img.shields.io/badge/Deutsch-✓-green" alt="Deutsch">
+  <img src="https://img.shields.io/badge/ASR-8%20Backends-success" alt="8 ASR-Backends">
 </p>
 
 **OpenAI-kompatible Spracherkennung mit wählbaren ASR-Backends** — von lokalen
-ggml/C++-Engines bis zur Cloud-API. Mit Web UI, Live-Transkription,
-Word-Timestamps, Sprechererkennung (Diarization), OIDC-Workspaces und einem
-öffentlichen **Benchmark** (WER/€-Vergleich der Backends).
+ggml/C++-Engines bis zu eigenen Remote-API-Endpunkten. Mit Web UI,
+Live-Transkription, Word-Timestamps, Sprechererkennung (Diarization),
+Kollaborativer Bearbeitung, OIDC-Workspaces und öffentlichem Benchmark
+(WER/€-Vergleich der Backends).
 
-Ein Befehl startet den kompletten Stack (CPU überall, GPU via Overlay) —
-ohne Code, ohne Lock-in: Du wechselst das Erkennungsmodell per Env-Variable
-oder per Admin-GUI, die Qualität bleibt messbar dank integriertem Benchmark.
+Ein Befehl startet den kompletten Stack (CPU überall, GPU optional) — ohne
+Code, ohne Lock-in: Du wechselst das Erkennungsmodell per Env-Variable oder
+per Admin-GUI, die Qualität bleibt messbar dank integriertem Benchmark.
 
----
-
-## Kernbotschaft
-
-PolySchnack ist aus **[NVIDIA Parakeet ASR](https://github.com/nvidia/parakeet)**
-entstanden und wurde zu einer **Multi-Backend-Plattform** erweitert: Ein
-einheitlicher OpenAI-kompatibler Endpunkt, dahinter wählbar Parakeet
-(Python/ONNX oder C++), Qwen3-ASR, ARK-ASR, Moonshine-DE und Canary — jedes
-mit eigener Stärke (Geschwindigkeit, Genauigkeit, Sprachen, Ressourcen).
-
-Das Besondere:
-
-<table>
-<tr><td><b>6 ASR-Backends, ein Endpunkt</b></td><td>OpenAI-kompatible API — Drop-in für <code>openai.Audio.transcriptions.create()</code>. Backend-Wechsel per Env-Variable oder Admin-GUI, kein Code.</td></tr>
-<tr><td><b>Web UI mit Wellenform</b></td><td>WaveSurfer-Player mit Zoom (1×–50×), Segment-Editor, Bereichs-Transkription, Export (SRT/VTT/TXT), Live-Preview per SSE.</td></tr>
-<tr><td><b>Word-Timestamps</b></td><td>Echte Word-Level-Timestamps via Forced Aligner (Qwen3) oder modell-inhärent (Parakeet) — klickbare Wörter, springt zur Stelle.</td></tr>
-<tr><td><b>Diarization</b></td><td>Sprechererkennung im eigenen CrispASR-Container — kein pyannote/CUDA-torch in der Webapp, hybrid (GPU/CPU).</td></tr>
-<tr><td><b>Hybrid GPU/CPU</b></td><td>Jeder Service ist EIN Image für GPU UND CPU — ohne Overlay läuft alles auf CPU, mit <code>compose.gpu.yml</code> auf der GPU.</td></tr>
-<tr><td><b>Öffentlicher Benchmark</b></td><td>2-Achsen-Test-Set (Kanal × Inhalt), hörbare Samples, WER/€-Vergleich — Qualität statt Marketing.</td></tr>
-<tr><td><b>OIDC-Workspaces</b></td><td>Ohne Login: Shared Space mit Auto-Retention. Mit Login: private Workspaces + Admin-Bereich (Services on demand).</td></tr>
-</table>
+> Aus **[NVIDIA Parakeet ASR](https://github.com/nvidia/parakeet)** entstanden,
+> heute eine Multi-Backend-Plattform: Parakeet (ONNX + C++), Qwen3-ASR,
+> ARK-ASR, Moonshine-DE, Canary, Voxtral und Whisper — jedes Backend mit
+> eigener Stärke (Geschwindigkeit, Genauigkeit, Sprachen, Ressourcen).
+> Details: [docs/backends/overview.md](docs/backends/overview.md)
 
 ---
 
-## 🫖 Verständlich erklärt (für Nicht-Techniker)
+## Architektur (kurz)
 
-*Du willst wissen, was das hier ist, ohne Fachbuch? Dann bist du hier richtig.
-Alles Weitere im README ist für Menschen, die die Technik selbst anfassen
-wollen — dieser Abschnitt reicht zum Verstehen und Bedienen.*
-
-### Was ist PolySchnack?
-
-Stell dir ein **Transkriptions-Büro** vor: Du gibst eine Audio- oder
-Video-Datei hinein (eine Besprechung, ein Interview, eine Vorlesung) und
-bekommst **fertigen Text** zurück — mit Zeitstempeln („bei Minute 12:30 sagt
-jemand …") und getrennt nach Sprechern („Person A: …", „Person B: …").
-
-Das Besondere: Das Büro hat **mehrere „Übersetzer" (Motoren)** zur Auswahl,
-die unterschiedliche Stärken haben:
-
-- **Parakeet** (der Standard) — schnell und zuverlässig, guter Allrounder
-- **Qwen3-ASR** — sehr genau, braucht mehr Rechenleistung
-- **ARK-ASR** — besonders genau bei schwierigerem Audio
-- **Moonshine-DE** — extra auf Deutsch trainiert, winzig und flott
-- **Canary** — spricht Deutsch, Englisch, Französisch und Spanisch
-
-Du kannst jederzeit per Klick in der Oberfläche (oder in einer
-Einstellungsdatei) den Motor wechseln — der Rest der App bleibt gleich.
-Es gibt auch die Möglichkeit, **Cloud-Motoren** anzubinden (z. B. OpenAI
-Whisper) — dann wird dein Audio nicht auf deinem eigenen Rechner verarbeitet,
-sondern beim Anbieter.
-
-Die Qualität der Motoren wird **automatisch gemessen** (ein „Benchmark"):
-PolySchnack spielt Test-Sprachaufnahmen ab, vergleicht das Ergebnis mit dem
-Originaltext und zeigt dir, welcher Motor wie genau ist und was er pro Minute
-kostet. Qualität statt Marketing-Versprechen.
-
-### Die vier Bausteine
-
-| Baustein | Was es ist | Analogie |
-|----------|-----------|----------|
-| **Der Server (Webapp)** | Die Weboberfläche, in der du Dateien hochlädst und Texte siehst | Das Bürogebäude |
-| **Die Motoren (Backends)** | Die Spracherkennungs-Programme | Die Übersetzer im Büro |
-| **Die Modelle** | Große Sprach-Dateien („GGUF"), die die Motoren zum Verstehen brauchen — wie Wörterbücher mit Grammatik | Die Handbücher der Übersetzer |
-| **Der Schalter (Admin-Bereich)** | Hier wählst du, welche Motoren aktiv sind und startest sie | Der Dienstplan |
-
-### Die fünf wichtigsten Befehle (falls du die Technik selbst bedienst)
-
-Alles läuft über eine Datei namens `polyschnack-manage.sh` — eine Art
-„Fernbedienung" für das ganze System:
-
-```bash
-./polyschnack-manage.sh start       # Alles einschalten
-./polyschnack-manage.sh status      # Zeigt: läuft alles? GPU da? Welche Motoren?
-./polyschnack-manage.sh models      # Fehlende „Handbücher" (Modelle) nachladen
-./polyschnack-manage.sh update      # Alles auf den neuesten Stand bringen
-./polyschnack-manage.sh help        # Alle Befehle anzeigen
+```mermaid
+graph LR
+    Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
+    webapp -->|OpenAI-API| asr["ASR-Backends<br/>(ps-pk-onnx, crispr-pk-cpp,<br/>crispr-qwen3, crispr-ark, …)"]
+    webapp -->|Diarization| diar["diar (CrispASR)"]
+    webapp -->|Word-Alignment| align["align (Forced Aligner)"]
+    webapp -->|Docker-API| proxy["docker-proxy"]
+    proxy -.start/stop.-> asr
+    asr --> model["Modelle (GGUF / ONNX)"]
+    webapp --- db[("SQLite + Audio<br/>(./DATA)")]
 ```
 
-> **Merke:** Nachdem du einen Motor neu aktiviert hast, immer einmal
-> `models` ausführen — sonst fehlt dem Motor sein „Handbuch" und er startet
-> nicht. Das ist der häufigste Grund für „Backend startet nicht".
+- **Webapp** (FastAPI, CPU-only): Upload/Queue/Web-UI, spricht alle Backends
+  über eine OpenAI-kompatible Schnittstelle an.
+- **ASR-Backends** (eigene Container, hybrid GPU/CPU): je ein Image pro
+  Engine, Modelle liegen gemeinsam in `./DATA/models`.
+- **Diarization & Aligner** als eigene CrispASR-Container — unabhängig vom
+  gewählten ASR-Backend.
+- **Admin-GUI** startet/stoppt Backend-Container über den restriktiven
+  `docker-proxy` (kein direkter Docker-Socket).
 
-### Wenn etwas nicht klappt (die häufigsten Fälle)
+Ausführlich: [docs/architecture.md](docs/architecture.md) · Ports, Datenfluss,
+Design-Entscheidungen, Image-Strategie.
 
-- **Ein Befehl gibt gar nichts aus / endet ohne Meldung:** Die Datei
-  `polyschnack-manage.sh` ist veraltet. Einmal aktualisieren:
-  `./polyschnack-manage.sh selfupdate` (bzw. auf Systemen ohne Git die Datei
-  neu herunterladen, siehe Abschnitt „Deployment auf der ki-box").
-- **Ein Motor startet nicht** (Fehler „failed to open GGUF file"): Sein Modell
-  fehlt → `./polyschnack-manage.sh models` ausführen.
-- **Alles hängt / keine Reaktion:** Nicht das Programm — meist ist der
-  Docker-Dienst (die „Maschinenhalle") hängen geblieben. Auf dem Server:
-  `systemctl restart docker`, dann `./polyschnack-manage.sh start`.
+---
 
-### Glossar (Fachbegriffe einfach erklärt)
+## Minimum Requirements
 
-- **Backend / Motor** — eines der Spracherkennungs-Programme (Parakeet,
-  Qwen3, …). Der Begriff „Backend" bedeutet hier: „die Maschine, die die
-  Arbeit macht".
-- **Modell / GGUF** — die gelernte Sprachdatei eines Motors (mehrere
-  hundert MB bis GB). Ohne sie kann der Motor nicht erkennen. GGUF ist
-  einfach ein Datei-Format für solche Modelle.
-- **Container / Docker** — „abgeschottete Programme": Jeder Motor und der
-  Server laufen in einer eigenen Box, die sich gegenseitig nicht stören.
-  Docker ist das Werkzeug, das diese Boxen verwaltet.
-- **GPU / CPU** — die Rechen-Hardware. Die GPU (Grafikkarte) ist bei
-  Spracherkennung deutlich schneller; ohne sie läuft alles langsamer auf der
-  CPU. PolySchnack kann beides.
-- **OIDC / Login** — das Anmelde-Verfahren. Damit bekommen verschiedene
-  Personen eigene Bereiche; wer Admin ist, darf Motoren steuern.
-- **API / Endpunkt** — die technische Schnittstelle, über die andere
-  Programme mit PolySchnack sprechen können (z. B. dein eigenes Skript, das
-  automatisch Audiodateien transkribieren lässt).
-- **Diarization** — Sprechererkennung: wer hat wann gesprochen.
-- **Word-Timestamps** — jedes einzelne Wort ist mit seiner Zeitstelle im
-  Audio verknüpft; Klick aufs Wort springt zur Stelle.
-- **Benchmark / WER** — der Qualitäts-Test. WER (Word Error Rate) ist die
-  Fehlerquote: je kleiner, desto genauer.
-- **Env-Variable / `.env`** — eine Einstellungs-Datei neben dem System, in
-  der man Optionen setzt (z. B. welche Motoren aktiv sind). Wird beim Start
-  gelesen — wie ein Notizzettel an der Tür.
-- **Compose-Profil** — eine Kennzeichnung in der Konfiguration, die bestimmt,
-  ob ein Motor „eingebaut" (definiert) aber noch nicht „angestellt" ist.
-  Erst wenn er angestellt ist, belegt er Speicher.
-- **Katalog (`backends.yaml`)** — die zentrale Liste aller Motoren mit ihren
-  Eigenschaften und den Download-Adressen ihrer Modelle. Ein Motor existiert
-  erst, wenn er hier eingetragen ist.
+| Ressource | Minimum | Empfehlung |
+|---|---|---|
+| Docker | Compose v2 | Compose v2 |
+| CPU | x86-64, 2 Kerne | 4+ Kerne |
+| RAM | 4 GB frei (Kern-Stack) | 16 GB (mit mehreren Backends) |
+| GPU | — (CPU reicht) | NVIDIA + [Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) |
+| Speicherplatz | 10 GB frei | 30+ GB (Modelle + Aufnahmen) |
+
+Das Standard-Backend (Parakeet ONNX, ~600 MB Modell) lädt sein Modell beim
+ersten Start automatisch von HuggingFace — keine weitere Konfiguration.
 
 ---
 
 ## Quickstart
 
-**Voraussetzung:** Docker mit Compose v2. Für GPU zusätzlich das
-NVIDIA Container Toolkit.
+**Empfohlen — `polyschnack-manage.sh`** (automatische GPU-Erkennung, OIDC
+wenn konfiguriert, alle Backends provisioniert):
 
 ```bash
-git clone <dein-repo-url>
-cd polyschnack
+git clone <dein-repo-url> && cd polyschnack
+./polyschnack-manage.sh            # = start: Kern-Stack + Backends (on demand)
+./polyschnack-manage.sh status     # läuft alles? GPU? Welche Motoren?
+./polyschnack-manage.sh update     # Deploy-Workflow: git pull + pull + models + start
+./polyschnack-manage.sh help       # alle Befehle
+```
 
-# Variante A — CPU (läuft überall, kein NVIDIA-Toolkit nötig):
+**Manuell ohne Manage-Skript:**
+
+```bash
+# Variante A — CPU (läuft überall):
 docker compose up -d
 
-# Variante B — GPU (RTX 3090 o.ä., NVIDIA Container Toolkit installiert):
-# compose.backends.yml immer mitladen — das GPU-Overlay referenziert die
-# Backend-Services; ohne aktivierte Profile starten sie trotzdem nicht:
+# Variante B — GPU (NVIDIA Container Toolkit nötig):
 docker compose -f compose.yml -f compose.backends.yml -f compose.gpu.yml up -d
 
-# Variante C — bequem (empfohlen): ./polyschnack-manage.sh
-# GPU automatisch erkannt, OIDC wenn echte Credentials in compose.oidc.yml,
-# alle Backends mit --no-start provisioniert (die Admin-GUI startet sie
-# on demand):
-./polyschnack-manage.sh
+# Optional: weitere Backends bereitstellen (Admin-GUI startet sie on demand):
+docker compose -f compose.yml -f compose.backends.yml \
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
 ```
 
 - **Web UI:** http://localhost:8088
-- **ASR API (direkt):** http://localhost:5092
+- **ASR API (direkt):** http://localhost:5092/v1
 
-### Stack-Verwaltung: `polyschnack-manage.sh`
+> Nach dem Aktivieren eines Backends immer einmal `./polyschnack-manage.sh models`
+> ausführen — die GGUF-Modelle liegen nicht im Image, sondern in `./DATA/models`.
+> Häufigster Grund für „Backend startet nicht".
 
-Zentrales Verwaltungsskript für den kompletten Stack (Kern + alle optionalen
-Backends). Ersetzt das frühere `start.sh`. Ohne Argument = `start`.
-
-**Befehle:**
-
-- **`pull`** — zieht ALLE Images (Kern-Container **und** Backends; ohne die
-  internen `--profile`-Flags würden die Backend-Images von
-  `docker compose pull` ignoriert).
-- **`start`** — startet den Kern-Stack (docker-proxy, ps-pk-onnx, crispr-diar,
-  crispr-align, ps-webapp). GPU-Overlay automatisch, wenn die NVIDIA-Runtime
-  registriert ist, sonst CPU-only (Hybrid-Binaries); OIDC-Overlay nur mit
-  echten Credentials. Backends werden mit `--no-start` provisioniert und
-  starten on demand über die Admin-GUI.
-- **`stop` / `restart` / `down`** — stoppt alle Container, Neustart, oder
-  entfernt Container (Volumes bleiben erhalten).
-- **`status`** — GPU-Erkennung, aktive Backend-Auswahl und
-  `docker compose ps` für alle Services.
-- **`logs [SERVICE]`** — folgt den Logs (alle oder ein Service).
-- **`models`** — lädt fehlende GGUF-Modelle der **aktiven** Backends nach
-  `./DATA/models` (idempotent; Auswahl via `POLYSCHNACK_BACKENDS`, s. u.).
-- **`update`** — kompletter Deploy: `git pull` → `pull` → `models` → `start`.
-- **`selfupdate`** — aktualisiert das Skript selbst (public GitHub-Mirror).
-- **`help`** — Befehlshilfe.
-
-Beispiele:
-
-```bash
-./polyschnack-manage.sh update     # neuesten Stand deployen
-./polyschnack-manage.sh status     # Zustand aller Services
-./polyschnack-manage.sh logs crispr-diar
-```
-
-Das Standard-Backend (Parakeet Python/ONNX, ~600 MB) lädt sein Modell beim
-ersten Start von HuggingFace — keine weitere Konfiguration nötig.
-
-**Optional: Login + Admin-Bereich** (OIDC) über das Dummy-Overlay:
-
-```bash
-docker compose -f compose.yml -f compose.oidc.yml up -d   # Werte ersetzen!
-```
-
-> **Wie Hybrid funktioniert (Weg 1):** Jeder Service ist EIN Image für GPU UND
-> CPU — die CUDA/ggml-Binaries enthalten den CPU-Backend und wählen automatisch
-> (`ggml_backend_init_best` = CUDA > Metal > Vulkan > CPU; approach-a nutzt
-> `POLYSCHNACK_USE_GPU=auto` mit onnxruntime-gpu). Mit GPU-Zugriff (Overlay
-> `compose.gpu.yml` → `runtime: nvidia`) läuft alles auf der GPU, ohne Overlay
-> automatisch auf der CPU. Die **Diarization** läuft im eigenen
-> CrispASR-diar-Container (`crispr-diar`, Port 5098) — ebenfalls hybrid. Die Webapp
-> selbst ist **CPU-only** (kein torch/pyannote im Image, ~2,5–3 GB schlanker).
-
-### Deployment auf einem Server ohne Git-Checkout (z. B. ki-box)
-
-Der Server braucht **kein Git-Repository** — die Dateien kommen per Download.
-Einmalig (oder bei größeren Änderungen):
-
-```bash
-cd /opt/container/polyschnack          # dein Installations-Ordner
-for f in compose.yml compose.backends.yml compose.gpu.yml polyschnack-manage.sh; do
-  curl -fsSL -o "$f" "https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/$f"
-done
-chmod +x polyschnack-manage.sh
-mkdir -p webapp/app
-curl -fsSL -o webapp/app/backends.yaml \
-  https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/webapp/app/backends.yaml
-./polyschnack-manage.sh update
-```
-
-> **Achtung:** `compose.oidc.yml` **niemals** überschreiben — dort stehen die
-> echten Login-Zugangsdaten (OIDC-Credentials). Sie gehört nicht ins
-> öffentliche Repo und wird vom Download-Befehl bewusst ausgelassen.
-
-Danach gilt: `./polyschnack-manage.sh selfupdate` hält Skript **und**
-`backends.yaml` automatisch aktuell; `update` zieht Images, Modelle und
-startet. Die übrigen compose-Dateien bei größeren Releases einmal per
-Download-Befehl nachziehen (der `update`-Befehl kann das ohne Git nicht).
+Details: [docs/quickstart.md](docs/quickstart.md) (alle Manage-Befehle, OIDC,
+Backends, Deployment auf Servern ohne Git-Checkout).
 
 ---
 
-## Inhaltsverzeichnis
-
-1. [Backend-Auswahl & Feature-Matrix](#backend-auswahl)
-2. [Compose-Referenz (Datei-Split & Profile)](#compose-referenz)
-3. [Architektur](#architektur)
-4. [Web UI Features](#web-ui)
-5. [Benchmark-Seite](#benchmark)
-6. [Konfiguration (Env-Variablen)](#konfiguration)
-7. [OIDC-Auth](#oidc-auth)
-8. [Admin-Bereich](#admin-bereich)
-9. [Post-Processing & Delivery](#post-processing--delivery)
-10. [Entwicklung](#entwicklung)
-11. [License](#license)
-
----
-
-## Backend-Auswahl
-
-PolySchnack unterstützt **mehrere ASR-Engines**. Du wechselst einfach per
-Env-Variable — kein Code nötig.
-
-| Backend | Profil | CLI-Name | Beschreibung |
-|---------|--------|----------|-------------|
-| **Parakeet (Python/ONNX)** | *(Default)* | `ps-pk-onnx` | Das Original-Modell von NVIDIA, 0,6B Parameter. Hybrid: GPU (CUDA) oder CPU (INT8), auto-detect. |
-| **parakeet.cpp (ggml/C++)** | `--profile crispr-pk-cpp` | `crispr-pk-cpp` | Gleiches Modell, aber in C++ — schneller und schlanker (~700 MB quantisiert). Native Interpunktion + deutsches Truecasing. |
-| **Qwen3-ASR (ggml/C++)** | `--profile crispr-qwen3` | `crispr-qwen3` | Neuestes ASR-Modell von Alibaba, 30 Sprachen, **Word-Timestamps** via ForcedAligner (~3 GB beide Modelle). |
-| **ARK-ASR (ggml/C++)** | `--profile crispr-ark` | `crispr-ark` | State-of-the-Art auf dem HF ASR Leaderboard, 3B Parameter, Whisper-Encoder + Qwen2.5-Decoder. |
-| **Moonshine-DE (ggml/C++)** | `--profile crispr-moonshine-de` | `crispr-moonshine-de` | Kompaktes deutsches Spezialmodell (61,5M Parameter, 6,9 % WER auf CV22-de, ~39 MB GGUF). ⚠️ Lizenz CC-BY-NC-SA-4.0 (nicht-kommerziell). |
-| **Canary (ggml/C++)** | `--profile crispr-canary` | `crispr-canary` | NVIDIA Canary 1B v2 — multilingual (EN/DE/FR/ES). |
-| **Voxtral (voxtral.cpp)** | *(geplant)* | `ps-voxtral` | Mistral AI — Speech-to-Text, 4B Parameter, natives Streaming (1 Token je 80-ms-Audioframe). Registry-Eintrag (`backends.yaml`) vorhanden, Container-Block in `compose.backends.yml` noch auskommentiert (kein Image). |
-
-### Feature-Matrix der Backends
-
-| Feature | ps-pk-onnx | crispr-pk-cpp | crispr-qwen3 | crispr-ark | crispr-moonshine-de | crispr-canary | ps-voxtral* |
-|---------|-----------|--------|-----------|---------|-------------|------------|---------|
-| Word-Timestamps | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ *nicht trainiert* |
-| Live-Streaming (Preview) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Async-Jobs (Hintergrund) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Noise-Reduction (Service) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| VAD-Trimmung (Silero, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Diarization (CrispASR-diar, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Audio-Enhance (ffmpeg, extern) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Deutsch (Hauptsprache) | ✅ | ✅ | ✅ | ✅ | ✅ (DE-Spezial) | ✅ | ✅ |
-| Weitere Sprachen | EN u. a. | EN u. a. | 30 Sprachen | EN u. a. | — | EN/FR/ES | EN |
-| Gerät | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU + CPU | GPU |
-| Modellgröße (Download) | ~2,4 GB | ~0,7 GB | ~3 GB | ~3,2 GB | ~39 MB | ~0,5 GB | ~2,7 GB |
-
-*Voxtral: Registry-Eintrag (`backends.yaml`) vorhanden, aber kein Container/
-Image gebaut (Block in `compose.backends.yml` auskommentiert) — die Zeile
-zeigt die Zielwerte. Die Matrix ist auch live in der GUI (Admin-Bereich →
-„Modell-Matrix") und via `GET /api/models/matrix` abrufbar.*
-
-### Backends starten & Modelle laden
-
-Welche Backends aktiv sind und welche Modelle sie brauchen, steuert
-`POLYSCHNACK_BACKENDS` in der `.env` — siehe
-[Backends aktivieren/deaktivieren](#backends-aktivierendeadaktivieren-mit-polyschnack-managesh).
-Das Manage-Skript lädt fehlende Modelle automatisch (`update` bzw. `models`);
-manuelle wget-Befehle (z. B. für Installations ohne Manage-Skript) stehen in
-[docs/backends/models.md](docs/backends/models.md). Die **Backend-URLs** werden
-automatisch abgeleitet — keine Konfiguration nötig (siehe
-[Backend-Erkennung & URLs](#backend-erkennung--urls-automatisch)).
-
-Modelle, die der jeweilige Backend in `./DATA/models` erwartet:
-
-| Backend | Modelle | Größe |
-|---------|---------|-------|
-| ps-pk-onnx (Default) | ONNX-Modell, lädt sich selbst von HuggingFace (`./DATA/parakeet-models`) | ~600 MB |
-| crispr-pk-cpp | `parakeet-tdt-0.6b-v3-q8_0.gguf` (gleiche Datei wie diar) | ~640 MB |
-| crispr-qwen3 | `qwen3-asr-0.6b-q8_0.gguf` + `qwen3-forced-aligner-0.6b-f16.gguf` | ~3 GB |
-| crispr-ark | `ark-asr-3b-q8_0.gguf` | ~4 GB |
-| crispr-moonshine-de | `moonshine-base-de-fidoriel-q4_k.gguf` + `tokenizer.bin` ⚠️ CC-BY-NC-SA-4.0 | ~42 MB |
-| crispr-canary | `canary-1b-v2-q4_k.gguf` | ~0,6 GB |
-
-> **Hinweis:** Der diar-Service und der Forced-Aligner laden ihre Modelle beim
-> ersten Start automatisch von HuggingFace nach (`./DATA/models` muss dazu
-> beschreibbar gemountet sein — die Backends selbst mounten read-only).
-
-### Diarization (Sprechererkennung) — CrispASR-diar-Service
-
-Die Diarization läuft **nicht in der Webapp** (kein pyannote, kein
-CUDA-torch), sondern im eigenen `crispr-diar`-Container — einem schlanken
-CrispASR-Server, der nur für die Sprechererkennung zuständig ist und
-unabhängig vom gewählten ASR-Backend funktioniert:
-
-- **Im Default-Stack enthalten** (`compose.yml` → `crispr-diar`), Healthcheck aktiv
-- **GPU** via Overlay (`compose.gpu.yml` → `runtime: nvidia`), sonst CPU (ggml)
-- Kein HF_TOKEN nötig — die Webapp ruft nur `POST /v1/audio/transcriptions`
-  mit `diarize=true&response_format=diarized_json` auf
-
-```bash
-# Das Modell (parakeet-GGUF q8_0, ~640 MB) lädt der Container beim ersten
-# Start automatisch von HuggingFace in ./DATA/models/ — manuell nur nötig,
-# wenn er keinen Internetzugang hat (gleiche Datei wie parakeet.cpp, nur
-# einmal laden):
-docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/parakeet-tdt-0.6b-v3-q8_0.gguf \
-  https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf
-```
-
-Die Methode ist per `DIARIZE_METHOD` wählbar (Webapp-Env): `pyannote`
-(Default), `foxnose` (WeSpeaker-ResNet34, beste Accuracy), `energy`/`xcorr`/
-`vad-turns` (leichtgewichtig). Die „Sprecheranzahl" aus der UI wird als
-`diarize_max_speakers` übertragen.
-
----
-
-## Compose-Referenz
-
-Der Stack ist bewusst in **fünf Compose-Dateien** aufgeteilt — jede hat eine
-einzige Aufgabe:
-
-- **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
-  Admin-Steuerung), `asr` (Parakeet Python/ONNX, Container `ps-pk-onnx`),
-  `diar` (CrispASR-Diarization, Container `crispr-diar`),
-  `align` (Forced-Aligner, Container `crispr-align` — präzise Word-Timestamps
-  für den Karaoke-Sync)
-  und `webapp` (GUI, Container `ps-webapp`). Wird von `docker compose up`
-  automatisch geladen.
-- **`compose.backends.yml`** — die optionalen Backends `asr-cpp` (Container
-  `crispr-pk-cpp`), `qwen3-asr` (Container `crispr-qwen3`), `ark-asr`
-  (Container `crispr-ark`), `moonshine-de` (Container `crispr-moonshine-de`),
-  `canary-asr` (Container `crispr-canary`; Voxtral `ps-voxtral`: geplant),
-  jeweils über **Docker-Profile** aktivierbar.
-- **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
-  Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.
-- **`compose.oidc.yml`** — OIDC-Overlay mit Dummy-Werten (Login + Admin).
-- **`compose.benchmark.yml`** — Benchmark als Einmal-Container (per Host-Cron
-  oder manuell), schreibt Ergebnisse ins gemeinsame Volume.
-
-**Warum Profile statt `docker-compose.override.yml`?** Eine Override-Datei wird
-von Compose **immer automatisch gemergt** — die Backends wären dauerhaft Teil
-des Stacks. Profile halten sie optional: definiert, aber nur gestartet, wenn
-`--profile <name>` gesetzt wird. Die Admin-GUI kann die (per `--no-start`
-erzeugten) Container trotzdem on demand starten/stoppen.
-
-**Warum GPU als Overlay statt hardcodiert?** `runtime: nvidia` in der
-Main-Compose würde den Stack auf Maschinen ohne NVIDIA-Runtime unstartbar
-machen. Das Overlay ist die einzige Stelle, an der GPU-Zugriff vergeben wird.
-
-**Warum OIDC als Overlay?** Ohne Login läuft PolySchnack als öffentlicher
-Shared Space (bewusst). OIDC ist ein optionales Upgrade — das Dummy-Overlay
-macht die Aktivierung dokumentierbar und trotzdem offensichtlich ersetzbar.
-
-```bash
-# Nur Kern (GUI + ONNX, CPU oder GPU via Overlay):
-docker compose up -d                                   # CPU
-docker compose -f compose.yml -f compose.gpu.yml up -d # GPU
-
-# Kern + Backends (Container erzeugen, GUI startet on demand):
-docker compose -f compose.yml -f compose.backends.yml \
-  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
-
-# Kern + einzelnes Backend direkt mitstarten:
-docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d
-
-# Kern + OIDC-Login (Dummy-Werte vorher ersetzen!):
-docker compose -f compose.yml -f compose.oidc.yml up -d
-```
-
-### Profile im Detail
-
-| Profil | Befehl | Startet | GPU via Overlay |
-|--------|--------|---------|:---------:|
-| *(kein Profil)* | `docker compose up -d` | docker-proxy + asr + diar + webapp | ✅ |
-| `--profile crispr-pk-cpp` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up -d` | + crispr-pk-cpp | ✅ |
-| `--profile crispr-qwen3` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d` | + crispr-qwen3 | ✅ |
-| `--profile crispr-ark` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d` | + crispr-ark | ✅ |
-| `--profile crispr-moonshine-de` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d` | + crispr-moonshine-de | ✅ |
-| `--profile crispr-canary` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d` | + crispr-canary | ✅ |
-
-### Backends aktivieren/deaktivieren (mit `polyschnack-manage.sh`)
-
-Das Manage-Skript provisioniert standardmäßig **alle** optionalen Backends.
-Die aktive Auswahl steuert `POLYSCHNACK_BACKENDS` in der `.env` neben dem
-Skript (Space-getrennt, gültig: die Backend-Namen aus `backends.yaml`, z. B.
-`crispr-qwen3` — die alten Kurznamen `pk-cpp qwen3 ark moonshine-de canary`
-funktionieren weiter als Alias):
-
-```bash
-# .env neben polyschnack-manage.sh
-POLYSCHNACK_BACKENDS="crispr-qwen3 crispr-ark"   # nur diese zwei Backends
-```
-
-Nur aktive Backends werden provisioniert (Profile) und ihre Modelle geladen.
-`./polyschnack-manage.sh status` zeigt die aktive Auswahl **und** den
-Katalog-Überblick (alle Backends aus `backends.yaml` mit Status + Lizenz).
-
-> **Wichtig:** Nach dem Aktivieren eines Backends (`POLYSCHNACK_BACKENDS`
-> erweitert) einmal `./polyschnack-manage.sh models` ausführen (oder direkt
-> `update`) — die GGUF-Modelle liegen nicht im Image, sondern im gemeinsamen
-> Ordner `./DATA/models` und fehlen sonst beim Start (Backend crasht mit
-> „failed to open GGUF file"). `models` lädt nur die Modelle aktiver
-> Backends und überspringt vorhandene Dateien.
-
-### Zusammenspiel: `backends.yaml` ↔ `compose.backends.yml` ↔ `POLYSCHNACK_BACKENDS`
-
-Drei Ebenen mit getrennten Aufgaben — ein Backend anpassen heißt: genau eine
-Stelle pro Ebene anfassen.
-
-| Ebene | Datei | Aufgabe | Beispiel |
-|-------|-------|---------|----------|
-| **Katalog** | `webapp/app/backends.yaml` | was es gibt: Name, `compose_profile`, Adapter, Ressourcen, **Modell-Downloads (`model_files`)**, Lizenz | `name: crispr-qwen3`, `model_files: {qwen3-asr-0.6b-q8_0.gguf: https://…}` |
-| **Container** | `compose.backends.yml` | wie es läuft: Image, Volumes, Ports, Healthcheck, Profil | `crispr-qwen3:` mit `profiles: ["crispr-qwen3"]` |
-| **Auswahl** | `.env` → `POLYSCHNACK_BACKENDS` | was läuft: aktiviert Profile + Modell-Download | `POLYSCHNACK_BACKENDS="crispr-qwen3"` |
-
-Konkret:
-
-- **`backends.yaml` ist die single source of truth für Backend-Wissen.** Das
-  Manage-Skript leitet daraus **beides** ab: die Compose-Profile
-  (`compose_profile`) für die Provisionierung und die Modell-Downloads
-  (`model_files`: Dateiname → URL) für `models` — es gibt **keine
-  hartkodierte Modell-Liste** im Skript mehr. Die Webapp (Registry,
-  Feature-Matrix, Benchmark) liest dieselbe Datei.
-- **`compose.backends.yml` beschreibt nur noch die Container.** Modell-Pfade
-  in den Envs (`CPP_ASR_MODEL: /models/…`) werden von `models` gegen den
-  Katalog geprüft — Abweichungen erzeugen eine Warnung statt stiller Drift.
-- **`POLYSCHNACK_BACKENDS` wählt nur aus** — definieren kann sie nichts.
-  Namen, die weder im Katalog noch in `compose.backends.yml` als Profil
-  existieren, erzeugen eine Warnung.
-
-Konsequenzen:
-
-- **Neues Backend einbauen = drei Schritte:** YAML-Block in `backends.yaml`
-  (Name, `compose_profile`, `model_files` mit URLs, Adapter) → Service in
-  `compose.backends.yml` → Name in `POLYSCHNACK_BACKENDS`. Kein
-  Skript-Eingriff nötig.
-- **Eigenes Modell für ein Backend** (z. B. anderes GGUF): nur die URL in
-  `model_files` ändern, dann `models` — das Skript lädt die neue Datei.
-- **Backend nur im Katalog, nicht in `compose.backends.yml`** (z. B.
-  `ps-voxtral`, Container auskommentiert): Warnung beim Start-Versuch.
-- **`selfupdate`** zieht neben dem Skript auch `backends.yaml` — auf
-  Systemen ohne Git-Checkout (ki-box) bleiben Katalog und Skript so
-  synchron.
-
-### Backend-Erkennung & URLs (automatisch)
-
-Backend-Erkennung und URLs sind **vollautomatisch** — keine Konfiguration
-nötig:
-
-- **Definitionen:** `webapp/app/backends.yaml` (Registry) — Name, Port,
-  Modell, Fähigkeiten, Adapter. Neues Backend = YAML-Block, keine
-  Code-Änderung.
-- **URL-Ableitung (Option C):** die HTTP-URL jedes lokalen Backends ergibt
-  sich deterministisch aus Service-Name + Port (`http://<name>:<port>`);
-  für Remote-Backends (`type: remote`) aus `adapter_kwargs.base_url`.
-- **Container-Status:** die Admin-GUI erkennt laufende Backends über den
-  restriktiven Docker-Socket-Proxy (`docker-proxy`) — kein direkter
-  Socket-Zugriff aus der Webapp.
-- **Backend-Auswahl pro Job:** die GUI wählt das Backend explizit (Default
-  per Admin-GUI / `POLYSCHNACK_DEFAULT_BACKEND`). `ASR_BACKEND` ist nur der
-  Fallback-Default für direkte API-Aufrufe ohne Backend-Angabe.
-
-Die `*_URL`-Env-Variablen sind **nur Overrides** für Spezialfälle (eigene
-Hosts/Ports) — im Normalfall weglassen:
-
-| Variable | Default (abgeleitet) | Zweck |
-|----------|---------------------|-------|
-| `ASR_BACKEND` | `ps-pk-onnx` | Fallback-Default für direkte API-Aufrufe |
-| `POLYSCHNACK_DEFAULT_BACKEND` | `ps-pk-onnx` | GUI-Default für neue Jobs (per Admin-GUI änderbar) |
-| `ASR_URL` | `http://ps-pk-onnx:5092` | Override: ONNX-ps-pk-onnx |
-| `CRISPR_PK_CPP_URL` | `http://crispr-pk-cpp:5093` | Override: crispr-pk-cpp |
-| `CRISPR_QWEN3_URL` | `http://crispr-qwen3:5094` | Override: crispr-qwen3 |
-| `CRISPR_ARK_URL` | `http://crispr-ark:5095` | Override: crispr-ark |
-| `CRISPR_MOONSHINE_DE_URL` | `http://crispr-moonshine-de:5096` | Override: crispr-moonshine-de |
-| `CRISPR_CANARY_URL` | `http://crispr-canary:5097` | Override: crispr-canary |
-| `CRISP_ALIGN_URL` | `http://crispr-align:5099` | Override: Forced-Aligner |
-| `POLYSCHNACK_ALIGN_WORDS` | `true` | Word-Alignment nach der ASR aktiv/deaktiviert (`false` = aus) |
-
-```bash
-# Einfacher Start eines Backends — URL wird automatisch abgeleitet:
-docker compose -f compose.yml -f compose.backends.yml --profile crispr-qwen3 up -d
-
-# Kombination mehrerer Backends (Admin-GUI startet sie on demand):
-docker compose -f compose.yml -f compose.backends.yml \
-  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark up -d --no-start
-```
-
-### Remote-Backends (OpenAI Whisper, Mistral Voxtral, Groq, …)
-
-In `webapp/app/backends.yaml` liegen **auskommentierte Beispiel-Einträge**
-(`type: remote`) für häufig genutzte Whisper-APIs — OpenAI (`whisper-1`),
-Mistral (`voxtral`) und Groq (`whisper-large-v3`). Aktivieren:
-
-1. Block in `backends.yaml` einkommentieren (Einrückung: 2 Leerzeichen vor
-   `- name`), `status: active` ist gesetzt.
-2. API-Key als Env-Variable an den webapp-Container geben (z. B.
-   `OPENAI_API_KEY` in der Container-Env / `.env` — **nie ins YAML/Repo**).
-3. Stack neu starten — das Backend erscheint in der GUI-Auswahl.
-
-Remote-Backends brauchen **keinen Container** (kein Compose-Profil, kein
-Start/Stop-Button — der Status kommt von der API). Basis-URL + Modell
-stehen in `adapter_kwargs` (`base_url`, `api_key_env`, `model`); der
-Adapter spricht OpenAI-kompatibles `POST {base_url}/audio/transcriptions`
-(verbose_json, Wort-Timestamps, Bearer-Auth). Alle Preise/Modellnamen in
-den Beispielen sind **Beispielwerte** — vor Nutzung die Anbieter-Doku
-prüfen.
-
-> **Hinweis:** GGUF-Modelle liegen gemeinsam in `./DATA/models` (alle
-> Backends + diar + aligner), das ONNX-Modell in `./DATA/parakeet-models`,
-> Audio/Aufnahmen in `./DATA/poc-data` — alles Bind-Mounts, keine
-> Named-Volumes. Service-Definitionen: `compose.yml` / `compose.backends.yml`,
-> Backend-Registry: `webapp/app/backends.yaml`.
-
----
-
-## Architektur
-
-```mermaid
-graph LR
-    Browser -->|HTTP :8088| webapp["webapp<br/>(FastAPI + SQLite)"]
-    webapp -->|OpenAI-API| asr["asr (Python/ONNX)<br/>oder crispr-pk-cpp<br/>oder crispr-qwen3<br/>oder crispr-ark …"]
-    webapp -->|Diarization| diar["diar (CrispASR-Server)"]
-    webapp -->|Word-Alignment| align["align (Qwen3-ForcedAligner)"]
-    webapp -->|Docker-API| proxy["docker-proxy<br/>(Socket-Proxy)"]
-    proxy -.start/stop.-> asr
-    asr --> model["ASR Modell (GGUF / ONNX)"]
-    webapp --- db[("SQLite + Audio-Dateien<br/>(./DATA/poc-data)")]
-    asr --- mcache[("Modell-Cache<br/>(./DATA/models + ./DATA/parakeet-models)")]
-```
-
-Die Webapp kommuniziert mit den ASR-Backends über die OpenAI-kompatible
-`POST /v1/audio/transcriptions`-Schnittstelle. Die Adapter-Zuordnung kommt
-aus der Registry (`backends.yaml`); die GUI wählt das Backend pro Job
-(Default per `POLYSCHNACK_DEFAULT_BACKEND`/Admin-GUI, `ASR_BACKEND` nur als
-API-Fallback). Die Diarization läuft im eigenen
-`diar`-Container (CrispASR-Server, `POST /v1/audio/transcriptions` mit
-`diarize=true&response_format=diarized_json`). Der **Forced Aligner**
-(`align`-Container, `POST /v1/audio/align` mit Audio + Referenztext) verifiziert
-nach der ASR jede Wortgrenze gegen die Akustik (qwen3-forced-aligner,
-einzelner nicht-autoregressiver Forward-Pass, max. 400 s Audio pro Request) —
-die Webapp schickt ihre 120-s-Chunks, ersetzt die groben Backend-Word-Timestamps
-durch akustisch verifizierte und behebt so den Karaoke-Drift bei langen Audios.
-Die Admin-GUI steuert die
-Backend-Container über den restriktiven `docker-proxy` (kein direkter
-Docker-Socket-Zugriff aus der Webapp).
-
----
-
-## Web UI
-
-### Upload & Transcribe
-
-1. **Datei hochladen** — Drag & Drop oder Klick (MP3, WAV, OGG, OPUS, M4A, FLAC, WEBM)
-2. **▶ Transkribieren** — die Feature-Toggles (VAD, Diarization, Noise Reduction, Live, Enhance) und das Backend docken direkt an der Zeile an, auf der du transkribierst
-3. **Transcribe-Queue** — mehrere Transkriptionen werden pro Backend serialisiert (Kapazität je Endpunkt = 1); Position und ETA zeigt der Queue-Watcher
-4. **Wellenform + Zoom** — WaveSurfer mit Zoom (1×–50×)
-5. **Bereich wählen** — blauen Griff ziehen, um nur einen Ausschnitt zu transkribieren
-6. **Re-transkribieren** — Klick auf „Re-transcribe" klappt die Feature-Auswahl an der Zeile auf und wird zum ▶-Button (ohne Bestätigungsdialog)
-7. **Playback** — Klick auf Segment zum Abspielen
-
-### Weitere Features
-
-- **Segment-Editor** — Doppelklick auf Text, `Ctrl+Enter` speichert
-- **Export** — SRT, VTT, TXT (mit Sprecher-Labels wenn Diarization aktiv)
-- **Duplicate Detection** — gleiche Datei erkennen und überspringen
-- **Auto-Retention** — öffentliche Aufnahmen nach 60 Minuten löschen
-
----
-
-## Benchmark
-
-Öffentliche Seite unter **`https://<webapp>/benchmark`** (Pfad unter der
-Webapp, keine Subdomain) — Methodik, hörbare Samples, Ergebnisse und
-Preisvergleich.
-
-### Für normale User (kein Login nötig)
-
-- **Methodik-Karte** — Version, Stand, Kategorien, Anti-Gaming-Hinweis
-- **Test-Set · 2-Achsen-Matrix** — Kanal × Inhalt als 8×8-Matrix mit
-  Sample-Zählung; Klick auf eine Zelle **filtert die Samples** darunter
-- **„Wie ist das Test-Set aufgebaut?"** — verständliche Erklärung der
-  Taxonomie (Best Practice aus GigaSpeechBench/LibriSpeech/REVERB/CHiME)
-- **Samples nach Kategorie** (collapsible, nur eine offen):
-  - **Preview** (MP3 128 kbps, WaveSurfer-Player) + **finale WAV** (unkomprimiert, Download)
-  - Referenztext ein-/ausblendbar
-- **Ergebnisse** — gepoolte Benchmark-Ergebnisse (`results/latest.json`)
-- **Preisvergleich** — WER/€-Matrix (Selbstkosten vs. SaaS vs. kommerziell)
-
-Bearbeiten ist **nicht** möglich — Read-only für normale User.
-
-### Taxonomie (2-Achsen)
-
-Die Samples sind nach zwei unabhängigen Achsen kategorisiert (Definition in
-`benchmark/spec/taxonomy.json` im polyschnack-benchmark-Repo):
-
-- **Kanal (Akustik)** — wie klingt die Aufnahme? `clean`, `transport`,
-  `broadcast`, `telefon`, `komprimiert`, `vintage`, `geraeusch`, `nachhall`
-- **Inhalt (Schwierigkeit)** — was wird gesprochen? `allgemein`, `schnell`,
-  `zahlen`, `fachsprache`, `akzent`, `jugend`, `codeswitch`, `durchsagen`
-- **Quelle (Tag, keine Kategorie):** `cv` = echte CommonVoice-Stimmen (CC0),
-  `tts` = synthetisch (**Piper** Thorsten m / Ramona w — ersetzt edge-tts)
-
-### Für Admins (OIDC-Login + `POLYSCHNACK_ADMINS`)
-
-- **✕ Ablehnen** pro Sample → Auto-Ersatz aus dem CV-Pool (gleiche Kategorie)
-  und **neue Version vN+1** (Manifest-History bleibt erhalten)
-- **Edit** pro Sample → Referenztext ändern (in-place, `updated_at`)
-- Versions-History unter `/api/benchmark/versions`
-
-**Workflow:** Ablehnen/Editieren passiert **interaktiv in der GUI** — der
-nächste Messlauf (`./polyschnack-manage.sh benchmark` oder Cron) nutzt dann
-automatisch die neue aktive Manifest-Version. Der Messlauf selbst ist bewusst
-headless (Container, reproduzierbar) — die Kuratierung gehört in die
-Admin-GUI mit OIDC-Gate, nicht in den Mess-Container.
-
-### Datenlayout (`benchmark_data`)
-
-```
-benchmark_data/
-  versions/v1/manifest.json   # Samples + Kategorien (immutable pro Version)
-  versions/v1/audio/*.wav     # finale WAV (unkomprimiert)
-  versions/v1/preview/*.mp3   # MP3 128k (on-demand via ffmpeg)
-  results/latest.json         # gepoolte Ergebnisse
-  pricing.json                # Preisvergleich (Selbstkosten × markup_x)
-```
-
-`BENCHMARK_DATA_DIR` (Default: `/data/benchmark`) zeigt auf das Volume.
-Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
-API-Doku: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
-`/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
-
-### Benchmark-Container (periodisch per Cron)
-
-Der Benchmark läuft **nicht** als dauerhafter Service, sondern als
-**Einmal-Container**, der per Host-Cron periodisch gestartet wird — er
-schreibt die Ergebnisse ins gemeinsame Volume, die Webapp zeigt sie an.
-
-```bash
-# Einmal manuell (ohne Manage-Skript):
-docker compose -f compose.yml -f compose.benchmark.yml run --rm benchmark
-
-# Empfohlen (REGISTRY/BENCH_BACKEND_URLS-Default kommen aus dem Skript):
-./polyschnack-manage.sh benchmark
-
-# Periodisch (Host-Crontab, z. B. täglich 04:00):
-0 4 * * * cd /pfad/zum/polyschnack-checkout && ./polyschnack-manage.sh benchmark >> /var/log/polyschnack-benchmark.log 2>&1
-```
-
-**Konfiguration** (in der `.env` neben dem Skript, compose liest sie
-automatisch):
-
-```bash
-# .env
-BENCH_BACKENDS="ps-pk-onnx,crispr-qwen3"            # welche Backends messen
-# BENCH_BACKEND_URLS='{"ps-pk-onnx":"http://ps-pk-onnx:5092/v1"}'   # URLs (JSON-Map, kompakt)
-# OPENAI_API_KEY=sk-...                              # nur für externe Endpunkte
-```
-
-**Externe OpenAI-Endpunkte:** `BENCH_BACKEND_URLS` akzeptiert beliebige
-OpenAI-kompatible URLs — z. B. `BENCH_BACKEND_URLS='{"whisper-remote":"https://api.openai.com/v1"}'`
-(+ `OPENAI_API_KEY` bzw. `LITELLM_API_KEY` in der `.env`). Der Container
-sendet dann `Authorization: Bearer …` — so läuft der Benchmark automatisch
-auch gegen Cloud-Whisper, Mistral Voxtral, Groq o. Ä. Der Key-Name in der
-JSON-Map muss mit einem `BENCH_BACKENDS`-Eintrag übereinstimmen.
-
-**Was der Container tut:**
-- Liest das aktuelle versionierte Manifest (`versions/vN/manifest.json`,
-  aktive Samples) aus dem gemeinsamen Volume
-- Schickt jedes Sample an die konfigurierten Backends (OpenAI-kompatibel,
-  Compose-Netzwerk — Backends müssen laufen!)
-- Schreibt `results/latest.json` + `pricing.json` ins Volume
-  (`/data/benchmark`) — die Webapp zeigt sie ohne Neustart an
-
-**Konfiguration** (`compose.benchmark.yml`):
-
-| Variable | Default | Bedeutung |
-|----------|---------|-----------|
-| `BENCH_BACKENDS` | `ps-pk-onnx,crispr-qwen3,crispr-ark,crispr-moonshine-de,crispr-canary,crispr-pk-cpp` | Welche Backends laufen sollen |
-| `BENCH_BACKEND_URLS` | JSON-Map (s. Datei) | URLs im Compose-Netzwerk (Container-Port!) |
-
-**Volumes (Least-Privilege):** `/data` read-only, nur `/data/benchmark`
-beschreibbar (Container schreibt ausschließlich latest.json + pricing.json).
-CPU-only, endet nach dem Lauf — kein Leerlauf-Ressourcenverbrauch.
-
-**Image-Build:** CI-Job `build-benchmark` im polyschnack-benchmark-Repo
-(baut + pusht nach Harbor). Achtung: benötigt die CI-Variable `CONFIG_JSON`
-(Harbor-Docker-Config) — das Benchmark-Projekt hat sie noch **nicht**
-(im pk-asr-Projekt existiert sie). Siehe Fehlermeldung im CI-Log.
-
-## Images & Registries
-
-- **GHCR** (`ghcr.io/tilllt/polyschnack-asr…`) — public Image-Mirror und
-  **compose-Default** (`${REGISTRY:-ghcr.io/tilllt}`); Tags `latest` +
-  Commit-SHA, automatisch per GitLab-CI gespiegelt (Job `mirror-ghcr`).
-  Externe Nutzer ziehen ihre Images direkt von dort:
-  `docker pull ghcr.io/tilllt/polyschnack-asr-webapp:latest` (bzw. `-qwen3`,
-  `-ark`, `-diar`, `-aligner`, `-cpp`, `-moonshine-de`, `-canary`; ohne Suffix
-  = ASR-Kern `approach-a`).
-- **Harbor** — private Dev-Registry (interner Host, nicht öffentlich). Für den
-  Dev-Stand (z. B. frische Builds vor dem Mirror) den Stack mit Override
-  starten: `REGISTRY=<dev-registry>/public ./polyschnack-manage.sh start`.
-  Achtung: das Benchmark-Image (`polyschnack-benchmark`) gibt es nur in
-  Harbor.
-- **GitHub** (`github.com/tilllt/polyschnack-asr`) — public Code-Mirror jedes
-  `main`-Pushes; dort läuft die CI als GitHub Actions (Tests, keine Images).
-
-## Wichtig vor dem Deployment
-
-Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind
-noch nicht verfügbar"). Vor dem ersten Start das Volume befüllen:
-
-```bash
-cd webapp
-SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/cv_selection_v1.json \
-TTS_SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/tts_selection.json \
-CV_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/cv \
-TTS_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/tts \
-TAXONOMY=/pfad/zum/polyschnack-benchmark/benchmark/spec/taxonomy.json \
-BENCHMARK_DATA_DIR=<host-mount>/benchmark \
-.venv/bin/python benchmark/seed_benchmark_data.py
-```
-
-- `BENCHMARK_DATA_DIR` muss auf den **Host-Pfad des Volumes** zeigen
-  (compose: `./DATA/poc-data:/data` → `DATA/poc-data/benchmark`).
-- Der Seed kopiert die WAVs (unkomprimiert) und erzeugt die MP3-128k-Previews
-  per ffmpeg.
-
----
-
-## Konfiguration
-
-### ASR-Backend wählen
-
-| Variable | Werte | Default |
-|----------|-------|---------|
-| `ASR_BACKEND` | `ps-pk-onnx`, `crispr-pk-cpp`, `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary` | `ps-pk-onnx` | Fallback-Default für direkte API-Aufrufe; die GUI wählt pro Job |
-| `ASR_URL` | Override: URL des ONNX-Dienstes (sonst automatisch abgeleitet) | `http://ps-pk-onnx:5092` |
-| `POLYSCHNACK_DEFAULT_BACKEND` | wie `ASR_BACKEND` (Default für neue Jobs, per Admin-GUI änderbar) | `ps-pk-onnx` |
-
-### Webapp-Umgebungsvariablen
-
-| Variable | Default | Beschreibung |
-|----------|---------|-------------|
-| `ASR_URL` | `http://ps-pk-onnx:5092` | ASR-Service-URL |
-| `ASR_BACKEND` | `ps-pk-onnx` | Welcher Adapter |
-| `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
-| `DIAR_URL` | `http://crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
-| `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
-| `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
-| `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
-| `OIDC_ISSUER` | `""` | OIDC-Issuer-URL |
-| `SESSION_SECRET` | auto | Session-Key |
-| `BASE_URL` | `http://localhost:8088` | Externe URL für OIDC-Redirects |
-| `POLYSCHNACK_ADMINS` | `""` | Komma-Liste (OIDC-sub oder E-Mail) mit Admin-Rechten |
-| `POLYSCHNACK_ADMIN_GROUPS` | `""` | Komma-Liste von OIDC-Gruppen mit Admin-Rechten |
-| `DOCKER_PROXY_URL` | `http://docker-proxy:2375` | Restriktiver Docker-Socket-Proxy |
-| `POLYSCHNACK_MAX_QUEUE_LEN` | `20` | Maximale Jobs in der Transcribe-Queue |
-
-### Host-Ports (Compose-Ebene, in der `.env` neben `compose.yml`)
-
-| Variable | Default | Beschreibung |
-|----------|---------|--------------|
-| `WEBAPP_PORT` | `8088` | Host-Port der Web-UI. Bei Konflikt mit einem anderen Dienst (Fehler „port is already allocated") einfach umstellen, z. B. `WEBAPP_PORT=8089` in der `.env` — der Container-Port innen bleibt 8088. |
-
----
-
-## OIDC-Auth
-
-Ohne OIDC läuft PolySchnack als **Shared Space**: jede\*r kann hochladen und
-transkribieren, alles ist öffentlich und wird nach `PUBLIC_RETENTION_MINUTES`
-automatisch gelöscht.
-
-Mit OIDC bekommt jede\*r eingeloggte User einen **privaten Workspace** (eigene
-Aufnahmen, fremde unsichtbar). Der Admin-Bereich (Service-Start/Stop,
-Backend-Wechsel) setzt OIDC zwingend voraus — ohne Login gibt es keine Admins.
-
-**Fertiges Compose-Overlay mit Dummy-Werten:** `compose.oidc.yml`
-
-```bash
-docker compose -f compose.yml -f compose.oidc.yml up -d
-```
-
-Alle Werte dort sind DUMMY (Client-ID/Secret, `auth.example.com`,
-`admin@example.com`) — vor Produktion ersetzen.
-
-### Aktivierung
-
-| Variable | Beispiel | Bedeutung |
-|----------|----------|-----------|
-| `OIDC_CLIENT_ID` | `polyschnack` | Client-ID beim Identity Provider |
-| `OIDC_CLIENT_SECRET` | `…` | Client-Secret beim IdP (Confidential Client) |
-| `OIDC_ISSUER` | `https://auth.example.com` | Issuer-URL (Keycloak, Authentik, …) — **OIDC ist aktiv, sobald Client-ID + Issuer gesetzt sind** |
-| `OIDC_SCOPE` | `openid profile email` | Standard; `email` wird benötigt, wenn Admins per E-Mail matchen sollen |
-| `SESSION_SECRET` | zufälliger langer String | Signiert die Session-Cookies — **unbedingt setzen** |
-| `BASE_URL` | `https://polyschnack.example.com` | Externe URL der App; **der OIDC-Redirect läuft immer hierhin** |
-
-**Einmalig beim IdP registrieren:**
-- Redirect-URI: `https://<BASE_URL>/auth/callback` (exakt, ohne Trailing-Slash)
-- Flow: Authorization Code + PKCE (Confidential Client)
-- Für Admin-Match per Gruppe: `groups`-Claim im Userinfo (Keycloak:
-  Gruppen-Mapper; Authentik: standardmäßig enthalten)
-
-**Login-Ablauf:** `GET /auth/login` → Redirect zum IdP → `GET /auth/callback`
-(setzt Session, speichert `is_admin`) → zurück zur App. `GET /auth/logout`
-löscht die Session.
-
-**Eigene User-ID finden:** eingeloggt `GET /auth/me` → `sub`, `email`, `name`,
-`is_admin`.
-
-### Admins designieren
-
-- `POLYSCHNACK_ADMINS` — Komma-Liste von `sub`-IDs **oder** E-Mails
-- `POLYSCHNACK_ADMIN_GROUPS` — Komma-Liste von OIDC-Gruppennamen
-
-Beide wirken **unabhängig voneinander** (ODER-Verknüpfung):
-
-1. **sub/email-Liste:** Beim Login wird der User in der DB angelegt bzw.
-   aktualisiert. Der Check vergleicht `user.sub` und `user.email` exakt.
-2. **Gruppen:** Beim Login holt die App die Userinfo vom IdP
-   (`GET {issuer}/userinfo`) und bildet die Schnittmenge aus
-   `userinfo["groups"]` und der Komma-Liste. Ist sie nicht leer → Admin.
-
-**Zeitpunkt & Gültigkeit:** `is_admin` wird einmalig beim Login berechnet und
-in der Session gecacht. Nach Änderungen der Admin-Variablen **neu einloggen**
-(Logout → Login). Ohne aktives OIDC liefert `require_admin` immer 403.
-
----
-
-## Admin-Bereich
-
-Der Admin-Bereich (`🛠 Admin` in der GUI, nur für Admins) steuert die
-ASR-Services on demand — die Webapp spricht dafür **niemals direkt** den
-Docker-Socket an, sondern den restriktiven Proxy-Container
-[`tecnativa/docker-socket-proxy`](https://github.com/Tecnicality/docker-socket-proxy)
-(nur Container-/Info-Routen + POST freigeschaltet; Exec/Create/Events deaktiviert).
-
-- **Services** — alle Backends mit Live-Status, Modell, Ressourcen-Report
-  (VRAM/RAM/Disk), aktiven Jobs und Start/Stop/Neustart. Stop nur ohne
-  laufende Jobs (sonst 409).
-- **Ressourcen-Check vor Start** — RAM/Disk werden vor dem Start geprüft
-  (VRAM exakt nur bei eigenen Servern über deren `/health`). Bei Mangel: 409
-  mit Report.
-- **Config** — Default-Backend für neue Transkriptionen. Wechsel auf ein
-  nicht-laufendes Backend startet es automatisch (nach Ressourcen-Check).
-- **Modell-Matrix** — Feature-Übersicht aller Backends, auch als
-  `GET /api/models/matrix`.
-
-**Concurrency** ist bewusst nicht konfigurierbar: Jeder Endpunkt hat eine
-Kapazität (selbstgehostete Services = 1). Die Queue (`GET /api/queue`) zeigt
-eigene Jobs mit Position/ETA, fremde anonymisiert.
-
-**Einmaliger Setup-Befehl** (erstellt alle Container, startet aber nichts):
-
-```
-docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
-```
-
----
-
-## Post-Processing & Delivery
-
-Alles ist **opt-in** (nichts läuft automatisch): an der Transcribe-Zeile
-wählst du pro Aufnahme, was nach der Transkription passieren soll.
-
-- **Satzzeichen (`✍️ Punct`)** — Interpunktion nach der Erkennung. Modus per
-  `POLYSCHNACK_PUNCTUATION_MODE` (Default `off`; `local` = offline, `llm` =
-  kostenpflichtig). **Achtung:** Die CrispASR-Backends (Qwen3-ASR, ARK-ASR,
-  pk-cpp) punktieren **nativ** vom Server (`--punc-model fullstop`,
-  `--truecase-model lstm` = deutsches Truecasing, 97,9 % F1) — dort wird das
-  LLM-Punctuation automatisch übersprungen.
-- **Wort-Confidence (Per-Token)** — CrispASR-Backends liefern pro Wort eine
-  Sicherheit. Die Webapp färbt unsichere Wörter: **grün** ≥ 90 %, **gelb**
-  ≥ 70 %, **rot** darunter.
-- **LLM-Optimierung (`✨ LLM`)** — KI-Nachbearbeitung. **Nur für registrierte
-  User** (kostenpflichtig), anonyme sehen den Schalter ausgegraut.
-- **Vorlage (Template)** — eigene Prompt-Vorlagen im Panel
-  `🧩 Post-Processing` (z. B. „Meeting-Zusammenfassung + ToDos"). Ergebnis
-  wird als neue Version (`kind="postprocess"`) abgelegt.
-- **Senden an (Delivery-Target)** — E-Mail (SMTP) oder **WebDAV** (z. B.
-  Nextcloud). Passwörter **verschlüsselt** (Fernet, aus `SESSION_SECRET`),
-  nie wieder ausgegeben. Auch für anonyme User.
-
-**Umgebungsvariablen:**
-
-| Variable | Default | Bedeutung |
-|---|---|---|
-| `POLYSCHNACK_PUNCTUATION_MODE` | `off` | `off` \| `local` \| `llm` |
-| `POLYSCHNACK_DEFAULT_LLM_ENHANCE` | `false` | LLM-Optimierung default an |
-| `POLYSCHNACK_LLM_URL` | *(leer)* | OpenAI-kompatibler Endpunkt (z. B. eigener LiteLLM-Proxy) |
-| `POLYSCHNACK_LLM_API_KEY` | *(leer)* | API-Key für obigen Endpunkt |
-| `POLYSCHNACK_LLM_MODEL` | `deepseek-chat` | Modellname |
-| `POLYSCHNACK_SMTP_HOST` | *(leer)* | SMTP-Server (leer = Mail-Targets deaktiviert) |
-| `POLYSCHNACK_SMTP_PORT` | `587` | SMTP-Port |
-| `POLYSCHNACK_SMTP_USER` / `_PASS` | *(leer)* | SMTP-Login |
-| `POLYSCHNACK_SMTP_FROM` | *(leer)* | Absender-Adresse |
-
-### BYOK — eigene LLM-Endpunkte (registrierte User)
-
-Registrierte User (OIDC) können eigene OpenAI-kompatible Endpunkte
-hinterlegen (Tab „LLM-Endpunkte (BYOK)" im Panel `🧩 Post-Processing`).
-Priorität: **User-Endpunkt > Server-Env**.
-
-- **Anlegen:** Name, Base-URL, API-Key, Modell. Der API-Key wird
-  **Fernet-verschlüsselt** gespeichert und **nie** in GUI/API/Logs ausgegeben.
-- **Sicherheit (SSRF):** Nur http(s) und **öffentliche** Adressen.
-  `localhost`, private Netze und Cloud-Metadata (169.254.169.254) → 422.
-- **Zugriff:** Nur der Ersteller (owner-only). BYOK ist kostenpflichtig →
-  anonyme User gesperrt (403).
-
----
-
-## Entwicklung
-
-### Spezifikation (OpenSpec)
-
-Die App ist retroaktiv in [OpenSpec-Format](openspec/) spezifiziert:
-`openspec/project.md` (Überblick + External Systems), `openspec/specs/*/spec.md`
-(7 Capabilities mit Requirements/Scenarios) und `openspec/changes/*/proposal.md`
-(5 Change-Proposals der Feature-Epochen). **Pflege:** Neue Features → neues
-Change-Proposal + Spec-Abschnitt aktualisieren (gleicher Commit).
-
-### Voraussetzungen
-
-- [uv](https://docs.astral.sh/uv/) (Python Package Manager)
-- Node.js 20+
-- Docker mit Compose v2
-
-### ASR Backend (approach-a)
-
-```bash
-cd approach-a
-uv sync
-uv run uvicorn polyschnack_service.main:app --reload --port 5092
-```
-
-### Web App
-
-```bash
-cd webapp/frontend
-npm install
-npm run dev              # Vite Dev Server auf :5173
-
-# Zweites Terminal:
-cd webapp
-PS_PK_ONNX_URL=http://localhost:5092 uv run uvicorn app.main:app --reload --port 8088
-```
-
-### Tests
-
-```bash
-# Backend (webapp):
-cd webapp && uv run pytest tests/ -q
-
-# Frontend:
-cd webapp/frontend && npm test        # Vitest
-```
+## Weiterführende Dokumentation
+
+Die vollständige Dokumentation liegt als **MkDocs-Site** in [`docs/`](docs/index.md)
+und wird automatisch auf GitLab Pages veröffentlicht. Die wichtigsten Kapitel:
+
+| Kapitel | Inhalt |
+|---|---|
+| [Backends & Modelle](docs/backends/overview.md) | Alle 8 lokalen + Remote-Backends, Feature-Matrix, Modelle laden |
+| [Web UI & Features](docs/webui.md) | Transkribieren, Segment-Editor, Sharing, Versionen, Annotate, Kollaboration |
+| [Architektur](docs/architecture.md) | Container, Ports, Datenfluss, Image-Strategie, Design-Entscheidungen |
+| [Compose-Referenz](docs/compose.md) | Datei-Split, Profile, `backends.yaml` ↔ Compose ↔ Env |
+| [Konfiguration](docs/configuration/env.md) | Alle Env-Variablen der Webapp |
+| [OIDC & Admin](docs/configuration/oidc.md) | Login, Workspaces, Admin-Bereich, Backend-Steuerung |
+| [Post-Processing](docs/configuration/postprocessing.md) | Punct/Truecase, LLM, Templates, Delivery (Mail/WebDAV), BYOK |
+| [Benchmark](docs/benchmark/index.md) | Öffentlicher WER/€-Vergleich, Taxonomie, Admin-Workflow |
+| [Diarization](docs/diarization.md) | Sprechererkennung im eigenen Container |
+| [API](docs/API.md) | OpenAI-kompatibler Endpunkt + Webapp-API |
+| [Entwicklung](docs/development/setup.md) | Setup, Tests, OpenSpec, **Code-Verständnis-Guide** |
+
+**Entwicklung:** Repo-Layout, Datenfluss und Zusammenspiel aller Komponenten
+erklärt der [Code-Guide](docs/development/code-guide.md) — die Anleitung für
+alle, die den gesamten Code verstehen wollen. Feature-Änderungen laufen über
+[OpenSpec](docs/development/openspec.md)-Change-Proposals.
 
 ---
 
@@ -1017,3 +144,5 @@ cd webapp/frontend && npm test        # Vitest
 
 [MIT](LICENSE) — basiert auf [istupakov/parakeet-tdt](https://github.com/istupakov/parakeet-tdt)
 (NVIDIA Parakeet TDT 0.6B v3) und [mudler/parakeet.cpp](https://github.com/mudler/parakeet.cpp).
+Achtung: einzelne Modelle (z. B. Moonshine-DE) haben abweichende Lizenzen —
+siehe [docs/backends/overview.md](docs/backends/overview.md).

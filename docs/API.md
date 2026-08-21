@@ -312,7 +312,33 @@ print(r["status"], r.get("text", r.get("error")))
   is **hybrid** — `POLYSCHNACK_USE_GPU=auto` selects CUDA when available and
   falls back to CPU-INT8 otherwise. Verify the model fits your VRAM
   (`grikdotnet/...-fp16` or INT8 for ~4 GB cards).
-- The other backends (pk-cpp, qwen3-asr, ark-asr, moonshine-de, canary-asr)
-  expose the same OpenAI-compatible API on their own ports (5093–5097) — the
-  endpoint contract (`POST /v1/audio/transcriptions`, `verbose_json`,
+- The other backends (pk-cpp, qwen3-asr, ark-asr, moonshine-de, canary,
+  voxtral, whisper) expose the same OpenAI-compatible API on their own
+  ports (5093–5101) — the endpoint contract
+  (`POST /v1/audio/transcriptions`, `verbose_json`,
   `timestamp_granularities=word`) is identical.
+
+---
+
+## Webapp-API (Port 8088)
+
+Die Webapp selbst ist mehr als ein Thin Client: Sie bündelt Upload, Queue,
+Transkription, Teilen, Versionen, Benchmark und Admin — und stellt zusätzlich
+einen **OpenAI-kompatiblen Proxy** bereit (`POST /v1/audio/transcriptions`
+auf :8088, Router `openai_proxy.py`), der das gewählte Backend abstrahiert.
+
+Wichtige Endpunkte (alle unter `/api`, vollständige OpenAPI-Doku im Browser
+unter `http://localhost:8088/docs`):
+
+| Bereich | Endpunkte |
+|---|---|
+| Aufnahmen | `GET/POST /api/recordings` (`?lite=1` = Metadaten ohne Transkript), `GET /api/recordings/{uid}`, `DELETE`, `PATCH …/title`, `…/tags` |
+| Transkription | `POST /api/recordings/{uid}/transcribe`, `…/retranscribe`, `…/realign`, `…/rediarize`, `POST /api/recordings/{uid}/cancel`, `GET /api/queue` |
+| Audio | `GET /api/recordings/{uid}/audio`, `…/audio/preview` (MP3-Sidecar), `…/download?format=txt\|srt\|vtt`, `…/backup` (ZIP) |
+| Segmente | `PUT /api/recordings/{uid}/segments/{idx}` (Edit persistieren) |
+| Teilen | `GET/POST /api/recordings/{uid}/shares`, `DELETE …/shares/{id}`, `POST …/anon-link` |
+| Versionen | `GET /api/recordings/{uid}/versions`, `…/diff`, `POST …/restore` |
+| Annotationen | `GET/POST /api/recordings/{uid}/annotations` (Change 056) |
+| Benchmark | `GET /api/benchmark/{meta,samples,audio,preview,results,pricing,versions}` (öffentlich), `POST …/reject`, `…/edit` (Admin) |
+| System | `GET /api/models/matrix`, `/api/models/status`, `/api/stats`, `/api/version`, `GET /auth/me` |
+

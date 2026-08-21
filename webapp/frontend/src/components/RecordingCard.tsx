@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
-import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording } from "../hooks";
+import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -583,7 +583,20 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
 
   // ──── Segment time tracking ────
-  const segments = r.segments;
+  // Change 059: die Liste liefert nur die Karten-Shell (lite) — Transkription
+  // + Peaks werden beim Aufklappen pro Karte nachgeladen (useRecordingDetail,
+  // Cache pro uid, Polling nur während processing). Fallback auf die
+  // Listenfelder (z. B. Test-Fixtures ohne lite).
+  const detailQ = useRecordingDetail(
+    r.uid,
+    !collapsed && (r.status === "done" || r.status === "processing"),
+  );
+  const detail = detailQ.data;
+  const segments = detail?.segments ?? r.segments;
+  const recText = detail?.text ?? r.text;
+  // „Loading…"-Hinweis: solange der erste Voll-Datensatz lädt und noch
+  // nichts da ist (bei Cache-Treffer sofort rendern).
+  const transcriptLoading = detailQ.isLoading || (detailQ.isFetching && !detail);
   const hasSegments = segments && segments.length > 0;
   // Change 009 (Single Source of Truth): die Anzeige ist eine REINE
   // Funktion des Recording-Modells. Es gibt genau EINE Segment-Wahrheit
@@ -608,7 +621,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!next || !r.uid) return;
     const seq = ++persistSeq.current;
     const prevSegments = segments; // Rollback-Ziel (Modell vor dem Commit)
-    const prevText = r.text ?? "";
+    const prevText = recText ?? "";
     const prevManual = !!r.segments_manual;
     // Optimistisch: Modell sofort aktualisieren — Anzeige folgt automatisch.
     handleEdited(next, next.map((s) => s.text).join(" "), true);
@@ -637,7 +650,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!r.uid) return;
     const seq = ++persistSeq.current;
     const prevSegments = segments;
-    const prevText = r.text ?? "";
+    const prevText = recText ?? "";
     const prevManual = !!r.segments_manual;
     handleEdited(next, next.map((s) => s.text).join(" "), true);
     try {
@@ -693,7 +706,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   // ──── Actions ────
   async function handleCopy() {
-    let text = r.text ?? "";
+    let text = recText ?? "";
     if (!text && hasSegments && segments) {
       text = segments.map((s) => s.text).join(" ");
     }
@@ -778,7 +791,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       ? "border-l-[3px] border-l-err"
       : "border-l-[3px] border-l-proc";
 
-  const hasText = (r.text ?? "").trim().length > 0;
+  const hasText = (recText ?? "").trim().length > 0;
   const note = r.progress_note ?? "";
 
   // ──── Change 056: Annotationen (zeitgebundene Kommentare) ────
@@ -877,6 +890,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           : rec
       );
     });
+    // Change 059: der Detail-Cache (nachgeladene Transkription) muss
+    // mitziehen — er ist die Segment-Wahrheit der aufgeklappten Karte.
+    qc.setQueryData(["recording-detail", r.uid], (old: Recording | undefined) =>
+      old
+        ? {
+            ...old,
+            segments: newSegs,
+            text: newText,
+            ...(manual !== undefined ? { segments_manual: manual } : {}),
+          }
+        : old
+    );
   }
 
   return (
@@ -1059,7 +1084,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             // Zugriff); Fallback auf die volle Datei NUR wenn die Preview
             // fehlschlägt (onLoadError → previewFailed).
             audioUrl={resolveAudioUrl(r, previewFailed)}
-            peaks={r.waveform_peaks}
+            peaks={detail?.waveform_peaks ?? r.waveform_peaks}
             durationHint={r.duration_s}
             onTimeUpdate={handleTimeUpdate}
             onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
@@ -1202,7 +1227,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 />
               </div>
             )}
-            {hasSegments && segments ? (
+            {transcriptLoading ? (
+              <div className="flex items-center gap-2 text-muted2 text-[13px] py-[6px] animate-pulse">
+                <span aria-hidden>⏳</span> {t("loading_transcript")}
+              </div>
+            ) : hasSegments && segments ? (
               <>
                 {/* Feature 2026-08-15: Segmentlänge wählbar (freies
                     Zahlenfeld, Sekunden) — Preview zeigt die re-segmentierten
@@ -1252,7 +1281,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </>
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
-                {r.text}
+                {recText}
               </div>
             ) : (
               <div className="text-muted italic text-[13px] py-[6px]">
@@ -1276,9 +1305,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             />
           </div>
         )}
-        {r.status === "processing" && r.text && (
+        {r.status === "processing" && recText && (
           <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt/70 break-words">
-            {r.text}
+            {recText}
           </div>
         )}
         {r.status === "failed" && (

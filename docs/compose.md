@@ -6,9 +6,11 @@ einzige Aufgabe:
 - **`compose.yml` (Main)** — Kern-Stack: `docker-proxy` (Socket-Proxy für die
   Admin-Steuerung), `asr` (Parakeet Python/ONNX), `diar` (CrispASR-Diarization)
   und `webapp` (GUI). Wird von `docker compose up` automatisch geladen.
-- **`compose.backends.yml`** — die optionalen Backends `asr-cpp`, `crispr-qwen3`,
-  `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`, jeweils über
-  **Docker-Profile** aktivierbar.
+- **`compose.backends.yml`** — die optionalen Backends `crispr-pk-cpp`,
+  `crispr-qwen3`, `crispr-ark`, `crispr-moonshine-de`, `crispr-canary`,
+  `crispr-voxtral`, `crispr-whisper` sowie der Tor-Sidecar `ps-tor`
+  (YouTube-Import-Fallback, Change 043), jeweils über **Docker-Profile**
+  aktivierbar.
 - **`compose.gpu.yml`** — GPU-Overlay (`runtime: nvidia` für alle hybriden
   Services). Nur auf Maschinen mit NVIDIA Container Toolkit einbinden.
 - **`compose.oidc.yml`** — OIDC-Overlay mit Dummy-Werten (Login + Admin).
@@ -63,12 +65,36 @@ docker compose -f compose.yml -f compose.oidc.yml up -d
 | `--profile crispr-ark` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-ark up -d` | + crispr-ark | ✅ |
 | `--profile crispr-moonshine-de` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-moonshine-de up -d` | + crispr-moonshine-de | ✅ |
 | `--profile crispr-canary` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-canary up -d` | + crispr-canary | ✅ |
+| `--profile crispr-voxtral` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-voxtral up -d` | + crispr-voxtral | ✅ |
+| `--profile crispr-whisper` | `docker compose -f compose.yml -f compose.backends.yml --profile crispr-whisper up -d` | + crispr-whisper | ✅ |
+| `--profile ps-tor` | `docker compose -f compose.yml -f compose.backends.yml --profile ps-tor up -d` | + ps-tor (startet on demand) | — |
+
+## Zusammenspiel: `backends.yaml` ↔ `compose.backends.yml` ↔ `POLYSCHNACK_BACKENDS`
+
+Drei Ebenen mit getrennten Aufgaben:
+
+| Ebene | Datei | Aufgabe |
+|-------|-------|---------|
+| **Katalog** | `webapp/app/backends.yaml` | was es gibt: Name, `compose_profile`, Port, `model_files` (Download-URLs), Capabilities, Adapter |
+| **Container** | `compose.backends.yml` | wie es läuft: Image, Volumes, Ports, Healthcheck, Profil |
+| **Auswahl** | `.env` → `POLYSCHNACK_BACKENDS` | was läuft: aktiviert Profile + Modell-Download |
+
+`backends.yaml` ist die **Single Source of Truth**: Das Manage-Skript leitet
+daraus Profile (`compose_profile`) und Modell-Downloads (`model_files`) ab —
+es gibt keine hartkodierte Modell-Liste. Die Webapp (Registry, Feature-Matrix,
+Benchmark) liest dieselbe Datei. `POLYSCHNACK_BACKENDS` wählt nur aus
+(Namen, die weder im Katalog noch als Compose-Profil existieren, erzeugen
+eine Warnung). `selfupdate` zieht Skript **und** `backends.yaml`.
+
+**Konsequenz — neues Backend = 3 Schritte:** YAML-Block in `backends.yaml` →
+Service in `compose.backends.yml` → Name in `POLYSCHNACK_BACKENDS`. Eigenes
+Modell = nur die URL in `model_files` ändern, dann `models`.
 
 ## Hinweis
 
-Modell-Dateien liegen in Bind-Mounts unter `./DATA/<name>-models/` (keine
-Named-Volumes). Die vollständigen Service-Definitionen stehen in `compose.yml`
-/ `compose.backends.yml`. Inter-Service-URLs nutzen immer den
-**Container-Port** (der interne Port im Compose-Netz), nicht das
-Host-Port-Mapping (z. B. `http://crispr-diar:5098`, während am Host nur `asr:5092`
-und `webapp:8088` gebunden sind — diar hat gar kein Host-Port).
+Modell-Dateien liegen in **Bind-Mounts**: GGUF-Modelle aller Backends +
+diar + aligner gemeinsam in `./DATA/models` (Backends mounten read-only),
+das ONNX-Modell in `./DATA/parakeet-models`, Audio/Aufnahmen in
+`./DATA/poc-data` — keine Named-Volumes. Inter-Service-URLs nutzen immer
+den **Container-Port** im Compose-Netz (z. B. `http://crispr-diar:5098`),
+nicht das Host-Port-Mapping.

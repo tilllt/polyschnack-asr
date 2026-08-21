@@ -14,7 +14,7 @@ import hashlib
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, Response, RedirectResponse
 from sqlmodel import Session, select
@@ -500,8 +500,18 @@ def _queue_eta_s_for(rec_id: Optional[int]) -> Optional[int]:
         return None
 
 
-def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Dict[str, Any]:
-    """Serialise a Recording row to the canonical API response shape."""
+def _recording_to_dict(
+    rec: Recording,
+    access_level: Optional[str] = None,
+    lite: bool = False,
+) -> Dict[str, Any]:
+    """Serialise a Recording row to the canonical API response shape.
+
+    Change 059: `lite=True` (Listen-Payload) lässt die datenintensiven Felder
+    weg (`text`, `segments`, `waveform_peaks` = None) — die Karten-Shell
+    lädt auch im langsamen Netz sofort; Transkription + Peaks holt das
+    Frontend pro Karte über GET /api/recordings/{rid} nach.
+    """
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
     return {
         "id": rec.id,
@@ -516,7 +526,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "size_bytes": rec.size_bytes,
         "duration_s": rec.duration_s,
         "status": rec.status,
-        "text": rec.text,
+        "text": None if lite else rec.text,
         "error": rec.error,
         # Self-Healing (Change 023): Datei weg → sichtbares Flag statt
         # stiller Fehler; UI kann Defekt-Badge zeigen, Export schreibt
@@ -544,7 +554,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "queue_backend": rec.backend if rec.status == "queued" else None,
         "created_at": rec.created_at.isoformat(),
         "language": rec.language,
-        "segments": rec.segments,
+        "segments": None if lite else rec.segments,
         # Change 009: manuelle Segment-Aufteilung aktiv (Anzeige nutzt
         # segments direkt, keine Auto-Re-Segmentierung nach segMaxDuration).
         "segments_manual": bool(getattr(rec, "segments_manual", False)),
@@ -575,7 +585,7 @@ def _recording_to_dict(rec: Recording, access_level: Optional[str] = None) -> Di
         "enable_streaming": rec.enable_streaming,
         "enable_noise_reduce": rec.enable_noise_reduce,
         "enable_enhance": rec.enable_enhance,
-        "waveform_peaks": rec.waveform_peaks,
+        "waveform_peaks": None if lite else rec.waveform_peaks,
         "updated_at": rec.updated_at.isoformat() if getattr(rec, "updated_at", None) else None,
         "user_id": rec.user_id,
         "access_level": access_level,
@@ -940,6 +950,9 @@ def list_recordings_endpoint(
     sort: str = "date",
     dir: str = "desc",
     tag: Optional[List[str]] = None,
+    # Change 059: Lite-Payload für die Liste (text/segments/peaks = None) —
+    # das Frontend lädt die datenintensiven Felder pro Karte nach.
+    lite: bool = Query(False),
     request: Request = None,
     session: Session = Depends(get_session),
 ) -> List[Dict[str, Any]]:
@@ -976,7 +989,7 @@ def list_recordings_endpoint(
     out = []
     for r in rows:
         d = _recording_to_dict(r, access_level=get_access_level(
-            session, r, uid, cap=_key_cap(request, session)))
+            session, r, uid, cap=_key_cap(request, session)), lite=lite)
         d["shared_with_me"] = r.user_id != uid and r.id in share_rec_ids
         out.append(d)
     return out

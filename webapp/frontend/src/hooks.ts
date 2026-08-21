@@ -6,6 +6,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   fetchRecordings,
+  fetchRecording,
   fetchStats,
   fetchModelStatus,
   uploadRecording,
@@ -38,6 +39,21 @@ export function useRecordings(
       const data = query.state.data as Recording[] | undefined;
       if (!data) return false;
       return data.some((r) => r.status === "processing") ? 2000 : false;
+    },
+  });
+}
+
+/** Change 059 — Voll-Datensatz EINER Aufnahme (Transkription + Peaks),
+ *  nachgeladen sobald die Karte aufgeklappt ist. Cache pro uid; Polling
+ *  nur während processing (Live-Streaming bleibt live). */
+export function useRecordingDetail(uid: string, enabled: boolean) {
+  return useQuery<Recording, Error>({
+    queryKey: ["recording-detail", uid],
+    queryFn: () => fetchRecording(uid),
+    enabled,
+    refetchInterval: (query) => {
+      const d = query.state.data as Recording | undefined;
+      return d && d.status === "processing" ? 2000 : false;
     },
   });
 }

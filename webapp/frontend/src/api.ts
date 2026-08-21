@@ -214,6 +214,10 @@ export type RecordingSortDir = "asc" | "desc";
 export async function fetchRecordings(
   q = "",
   opts: { sort?: RecordingSort | null; dir?: RecordingSortDir; tags?: string[] } = {},
+  // Change 059: lite=1 — die Liste liefert nur die Karten-Shell
+  // (text/segments/peaks = null); Transkription + Peaks lädt die Karte
+  // einzeln über fetchRecording nach.
+  lite = true,
 ): Promise<Recording[]> {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
@@ -222,6 +226,7 @@ export async function fetchRecordings(
     params.set("dir", opts.dir);
   }
   for (const tag of opts.tags ?? []) params.append("tag", tag);
+  if (lite) params.set("lite", "1");
   const qs = params.toString();
   const res = await fetch(qs ? `/api/recordings?${qs}` : "/api/recordings").then(checkOk);
   return res.json() as Promise<Recording[]>;

@@ -4,7 +4,7 @@ import { LocaleProvider } from "../useLocale";
 import { RecordingCard, resolveAudioUrl } from "./RecordingCard";
 import type { Recording } from "../api";
 import { updateRecordingTitle, toggleAnonLink } from "../api";
-import { useRealign } from "../hooks";
+import { useRealign, useRecordingDetail } from "../hooks";
 
 /* Change 014 Frontend: Titel-Inline-Edit, zweite Zeile (original_name),
  * Defekt-Badge. Karte wird kollabiert gerendert (defaultCollapsed) — der
@@ -50,6 +50,7 @@ vi.mock("../hooks", () => ({
   useRediarize: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useNearViewport: () => ({ ref: { current: null }, near: true }),
+  useRecordingDetail: vi.fn(() => ({ data: undefined, isLoading: false, isFetching: false })),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -296,5 +297,45 @@ describe("RecordingCard — Change 058 Popover/Dropdown-Konsistenz", () => {
       "Anonymous link created and copied to clipboard",
       "ok",
     );
+  });
+});
+
+describe("RecordingCard — Change 059 Lite-Shell/Nachladen", () => {
+  beforeEach(() => {
+    vi.mocked(useRecordingDetail).mockReset();
+    vi.mocked(useRecordingDetail).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+    } as never);
+  });
+
+  test("aufgeklappte Karte lädt den Detail-Datensatz und zeigt Loading-Hinweis", () => {
+    vi.mocked(useRecordingDetail).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isFetching: true,
+    } as never);
+    renderCard(makeRec(), false); // expandiert
+    expect(useRecordingDetail).toHaveBeenCalledWith("r1", true);
+    expect(screen.getByText(/Loading transcript/)).toBeTruthy();
+  });
+
+  test("kollabierte Karte lädt kein Detail (enabled=false)", () => {
+    renderCard(makeRec(), true); // kollabiert
+    expect(useRecordingDetail).toHaveBeenCalledWith("r1", false);
+    expect(screen.queryByText(/Loading transcript/)).toBeNull();
+  });
+
+  test("geladene Detail-Transkription ersetzt den Listen-Stand", () => {
+    const full = makeRec({ text: "Aus dem Detail" });
+    vi.mocked(useRecordingDetail).mockReturnValue({
+      data: full,
+      isLoading: false,
+      isFetching: false,
+    } as never);
+    renderCard(makeRec({ text: "Aus der Liste" }), false);
+    expect(screen.getByText("Aus dem Detail")).toBeTruthy();
+    expect(screen.queryByText("Aus der Liste")).toBeNull();
   });
 });

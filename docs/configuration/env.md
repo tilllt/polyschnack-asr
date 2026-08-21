@@ -26,6 +26,39 @@
 | `POLYSCHNACK_ADMIN_GROUPS` | `""` | Komma-Liste von OIDC-Gruppen mit Admin-Rechten |
 | `DOCKER_PROXY_URL` | `http://docker-proxy:2375` | Restriktiver Docker-Socket-Proxy |
 | `POLYSCHNACK_MAX_QUEUE_LEN` | `20` | Maximale Jobs in der Transcribe-Queue |
+| `POLYSCHNACK_ALIGN_WORDS` | `true` | Word-Alignment nach der ASR (Forced Aligner) aktiv/deaktiviert |
+| `POLYSCHNACK_DEFAULT_PUNCTUATION` | `false` | Satzzeichen-Toggle default an |
+| `WEBAPP_PORT` | `8088` | Host-Port der Web-UI (Compose-Ebene, `.env`; Container-Port innen bleibt 8088) |
+
+## Anonyme Nutzer (Limits)
+
+| Variable | Default | Beschreibung |
+|----------|---------|-------------|
+| `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentlicher Aufnahmen (Shared Space ohne Login) |
+| `POLYSCHNACK_ANON_RETENTION_MINUTES` | `15` | Gültigkeit von Anon-Share-Links |
+| `POLYSCHNACK_ANON_MAX_DURATION_S` | `300` | Max. Audiodauer für anonyme Nutzer |
+| `POLYSCHNACK_ANON_MAX_UPLOAD_MB` | `100` | Max. Uploadgröße für anonyme Nutzer |
+| `POLYSCHNACK_ANON_MAX_DISK_MB` | `500` | Max. Gesamtspeicher aller anonymen Aufnahmen |
+| `MAX_UPLOAD_SIZE_MB` | `1024` | Max. Uploadgröße allgemein |
+
+## Tor-Fallback (YouTube-Import, Change 043)
+
+| Variable | Default | Beschreibung |
+|----------|---------|-------------|
+| `POLYSCHNACK_TOR_FALLBACK` | `false` | `on` = YouTube-Downloads dürfen bei Bot-Erkennung über den Tor-Sidecar laufen |
+| `POLYSCHNACK_TOR_MAX_CIRCUITS` | `5` | Max. parallele Tor-Circuits |
+| `POLYSCHNACK_TOR_MAX_SIZE_MB` | `500` | Max. Dateigröße für Tor-Downloads |
+| `POLYSCHNACK_TOR_MAX_PER_HOUR` | `2` | Max. Tor-Downloads pro Stunde |
+| `POLYSCHNACK_TOR_IDLE_MINUTES` | `30` | Tor-Sidecar nach Leerlauf stoppen |
+
+## Benchmark
+
+| Variable | Default | Bedeutung |
+|----------|---------|-----------|
+| `BENCHMARK_DATA_DIR` | `/data/benchmark` | Volume für versionierte Manifeste + Audio + Ergebnisse |
+| `BENCH_BACKENDS` | alle lokalen | Welche Backends der Benchmark misst |
+| `BENCH_BACKEND_URLS` | JSON-Map | URL-Overrides (auch externe OpenAI-kompatible Endpunkte) |
+| `OPENAI_API_KEY` / `LITELLM_API_KEY` | — | Keys für externe Endpunkte |
 
 ## Post-Processing & Delivery
 
@@ -40,9 +73,3 @@
 | `POLYSCHNACK_SMTP_PORT` | `587` | SMTP-Port |
 | `POLYSCHNACK_SMTP_USER` / `_PASS` | *(leer)* | SMTP-Login |
 | `POLYSCHNACK_SMTP_FROM` | *(leer)* | Absender-Adresse |
-
-## Benchmark
-
-| Variable | Default | Bedeutung |
-|----------|---------|-----------|
-| `BENCHMARK_DATA_DIR` | `/data/benchmark` | Volume für versionierte Manifeste + Audio + Ergebnisse |

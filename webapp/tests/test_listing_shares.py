@@ -100,3 +100,36 @@ def test_shared_with_me_flag_detail(db):
         assert d["shared_with_me"] is True
         d_own = recordings.get_recording_endpoint("own", _req(1), s)
         assert d_own["shared_with_me"] is False
+
+
+def test_lite_list_strips_heavy_fields(db):
+    """Change 059: lite=1 lässt text/segments/waveform_peaks weg, behält
+    die Karten-Shell (Metadaten + URLs); ohne lite bleibt alles voll."""
+    with Session(db) as s:
+        own = s.get(Recording, 1)
+        own.text = "Hallo Welt"
+        own.segments = [{"start": 0, "end": 1, "text": "Hallo", "words": []}]
+        own.waveform_peaks = [1, 2, 3]
+        s.add(own)
+        s.commit()
+    with Session(db) as s:
+        lst = recordings.list_recordings_endpoint(
+            q=None, request=_req(1), session=s, lite=True)
+        d = {x["uid"]: x for x in lst}["own"]
+        assert d["text"] is None
+        assert d["segments"] is None
+        assert d["waveform_peaks"] is None
+        # Karten-Shell bleibt komplett
+        assert d["uid"] == "own"
+        assert d["title"] == "own.mp3"
+        assert d["access_level"] == "full"
+        assert d["audio_url"].startswith("/api/recordings/")
+        assert d["download_url"].startswith("/api/recordings/")
+        assert "shared_with_me" in d
+    with Session(db) as s:
+        lst = recordings.list_recordings_endpoint(
+            q=None, request=_req(1), session=s, lite=False)
+        d = {x["uid"]: x for x in lst}["own"]
+        assert d["text"] == "Hallo Welt"
+        assert d["segments"] == [{"start": 0, "end": 1, "text": "Hallo", "words": []}]
+        assert d["waveform_peaks"] == [1, 2, 3]
