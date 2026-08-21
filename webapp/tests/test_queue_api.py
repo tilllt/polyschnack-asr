@@ -1,6 +1,8 @@
 """Queue-API-Tests (Task 7) — Router-Funktionen direkt, Queue gemockt."""
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 
@@ -29,6 +31,14 @@ def qm(monkeypatch):
     monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
     monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
     monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+    # CI-Flake 2026-08-21 (Pipeline 4254): Der echte process_recording
+    # schlägt mit gemocktem crud (get_recording → None) sofort fehl, der
+    # Worker entfernt den Job aus _jobs, und cancel() 404t ("not
+    # cancellable") — ein Race, der unter CI-Last mal verliert. Langsamer
+    # No-Op hält den Job deterministisch in der Queue (queued oder
+    # processing → cancel() gibt in beiden Fällen True zurück).
+    monkeypatch.setattr(queue_mod, "process_recording",
+                        lambda rec_id, backend=None, job=None: time.sleep(5))
     m = QueueManager(max_queue_len=5)
     m.start()
     monkeypatch.setattr(queue_api, "queue_manager", m)
