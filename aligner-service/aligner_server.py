@@ -231,8 +231,45 @@ def _resolve_zero_duration(words: list[dict]) -> list[dict]:
 # nächstgelegenen akustisch belegten Bereich (RMS > Schwelle) begrenzt —
 # die Stille gehört dann KEINEM Wort.
 # ---------------------------------------------------------------------------
+def _estimate_silence_rms(rms: list) -> float:
+    """Change 078 (2026-08-21): Noisefloor-basierte Stille-Schwelle.
+
+    Fester Wert (silence_rms=300) versagt bei historischen Aufnahmen mit
+    starkem Grundrauschen: das Plattenrauschen liegt stellenweise ÜBER
+    300 → der Speech-Detektor sieht fast alles als „Sprache" → keine
+    Stille-Lücken → Wortgrenzen-Korrektur wirkungslos (gemessen an
+    68026-moissi-hamlet.mp3: 1 Lücke statt 119 mit adaptiver Schwelle).
+
+    Methode: Perzentil P15 der RMS-Frames (unterer Bereich = Grund-
+    rauschen) × 1.8. P15 ist robust gegen einzelne laute Frames; der
+    Faktor hebt die Schwelle deutlich über den Noisefloor, aber unter
+    den Sprachpegel. Fallback 300, wenn die Analyse nichts hergibt.
+
+    Kontrast-Schutz (Test-Fund 2026-08-21): Bei einem Signal OHNE
+    Grundrauschen (z. B. synthetischer Sinus, P15 ≈ P85) läge P15×1.8
+    ÜBER dem Signal → der Detektor sähe ALLES als Stille → leere
+    Regionen → Wortenden kollabieren. Ist der Kontrast P85/P15 klein
+    (< 2), gibt es keinen echten Noisefloor → Schwelle UNTER P15
+    (×0.8), damit alles eine Region bleibt und die CLI-Wörter
+    unverändert durchlaufen.
+    """
+    if not rms:
+        return 300.0
+    s = sorted(rms)
+    n = len(s)
+    p15 = s[min(n - 1, int(n * 0.15))]
+    if p15 <= 0:
+        return 300.0
+    p85 = s[min(n - 1, int(n * 0.85))]
+    if p85 / p15 >= 2.0:
+        thresh = p15 * 1.8
+    else:
+        thresh = p15 * 0.8
+    return max(30.0, min(thresh, 3000.0))
+
+
 def _energy_refine(words: list[dict], wav_path: str,
-                   frame_ms: float = 10.0, silence_rms: float = 300.0,
+                   frame_ms: float = 10.0, silence_rms: float | None = None,
                    min_gap_s: float = 0.25) -> list[dict]:
     """Zieht Wortgrenzen an echte Stille-Lücken (defensiv).
 
@@ -270,6 +307,10 @@ def _energy_refine(words: list[dict], wav_path: str,
                 break
             sq = sum(s * s for s in chunk) / len(chunk)
             rms.append((sq ** 0.5) or 0.0)
+        # Change 078: adaptive Schwelle aus dem Noisefloor (P15×1.8),
+        # falls kein expliziter Wert übergeben wurde.
+        if silence_rms is None:
+            silence_rms = _estimate_silence_rms(rms)
         speech = [r > silence_rms for r in rms]
         dt = frame_len / srate
 

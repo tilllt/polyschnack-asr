@@ -6,6 +6,7 @@ endpoint.  Subtitle/text export helpers are also housed here.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import subprocess as sp
 import tempfile
@@ -478,7 +479,48 @@ def run_llm_enhance(text: str, segments: List[Dict[str, Any]]):
 # ============================================================
 # Forced Alignment (Karaoke-Word-Sync) — optionaler Post-Schritt
 # ============================================================
-MAX_ALIGN_GROUP_S = 380.0  # Sicherheitsmarge unter dem 400-s-Modell-Limit
+# Change 078 (2026-08-21): 380 → 120 s. Gemessen an einer historischen
+# Aufnahme (234 s, User-Befund 68026-moissi-hamlet): bei 227-s-Einzel-
+# Request nur 30 % Wort-Abdeckung (Aligner komprimiert die Zuordnung),
+# bei 80-s-Chunks 99,8 %. 120 s = ASR-Chunk-Länge, guter Kompromiss.
+MAX_ALIGN_GROUP_S = 120.0  # Sicherheitsmarge unter dem 400-s-Modell-Limit
+
+
+def _split_long_segment(
+    seg: Dict[str, Any], max_s: float = MAX_ALIGN_GROUP_S
+) -> List[tuple]:
+    """Change 078: Ein EINZELNES Segment länger als max_s in Zeit-Chunks teilen.
+
+    User-Vorgabe (2026-08-21): GUI-Segmente und Align-Chunks sind
+    entkoppelt — der Aligner bekommt technisch optimierte Chunks (Text
+    proportional mitschneiden), die Wort-Timestamps werden danach über
+    apply_aligned_words wieder den ORIGINAL-Segmenten zugeordnet.
+
+    Text-Aufteilung: die Wortfolge (seg.words-Reihenfolge bzw.
+    seg.text.split()) gleichmäßig über die Chunks — NICHT anhand der
+    alten Wortzeiten (die sind bei langen Aufnahmen das Problem).
+    """
+    start = float(seg.get("start") or 0.0)
+    end = float(seg.get("end") or start)
+    dur = end - start
+    if dur <= max_s:
+        return [(start, end, seg.get("text") or "")]
+    n = max(2, math.ceil(dur / max_s))
+    # Wortfolge: bevorzugt seg.words (Reihenfolge = Textfolge), sonst Text-Wörter.
+    raw_words = seg.get("words") or []
+    if raw_words:
+        words = [str(w.get("word") or "") for w in raw_words]
+    else:
+        words = (seg.get("text") or "").split()
+    chunk_dur = dur / n
+    out: List[tuple] = []
+    for c in range(n):
+        c_start = start + c * chunk_dur
+        c_end = start + (c + 1) * chunk_dur if c + 1 < n else end
+        lo = round(len(words) * c / n)
+        hi = round(len(words) * (c + 1) / n)
+        out.append((c_start, c_end, " ".join(words[lo:hi])))
+    return out
 
 
 def build_align_groups(segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_GROUP_S) -> List[tuple]:
@@ -487,12 +529,23 @@ def build_align_groups(segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_
     Returns: Liste von (start, end, text) in globalen Sekunden. Lücken
     (Pausen) zwischen Segmenten zählen zur Spanne — der Audio-Ausschnitt
     enthält sie, der Aligner verteilt die Wörter korrekt darüber.
+    Change 078: Einzelne Segmente LÄNGER als max_s werden intern in
+    gleich große Chunks geteilt (_split_long_segment) — die Align-
+    Gruppen sind dann kleiner als das GUI-Segment; die Wörter landen
+    über apply_aligned_words trotzdem wieder im Original-Segment.
     """
     groups: List[tuple] = []
     cur: Optional[list] = None
     for s in segments:
         start, end = s.get("start"), s.get("end")
         if start is None or end is None:
+            continue
+        # Change 078: langes Einzel-Segment → technische Chunks.
+        if (float(end) - float(start)) > max_s:
+            if cur is not None:
+                groups.append((cur[0], cur[1], " ".join(cur[2])))
+                cur = None
+            groups.extend(_split_long_segment(s, max_s))
             continue
         if cur is None:
             cur = [start, end, [s.get("text") or ""]]
@@ -575,6 +628,13 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
 
     tmp_audio = ""
     aligned_any = False
+    # Change 078: alignierte Wörter ALLER Gruppen global sammeln (mit
+    # Gruppen-Offset) und NACH der Schleife einmal zuordnen. Grund: Ein
+    # in mehrere Chunks geteiltes Segment bekommt Wörter aus MEHREREN
+    # Gruppen — die alte Pro-Gruppe-Anwendung (apply_aligned_words je
+    # Gruppe) hätte die words des Segments mit der letzten Gruppe
+    # überschrieben.
+    all_aligned_words: List[Dict[str, Any]] = []
     try:
         # Zeitbasis: die VERARBEITETE Audio (nach VAD-Trim/Enhance/Konvertierung)
         # — die Segment-Zeiten beziehen sich auf sie.
@@ -666,7 +726,17 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     hb.join(timeout=1.0)
 
                 if words:
-                    segments = apply_aligned_words(segments, words, g_start)
+                    # Change 078: Wörter GLOBAL sammeln (Offset + g_start),
+                    # nicht pro Gruppe anwenden — ein in mehrere Chunks
+                    # geteiltes Segment bekommt Wörter aus MEHREREN
+                    # Gruppen; die Zuordnung passiert NACH der Schleife
+                    # einmal über apply_aligned_words(…, group_start=0).
+                    for w in words:
+                        item = dict(w)
+                        ws = float(item.get("start") or 0.0) + g_start
+                        we = float(item.get("end") or ws) + g_start
+                        item["start"], item["end"] = ws, we
+                        all_aligned_words.append(item)
                     aligned_any = True
                     log.info("align: rec_id=%s Gruppe %d/%d (%ds–%ds) → %d Wörter",
                              rec_id, gi + 1, len(groups), g_start, g_end, len(words))
@@ -699,6 +769,13 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     rec2.progress_note = None
                     session.add(rec2)
                     session.commit()
+
+    # Change 078: EINMAL alle gesammelten (globalen) Wörter den
+    # ORIGINAL-Segmenten zuordnen — GUI-Segmentgrenzen bleiben exakt,
+    # egal wie viele technische Align-Chunks nötig waren.
+    if all_aligned_words:
+        segments = apply_aligned_words(segments, all_aligned_words, 0.0)
+        aligned_any = True
 
     if aligned_any:
         log.info("align: Word-Timestamps für rec_id=%s ersetzt", rec_id)

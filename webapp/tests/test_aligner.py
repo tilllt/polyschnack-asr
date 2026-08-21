@@ -116,11 +116,31 @@ def test_build_align_groups_buendelt_unter_limit():
     assert groups[1] == (300, 400, "D")
 
 
-def test_build_align_groups_einzelnes_langes_segment():
-    segs = [{"start": 0, "end": 500, "text": "Lang"}]
+def test_build_align_groups_einzelnes_langes_segment_wird_gechunkt():
+    """Change 078: Ein Segment LÄNGER als max_s wird intern in Chunks
+    geteilt (User-Vorgabe: GUI-Segmente ≠ Align-Chunks) — der Aligner
+    bekommt technisch optimierte Stücke, die Wörter werden danach über
+    apply_aligned_words wieder dem Original-Segment zugeordnet."""
+    segs = [{"start": 0, "end": 500, "text": "eins zwei drei vier fünf"}]
     groups = build_align_groups(segs, max_s=380.0)
-    assert len(groups) == 1  # einzelnes Segment bleibt eigene Gruppe
-    assert groups[0] == (0, 500, "Lang")
+    assert len(groups) == 2  # 500 s → ceil(500/380) = 2 Chunks
+    # Chunk 1: 0–250, Chunk 2: 250–500 (je ≤ max_s)
+    assert groups[0][0] == 0.0
+    assert groups[1][1] == 500.0
+    # Texte decken den Gesamttext verlustfrei ab (Reihenfolge!)
+    joined = " ".join(g[2] for g in groups)
+    assert joined == "eins zwei drei vier fünf"
+
+
+def test_build_align_groups_mehrere_chunks_unter_max():
+    """Change 078: 500-s-Segment mit max_s=120 → 5 Chunks, jeder ≤ 120 s."""
+    segs = [{"start": 0, "end": 500, "text": " ".join(f"w{i}" for i in range(10))}]
+    groups = build_align_groups(segs, max_s=120.0)
+    assert len(groups) == 5
+    for gs, ge, _txt in groups:
+        assert ge - gs <= 120.0 + 1e-6
+    joined = " ".join(g[2] for g in groups)
+    assert joined == " ".join(f"w{i}" for i in range(10))
 
 
 def test_build_align_groups_leere_segmente():
@@ -145,6 +165,21 @@ def test_apply_aligned_words_offset_und_zuordnung():
     assert out[1]["words"][0] == {"word": "dritte", "start": 22.0, "end": 22.5}
     # Ursprungs-Segmente unangetastet (Kopie)
     assert segs[0].get("words") is None
+
+
+def test_apply_aligned_words_mehrere_chunks_zu_einem_segment():
+    """Change 078: Wörter aus MEHREREN Align-Chunks (global, Offset 0)
+    landen ALLE im Segment — die alte Pro-Gruppe-Anwendung hätte sie mit
+    der letzten Gruppe überschrieben."""
+    segs = [{"start": 0, "end": 500, "text": "eins zwei drei"}]
+    words = [
+        {"start": 1.0, "end": 1.5, "word": "eins"},    # Chunk 1 (0–250)
+        {"start": 250.0, "end": 250.5, "word": "zwei"},  # Chunk 2 (250–500)
+        {"start": 300.0, "end": 300.5, "word": "drei"},
+    ]
+    out = apply_aligned_words(segs, words, group_start=0.0)
+    assert len(out[0]["words"]) == 3
+    assert [w["word"] for w in out[0]["words"]] == ["eins", "zwei", "drei"]
 
 
 # ============================================================

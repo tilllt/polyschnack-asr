@@ -120,6 +120,85 @@ class TestEnergyRefine(unittest.TestCase):
         for w in out:
             self.assertGreater(w["end"], w["start"])
 
+    def test_adaptive_threshold_finds_gaps_in_noisy_audio(self):
+        """Change 078: Noisefloor-basierte Schwelle statt fester 300.
+
+        Historische Aufnahmen (Schellack-Rauschen) liegen stellenweise
+        ÜBER der alten festen Schwelle → keine Stille-Lücken → keine
+        Wortgrenzen. Die adaptive Schwelle (P15×1.8) muss bei einem
+        verrauschten WAV mit echten Pausen die Lücken finden.
+        """
+        import math
+        import random
+        random.seed(42)
+
+        # Rausch-WAV: Grundrauschen (Amp σ=450 → RMS ~360, liegt ÜBER
+        # der alten festen Schwelle 300, wie Plattenrauschen bei der
+        # historischen Aufnahme) + 4 Töne (Amp 8000), getrennt durch
+        # 0.35-s-Pausen. Feste 300 sieht das Rauschen als „Sprache" →
+        # keine Lücken; adaptive (P15×1.8 ≈ 650) findet die Pausen.
+        sr = 16000
+        frames = bytearray()
+        rng = random.Random(7)
+        n = int(0.35 * sr)
+        for _ in range(n):
+            v = int(rng.gauss(0, 450))
+            frames += struct.pack("<h", max(-32768, min(32767, v)))
+        for ws in [0.35] * 4:
+            for i in range(int(ws * sr)):
+                v = int(8000 * math.sin(2 * math.pi * 440 * i / sr))
+                frames += struct.pack("<h", v)
+            for _ in range(n):
+                v = int(rng.gauss(0, 450))
+                frames += struct.pack("<h", max(-32768, min(32767, v)))
+        noisy = os.path.join(self.tmp, "noisy.wav")
+        with wave.open(noisy, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(bytes(frames))
+
+        # Feste 300: Rauschen teils über Schwelle → kaum Lücken
+        fixed = _count_silence_gaps(noisy, silence_rms=300.0)
+        adaptive = _count_silence_gaps(noisy, silence_rms=None)
+        self.assertGreater(adaptive, fixed)
+        # Adaptive findet die 4 echten Pausen (≥ 3 Lücken)
+        self.assertGreaterEqual(adaptive, 3)
+
+
+def _count_silence_gaps(wav_path: str, silence_rms: float | None) -> int:
+    """Zählt Stille-Lücken ≥ 0.25 s — Testhelfer für die Schwellen."""
+    with wave.open(wav_path, "rb") as wf:
+        srate = wf.getframerate()
+        raw = wf.readframes(wf.getnframes())
+    samples = struct.unpack(f"<{len(raw) // 2}h", raw)
+    frame_len = int(srate * 10 / 1000.0)
+    rms = []
+    for i in range(0, len(samples), frame_len):
+        chunk = samples[i:i + frame_len]
+        if not chunk:
+            break
+        sq = sum(s * s for s in chunk) / len(chunk)
+        rms.append((sq ** 0.5) or 0.0)
+    from aligner_server import _estimate_silence_rms
+    if silence_rms is None:
+        silence_rms = _estimate_silence_rms(rms)
+    speech = [r > silence_rms for r in rms]
+    dt = frame_len / srate
+    gaps = 0
+    i = 0
+    while i < len(speech):
+        if not speech[i]:
+            j = i
+            while j < len(speech) and not speech[j]:
+                j += 1
+            if (j - i) * dt >= 0.25:
+                gaps += 1
+            i = j
+        else:
+            i += 1
+    return gaps
+
 
 if __name__ == "__main__":
     unittest.main()
