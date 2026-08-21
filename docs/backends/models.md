@@ -74,6 +74,20 @@ docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/canary-1b-v
   https://huggingface.co/cstr/canary-1b-v2-GGUF/resolve/main/canary-1b-v2-q4_k.gguf
 ```
 
+## Voxtral (~5 GB)
+
+```bash
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/voxtral-mini-4b-realtime-q8_0.gguf \
+  https://huggingface.co/cstr/voxtral-mini-4b-realtime-GGUF/resolve/main/voxtral-mini-4b-realtime-q8_0.gguf
+```
+
+## Whisper (~1,8 GB)
+
+```bash
+docker run --rm -v "$PWD/DATA/models:/models" alpine wget -O /models/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+```
+
 ## Diarization-Modell (~640 MB)
 
 Der diar-Service lädt das Modell beim ersten Start **automatisch** von
