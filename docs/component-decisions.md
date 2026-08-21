@@ -64,31 +64,40 @@ den `uv sync`-Layer (`/.venv` = 4,9 GB unkomprimiert, verifiziert per
 Layer-Streaming). Genutzt wird VAD nur für Silence-Trimming (3 Aufrufe in
 `service.py`), `detect_speech_regions` ist ungenutzt.
 
-**Vergleich (eigener Benchmark, `benchmarks/vad/`, 37 Samples: 31 DE-Synth
-mit deterministischer Stille-Insertion + exakter GT, 2 TEN-Testset,
-4 Noise-FP inkl. DEMAND Küche/Metro):**
+**Vergleich (eigener Benchmark, `benchmarks/vad/`, 59 Samples: 31 DE-Synth
+mit deterministischer Stille-Insertion + exakter GT, 18 SNR-Mix
+(DEMAND-Küche/Metro bei 0/5/10 dB), 1 Babble (2-Sprecher-Overlay),
+2 TEN-Testset, 4 Noise-FP inkl. DEMAND, 3 MUSAN-Musik-FP):**
 
-| Engine | F1 (mean) | Boundary-Start (med. ms) | Boundary-Ende (med. ms) | FP auf Noise (s) | RTF |
+| Engine | F1 (mean) | Boundary-Start (med. ms) | Boundary-Ende (med. ms) | FP-Speech (s) | RTF |
 |---|---|---|---|---|---|
-| **Silero-onnx (Webapp)** | **0,963** | **16** | 72 | **0,0** | 0,025 |
-| TEN VAD (sherpa-Port) | 0,843 | 110 | **26** | 2,5 | 0,018 |
-| Energy-Baseline | 0,949 | 16 | 16 | 76,7 | 0,0005 |
+| **Silero-onnx (Webapp)** | **0,976** | 16 | 24 | **0,0** | 0,022 |
+| TEN VAD (sherpa-Port) | 0,824 | 110 | 32 | 7,5 | 0,013 |
+| WebRTC (GMM) | 0,962 | 8 | 24 | 135,2 | 0,0002 |
+| HumAware-VAD (Silero-Feintuning) | 0,892 | 32 | 52 | 16,0 | 0,36 |
+| speechbrain CRDNN (EN) | 0,558 | 8 | 24 | 0,0 | 0,49 |
+| Energy-Baseline | 0,968 | 8 | 16 | 157,6 | 0,0008 |
 
 **Einordnung:**
-- **Silero-onnx gewinnt klar:** bestes F1 (0,963), keine False Positives auf
-  Rauschen — auch nicht auf echtem DEMAND-Umgebungsrauschen (Küche/Metro,
-  0,0 s), sehr gute Start-Boundary (16 ms). Das Ende (+72 ms) ist
-  der Chunk-Quantisierung + Pad-Logik geschuldet und für den Trim unkritisch
-  (Trailing-Silence darf ruhig minimal stehen bleiben).
-- **TEN VAD:** schlechteres F1 (0,843), spät einsetzende Boundaries
-  (110 ms) und **2,5 s FP auf reinem Rauschen** im sherpa-Port
-  (Pitch-Feature = 0 laut k2-fsa, degradiert die Performance). Unabhängig
+- **Silero-onnx gewinnt auch unter Härtebedingungen:** bestes F1 (0,976),
+  **0,0 s FP auf 4+3 Noise/Musik-Samples und im Babble-Overlay** — auch bei
+  SNR 0 dB (DEMAND) bleibt die Detektion stabil. Die harten Szenarien
+  (Babble/Musik/0-dB-Rauschen) haben Silero nicht geknackt.
+- **Feintuning-Frage empirisch beantwortet:** HumAware-VAD ist exakt der
+  Fall „Silero feintunen gegen Humming/Babble" (MIT, JIT) — und **verliert
+  klar gegen das Basis-Silero** (F1 0,892 vs. 0,976; 16 s FP vs. 0,0 s;
+  Boundary-Start 32 ms vs. 16 ms). Das Feintuning half auf der
+  Humming-Aufgabe, kostete aber auf unserem Mix (Boundaries, SNR, Musik).
+  → **Eigenes Training/Feintuning ist nicht gerechtfertigt**; Silero-onnx
+  bleibt, der Container-Benchmark (Change 062) misst weitere
+  Referenz-Modelle weiterhin mit (auch lizenz-inkompatible wie TEN VAD).
+- **TEN VAD:** schlechteres F1 (0,824), 7,5 s FP im sherpa-Port. Unabhängig
   davon ist die **Lizenz ein Ausschlusskriterium**: Apache-2.0 mit
   Agora-Zusatzklauseln — Punkt 1 verbietet Deploy, das mit Agoras Angeboten
-  konkurriert (self-hosted ASR = kollidierend).
-- **Energy-Baseline:** Boundary-technisch perfekt (GT ist Energie-basiert),
-  aber **versagt auf Rauschen (76,7 s FP auf 100 s Noise)** — keine
-  Alternative für echte Audios (YouTube-Imports!).
+  konkurriert (self-hosted ASR = kollidierend). Nur Benchmark-Referenz.
+- **WebRTC/Energy:** Boundary-technisch gut, aber **versagen auf
+  Noise/Musik (135 s / 158 s FP)** — keine Alternative für echte Audios.
+- **speechbrain CRDNN:** F1 0,558 (EN-only, DE-TTS unsauber erkannt).
 
 **Entscheidung:** **Silero VAD bleibt das Modell**, läuft künftig direkt
 via **onnxruntime** (silero_vad.onnx, MIT, 2,3 MB) statt über das

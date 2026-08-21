@@ -131,6 +131,37 @@ def build_testset(out_dir: Path, tts_dir: Path, ten_dir: Path,
             save_wav16k(out_dir / f"{sid}.wav", out_wav)
             manifest[sid] = {"file": str(out_dir / f"{sid}.wav"),
                              "gt": g, "kind": "de_synth"}
+        # A2) SNR-Mix (Change 062): clean-Speech + DEMAND-Noise bei 0/5/10 dB.
+        #     GT bleibt die Energie-GT des CLEAN-Signals (Noise verfälscht
+        #     die Energie-GT sonst — genau das ist der zu messende Fall).
+        noise_srcs = sorted(glob.glob(str(ASSETS / "demand" / "*_sample.wav")))[:2]
+        if noise_srcs and si < 6:
+            noise = load_wav16k(Path(noise_srcs[si % len(noise_srcs)]))
+            speech_rms = float(np.sqrt((wav ** 2).mean())) or 1e-9
+            for snr_db in (10, 5, 0):
+                target_noise_rms = speech_rms * 10 ** (-snr_db / 20)
+                n = min(wav.size, noise.size)
+                mix = wav[:n] + noise[:n] * (target_noise_rms / (float(np.sqrt((noise[:n] ** 2).mean())) or 1e-9))
+                mix = np.clip(mix, -1, 1).astype(np.float32)
+                sid = f"de_{si:02d}_snr{snr_db}"
+                save_wav16k(out_dir / f"{sid}.wav", mix)
+                manifest[sid] = {"file": str(out_dir / f"{sid}.wav"),
+                                 "gt": list(gt), "kind": "de_snr"}
+    # A3) Babble (Change 062): Ziel-Sprache A + Stör-Sprache B (RMS-gleich,
+    #     1,2 s versetzt) — B-Detektionen außerhalb A = Precision-Verlust.
+    if len(samples) >= 2:
+        a = load_wav16k(Path(samples[0]))
+        b = load_wav16k(Path(samples[1]))
+        b = b * (float(np.sqrt((a ** 2).mean())) / (float(np.sqrt((b ** 2).mean())) or 1e-9))
+        n = min(a.size, b.size + int(1.2 * SR))
+        out = np.zeros(n, dtype=np.float32)
+        out[:a.size] += a
+        out[int(1.2 * SR): int(1.2 * SR) + b.size] += b[:n - int(1.2 * SR)] if n > int(1.2 * SR) else b
+        out = np.clip(out, -1, 1).astype(np.float32)
+        g = _energy_gt(a)
+        sid = "babble_2spk"
+        save_wav16k(out_dir / f"{sid}.wav", out)
+        manifest[sid] = {"file": str(out_dir / f"{sid}.wav"), "gt": g, "kind": "babble"}
     # B) TEN-Testset (eigene GT aus .scv)
     for scv in sorted(glob.glob(str(ten_dir / "testset-audio-*.scv")))[:10]:
         scv = Path(scv)
@@ -158,6 +189,17 @@ def build_testset(out_dir: Path, tts_dir: Path, ten_dir: Path,
         w = w[: 30 * SR]  # 30 s reichen für den FP-Test
         save_wav16k(out_dir / f"{sid}.wav", w)
         manifest[sid] = {"file": str(out_dir / f"{sid}.wav"), "gt": [], "kind": "noise"}
+    # D) Musik-FP (Change 062): MUSAN-Music — Musik ist keine Sprache,
+    #    jede erkannte Speech-Zeit ist ein False Positive.
+    for wavf in sorted(glob.glob(str(ASSETS / "musan" / "music" / "*.wav"))):
+        sid = f"music_{Path(wavf).stem}"
+        try:
+            w = load_wav16k(Path(wavf))
+        except Exception:
+            continue
+        w = w[: 30 * SR]
+        save_wav16k(out_dir / f"{sid}.wav", w)
+        manifest[sid] = {"file": str(out_dir / f"{sid}.wav"), "gt": [], "kind": "music"}
     return manifest
 
 
@@ -235,8 +277,11 @@ def main():
     md = ["# VAD-Benchmark (Change 060/062)", "",
           f"Testset: {len(manifest)} Samples "
           f"({sum(1 for m in manifest.values() if m['kind']=='de_synth')} DE-Synth, "
+          f"{sum(1 for m in manifest.values() if m['kind']=='de_snr')} SNR-Mix, "
+          f"{sum(1 for m in manifest.values() if m['kind']=='babble')} Babble, "
           f"{sum(1 for m in manifest.values() if m['kind']=='ten')} TEN, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='noise')} Noise)", "",
+          f"{sum(1 for m in manifest.values() if m['kind']=='noise')} Noise, "
+          f"{sum(1 for m in manifest.values() if m['kind']=='music')} Musik)", "",
           "| Engine | Lizenz | n | F1 (mean) | B-Start (med ms) | B-Ende (med ms) | FP-Speech (s) | RTF |"]
     md.append("|---|---|---|---|---|---|---|---|")
     for ename in engines:
