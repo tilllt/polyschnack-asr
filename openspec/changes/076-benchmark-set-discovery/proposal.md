@@ -100,11 +100,27 @@ Priorität beim Install:
 
 ## Erfolgskriterien
 
-- [ ] Discovery via `git ls-remote --tags` (kein GitHub-API-Call im Code)
-- [ ] Install ohne env-URL: clone des Tags, SHA aus `.sha256`, aktivieren
-- [ ] `version`-Auswahl installiert genau diese Version
-- [ ] Version ≤ aktuell → skip (nie überschreiben)
-- [ ] env-URL/SHA-Pin (Change 075) funktioniert weiterhin
-- [ ] GUI zeigt verfügbare Sets + installiert per Klick; Fehler sichtbar
-- [ ] Tests laufen gegen **lokale Git-Fixtures** (tmp_path, kein Netz)
-- [ ] Backend-Suite fail=0, Frontend grün, tsc 0
+- [x] Discovery via `git ls-remote --tags` (kein GitHub-API-Call im Code)
+- [x] Install ohne env-URL: clone des Tags, SHA aus `.sha256`, aktivieren
+- [x] `version`-Auswahl installiert genau diese Version
+- [x] Version ≤ aktuell → skip (nie überschreiben)
+- [x] env-URL/SHA-Pin (Change 075) funktioniert weiterhin
+- [x] GUI zeigt verfügbare Sets + installiert per Klick; Fehler sichtbar
+- [x] Tests laufen gegen **lokale Git-Fixtures** (tmp_path, kein Netz)
+- [x] Backend-Suite fail=0, Frontend grün, tsc 0
+
+## Fix 2026-08-21 (CI 4290): git fehlt in CI-Image + Produktions-Dockerfile
+
+Die lokale Vollsuite lief grün, aber die GitLab-Pipeline schlug fehl:
+`FileNotFoundError: [Errno 2] No such file or directory: 'git'` in den
+4 Discovery-Tests (`test_discover_sets_parses_tags`, `_cached`,
+`test_install_via_git_uses_sha_file`, `test_install_git_version_choice`).
+`python:3.13-slim` hat kein git.
+
+Zwei Stellen gefixt:
+- `.gitlab-ci.yml` `test-webapp`: `apt-get install ... ffmpeg git`
+- `webapp/Dockerfile`: `apt-get install ... ffmpeg nodejs git` — die
+  Webapp führt `git ls-remote`/`git clone` zur LAUFZEIT aus, das
+  Produktions-Image braucht git ebenfalls (nicht nur der CI-Container).
+
+Commit: Teil von 077 (17c645f, CI-Run 4292).
