@@ -736,7 +736,7 @@ export function BenchmarkVadSamples({ samples }: { samples: VadSample[] }) {
 
 export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void }) {
   const [status, setStatus] = useState<BenchmarkSetStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyVersion, setBusyVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -748,12 +748,12 @@ export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void 
     load();
   }, [load]);
 
-  const install = async () => {
-    setBusy(true);
+  const install = async (version?: number) => {
+    setBusyVersion(version ?? -1); // -1 = Default (neueste)
     setError(null);
     setMsg(null);
     try {
-      const res = await installBenchmarkSet();
+      const res = await installBenchmarkSet(undefined, undefined, undefined, version);
       if (res.skipped) {
         setMsg(`Aktuell: v${res.current_version} — kein Update nötig.`);
       } else {
@@ -765,29 +765,77 @@ export function BenchmarkSetUpdater({ onInstalled }: { onInstalled?: () => void 
     } catch (e) {
       setError(`Install fehlgeschlagen: ${(e as Error).message}`);
     } finally {
-      setBusy(false);
+      setBusyVersion(null);
       load();
     }
   };
 
+  const cur = status?.current_version ?? 0;
+  const available = status?.available ?? [];
+
   return (
     <div className="text-sm space-y-2" data-testid="benchmark-set-updater">
       <div className="flex items-center gap-3 flex-wrap">
-        <button
-          type="button"
-          onClick={install}
-          disabled={busy}
-          className="btn text-xs"
-          data-testid="install-set-btn"
-        >
-          {busy ? "Installiere…" : "⟳ Neues Set installieren"}
-        </button>
         <span className="text-xs text-dim">
-          {status?.configured
-            ? `Quelle: ${status.url.replace(/^https?:\/\//, "").slice(0, 60)} (SHA ${status.sha_prefix}…)`
-            : "Kein Release konfiguriert (BENCHMARK_SET_URL)."}
+          {status?.pinning_mode
+            ? `Pinning-Modus (env-URL): ${status.url.replace(/^https?:\/\//, "").slice(0, 60)}`
+            : status?.repo
+              ? `Quelle: ${status.repo}${status.sha_prefix ? ` (SHA ${status.sha_prefix}…)` : ""}`
+              : "Keine Quelle konfiguriert (BENCHMARK_SET_REPO oder BENCHMARK_SET_URL)."}
         </span>
+        {available.length > 0 && (
+          <button
+            type="button"
+            onClick={() => install(undefined)}
+            disabled={busyVersion !== null}
+            className="btn text-xs"
+            data-testid="install-latest-btn"
+          >
+            {busyVersion === -1
+              ? "Installiere…"
+              : `⟳ Neuestes Set installieren (v${available[0].version})`}
+          </button>
+        )}
       </div>
+
+      {/* Change 076: verfügbare Releases je Zeile installierbar */}
+      {available.length > 0 && (
+        <ul className="space-y-1 border-t border-border pt-2" data-testid="available-sets">
+          {available.map((s, i) => {
+            const isCur = s.version <= cur;
+            return (
+              <li key={s.tag} className="flex items-center gap-3 text-xs">
+                <span className="font-mono w-24">
+                  v{s.version}
+                  {i === 0 && <span className="ml-1 text-green-400">(neueste)</span>}
+                </span>
+                <span className="text-dim flex-1">
+                  {s.published_at
+                    ? new Date(s.published_at).toLocaleDateString("de-DE")
+                    : "–"}
+                  {s.zip_size != null && s.zip_size > 0
+                    ? ` · ${(s.zip_size / 1024 / 1024).toFixed(1)} MB`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => install(s.version)}
+                  disabled={isCur || busyVersion !== null}
+                  className="btn text-xs"
+                  data-testid={`install-set-${s.version}`}
+                >
+                  {busyVersion === s.version
+                    ? "Installiere…"
+                    : isCur
+                      ? "Aktuell"
+                      : "Installieren"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
       <div className="text-xs text-dim space-y-0.5">
         {status && (
           <p>

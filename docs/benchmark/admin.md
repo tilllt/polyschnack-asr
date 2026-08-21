@@ -37,36 +37,49 @@ kein manuelles Entpacken auf der Box mehr.
 **Release-Format** (`tilllt/polyschnack-benchmark-data`, Tag `benchmark-set-v<N>`):
 
 ```
-benchmark-set-v<N>.zip
-├── manifest.json        # version, testset_version, supersedes, samples[]
-├── audio/<sid>.wav      # 16 kHz mono
-└── preview/<sid>.mp3    # 128 kbps
+benchmark-set-v<N>.zip            # manifest.json + audio/*.wav + preview/*.mp3
+benchmark-set-v<N>.zip.sha256     # SHA256 (sha256sum-Format) — Integrität
 ```
 
-**Konfiguration** (compose.yml, env):
+**Konfiguration** (compose.yml, env) — **Discovery-Modus (Default, Change 076)**:
+
+```yaml
+BENCHMARK_SET_REPO: "tilllt/polyschnack-benchmark-data"
+BENCHMARK_SET_AUTO_INSTALL: "true"   # optional: beim Start prüfen/installieren
+```
+
+Die Webapp listet `benchmark-set-v<N>`-Releases des Repos (GitHub-API, 5-min-Cache)
+und installiert per Klick — SHA256 wird je Release aus dem `.sha256`-Asset geladen.
+
+**Pinning-Modus (optional, Change 075):** statt Repo eine feste URL+SHA:
 
 ```yaml
 BENCHMARK_SET_URL: "https://github.com/tilllt/polyschnack-benchmark-data/releases/download/benchmark-set-v1/benchmark-set-v1.zip"
 BENCHMARK_SET_SHA256: "4755be03f8d03dcae4b885c2cf7117d29050f87962bf099e3610b9911828891d"
-BENCHMARK_SET_AUTO_INSTALL: "true"   # optional: beim Start prüfen/installieren
 ```
 
-Ohne URL ist der Mechanismus inaktiv; der manuelle Deploy (tar.gz → entpacken)
-funktioniert unverändert.
+Priorität: Body-URL (Admin) > `BENCHMARK_SET_URL` (Pin) > Discovery über Repo.
+
+Ohne Quelle (kein Repo, keine URL) ist der Mechanismus inaktiv; der manuelle
+Deploy (tar.gz → entpacken) funktioniert unverändert.
 
 **Ablauf beim Install:**
 
-1. Download (HTTPS-Pflicht, 300 s Timeout)
-2. **SHA256-Verifikation** — Mismatch → Abbruch, kein Zustand geändert
-3. `manifest.version` ≤ aktuell → „bereits installiert" (nie überschreiben)
-4. Sicheres Entpacken (nur `manifest.json`/`audio/`/`preview/`, Traversal abgelehnt)
-5. Vollständigkeitsprüfung (WAVs/Previews == Samples)
-6. Atomic rename nach `versions/v{N}` → neue aktive Version
+1. **Discovery:** GitHub-API → `benchmark-set-v<N>`-Releases (5-min-Cache)
+   bzw. Pinning-URL aus env
+2. Download (HTTPS-Pflicht, 300 s Timeout)
+3. **SHA256-Verifikation** — aus `.sha256`-Asset (Discovery) oder env-SHA
+   (Pin); Mismatch → Abbruch, kein Zustand geändert
+4. `manifest.version` ≤ aktuell → „bereits installiert" (nie überschreiben)
+5. Sicheres Entpacken (nur `manifest.json`/`audio/`/`preview/`, Traversal abgelehnt)
+6. Vollständigkeitsprüfung (WAVs/Previews == Samples)
+7. Atomic rename nach `versions/v{N}` → neue aktive Version
 
 **API:**
 
-- `GET /api/benchmark/sets` → Status (öffentlich, SHA nur als Präfix)
-- `POST /api/benchmark/sets/install` → Install (Admin-only)
+- `GET /api/benchmark/sets` → Status + verfügbare Releases (öffentlich, SHA nur als Präfix)
+- `POST /api/benchmark/sets/install` → Install (Admin-only); Body optional
+  `{url, sha256}` = Pin, `{repo, version}` = Discovery
 
 **GUI:** Admin-Sektion „Benchmark-Set" auf der Benchmark-Seite — Status +
 Button „⟳ Neues Set installieren". Fehler werden sichtbar angezeigt.

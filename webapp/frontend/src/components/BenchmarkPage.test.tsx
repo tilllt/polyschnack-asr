@@ -716,15 +716,31 @@ describe("BenchmarkPageContent — Change 073 (VAD-Sample-Liste in Sektion)", ()
   });
 });
 
-describe("BenchmarkSetUpdater (Change 075)", () => {
+describe("BenchmarkSetUpdater (Change 075/076)", () => {
   const STATUS = {
     mechanism: "benchmark-set",
     configured: true,
-    url: "https://github.com/tilllt/polyschnack-benchmark-data/releases/download/benchmark-set-v3/benchmark-set-v3.zip",
+    pinning_mode: false,
+    repo: "tilllt/polyschnack-benchmark-data",
+    url: "",
     sha_prefix: "1190936d",
     auto_install: false,
     current_version: 1,
     installed_versions: [1],
+    available: [
+      {
+        version: 2,
+        tag: "benchmark-set-v2",
+        published_at: "2026-08-25T10:00:00Z",
+        zip_size: 12345678,
+      },
+      {
+        version: 1,
+        tag: "benchmark-set-v1",
+        published_at: "2026-08-21T17:46:09Z",
+        zip_size: 47526124,
+      },
+    ],
     last_error: null,
   };
 
@@ -742,21 +758,48 @@ describe("BenchmarkSetUpdater (Change 075)", () => {
     await waitFor(() => expect(screen.getByTestId("benchmark-set-updater")).toBeTruthy());
     expect(screen.getByText(/Aktuelle Version:/)).toBeTruthy();
     expect(screen.getAllByText(/v1/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/SHA 1190936d/)).toBeTruthy();
-    expect(screen.getByTestId("install-set-btn")).toBeTruthy();
+    expect(screen.getByText(/tilllt\/polyschnack-benchmark-data/)).toBeTruthy();
   });
 
-  test("Install-Button ruft API und zeigt Erfolgsmeldung", async () => {
+  test("verfügbare Releases werden gelistet (neueste zuerst, v1 als Aktuell)", async () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("available-sets")).toBeTruthy());
+    expect(screen.getByTestId("install-set-2")).toBeTruthy();
+    expect(screen.getByText(/neueste/)).toBeTruthy();
+    // v1 ≤ aktuell → Button "Aktuell" (disabled)
+    const v1btn = screen.getByTestId("install-set-1");
+    expect(v1btn.textContent).toContain("Aktuell");
+    expect((v1btn as HTMLButtonElement).disabled).toBe(true);
+    // v2 ist neuer → "Installieren"
+    expect(screen.getByTestId("install-set-2").textContent).toContain("Installieren");
+  });
+
+  test("Install-Button (neueste) ruft API mit version und zeigt Erfolgsmeldung", async () => {
     render(
       <LocaleProvider>
         <BenchmarkSetUpdater onInstalled={() => {}} />
       </LocaleProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(screen.getByTestId("install-latest-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-latest-btn"));
     await waitFor(() => expect(installBenchmarkSet).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId("set-msg")).toBeTruthy());
     expect(screen.getByText(/v2 installiert \(207 Samples/)).toBeTruthy();
+  });
+
+  test("per-Release-Button installiert genau diese Version", async () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("install-set-2")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-set-2"));
+    await waitFor(() => expect(installBenchmarkSet).toHaveBeenCalledWith(undefined, undefined, undefined, 2));
   });
 
   test("skipped-Response zeigt 'kein Update nötig'", async () => {
@@ -766,8 +809,8 @@ describe("BenchmarkSetUpdater (Change 075)", () => {
         <BenchmarkSetUpdater />
       </LocaleProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(screen.getByTestId("install-latest-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-latest-btn"));
     await waitFor(() => expect(screen.getByTestId("set-msg")).toBeTruthy());
     expect(screen.getByText(/kein Update nötig/)).toBeTruthy();
   });
@@ -779,24 +822,44 @@ describe("BenchmarkSetUpdater (Change 075)", () => {
         <BenchmarkSetUpdater />
       </LocaleProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("install-set-btn")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("install-set-btn"));
+    await waitFor(() => expect(screen.getByTestId("install-latest-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("install-latest-btn"));
     await waitFor(() => expect(screen.getByTestId("set-error")).toBeTruthy());
     expect(screen.getByText(/Install fehlgeschlagen: SHA256-Mismatch/)).toBeTruthy();
   });
 
-  test("ohne Konfiguration zeigt Hinweis statt Quelle", async () => {
+  test("Pinning-Modus (env-URL) zeigt Hinweis statt Repo-Liste", async () => {
     vi.mocked(fetchBenchmarkSetStatus).mockResolvedValue({
       ...STATUS,
-      configured: false,
-      url: "",
-      sha_prefix: "",
+      pinning_mode: true,
+      repo: "",
+      url: "https://github.com/x/y.zip",
+      available: [],
     } as never);
     render(
       <LocaleProvider>
         <BenchmarkSetUpdater />
       </LocaleProvider>,
     );
-    await waitFor(() => expect(screen.getByText(/Kein Release konfiguriert/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Pinning-Modus/)).toBeTruthy());
+    expect(screen.queryByTestId("available-sets")).toBeNull();
+  });
+
+  test("ohne Konfiguration zeigt Hinweis statt Quelle", async () => {
+    vi.mocked(fetchBenchmarkSetStatus).mockResolvedValue({
+      ...STATUS,
+      configured: false,
+      pinning_mode: false,
+      repo: "",
+      url: "",
+      sha_prefix: "",
+      available: [],
+    } as never);
+    render(
+      <LocaleProvider>
+        <BenchmarkSetUpdater />
+      </LocaleProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Keine Quelle konfiguriert/)).toBeTruthy());
   });
 });

@@ -461,10 +461,16 @@ def edit_sample(sample_id: str, body: SampleEdit) -> Dict[str, Any]:
 
 
 class SetInstallBody(BaseModel):
-    """Optionaler Override für URL/SHA beim manuellen Install (Admin)."""
+    """Optionaler Override für den Set-Install (Admin).
+
+    - url/sha256: Pin-Pfad (Change 075) — direkter Download
+    - repo/version: Discovery-Pfad (Change 076) — Release aus dem Repo
+    """
 
     url: Optional[str] = None
     sha256: Optional[str] = None
+    repo: Optional[str] = None
+    version: Optional[int] = None
 
 
 @router.get("/sets")
@@ -476,15 +482,19 @@ def set_status() -> Dict[str, Any]:
 
 @router.post("/sets/install", dependencies=[Depends(require_admin)])
 def set_install(body: SetInstallBody | None = None) -> Dict[str, Any]:
-    """Installiert ein Benchmark-Set aus dem konfigurierten Release (Admin).
+    """Installiert ein Benchmark-Set (Admin).
 
-    Body optional: {url, sha256} als Override der Env-Konfiguration.
+    Body optional: {url, sha256} = Pin-Pfad, {repo, version} = Discovery.
+    Ohne Body: Discovery auf neueste Release-Version des konfigurierten Repos.
     """
     svc = _require_data()
     body = body or SetInstallBody()
     try:
         return svc.install_set_from_release(
-            url=body.url, expected_sha=body.sha256
+            url=body.url,
+            expected_sha=body.sha256,
+            repo=body.repo,
+            version=body.version,
         )
     except RuntimeError as e:
         raise HTTPException(422, str(e))

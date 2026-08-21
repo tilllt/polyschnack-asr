@@ -21,10 +21,12 @@ import hashlib
 import io
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tarfile
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -542,13 +544,19 @@ class BenchmarkService:
             parts.append(hashlib.sha256(wav.read_bytes()).digest())
         return hashlib.sha256(b"".join(parts)).hexdigest()
 
-    # ── Benchmark-Set-Auto-Update (Change 075) ────────────────────────────
+    # ── Benchmark-Set-Auto-Update (Change 075/076) ────────────────────────
+
+    #: Discovery-Cache (Change 076): (repo, timestamp) → Liste. GitHub-API
+    #: unauthenticated: 60 req/h — Cache 300 s, kein Polling-Loop.
+    _set_discovery_cache: Dict[str, Any] = {}
 
     def set_status(self) -> Dict[str, Any]:
         """Status des Set-Update-Mechanismus (öffentlich, keine Secrets).
 
         current_version: aktive Version; installed_versions: alle; URL/SHA
         nur als Präfix (SHA 8 Zeichen), auto_install-Flag, letzter Fehler.
+        Change 076: `repo` + `available` (verfügbare Releases, gecacht) +
+        `pinning_mode` (true wenn env-URL gesetzt → kein Discovery).
         """
         from app.config import settings
 
@@ -557,52 +565,185 @@ class BenchmarkService:
         except FileNotFoundError:
             cur = None
         sha = settings.BENCHMARK_SET_SHA256.strip()
+        repo = (settings.BENCHMARK_SET_REPO or "").strip()
+        pinning = bool(settings.BENCHMARK_SET_URL.strip())
+        available: List[Dict[str, Any]] = []
+        if repo and not pinning:
+            try:
+                available = self.discover_sets(repo)
+            except Exception as e:  # noqa: BLE001 — Status darf nie crashen
+                self._set_last_error = f"Discovery fehlgeschlagen: {e}"
         return {
             "mechanism": "benchmark-set",
-            "configured": bool(settings.BENCHMARK_SET_URL.strip()),
+            "configured": pinning or bool(repo),
+            "pinning_mode": pinning,
+            "repo": repo,
             "url": settings.BENCHMARK_SET_URL.strip(),
             "sha_prefix": sha[:8] if sha else "",
             "auto_install": settings.BENCHMARK_SET_AUTO_INSTALL,
             "current_version": cur,
             "installed_versions": self.version_numbers(),
+            "available": available,
             "last_error": getattr(self, "_set_last_error", None),
         }
 
-    def install_set_from_release(
-        self, url: Optional[str] = None, expected_sha: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Lädt ein Benchmark-Set-Release (ZIP) und installiert es.
+    def discover_sets(self, repo: str) -> List[Dict[str, Any]]:
+        """Listet benchmark-set-v<N>-Releases eines GitHub-Repos (Change 076).
 
-        Ablauf: HTTPS-Check → Download → SHA256-Verifikation (Mismatch =
-        RuntimeError, KEIN Zustand geändert) → manifest.json lesen → Version
-        ≤ aktuell = skip → sicher entpacken (nur manifest.json/audio/preview,
-        sanitized) → Vollständigkeitsprüfung → atomic rename versions/v{N}.
+        Fragt die GitHub-API (GET /repos/{repo}/releases, per_page=100),
+        filtert Tags `benchmark-set-v<N>`, liefert je Release:
+        {version, tag, published_at, zip_url, sha_url, zip_size}.
+        Gecacht (300 s). API-Fehler → RuntimeError mit Meldung.
+        """
+        repo = repo.strip().strip("/")
+        if "/" not in repo:
+            raise RuntimeError(f"Repo muss 'owner/name' sein (bekam {repo!r})")
+        now = time.time()
+        cached = self._set_discovery_cache.get(repo)
+        if cached and now - cached[0] < 300:
+            return cached[1]
+
+        api_url = f"https://api.github.com/repos/{repo}/releases?per_page=100"
+        try:
+            req = urllib.request.Request(
+                api_url,
+                headers={"Accept": "application/vnd.github+json",
+                         "User-Agent": "polyschnack-webapp"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                releases = json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"GitHub-API nicht erreichbar ({api_url}): {e}")
+
+        if not isinstance(releases, list):
+            raise RuntimeError("GitHub-API-Antwort unerwartet (kein Array)")
+        out: List[Dict[str, Any]] = []
+        for rel in releases:
+            tag = rel.get("tag_name", "")
+            m = re.fullmatch(r"benchmark-set-v(\d+)", tag)
+            if not m:
+                continue
+            version = int(m.group(1))
+            assets = {a.get("name"): a for a in rel.get("assets", [])}
+            zip_name = f"benchmark-set-v{version}.zip"
+            sha_name = f"{zip_name}.sha256"
+            zip_asset = assets.get(zip_name)
+            sha_asset = assets.get(sha_name)
+            if not zip_asset:
+                continue  # ohne ZIP kein installierbares Set
+            out.append({
+                "version": version,
+                "tag": tag,
+                "published_at": rel.get("published_at"),
+                "zip_url": zip_asset.get("browser_download_url"),
+                "zip_size": zip_asset.get("size"),
+                "sha_url": sha_asset.get("browser_download_url")
+                if sha_asset else None,
+            })
+        out.sort(key=lambda s: s["version"], reverse=True)
+        self._set_discovery_cache[repo] = (time.time(), out)
+        return out
+
+    def _download_bytes(self, url: str, timeout: int = 300) -> bytes:
+        """HTTPS-Pflicht-Download (gemeinsamer Helfer für Set-Install)."""
+        if not url.lower().startswith("https://"):
+            raise RuntimeError(f"URL muss HTTPS sein (bekam {url[:40]}…)")
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                return r.read()
+        except Exception as e:  # noqa: BLE001 — Netzwerkfehler → Meldung
+            raise RuntimeError(f"Download fehlgeschlagen ({url[:60]}…): {e}")
+
+    @staticmethod
+    def _parse_sha_asset(content: bytes) -> str:
+        """Erste Hex-Zeichenfolge aus einem .sha256-Asset.
+
+        Unterstützt sha256sum-Format (`<hash>  <filename>`) und nacktes
+        `<hash>` — beides verbreitet bei GitHub-Release-Assets.
+        """
+        text = content.decode("utf-8", errors="replace")
+        m = re.search(r"([0-9a-fA-F]{64})", text)
+        if not m:
+            raise RuntimeError(".sha256-Asset enthält keinen SHA256-Hash")
+        return m.group(1).lower()
+
+    def install_set_from_release(
+        self,
+        url: Optional[str] = None,
+        expected_sha: Optional[str] = None,
+        repo: Optional[str] = None,
+        version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Installiert ein Benchmark-Set (Change 075 + 076).
+
+        Priorität:
+        1. `url` (Body-Override) → Pin-Pfad wie Change 075
+        2. `BENCHMARK_SET_URL` env → Pin-Pfad
+        3. sonst: Discovery über Repo (arg oder BENCHMARK_SET_REPO) →
+           Zielversion = `version`-Arg oder neueste; SHA aus `.sha256`-Asset.
         """
         from app.config import settings
 
-        url = (url or settings.BENCHMARK_SET_URL).strip()
-        expected_sha = (expected_sha or settings.BENCHMARK_SET_SHA256).strip()
-        if not url:
-            raise RuntimeError("BENCHMARK_SET_URL ist nicht konfiguriert")
-        if not url.lower().startswith("https://"):
-            raise RuntimeError(f"URL muss HTTPS sein (bekam {url[:40]}…)")
         self._set_last_error = None
+        url = (url or "").strip() or settings.BENCHMARK_SET_URL.strip()
+        if url:
+            # Pin-Pfad (Change 075): URL + SHA explizit
+            expected_sha = (expected_sha or settings.BENCHMARK_SET_SHA256).strip()
+            if not expected_sha:
+                self._set_last_error = (
+                    "BENCHMARK_SET_SHA256 fehlt — kein Install ohne Verifikation"
+                )
+                raise RuntimeError(self._set_last_error)
+            raw = self._download_bytes(url)
+            return self._install_zip_bytes(raw, expected_sha)
 
-        import urllib.request
+        # Discovery-Pfad (Change 076)
+        repo = (repo or "").strip() or settings.BENCHMARK_SET_REPO.strip()
+        if not repo:
+            self._set_last_error = (
+                "Keine Quelle konfiguriert: BENCHMARK_SET_REPO (Discovery) "
+                "oder BENCHMARK_SET_URL (Pin) setzen"
+            )
+            raise RuntimeError(self._set_last_error)
+        try:
+            sets = self.discover_sets(repo)
+        except RuntimeError as e:
+            self._set_last_error = str(e)
+            raise
+        if not sets:
+            self._set_last_error = (
+                f"Keine benchmark-set-v<N>-Releases in {repo} gefunden"
+            )
+            raise RuntimeError(self._set_last_error)
+        target = version
+        if target is None:
+            target = max(s["version"] for s in sets)
+        entry = next((s for s in sets if s["version"] == target), None)
+        if entry is None:
+            self._set_last_error = f"Release benchmark-set-v{target} nicht gefunden"
+            raise RuntimeError(self._set_last_error)
+        if entry.get("sha_url"):
+            sha_raw = self._download_bytes(entry["sha_url"], timeout=60)
+            expected_sha = self._parse_sha_asset(sha_raw)
+        else:
+            # Fallback ohne .sha256-Asset: env-SHA als Anker (wenn gesetzt)
+            expected_sha = settings.BENCHMARK_SET_SHA256.strip()
+        if not expected_sha:
+            self._set_last_error = (
+                f"benchmark-set-v{target} hat kein .sha256-Asset und "
+                "BENCHMARK_SET_SHA256 ist nicht gesetzt — kein Install"
+            )
+            raise RuntimeError(self._set_last_error)
+        raw = self._download_bytes(entry["zip_url"])
+        return self._install_zip_bytes(raw, expected_sha)
+
+    def _install_zip_bytes(
+        self, raw: bytes, expected_sha: str
+    ) -> Dict[str, Any]:
+        """Kern-Install aus ZIP-Bytes (SHA-verifiziert, sicher entpackt)."""
         import zipfile
 
-        # 1) Download
-        raw = None
-        try:
-            with urllib.request.urlopen(url, timeout=300) as r:
-                raw = r.read()
-        except Exception as e:  # noqa: BLE001 — Netzwerkfehler → Meldung
-            self._set_last_error = f"Download fehlgeschlagen: {e}"
-            raise RuntimeError(self._set_last_error)
-        # 2) SHA256
-        if not expected_sha:
-            self._set_last_error = "BENCHMARK_SET_SHA256 fehlt — kein Install ohne Verifikation"
-            raise RuntimeError(self._set_last_error)
+        # SHA256
         got = hashlib.sha256(raw).hexdigest()
         if got.lower() != expected_sha.lower():
             self._set_last_error = (
@@ -610,7 +751,7 @@ class BenchmarkService:
                 f"erhalten {got[:12]}… — nichts installiert"
             )
             raise RuntimeError(self._set_last_error)
-        # 3) manifest.json lesen (nur das — Rest erst nach Checks entpacken)
+        # manifest.json lesen (nur das — Rest erst nach Checks entpacken)
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
                 names = z.namelist()
@@ -624,7 +765,7 @@ class BenchmarkService:
         except Exception as e:  # noqa: BLE001
             self._set_last_error = f"Release-Paket ungültig: {e}"
             raise RuntimeError(self._set_last_error)
-        # 4) Version ≤ aktuell → skip (nie überschreiben)
+        # Version ≤ aktuell → skip (nie überschreiben)
         try:
             current = self.latest_manifest().get("version")
         except FileNotFoundError:
@@ -637,8 +778,7 @@ class BenchmarkService:
                 "installed_version": None,
                 "current_version": current,
             }
-        # 5) Sicher entpacken (nur erlaubte Pfade, sanitized)
-        allowed_top = {"manifest.json", "audio/", "preview/"}
+        # Sicher entpacken (nur erlaubte Pfade, sanitized)
         tmp = self._versions_dir() / f".tmp-v{new_version}"
         if tmp.exists():
             shutil.rmtree(tmp)
@@ -663,7 +803,7 @@ class BenchmarkService:
             shutil.rmtree(tmp, ignore_errors=True)
             self._set_last_error = f"Entpacken abgebrochen: {e}"
             raise RuntimeError(self._set_last_error)
-        # 6) Vollständigkeitsprüfung: audio/preview == samples
+        # Vollständigkeitsprüfung: audio/preview == samples
         n_samples = len(manifest.get("samples", []))
         n_audio = len(list((tmp / "audio").glob("*.wav")))
         n_preview = len(list((tmp / "preview").glob("*")))
@@ -679,13 +819,13 @@ class BenchmarkService:
                 f"Unvollständiges Paket: {n_preview} Previews für {n_samples} Samples"
             )
             raise RuntimeError(self._set_last_error)
-        # 7) supersedes ergänzen, falls fehlend
+        # supersedes ergänzen, falls fehlend
         if "supersedes" not in manifest or not manifest.get("supersedes"):
             manifest["supersedes"] = current
         (tmp / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        # 8) Atomic rename → aktiv (höchste Versionsnummer = latest)
+        # Atomic rename → aktiv (höchste Versionsnummer = latest)
         target = self._versions_dir() / f"v{new_version}"
         if target.exists():
             shutil.rmtree(target)

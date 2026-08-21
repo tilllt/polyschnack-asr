@@ -85,8 +85,14 @@ class _Settings:
     #: URL + SHA256 (pflicht für Auto-Install) zeigen auf ein Release-Asset
     #: `benchmark-set-v<N>.zip` (manifest.json + audio/ + preview/). Ohne URL
     #: ist der Mechanismus inaktiv — manuelles Deploy bleibt möglich.
+    #: Change 076: stattdessen Discovery über das Repo — BENCHMARK_SET_REPO
+    #: (z. B. "tilllt/polyschnack-benchmark-data"); die Webapp listet
+    #: benchmark-set-v<N>-Releases und installiert per Klick. URL/SHA bleiben
+    #: als Pinning-Fallback/Override erhalten (Priorität: Body-url > env-URL
+    #: > Discovery).
     BENCHMARK_SET_URL: str = os.getenv("BENCHMARK_SET_URL", "")
     BENCHMARK_SET_SHA256: str = os.getenv("BENCHMARK_SET_SHA256", "")
+    BENCHMARK_SET_REPO: str = os.getenv("BENCHMARK_SET_REPO", "")
     BENCHMARK_SET_AUTO_INSTALL: bool = os.getenv(
         "BENCHMARK_SET_AUTO_INSTALL", ""
     ).lower() in ("1", "true", "yes", "on")

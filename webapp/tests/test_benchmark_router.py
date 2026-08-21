@@ -489,3 +489,191 @@ def test_sets_installer_rejects_traversal(tmp_path, monkeypatch):
     assert not (root / "versions" / ".tmp-v2").exists()
     # nichts außerhalb entpackt
     assert not (tmp_path / "etc").exists()
+
+
+# ── Benchmark-Set-Discovery (Change 076) ─────────────────────────────────
+
+
+def _github_releases_fixture(versions=(1, 2)) -> list:
+    """GitHub-API-Fixture: Releases mit ZIP + .sha256-Asset (Konvention 076)."""
+    out = []
+    for v in versions:
+        assets = [
+            {
+                "name": f"benchmark-set-v{v}.zip",
+                "size": 1000 + v,
+                "browser_download_url": f"https://github.com/x/releases/download/benchmark-set-v{v}/benchmark-set-v{v}.zip",
+            },
+            {
+                "name": f"benchmark-set-v{v}.zip.sha256",
+                "size": 100,
+                "browser_download_url": f"https://github.com/x/releases/download/benchmark-set-v{v}/benchmark-set-v{v}.zip.sha256",
+            },
+        ]
+        out.append({
+            "tag_name": f"benchmark-set-v{v}",
+            "published_at": f"2026-08-{10+v:02d}T00:00:00Z",
+            "assets": assets,
+        })
+    # Fremd-Release (anderer Tag) muss rausgefiltert werden
+    out.append({"tag_name": "other-release", "published_at": "2026-08-01T00:00:00Z", "assets": []})
+    return out
+
+
+def _install_root(tmp_path) -> Path:
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(json.dumps({"version": 1, "rows": []}))
+    return root
+
+
+def test_discover_sets_parses_releases(tmp_path, monkeypatch):
+    """Discovery: parst Releases, filtert fremde Tags, liefert URLs + SHA."""
+    import urllib.request
+
+    fixture = _github_releases_fixture()
+
+    class FakeResp:
+        def read(self): return json.dumps(fixture).encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30: FakeResp())
+    svc = BenchmarkService(_install_root(tmp_path))
+    svc._set_discovery_cache.clear()
+    sets = svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    assert [s["version"] for s in sets] == [2, 1]  # absteigend
+    assert sets[0]["sha_url"]  # v2 hat .sha256
+    assert sets[1]["sha_url"]  # v1 hat .sha256 (Konvention 076)
+    assert "other-release" not in [s["tag"] for s in sets]
+
+
+def test_discover_sets_cached(tmp_path, monkeypatch):
+    """Cache: zweiter Aufruf innerhalb 300 s → kein zweiter API-Call."""
+    import urllib.request
+
+    calls = []
+
+    class FakeResp:
+        def read(self):
+            calls.append(1)
+            return json.dumps(_github_releases_fixture()).encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30: FakeResp())
+    svc = BenchmarkService(_install_root(tmp_path))
+    # Klassen-Cache leeren (vorherige Tests haben dasselbe Repo evtl. gecacht)
+    svc._set_discovery_cache.clear()
+    svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    assert len(calls) == 1  # Cache-Treffer
+
+
+def test_install_via_discovery_uses_sha_asset(tmp_path, monkeypatch):
+    """Discovery-Install: SHA aus .sha256-Asset, Download, aktiviert v2."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=2, n_samples=1)
+    sha = hashlib.sha256(zdata).hexdigest()
+    fixture = _github_releases_fixture(versions=(1, 2))
+
+    def fake_urlopen(req_or_url, timeout=300):
+        url = req_or_url if isinstance(req_or_url, str) else req_or_url.full_url
+
+        class FakeResp:
+            def __init__(self, payload):
+                self._p = payload
+            def read(self): return self._p
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        if "api.github.com" in url:
+            return FakeResp(json.dumps(fixture).encode())
+        if url.endswith(".sha256"):
+            return FakeResp(f"{sha}  benchmark-set-v2.zip".encode())
+        if url.endswith("v2.zip"):
+            return FakeResp(zdata)
+        raise AssertionError(f"unerwartete URL: {url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    svc = BenchmarkService(_install_root(tmp_path))
+    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
+    res = svc.install_set_from_release(repo="tilllt/polyschnack-benchmark-data")
+    assert res["ok"] and not res["skipped"]
+    assert res["installed_version"] == 2
+    assert res["sha256"] == sha
+    assert svc.latest_manifest()["version"] == 2
+
+
+def test_install_discovery_version_choice(tmp_path, monkeypatch):
+    """version-Arg wählt genau diese Release-Version (v1 trotz vorhandenem v2)."""
+    import urllib.request
+
+    zdata = _make_set_zip(version=1, n_samples=1)
+    sha = hashlib.sha256(zdata).hexdigest()
+    fixture = _github_releases_fixture(versions=(1, 2))
+
+    def fake_urlopen(req_or_url, timeout=300):
+        url = req_or_url if isinstance(req_or_url, str) else req_or_url.full_url
+
+        class FakeResp:
+            def __init__(self, payload):
+                self._p = payload
+            def read(self): return self._p
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        if "api.github.com" in url:
+            return FakeResp(json.dumps(fixture).encode())
+        if url.endswith(".sha256"):
+            return FakeResp(f"{sha}  benchmark-set-v1.zip".encode())
+        if url.endswith("v1.zip"):
+            return FakeResp(zdata)
+        raise AssertionError(f"unerwartete URL: {url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    svc = BenchmarkService(_install_root(tmp_path))
+    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
+    # Version 1 ist ≤ aktuell (1) → skip, aber korrekt aufgelöst (nicht v2)
+    res = svc.install_set_from_release(
+        repo="tilllt/polyschnack-benchmark-data", version=1
+    )
+    assert res["skipped"] and res["reason"] == "bereits installiert"
+
+
+def test_discovery_api_error_sets_last_error(tmp_path, monkeypatch):
+    """API-Fehler → last_error gesetzt, kein Crash (Status bleibt nutzbar)."""
+    import urllib.request
+
+    def boom(req_or_url, timeout=30):
+        raise OSError("rate limit")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    svc = BenchmarkService(_install_root(tmp_path))
+    svc._set_discovery_cache.clear()  # Klassen-Cache aus früheren Tests leeren
+    with pytest.raises(RuntimeError, match="GitHub-API nicht erreichbar"):
+        svc.discover_sets("tilllt/polyschnack-benchmark-data")
+    # Status-Aufruf darf nicht crashen und setzt last_error
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "BENCHMARK_SET_REPO", "tilllt/polyschnack-benchmark-data")
+    monkeypatch.setattr(settings, "BENCHMARK_SET_URL", "")
+    st = svc.set_status()
+    assert st["available"] == []
+    assert "Discovery fehlgeschlagen" in (st["last_error"] or "")
+
+
+def test_parse_sha_asset_formats():
+    """sha256sum-Format und nackter Hash werden beide erkannt."""
+    from app.benchmark_service import BenchmarkService
+
+    sha = "ab" * 32
+    assert BenchmarkService._parse_sha_asset(f"{sha}  benchmark-set-v2.zip".encode()) == sha
+    assert BenchmarkService._parse_sha_asset(sha.encode()) == sha
+    with pytest.raises(RuntimeError, match="keinen SHA256-Hash"):
+        BenchmarkService._parse_sha_asset(b"kein hash hier")
