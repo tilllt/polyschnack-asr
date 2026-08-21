@@ -33,6 +33,28 @@ benchmark_data/
 `BENCHMARK_DATA_DIR` (Default: `/data/benchmark`) zeigt auf das Volume.
 Seed: `webapp/benchmark/seed_benchmark_data.py` (manuell, nie in CI).
 
+## Seed vor dem ersten Start (wichtig!)
+
+Die Benchmark-Seite zeigt **ohne Seed-Daten nichts** („Benchmark-Daten sind
+noch nicht verfügbar"). Vor dem ersten Start das Volume befüllen — die
+Selektions-/Audio-Dateien kommen aus dem separaten polyschnack-benchmark-Repo:
+
+```bash
+cd webapp
+SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/cv_selection_v1.json \
+TTS_SELECTION=/pfad/zum/polyschnack-benchmark/benchmark/selection/tts_selection.json \
+CV_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/cv \
+TTS_WAV_DIR=/pfad/zum/polyschnack-benchmark/benchmark/data/tts \
+TAXONOMY=/pfad/zum/polyschnack-benchmark/benchmark/spec/taxonomy.json \
+BENCHMARK_DATA_DIR=<host-mount>/benchmark \
+.venv/bin/python benchmark/seed_benchmark_data.py
+```
+
+- `BENCHMARK_DATA_DIR` muss auf den **Host-Pfad des Volumes** zeigen
+  (compose: `./DATA/poc-data:/data` → `DATA/poc-data/benchmark`).
+- Der Seed kopiert die WAVs (unkomprimiert) und erzeugt die MP3-128k-Previews
+  per ffmpeg.
+
 API: `GET /api/benchmark/meta`, `/samples`, `/audio/{id}`, `/preview/{id}`,
 `/results`, `/pricing`, `/versions` — POST `/reject`, `/edit` (Admin only).
 
