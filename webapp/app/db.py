@@ -185,3 +185,20 @@ def get_session() -> Generator[Session, None, None]:
     """Yield a SQLModel session; commit/rollback is the caller's responsibility."""
     with Session(engine) as session:
         yield session
+
+
+def db_health() -> tuple[bool, str]:
+    """DB-Erreichbarkeit (Change 067): SELECT 1 mit kurzem Timeout.
+
+    Returns (ok, error_msg). Wird von /health genutzt — die Webapp muss
+    DB-Probleme sichtbar melden statt still leerer Ergebnisse zu liefern
+    (Vorfall 2026-08-21: QueuePool-Timeout → /api/stats lieferte total 0).
+    """
+    from sqlalchemy import text as _text
+
+    try:
+        with Session(engine) as session:
+            session.exec(_text("SELECT 1")).first()
+        return True, ""
+    except Exception as exc:  # noqa: BLE001 — Health muss immer antworten
+        return False, str(exc)[:160]

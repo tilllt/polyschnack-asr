@@ -18,8 +18,8 @@ from typing import Any, AsyncGenerator, Dict
 
 import secrets
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -313,8 +313,38 @@ app.include_router(benchmark_router)
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    """Liveness check — always returns 200 when the server is up."""
-    return {"status": "ok", "asr_url": settings.ASR_URL}
+    """Liveness check — always returns 200 when the server is up.
+
+    Change 067: meldet zusätzlich die DB-Erreichbarkeit (SELECT 1), damit
+    DB-Probleme sichtbar sind statt still leerer Ergebnisse (Vorfall
+    2026-08-21: QueuePool-Timeout → /api/stats lieferte total 0).
+    """
+    from .db import db_health
+
+    ok, err = db_health()
+    return {
+        "status": "ok",
+        "db": {"ok": ok, "error": err},
+        "asr_url": settings.ASR_URL,
+    }
+
+
+# ── DB-Fehler sichtbar machen (Change 067) ────────────────────────────────
+# Vorfall 2026-08-21: DB nicht erreichbar (QueuePool-Timeout/Lock) → die
+# Webapp lieferte still leere Listen/Nullwerte. Ab jetzt: SQLAlchemy-Fehler
+# (auch beim Dependency-Auflösen von get_session) → 503 mit klarer Meldung.
+# Registriert NUR auf SQLAlchemyError — alles andere behält den Default-Handler.
+
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
+
+
+@app.exception_handler(SQLAlchemyError)
+async def db_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
+    log.error("DB-Fehler auf %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Datenbank nicht erreichbar — bitte Stack/Volume prüfen."},
+    )
 
 
 # ------------------------------------------------------------------
