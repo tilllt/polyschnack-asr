@@ -8,6 +8,8 @@ import type {
   BenchmarkPricing,
   BenchmarkResults,
   VadResultRow,
+  VadSample,
+  VadSamplesResponse,
 } from "../benchmark";
 
 // ── Collapsible Kategorie (nur eine offen, State in Page) ────────────────
@@ -633,6 +635,96 @@ export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
   );
 }
 
+// ── VAD-Testset-Samples (Change 073) ─────────────────────────────────────
+// Die VAD-Samples sind öffentlich anhörbar: jede Zeile hat einen
+// WaveformPlayer (MP3-Preview) + WAV-Download. Gruppiert nach Typ, damit
+// die 235 Samples (Basis, DEMAND-SNR-Mixe, FP-Sets) durchstöberbar sind.
+
+type VadGroupId = "basis" | "demand-snr" | "fp-noise" | "fp-musik" | "fp-babble" | "ten" | "sonstig";
+
+function vadGroup(s: VadSample): VadGroupId {
+  if (s.id.startsWith("noise_demand_") || s.id.startsWith("noise_white")) return "fp-noise";
+  if (s.id.startsWith("music")) return "fp-musik";
+  if (s.id.startsWith("babble")) return "fp-babble";
+  if (s.id.startsWith("ten_")) return "ten";
+  if (s.id.includes("_snr")) return "demand-snr";
+  return "basis";
+}
+
+function vadSourceLabel(source: string): string {
+  if (source.startsWith("commonvoice:")) return "Common Voice";
+  if (source === "piper-tts") return "Piper-TTS";
+  if (source === "demand") return "DEMAND";
+  return source || "—";
+}
+
+const VAD_GROUP_LABELS: Record<VadGroupId, { title: string; hint: string }> = {
+  basis: { title: "Basis-Samples", hint: "Reine Sprache ohne Störgeräusche (Common Voice / Piper-TTS)." },
+  "demand-snr": { title: "DEMAND-SNR-Mixe", hint: "Sprache + echte Umweltgeräusche (DEMAND: Küche/Metro) bei 0/5/10 dB SNR — je 2 Noise-Quellen (n0/n1)." },
+  "fp-noise": { title: "Noise-FP (keine Sprache)", hint: "Nur Geräusch, keine GT — misst Falsch-Positiv-Sprache (FP-Speech)." },
+  "fp-musik": { title: "Musik-FP (keine Sprache)", hint: "Musik ohne Sprache, keine GT — FP-Messung." },
+  "fp-babble": { title: "Babble-FP (keine Sprache)", hint: "Stimmengewirr ohne verständliche Sprache, keine GT — FP-Messung." },
+  ten: { title: "TEN (Referenz)", hint: "TEN-Referenzsamples — nur Benchmark-Vergleich (Lizenz: Agora-Klausel, nicht produktiv)." },
+  sonstig: { title: "Weitere Samples", hint: "" },
+};
+
+export function BenchmarkVadSamples({ samples }: { samples: VadSample[] }) {
+  const groups = new Map<VadGroupId, VadSample[]>();
+  for (const s of samples) {
+    const g = vadGroup(s);
+    const arr = groups.get(g) ?? [];
+    arr.push(s);
+    groups.set(g, arr);
+  }
+  return (
+    <div className="space-y-4 mt-4">
+      <div>
+        <h3 className="font-semibold mb-1">Testset-Samples</h3>
+        <p className="text-sm text-dim">
+          {samples.length} Samples anhören: MP3-Preview (Player) oder WAV-Download.
+          Samples ohne GT sind Falsch-Positiv-Messungen (keine Sprache enthalten).
+        </p>
+      </div>
+      {[...groups.entries()].map(([g, list]) => (
+        <div key={g} className="border border-border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-4 py-2 bg-[rgba(255,255,255,.03)] text-left"
+            aria-expanded
+          >
+            <span className="font-semibold text-sm">
+              {VAD_GROUP_LABELS[g].title} <span className="text-dim">({list.length})</span>
+            </span>
+          </button>
+          {VAD_GROUP_LABELS[g].hint && (
+            <p className="px-4 pt-1 text-xs text-dim">{VAD_GROUP_LABELS[g].hint}</p>
+          )}
+          <ul className="divide-y divide-border">
+            {list.map((s) => (
+              <li key={s.id} className="px-4 py-2">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <span className="font-mono text-xs text-dim break-all">{s.id}</span>
+                  <span className="text-xs badge">{vadSourceLabel(s.source)}</span>
+                  {s.variant && <span className="text-xs badge">{s.variant}</span>}
+                  {!s.has_gt && <span className="text-xs badge">keine GT (FP)</span>}
+                  <a
+                    href={s.audio_url}
+                    download={`${s.id}.wav`}
+                    className="ml-auto btn-ghost text-xs"
+                  >
+                    ⬇ WAV
+                  </a>
+                </div>
+                <WaveformPlayer audioUrl={s.preview_url} height={56} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────
 
 interface PageProps {
@@ -640,13 +732,15 @@ interface PageProps {
   data: BenchmarkSamplesResponse | null;
   results: BenchmarkResults | null;
   pricing: BenchmarkPricing | null;
+  /** Change 073: VAD-Testset-Samples (anhörbar) — 404 = kein Paket. */
+  vadSamples?: VadSamplesResponse | null;
   admin: boolean;
   onReject: (sampleId: string) => void;
   onEdit: (sampleId: string, fields: { text: string }) => void;
   onReload: () => void;
 }
 
-export function BenchmarkPageContent({ meta, data, results, pricing, admin, onReject, onEdit, onReload }: PageProps) {
+export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples, admin, onReject, onEdit, onReload }: PageProps) {
   // Change 071 (User-Befund 2026-08-21): erste Kategorie initial OFEN —
   // vorher starteten alle zugeklappt (openCat=null) → Samples + WAV-Player
   // waren ohne manuellen Klick unsichtbar („keine wav Player").
@@ -832,6 +926,11 @@ export function BenchmarkPageContent({ meta, data, results, pricing, admin, onRe
       <section className="border border-border rounded-lg p-4">
         <h2 className="font-semibold mb-2">VAD-Modelle</h2>
         <VadResultsTable vad={results?.vad} />
+        {/* Change 073: VAD-Testset-Samples anhörbar — Player + WAV-Download.
+            404 (kein Paket) → keine Liste. */}
+        {vadSamples && vadSamples.samples.length > 0 && (
+          <BenchmarkVadSamples samples={vadSamples.samples} />
+        )}
       </section>
 
       {/* Preisvergleich */}

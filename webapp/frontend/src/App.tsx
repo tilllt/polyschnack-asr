@@ -12,10 +12,12 @@ import {
   fetchBenchmarkSamples,
   fetchBenchmarkResults,
   fetchBenchmarkPricing,
+  fetchVadSamples,
   rejectBenchmarkSample,
   editBenchmarkSample,
   type BenchmarkMeta,
   type BenchmarkSamplesResponse,
+  type VadSamplesResponse,
   type BenchmarkResults,
   type BenchmarkPricing,
 } from "./benchmark";
@@ -49,6 +51,7 @@ function AppContent() {
   const [benchData, setBenchData] = useState<BenchmarkSamplesResponse | null>(null);
   const [benchResults, setBenchResults] = useState<BenchmarkResults | null>(null);
   const [benchPricing, setBenchPricing] = useState<BenchmarkPricing | null>(null);
+  const [benchVad, setBenchVad] = useState<VadSamplesResponse | null>(null);
   const [benchTick, setBenchTick] = useState(0);
 
   useEffect(() => {
@@ -57,6 +60,8 @@ function AppContent() {
     fetchBenchmarkSamples().then(setBenchData).catch(() => setBenchData(null));
     fetchBenchmarkResults().then(setBenchResults).catch(() => setBenchResults(null));
     fetchBenchmarkPricing().then(setBenchPricing).catch(() => setBenchPricing(null));
+    // Change 073: VAD-Testset-Samples (anhörbar) — eigener Fetch, 404 = kein Paket.
+    fetchVadSamples().then(setBenchVad).catch(() => setBenchVad(null));
   }, [isBenchmark, benchTick]);
 
   const onBenchReject = async (sampleId: string) => {
@@ -220,6 +225,7 @@ function AppContent() {
             data={benchData}
             results={benchResults}
             pricing={benchPricing}
+            vadSamples={benchVad}
             admin={!!user?.is_admin}
             onReject={onBenchReject}
             onEdit={onBenchEdit}

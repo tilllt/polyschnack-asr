@@ -106,6 +106,23 @@ def client(tmp_path: Path, monkeypatch):
     for sid in ("akzent_001", "akzent_002", "jugend_001"):
         wav = _miniwav()
         (audio / f"{sid}.wav").write_bytes(wav)
+    # VAD-Paket (Change 073): vad-manifest + Audio-WAVs
+    vad = v1 / "vad"
+    (vad / "audio").mkdir(parents=True)
+    (vad / "vad-manifest.json").write_text(json.dumps({
+        "version": 1,
+        "testset_version": "v4-public",
+        "samples": [
+            {"id": "de_00_lead2", "source": "piper-tts", "variant": "lead2",
+             "split": "public", "gt": [{"start": 0.0, "end": 0.2}]},
+            {"id": "cv_clean_000", "source": "commonvoice:cv_clean_000",
+             "variant": "snr0_n0", "split": "public", "gt": [{"start": 0.0, "end": 0.2}]},
+            {"id": "noise_demand_DKITCHEN_16k_sample", "source": "demand",
+             "variant": "demand", "split": "public", "gt": []},
+        ],
+    }, ensure_ascii=False))
+    for sid in ("de_00_lead2", "cv_clean_000", "noise_demand_DKITCHEN_16k_sample"):
+        (vad / "audio" / f"{sid}.wav").write_bytes(_miniwav())
     (root / "results").mkdir()
     (root / "results" / "latest.json").write_text(
         json.dumps({"version": 1, "rows": [{"backend": "ps-pk-onnx", "wer": 0.05}]})
@@ -239,3 +256,47 @@ def test_reject_requires_admin(client):
 def test_edit_requires_admin(client):
     r = client.post("/api/benchmark/samples/akzent_001/edit", json={"text": "x"})
     assert r.status_code in (401, 403)
+
+
+# ── VAD-Testset-Samples (Change 073) ──────────────────────────────────────
+
+
+def test_vadsamples_public(client):
+    """VAD-Sample-Liste öffentlich: alle Paket-Samples mit URLs + GT-Flag."""
+    r = client.get("/api/benchmark/vadsamples")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["count"] == 3
+    ids = {s["id"] for s in data["samples"]}
+    assert ids == {"de_00_lead2", "cv_clean_000", "noise_demand_DKITCHEN_16k_sample"}
+    for s in data["samples"]:
+        assert s["preview_url"].startswith("/api/benchmark/vadpreview/")
+        assert s["audio_url"].startswith("/api/benchmark/vadaudio/")
+    # GT-Flag: de_00_lead2 hat GT, noise_demand nicht
+    by_id = {s["id"]: s for s in data["samples"]}
+    assert by_id["de_00_lead2"]["has_gt"] is True
+    assert by_id["noise_demand_DKITCHEN_16k_sample"]["has_gt"] is False
+    assert by_id["de_00_lead2"]["source"] == "piper-tts"
+
+
+def test_vadaudio_returns_wav(client):
+    r = client.get("/api/benchmark/vadaudio/de_00_lead2")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("audio/wav")
+
+
+def test_vadaudio_unknown_404(client):
+    assert client.get("/api/benchmark/vadaudio/nope").status_code == 404
+
+
+def test_vadpreview_returns_mp3(client):
+    """VAD-Preview on-demand: aus VAD-WAV via ffmpeg → MP3 128k."""
+    r = client.get("/api/benchmark/vadpreview/de_00_lead2")
+    if r.status_code == 404:
+        pytest.skip("ffmpeg nicht verfügbar")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("audio/mpeg")
+
+
+def test_vadpreview_unknown_404(client):
+    assert client.get("/api/benchmark/vadpreview/nope").status_code == 404

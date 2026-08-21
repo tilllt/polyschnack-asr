@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
-import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse } from "../benchmark";
+import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, BenchmarkVadSamples, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
+import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse, VadSample } from "../benchmark";
 
 const CAT: Cat = { id: "akzent", name: "Akzente", description: "Regionale Färbungen" };
 
@@ -564,5 +564,137 @@ describe("BenchmarkPageContent — Change 071 (VAD-Methodik + Player sichtbar)",
     );
     // akzent ist categories[0] → initial offen → Sample sofort sichtbar
     expect(screen.getByText("akzent_001")).toBeTruthy();
+  });
+});
+
+// ── Change 073: VAD-Testset-Samples anhörbar ──────────────────────────────
+
+const VAD_SAMPLES: VadSample[] = [
+  {
+    id: "de_00_lead2",
+    source: "piper-tts",
+    variant: "lead2",
+    split: "public",
+    has_gt: true,
+    preview_url: "/api/benchmark/vadpreview/de_00_lead2",
+    audio_url: "/api/benchmark/vadaudio/de_00_lead2",
+  },
+  {
+    id: "cv_clean_000_snr0_n0",
+    source: "commonvoice:cv_clean_000",
+    variant: "snr0_n0",
+    split: "public",
+    has_gt: true,
+    preview_url: "/api/benchmark/vadpreview/cv_clean_000_snr0_n0",
+    audio_url: "/api/benchmark/vadaudio/cv_clean_000_snr0_n0",
+  },
+  {
+    id: "noise_demand_DKITCHEN_16k_sample",
+    source: "demand",
+    variant: "demand",
+    split: "public",
+    has_gt: false,
+    preview_url: "/api/benchmark/vadpreview/noise_demand_DKITCHEN_16k_sample",
+    audio_url: "/api/benchmark/vadaudio/noise_demand_DKITCHEN_16k_sample",
+  },
+];
+
+describe("BenchmarkVadSamples (Change 073)", () => {
+  function renderVad() {
+    return render(
+      <LocaleProvider>
+        <BenchmarkVadSamples samples={VAD_SAMPLES} />
+      </LocaleProvider>,
+    );
+  }
+
+  test("rendert Testset-Liste mit Gruppentiteln + Sample-Zeilen", () => {
+    renderVad();
+    expect(screen.getByText(/Testset-Samples/)).toBeTruthy();
+    expect(screen.getByText(/Basis-Samples/)).toBeTruthy();
+    expect(screen.getByText(/DEMAND-SNR-Mixe/)).toBeTruthy();
+    expect(screen.getByText(/Noise-FP/)).toBeTruthy();
+    // Sample-IDs sichtbar
+    expect(screen.getByText("de_00_lead2")).toBeTruthy();
+    expect(screen.getByText("cv_clean_000_snr0_n0")).toBeTruthy();
+    expect(screen.getByText("noise_demand_DKITCHEN_16k_sample")).toBeTruthy();
+  });
+
+  test("Quell-Label + GT-Hinweis (keine GT bei FP-Samples)", () => {
+    renderVad();
+    expect(screen.getByText("Piper-TTS")).toBeTruthy();
+    expect(screen.getByText("Common Voice")).toBeTruthy();
+    expect(screen.getByText("DEMAND")).toBeTruthy();
+    expect(screen.getByText("keine GT (FP)")).toBeTruthy();
+    // DEMAND-SNR-Hinweis (Gruppen-Hint) sichtbar
+    expect(screen.getByText(/Küche\/Metro/)).toBeTruthy();
+  });
+
+  test("WAV-Download-Link zeigt auf audio_url", () => {
+    renderVad();
+    const links = screen.getAllByText("⬇ WAV") as HTMLAnchorElement[];
+    expect(links.length).toBe(3);
+    const hrefs = links.map((l) => l.getAttribute("href"));
+    expect(hrefs).toContain("/api/benchmark/vadaudio/de_00_lead2");
+    expect(hrefs).toContain("/api/benchmark/vadaudio/noise_demand_DKITCHEN_16k_sample");
+  });
+});
+
+describe("BenchmarkPageContent — Change 073 (VAD-Sample-Liste in Sektion)", () => {
+  const META3 = {
+    version: 2,
+    created_at: "2026-08-19T14:22:25Z",
+    supersedes: 1,
+    sample_count: 207,
+    matrix_total: 207,
+    methodology: "WER/CER auf CommonVoice-de + TTS",
+    disclaimer: "Held-out-Samples bleiben privat.",
+    axes: {},
+    categories: [{ id: "akzent", name: "Akzente" }],
+  };
+  const DATA3 = {
+    version: 2,
+    samples: [
+      { id: "akzent_001", category: "akzent", text: "Kisten und Möbel", preview_url: "/p", audio_url: "/a" },
+    ],
+  };
+
+  test("VAD-Sektion zeigt Sample-Liste, wenn vadSamples geliefert wird", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META3 as never}
+          data={DATA3 as never}
+          results={null}
+          pricing={null}
+          vadSamples={{ samples: VAD_SAMPLES, count: VAD_SAMPLES.length }}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText(/Testset-Samples/)).toBeTruthy();
+    expect(screen.getByText("de_00_lead2")).toBeTruthy();
+  });
+
+  test("VAD-Sektion ohne vadSamples (kein Paket) zeigt keine Liste", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META3 as never}
+          data={DATA3 as never}
+          results={null}
+          pricing={null}
+          vadSamples={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByText(/Testset-Samples/)).toBeNull();
   });
 });

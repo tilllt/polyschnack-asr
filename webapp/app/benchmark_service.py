@@ -753,6 +753,62 @@ class BenchmarkService:
         )
         return dest
 
+    # ── VAD-Testset-Samples (Change 073) ──────────────────────────────────
+
+    def _vad_package_dir(self) -> Path:
+        """Aktuelles VAD-Paket (Change 065): versions/v{n}/vad/."""
+        return self._version_dir(self.latest_manifest()["version"]) / "vad"
+
+    def vad_samples(self) -> List[dict]:
+        """Öffentliche VAD-Testset-Liste (Change 073).
+
+        Liest das vad-manifest.json des aktuellen Pakets (235 public
+        Samples: CommonVoice + Piper-Basis, DEMAND-SNR-Mixe, Noise/Musik/
+        Babble-FP) und ergänzt Preview-/Audio-URLs. Held-out ist nicht im
+        Paket — es gibt hier nichts Geheimes.
+        """
+        manifest = self._vad_package_dir() / "vad-manifest.json"
+        if not manifest.exists():
+            raise FileNotFoundError("kein VAD-Paket vorhanden")
+        pkg = json.loads(manifest.read_text(encoding="utf-8"))
+        return [
+            {
+                "id": s["id"],
+                "source": s.get("source", ""),
+                "variant": s.get("variant", ""),
+                "split": s.get("split", "public"),
+                "has_gt": bool(s.get("gt")),
+                "preview_url": f"/api/benchmark/vadpreview/{s['id']}",
+                "audio_url": f"/api/benchmark/vadaudio/{s['id']}",
+            }
+            for s in pkg.get("samples", [])
+        ]
+
+    def vad_audio_path(self, sample_id: str) -> Path:
+        """WAV-Pfad eines VAD-Samples (Change 073)."""
+        p = self._vad_package_dir() / "audio" / f"{sample_id}.wav"
+        if not p.exists():
+            raise KeyError(sample_id)
+        return p
+
+    def ensure_vad_preview(self, sample_id: str) -> Path:
+        """Preview-MP3 (128k) eines VAD-Samples, on-demand gecacht (Change 073)."""
+        dest = self._vad_package_dir() / "preview" / f"{sample_id}.mp3"
+        if dest.exists():
+            return dest
+        src = self.vad_audio_path(sample_id)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(src),
+                "-codec:a", "libmp3lame", "-b:a", PREVIEW_BITRATE, "-ac", "1",
+                str(dest),
+            ],
+            check=True, timeout=300,
+        )
+        return dest
+
 
 def _now_iso() -> str:
     import datetime

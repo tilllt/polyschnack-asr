@@ -105,6 +105,23 @@ export interface BenchmarkResults {
   vad?: VadResultRow[];
 }
 
+/** Change 073: VAD-Testset-Sample (öffentlich anhörbar auf der Benchmark-Seite). */
+export interface VadSample {
+  id: string;
+  source: string;
+  variant: string;
+  split: string;
+  /** true = Sample hat Ground-Truth-Sprachregionen (GT); FP-Samples nicht. */
+  has_gt: boolean;
+  preview_url: string;
+  audio_url: string;
+}
+
+export interface VadSamplesResponse {
+  samples: VadSample[];
+  count: number;
+}
+
 export function parseBenchmarkPath(path: string): boolean {
   const p = path.split("?")[0].replace(/\/+$/, "");
   return p === "/benchmark" || p.startsWith("/benchmark/");
@@ -121,6 +138,13 @@ export async function fetchBenchmarkMeta(): Promise<BenchmarkMeta> {
 
 export async function fetchBenchmarkSamples(): Promise<BenchmarkSamplesResponse> {
   return fetch("/api/benchmark/samples").then(checkOk).then((r) => r.json());
+}
+
+/** Change 073: VAD-Testset-Samples (öffentliche Liste mit Audio-URLs). */
+export async function fetchVadSamples(): Promise<VadSamplesResponse | null> {
+  const res = await fetch("/api/benchmark/vadsamples");
+  if (res.status === 404) return null;
+  return checkOk(res).then((r) => r.json());
 }
 
 export async function fetchBenchmarkResults(): Promise<BenchmarkResults | null> {

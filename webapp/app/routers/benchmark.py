@@ -172,6 +172,44 @@ def preview(sample_id: str) -> FileResponse:
     return FileResponse(path, media_type="audio/mpeg", filename=f"{sample_id}.mp3")
 
 
+# ── VAD-Testset-Samples (Change 073) ─────────────────────────────────────
+
+@router.get("/vadsamples")
+def vad_samples() -> Dict[str, Any]:
+    """Öffentliche VAD-Testset-Liste (235 public Samples inkl. DEMAND-SNR-Mixe)."""
+    svc = _require_data()
+    try:
+        samples = svc.vad_samples()
+    except FileNotFoundError:
+        raise HTTPException(404, "no vad package available")
+    return {
+        "samples": samples,
+        "count": len(samples),
+    }
+
+
+@router.get("/vadaudio/{sample_id}")
+def vad_audio(sample_id: str) -> FileResponse:
+    svc = _require_data()
+    try:
+        path = svc.vad_audio_path(sample_id)
+    except KeyError:
+        raise HTTPException(404, "vad sample not found")
+    return FileResponse(path, media_type="audio/wav", filename=f"{sample_id}.wav")
+
+
+@router.get("/vadpreview/{sample_id}")
+def vad_preview(sample_id: str) -> FileResponse:
+    svc = _require_data()
+    try:
+        path = svc.ensure_vad_preview(sample_id)
+    except KeyError:
+        raise HTTPException(404, "vad sample not found")
+    except FileNotFoundError:
+        raise HTTPException(404, "vad preview not available")
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{sample_id}.mp3")
+
+
 @router.get("/results")
 def results() -> Dict[str, Any]:
     """Gepoolte Benchmark-Ergebnisse (results/latest.json) inkl.
