@@ -1,0 +1,39 @@
+# VAD-Modelle für den Container-Benchmark (Change 062).
+# productive: true = in PolySchnack einsetzbar; false = NUR Benchmark-
+# Referenz (lizenz-inkompatibel). Gilt analog zur ASR-backends.yaml.
+silero-onnx:
+  engine: silero_onnx
+  license: MIT
+  productive: true
+ten-vad:
+  engine: ten_vad
+  license: Apache-2.0 + Agora-Klauseln
+  productive: false
+webrtc:
+  engine: webrtc
+  license: BSD-3-Clause
+  productive: true
+humaware:
+  engine: humaware
+  license: MIT
+  productive: true
+speechbrain-crdnn:
+  engine: speechbrain
+  license: Apache-2.0
+  productive: true
+energy:
+  engine: energy
+  license: "- (deterministische Baseline)"
+  productive: true
+fsmn-vad:
+  engine: fsmn_vad
+  license: Apache-2.0
+  productive: true
+marble-net:
+  engine: marble_net
+  license: NVIDIA "other" (kommerzielle Nutzung unklar)
+  productive: false
+cobra:
+  engine: cobra
+  license: kommerziell (Picovoice, AccessKey)
+  productive: false

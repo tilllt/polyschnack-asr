@@ -1,0 +1,13 @@
+# VAD-Container: webrtc (Change 062) — BSD, Baseline.
+# Build-Kontext: benchmarks/vad/
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY vad_engines.py vad_run.py vad_selfservice.py ./
+RUN uv pip install --system numpy webrtcvad-wheels httpx
+
+ENV VAD_ENGINE=webrtc VAD_BACKEND=webrtc
+CMD ["python", "vad_selfservice.py"]

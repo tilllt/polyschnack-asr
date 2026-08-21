@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
+import tarfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -249,6 +251,49 @@ def package_sha256() -> Dict[str, Any]:
     return {"version": version, "manifest_version": version, "sha256": sha}
 
 
+# ── VAD-Benchmark-Paket (Change 062) ──────────────────────────────────────
+
+
+@router.get("/vadpackage", dependencies=[Depends(require_benchmark_key)])
+def vad_package() -> Response:
+    """Tarball des VAD-Pakets (Stille-Insertions-Varianten + vad-manifest
+    mit exakter GT) — für VAD-Container (Change 062)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    pkg = svc.build_vad_package(m["version"])
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        manifest = pkg / "vad-manifest.json"
+        ti = tar.gettarinfo(str(manifest), arcname="vad-manifest.json")
+        ti.mtime = 0
+        ti.uid = ti.gid = 0
+        ti.uname = ti.gname = ""
+        with open(manifest, "rb") as f:
+            tar.addfile(ti, f)
+        for wav in sorted((pkg / "audio").glob("*.wav")):
+            ti = tar.gettarinfo(str(wav), arcname=f"audio/{wav.name}")
+            ti.mtime = 0
+            ti.uid = ti.gid = 0
+            ti.uname = ti.gname = ""
+            with open(wav, "rb") as f:
+                tar.addfile(ti, f)
+    data = buf.getvalue()
+    sha = svc.vad_package_sha256(m["version"])
+    return Response(
+        content=data, media_type="application/gzip",
+        headers={"X-Benchmark-SHA256": f"v{m['version']}:{sha}"},
+    )
+
+
+@router.get("/vadpackage/sha256", dependencies=[Depends(require_benchmark_key)])
+def vad_package_sha256() -> Dict[str, Any]:
+    """Leichtgewichtiger VAD-Paket-Hash (Vorab-Prüfung durch VAD-Container)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    sha = svc.vad_package_sha256(m["version"])
+    return {"version": m["version"], "manifest_version": m["version"], "sha256": sha}
+
+
 class SampleResultRow(BaseModel):
     sample_id: str
     hyp: Optional[str] = None
@@ -256,10 +301,16 @@ class SampleResultRow(BaseModel):
     cer: Optional[float] = None
     coverage_pct: Optional[float] = None
     rtf: Optional[float] = None
+    # VAD-Metriken (Change 062, kind="vad")
+    vad_f1: Optional[float] = None
+    boundary_start_ms: Optional[float] = None
+    boundary_end_ms: Optional[float] = None
+    fp_time_s: Optional[float] = None
 
 
 class BenchmarkSubmit(BaseModel):
     backend: str
+    kind: Literal["asr", "vad"] = "asr"
     settings: str = "auto"
     manifest_version: int
     manifest_sha256: str
@@ -284,6 +335,7 @@ async def submit(request: Request, body: BenchmarkSubmit) -> Any:
     svc = _require_data()
     payload = body.model_dump()
     payload["rows"] = [r.model_dump() for r in body.rows]
+    payload["kind"] = body.kind
     res = svc.apply_submission(payload)
     if not res["ok"]:
         if res["reason"] == "manifest mismatch":

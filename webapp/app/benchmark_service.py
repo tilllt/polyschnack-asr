@@ -29,6 +29,104 @@ from typing import Any, Dict, List, Optional
 
 from .service_registry import get_service
 
+
+def _median(vals: List[float]) -> float:
+    """Median (numpy-frei, für _vad_summary)."""
+    s = sorted(vals)
+    n = len(s)
+    if not n:
+        return 0.0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+# ── VAD-Paket-Helfer (Change 062) ─────────────────────────────────────────
+
+def _wav_to_float16k(path: Path):
+    """WAV → mono float32 [-1,1] @ 16 kHz (ffmpeg)."""
+    import numpy as np
+
+    out = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(path),
+         "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"],
+        capture_output=True, check=False,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"ffmpeg decode failed: {out.stderr.decode(errors='ignore')[:120]}")
+    return np.frombuffer(out.stdout, dtype="<i2").astype(np.float32) / 32767.0
+
+
+def _write_wav16k(path: Path, wav) -> None:
+    import io
+    import wave
+
+    import numpy as np
+
+    s16 = (np.clip(wav, -1, 1) * 32767).astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(s16.tobytes())
+    path.write_bytes(buf.getvalue())
+
+
+def _vad_regions(probs, num_samples: int, window: int,
+                 threshold: float, min_speech_ms: int = 250,
+                 min_silence_ms: int = 400, speech_pad_ms: int = 120) -> List[tuple]:
+    """Region-Logik (silero-Semantik, wie webapp/app/vad.py)."""
+    min_speech = int(16000 * min_speech_ms / 1000)
+    min_silence = int(16000 * min_silence_ms / 1000)
+    pad = int(16000 * speech_pad_ms / 1000)
+    regions: List[list] = []
+    current = None
+    silence = 0
+    for i, p in enumerate(probs):
+        start = i * window
+        end = start + window
+        if p >= threshold:
+            silence = 0
+            if current is None:
+                current = [start, end]
+            else:
+                current[1] = end
+        else:
+            silence += window
+            if current is not None and silence >= min_silence:
+                if current[1] - current[0] > min_speech:
+                    regions.append(current)
+                current = None
+    if current is not None and current[1] - current[0] > min_speech:
+        regions.append(current)
+    out = []
+    for r in regions:
+        s = max(0, r[0] - pad)
+        e = min(num_samples, r[1] + pad)
+        if e > s:
+            out.append((s / 16000, e / 16000))
+    return out
+
+
+def _energy_gt(wav, window: int = 512, thresh_db: float = -40.0) -> List[tuple]:
+    """Energie-Regionen (VAD-freie GT-Basis)."""
+    import numpy as np
+
+    probs = np.array([
+        1.0 if np.sqrt((wav[i * window:(i + 1) * window] ** 2).mean()) > 10 ** (thresh_db / 20)
+        else 0.0
+        for i in range((wav.size - window) // window + 1)
+    ], dtype=np.float32)
+    return _vad_regions(probs, wav.size, window=window, threshold=0.5)
+
+
+def _shift_mid(seg, mid_at: float, mid_len: float) -> List[tuple]:
+    s, e = seg
+    if e <= mid_at:
+        return [(s, e)]
+    if s >= mid_at:
+        return [(s + mid_len, e + mid_len)]
+    return [(s, mid_at), (mid_at + mid_len, e + mid_len)]
+
 log = logging.getLogger(__name__)
 
 PREVIEW_BITRATE = "128k"
@@ -62,6 +160,113 @@ class BenchmarkService:
             raise FileNotFoundError("keine Benchmark-Version vorhanden")
         return self._load_manifest(nums[-1])
 
+    def _vad_summary(self, runs_dir: Path, sha: str) -> List[dict]:
+        """VAD-Ergebnis-Zusammenfassung (Change 062): je Backend F1/Boundaries/FP/RTF.
+
+        Sammelt Runs mit kind=="vad" + aktuellem Manifest-Hash; ASR-Runs
+        (ohne vad_f1) werden ignoriert — der ASR-Pool bleibt unberührt.
+        """
+        by_backend: Dict[str, List[dict]] = {}
+        for rf in runs_dir.glob("*.json"):
+            try:
+                data = json.loads(rf.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("kind") != "vad" or data.get("manifest_sha256") != sha:
+                continue
+            rows = [r for r in data.get("rows", []) if r.get("vad_f1") is not None]
+            by_backend.setdefault(data["backend"], []).extend(rows)
+        out: List[dict] = []
+        for bname, rows in by_backend.items():
+            n = len(rows)
+            if not n:
+                continue
+            bs = sorted(r.get("boundary_start_ms") or 0 for r in rows)
+            be = sorted(r.get("boundary_end_ms") or 0 for r in rows)
+            out.append({
+                "backend": bname,
+                "kind": "vad",
+                "n_samples": n,
+                "vad_f1_mean": round(sum(r["vad_f1"] for r in rows) / n, 4),
+                "boundary_start_ms_median": _median(bs),
+                "boundary_end_ms_median": _median(be),
+                "fp_time_s": round(sum(r.get("fp_time_s") or 0 for r in rows), 2),
+                "rtf_mean": round(sum(r.get("rtf") or 0 for r in rows) / n, 4),
+            })
+        out.sort(key=lambda r: r["backend"])
+        return out
+
+    # ── VAD-Benchmark-Paket (Change 062) ────────────────────────────────
+
+    def build_vad_package(self, version: int) -> Path:
+        """Erzeugt deterministisch das VAD-Paket (Change 062).
+
+        Pro ASR-Sample werden Stille-Insertions-Varianten generiert
+        (lead2/trail2/both2/mid1 — gleiche Methodik wie benchmarks/vad);
+        die Ground Truth ist die Energie-GT der Quelle + Insertions-Offsets
+        (deterministisch, VAD-frei). Gecacht unter versions/v{version}/vad/.
+        """
+        pkg = self.data_dir / "versions" / f"v{version}" / "vad"
+        if (pkg / "vad-manifest.json").exists():
+            return pkg
+        m = self._load_manifest(version)
+        audio_dir = self.data_dir / "versions" / f"v{version}" / "audio"
+        pkg.mkdir(parents=True, exist_ok=True)
+        out_audio = pkg / "audio"
+        out_audio.mkdir(exist_ok=True)
+        samples_out: List[dict] = []
+        for s in m.get("samples", []):
+            src = audio_dir / f"{s['id']}.wav"
+            if not src.exists():
+                continue
+            wav = _wav_to_float16k(src)
+            gt = _energy_gt(wav)
+            if not gt:
+                continue
+            dur = wav.size / 16_000
+            variants = [("lead2", 2.0, None), ("trail2", 0.0, None), ("both2", 2.0, None)]
+            if dur >= 4.0:
+                variants.append(("mid1", 0.0, (1.5, 1.0)))
+            for vname, lead, mid in variants:
+                if mid is not None:
+                    mid_at, mid_len = mid
+                    out_wav = np.concatenate([
+                        wav[: int(mid_at * 16_000)],
+                        np.zeros(int(mid_len * 16_000)),
+                        wav[int(mid_at * 16_000):],
+                        np.zeros(int(2.0 * 16_000)),
+                    ])
+                    g: List[tuple] = []
+                    for seg in gt:
+                        g.extend(_shift_mid(seg, mid_at, mid_len))
+                else:
+                    trail = 2.0 if vname in ("both2", "trail2") else 0.0
+                    out_wav = np.concatenate([
+                        np.zeros(int(lead * 16_000)), wav,
+                        np.zeros(int(trail * 16_000)),
+                    ])
+                    g = [(seg[0] + lead, seg[1] + lead) for seg in gt]
+                sid = f"{s['id']}_{vname}"
+                _write_wav16k(out_audio / f"{sid}.wav", out_wav)
+                samples_out.append({
+                    "id": sid, "source": s["id"], "variant": vname,
+                    "gt": [{"start": round(a, 4), "end": round(b, 4)} for a, b in g],
+                })
+        (pkg / "vad-manifest.json").write_text(json.dumps({
+            "version": version,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "samples": samples_out,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        return pkg
+
+    def vad_package_sha256(self, version: int) -> str:
+        """Deterministischer Hash des VAD-Pakets (Manifest + je WAV, sortiert)."""
+        pkg = self.build_vad_package(version)
+        parts = [hashlib.sha256((pkg / "vad-manifest.json").read_bytes()).digest()]
+        for wav in sorted((pkg / "audio").glob("*.wav")):
+            parts.append(hashlib.sha256(wav.read_bytes()).digest())
+        return hashlib.sha256(b"".join(parts)).hexdigest()
+
     def latest_results(self) -> dict:
         """latest.json inkl. `per_category` (Change 032) + `per_sample` (Change 039).
 
@@ -75,6 +280,16 @@ class BenchmarkService:
         """
         p = self.data_dir / "results" / "latest.json"
         latest = json.loads(p.read_text(encoding="utf-8"))
+        # Change 062: VAD-Sektion immer on-the-fly anreichern (auch wenn
+        # latest.json vor dem VAD-Deploy gepoolt wurde).
+        try:
+            m = self.latest_manifest()
+            sha = self.package_sha256(m["version"])
+            runs_dir = self.data_dir / "results" / "runs"
+            if runs_dir.exists():
+                latest["vad"] = self._vad_summary(runs_dir, sha)
+        except (FileNotFoundError, KeyError):
+            latest.setdefault("vad", [])
         if latest.get("per_category") and latest.get("per_sample"):
             return latest
         try:
@@ -325,7 +540,10 @@ class BenchmarkService:
         """
         m = self.latest_manifest()
         version = m["version"]
-        sha = self.package_sha256(version)
+        kind = payload.get("kind", "asr")
+        # Change 062: VAD-Submits validieren gegen das VAD-Paket (eigener
+        # Hash), ASR-Submits gegen das ASR-Paket.
+        sha = self.vad_package_sha256(version) if kind == "vad" else self.package_sha256(version)
         if (
             payload.get("manifest_version") != version
             or payload.get("manifest_sha256") != sha
@@ -336,7 +554,15 @@ class BenchmarkService:
                 "current": {"version": version, "sha256": sha},
             }
         backend = payload["backend"]
-        if get_service(backend) is None:
+        kind = payload.get("kind", "asr")
+        if kind == "vad":
+            # Change 062: VAD-Modelle aus vad_models.yaml (auch lizenz-
+            # inkompatible Referenz-Modelle) — getrennt von ASR-Backends.
+            from .service_registry import get_vad_model
+
+            if get_vad_model(backend) is None:
+                return {"ok": False, "reason": "unknown backend", "backend": backend}
+        elif get_service(backend) is None:
             return {"ok": False, "reason": "unknown backend", "backend": backend}
 
         runs_dir = self.data_dir / "results" / "runs"
@@ -349,6 +575,7 @@ class BenchmarkService:
             i += 1
         run = {
             "backend": backend,
+            "kind": payload.get("kind", "asr"),
             "settings": payload.get("settings", "auto"),
             "run_id": payload.get("run_id"),
             "generated_at": payload.get("generated_at"),
@@ -369,7 +596,8 @@ class BenchmarkService:
         per_sample: Dict[str, Dict[str, float]] = {}  # Change 039
         for rf in runs_dir.glob("*.json"):
             data = json.loads(rf.read_text(encoding="utf-8"))
-            if data.get("manifest_sha256") != sha:
+            # Change 062: VAD-Runs gehören nicht in den ASR-Pool (kein wer)
+            if data.get("kind") == "vad" or data.get("manifest_sha256") != sha:
                 continue
             bb = by_backend.setdefault(data["backend"], [])
             for r in data["rows"]:
@@ -421,6 +649,7 @@ class BenchmarkService:
                 sid: {b: round(w, 4) for b, w in backs.items()}
                 for sid, backs in sorted(per_sample.items())
             },
+            "vad": self._vad_summary(runs_dir, sha),  # Change 062
         }
         (self.data_dir / "results" / "latest.json").write_text(
             json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"

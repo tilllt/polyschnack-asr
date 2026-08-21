@@ -32,12 +32,26 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 _BACKENDS_FILE = Path(__file__).parent / "backends.yaml"
+# VAD-Modelle für den Container-Benchmark (Change 062) — siehe vad_models.yaml.
+_VAD_MODELS_FILE = Path(__file__).parent / "vad_models.yaml"
 
 
 def _load() -> List[Dict[str, Any]]:
     with open(_BACKENDS_FILE, encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     return list(data["services"])
+
+
+def _load_vad_models() -> Dict[str, Dict[str, Any]]:
+    """VAD-Modell-Registry (Change 062): name → {engine, license, productive}."""
+    with open(_VAD_MODELS_FILE, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return dict(data)
+
+
+def get_vad_model(name: str) -> Optional[Dict[str, Any]]:
+    """VAD-Modell per Name (None wenn unbekannt)."""
+    return _load_vad_models().get(name)
 
 
 SERVICES: List[Dict[str, Any]] = _load()

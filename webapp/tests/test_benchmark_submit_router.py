@@ -319,3 +319,67 @@ def test_submit_signature_binds_to_key(client):
     h = {"Authorization": f"Bearer {_TEST_KEY}", "X-Benchmark-Signature": sig_other}
     r = client.post("/api/benchmark/submit", json=body, headers=h)
     assert r.status_code == 401
+
+
+# ── Change 062: VAD-Submit (kind="vad") ───────────────────────────────────
+
+def _vad_submit_body(backend: str = "silero-onnx", sha: str | None = None,
+                     version: int = 1) -> dict:
+    from app.benchmark_service import BenchmarkService
+
+    root = Path(settings.BENCHMARK_DATA_DIR)
+    svc = BenchmarkService(root)
+    vad_sha = sha or svc.vad_package_sha256(version)
+    return {
+        "backend": backend,
+        "kind": "vad",
+        "settings": "auto",
+        "manifest_version": version,
+        "manifest_sha256": vad_sha,
+        "run_id": "vad-run-1",
+        "generated_at": "2026-08-21T09:00:00Z",
+        "rows": [
+            {"sample_id": "clean_001", "vad_f1": 0.96, "boundary_start_ms": 16.0,
+             "boundary_end_ms": 72.0, "fp_time_s": 0.0, "rtf": 0.02},
+            {"sample_id": "clean_002", "vad_f1": 0.94, "boundary_start_ms": 20.0,
+             "boundary_end_ms": 60.0, "fp_time_s": 0.0, "rtf": 0.02},
+            {"sample_id": "clean_003", "vad_f1": 0.92, "boundary_start_ms": 12.0,
+             "boundary_end_ms": 80.0, "fp_time_s": 0.5, "rtf": 0.03},
+        ],
+        "meta": {"engine": "silero_onnx"},
+    }
+
+
+def test_vad_submit_ok_pools_separately(client):
+    r = _post_submit(client, _vad_submit_body())
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    latest = json.loads((Path(settings.BENCHMARK_DATA_DIR) / "results" / "latest.json").read_text())
+    # VAD-Run erscheint NICHT im ASR-Pool (kein wer) …
+    assert latest["rows"] == []
+    # … aber in der neuen vad-Sektion
+    vad = latest["vad"]
+    assert len(vad) == 1
+    assert vad[0]["backend"] == "silero-onnx"
+    assert vad[0]["n_samples"] == 3
+    assert vad[0]["vad_f1_mean"] == pytest.approx(0.94, abs=0.001)
+    assert vad[0]["boundary_start_ms_median"] == pytest.approx(16.0)
+    assert vad[0]["boundary_end_ms_median"] == pytest.approx(72.0)
+    assert vad[0]["fp_time_s"] == pytest.approx(0.5)
+    # Run-Datei trägt kind="vad"
+    runs = list((Path(settings.BENCHMARK_DATA_DIR) / "results" / "runs").glob("silero-onnx_*.json"))
+    assert len(runs) == 1
+    assert json.loads(runs[0].read_text())["kind"] == "vad"
+
+
+def test_vad_submit_unknown_model_rejected(client):
+    r = _post_submit(client, _vad_submit_body(backend="does-not-exist-vad"))
+    assert r.status_code == 422
+    assert r.json()["reason"] == "unknown backend"
+
+
+def test_vad_submit_reference_model_allowed(client):
+    """Lizenz-inkompatible Referenz-Modelle (ten-vad) sind benchmarkbar."""
+    r = _post_submit(client, _vad_submit_body(backend="ten-vad"))
+    assert r.status_code == 200
+    assert r.json()["ok"] is True

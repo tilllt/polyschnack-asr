@@ -1,0 +1,15 @@
+# VAD-Container: silero-onnx (Change 062) — MIT, produktiv nutzbar.
+# Build-Kontext: benchmarks/vad/ (COPY vad_engines.py vad_run.py vad_selfservice.py)
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY vad_engines.py vad_run.py vad_selfservice.py ./
+RUN uv pip install --system numpy onnxruntime httpx
+
+# Modell (silero_vad.onnx, ~2,3 MB) wird beim ersten Lauf nach
+# /tmp/ps_vad_bench/models/ geladen (vad_engines.silero_onnx → app/vad.py-Semantik).
+ENV VAD_ENGINE=silero_onnx VAD_BACKEND=silero-onnx
+CMD ["python", "vad_selfservice.py"]
