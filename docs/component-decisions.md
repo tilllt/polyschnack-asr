@@ -111,3 +111,99 @@ notiert (unverändert Silero-Qualität).
 [TEN-VAD-Lizenz](https://github.com/TEN-framework/ten-vad/blob/main/LICENSE)
 · [sherpa ten-vad-Port (pitch=0)](https://k2-fsa.github.io/sherpa/onnx/vad/ten-vad.html)
 · Picovoice-Methodik (FPR/TPR) [voice-activity-benchmark](https://github.com/Picovoice/voice-activity-benchmark)
+
+## VAD-Benchmark V3 — offizielles Testset-Artefakt + FSMN-VAD (Change 063, 2026-08-21)
+
+**V3-Testset (101 Samples):** 31 DE-Synth (Stille-Insertion), 60 DEMAND-SNR
+(SNR 0/5/10 dB auf ALLEN Basis-Samples × Küche/Metro), 1 Babble, 2 TEN,
+4 Noise, 3 MUSAN-Musik — deterministisch, als GitHub-Release
+(`tilllt/vad-benchmark-data`, v3, SHA256 im Release).
+
+| Engine | Lizenz | F1 (mean) | FP-Speech (s) | RTF |
+|---|---|---|---|---|
+| **Silero-onnx** | MIT | **0,987** | **0,0** | 0,033 |
+| Energy-Baseline | — | 0,982 | 157,6 | 0,001 |
+| WebRTC (GMM) | BSD | 0,979 | 135,2 | 0,0002 |
+| **FSMN-VAD (FunASR)** | Apache-2.0 | 0,975 | 12,2 | 0,106 |
+| HumAware-VAD | MIT | 0,894 | 16,0 | 0,141 |
+| TEN VAD (Referenz) | Apache-2.0+Agora | 0,785 | 7,5 | 0,018 |
+| speechbrain CRDNN (EN) | Apache-2.0 | 0,755 | 0,0 | 0,153 |
+
+**Einordnung:**
+- **Silero-onnx gewinnt auch auf dem größeren V3-Set** (F1 0,987, 0,0 s FP) —
+  die Produktivwahl bleibt bestätigt.
+- **FSMN-VAD ist die einzige lizenz-saubere echte Alternative** (Apache-2.0,
+  multilingual): Qualität fast gleichauf (0,975), aber **12,2 s FP** (erkennt
+  Musik/Noise als Sprache) und **~3× langsamer als Silero** (RTF 0,106 vs.
+  0,033 auf CPU) → für Silence-Trimming in der Webapp nicht besser.
+- **Kein eigenes Training** bleibt bestätigt (HumAware-Feintuning verliert
+  weiterhin: 0,894 vs. 0,987).
+- **„Die besseren Modelle" aus Blogs (TEN VAD) verlieren im eigenen Test**
+  (0,785) — Blog-Benchmarks (Picovoice etc.) sind vendor-freundlich.
+
+**Quellen:** eigener Lauf `benchmarks/vad/out/results_v3_public.md`
+(2026-08-21) · [FSMN-VAD (FunASR, Apache-2.0)](https://huggingface.co/funasr/fsmn-vad)
+
+## VAD-Benchmark V3.1 — Common-Voice-Basis + public/held-out-Split (Change 064, 2026-08-21)
+
+**Motivation:** V1–V3 basierten nur auf Piper-TTS (synthetisch, ein Sprecher).
+Für die Produktiv-Realität (Nutzer laden eigene Aufnahmen hoch) ist echte
+Sprache mit Mikrofon-/Raumrauschen die realistischere Messung. Die 24 lokal
+vorhandenen Common-Voice-DE-WAVs (CC0, akzent/child/clean, Seed-42-Auswahl
+aus dem ASR-Testset) sind die natürliche zweite Basis — pur
+(Stille-Insertion, exakte GT) UND kontaminiert (DEMAND-SNR 0/5/10 dB; die GT
+bleibt exakt, da die Speech-Regionen deterministisch bekannt sind).
+
+**public/held-out-Split (Change 064):** deterministischer Split (Seed 42,
+60/40). Nur der **public-Teil** (235 Samples) erscheint in GitHub-Release/
+ZIP/Repo/Container-Images; der **held-out-Teil** (126 Samples: andere
+Stille-Insertionen + frische TTS-Varianten, nie veröffentlicht) existiert nur
+lokal (`assets/v3-heldout/`, gitignored) und optional auf der KI-Box. Grund:
+Sobald ein Testset öffentlich ist, kann es in Trainingsdaten einfließen
+(Leakage) → die Benchmark-Zahlen wären nicht mehr ehrlich. `run_benchmark.py
+--split heldout` lädt heldout nie vom Release und bricht ohne lokales
+Verzeichnis ab. Das Repo/Mirror (GitHub, Harbor) enthält niemals
+held-out-Audio.
+
+**Release-Format für externe User:** `vad-benchmark-v3.1-public.zip`
+(Release v4) = public-WAVs + `testset.json` (GT + `source` je Sample) +
+`PROVENANCE.md` (Quellen/Lizenzen/Seeds/SHA256) + `SHA256SUMS` +
+`results_v3_public.json`.
+
+**Ergebnisse (final, V3.1-Lauf 2026-08-21, 7 Engines):**
+
+*public (235 Samples, inkl. 144 SNR-Mixe + Noise/Musik-FP):*
+
+| Engine | F1 | B-Start (med ms) | B-Ende (med ms) | FP-Speech (s) | RTF |
+|---|---|---|---|---|---|
+| **Silero-onnx** | **0,995** | 32 | 64 | **0,0** | 0,022 |
+| WebRTC (GMM) | 0,987 | 22 | 90 | 135,2 | 0,0003 |
+| Energy-Baseline | 0,964 | 16 | 16 | 157,6 | 0,0005 |
+| HumAware-VAD | 0,945 | 32 | 32 | 16,0 | 0,054 |
+| FSMN-VAD | 0,918 | 72 | 164 | 12,2 | 0,032 |
+| TEN VAD (Referenz) | 0,889 | 126 | 50 | 7,5 | 0,013 |
+| speechbrain CRDNN (EN) | 0,697 | 40 | 776 | 0,0 | 0,062 |
+
+*heldout (126 Samples, nie veröffentlicht — frische Insertionen + CV):*
+
+| Engine | F1 | B-Start (med ms) | B-Ende (med ms) | RTF |
+|---|---|---|---|---|
+| **Silero-onnx** | **0,998** | 32 | 96 | 0,018 |
+| WebRTC (GMM) | 0,988 | 34 | 107 | 0,0002 |
+| HumAware-VAD | 0,980 | 32 | 32 | 0,038 |
+| Energy-Baseline | 0,956 | 16 | 32 | 0,0005 |
+| TEN VAD (Referenz) | 0,932 | 126 | 72 | 0,012 |
+| FSMN-VAD | 0,898 | 104 | 712 | 0,020 |
+| speechbrain CRDNN (EN) | 0,561 | 72 | 824 | 0,039 |
+
+**Kernerkenntnis V3.1:** Silero-onnx gewinnt auf beiden Splits (public 0,995 /
+heldout 0,998) und bleibt **0,0 s FP** — auch auf den 24 echten
+Common-Voice-Aufnahmen (TTS war also keine künstlich einfache Bedingung).
+FSMN-VAD (einzige lizenz-saubere Alternative) bleibt bei 0,918 public /
+12,2 s FP — Qualität gut, aber FP-Risiko und RTF-Vorteil sprechen weiter
+gegen einen Wechsel. heldout-Zahlen sind die ehrliche finale Bewertung
+(kein Leakage-Risiko), public-Zahlen dienen externen Usern zur
+Reproduzierbarkeit.
+
+**Quellen:** [Common Voice DE (CC0-1.0)](https://commonvoice.mozilla.org/de) ·
+`cv_selection.json` (Seed 42) · eigener Lauf (2026-08-21)

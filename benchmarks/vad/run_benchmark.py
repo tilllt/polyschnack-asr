@@ -251,55 +251,111 @@ def main():
     ap.add_argument("--engines", default="silero_onnx,ten_vad,energy")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--max-tts", type=int, default=12)
+    ap.add_argument("--v3", action="store_true",
+                    help="V3-Testset nutzen (assets/v3/testset.json + audio/, Change 063)")
+    ap.add_argument("--split", choices=["public", "heldout", "all"], default="all",
+                    help="Welchen Split messen (Change 064). heldout NUR lokal "
+                         "(assets/v3-heldout/) — wird nie vom Release geladen.")
     args = ap.parse_args()
 
     out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
-    manifest = build_testset(out_dir, args.tts_dir, args.ten_dir, args.max_tts)
+    if args.v3:
+        # V3.1-Testset (Change 063/064): testset.json + audio/ — deterministisch,
+        # offiziell als GitHub-Release (tilllt/vad-benchmark-data).
+        # Split-Trennung (Change 064): public → Release/Download-Fallback;
+        # heldout → NUR lokal, kein Download, sonst Abbruch (Leakage-Schutz).
+        load_splits = ["public", "heldout"] if args.split == "all" else [args.split]
+        manifest: dict = {}
+        for split in load_splits:
+            split_dir = ASSETS / ("v3" if split == "public" else "v3-heldout")
+            if not (split_dir / "testset.json").exists():
+                if split == "heldout":
+                    raise SystemExit(
+                        "heldout-Testset fehlt lokal (assets/v3-heldout/) — "
+                        "held-out-Samples werden nie öffentlich verteilt. "
+                        "Lokal generieren: build_testset_v3.py --split heldout")
+                import io
+                import tarfile
+                import urllib.request
+
+                url = ("https://github.com/tilllt/vad-benchmark-data/releases/"
+                       "download/v4/vad-testset-v3.1-public.tar.gz")
+                print(f"Lade V3.1-public-Testset von {url} …")
+                with urllib.request.urlopen(url, timeout=120) as r:
+                    raw = r.read()
+                with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+                    tar.extractall(split_dir, filter="data")
+                print("V3.1-public-Testset entpackt nach", split_dir)
+            ts = json.loads((split_dir / "testset.json").read_text(encoding="utf-8"))
+            for s in ts["samples"]:
+                manifest[s["id"]] = {
+                    "file": str(split_dir / "audio" / f"{s['id']}.wav"),
+                    "gt": [(g["start"], g["end"]) for g in s.get("gt", [])],
+                    "kind": s.get("kind", "?"),
+                    "split": s.get("split", split),
+                }
+    else:
+        manifest = build_testset(out_dir, args.tts_dir, args.ten_dir, args.max_tts)
     engines = [e for e in args.engines.split(",") if e]
 
-    agg = {e: {"b_start": [], "b_end": [], "f1": [], "rtf": [],
-               "fp_time": 0.0, "fp_secs": 0, "n": 0} for e in engines}
-    rows = []
-    for sid, meta in manifest.items():
-        wav = load_wav16k(Path(meta["file"]))
-        for ename in engines:
-            res = evaluate(ename, wav, meta["gt"], ENGINES[ename])
-            a = agg[ename]
-            a["n"] += 1
-            a["b_start"].extend(res["b_start"]); a["b_end"].extend(res["b_end"])
-            if res["f1"] is not None:
-                a["f1"].append(res["f1"])
-            a["rtf"].append(res["rtf"])
-            if not meta["gt"]:
-                a["fp_time"] += res["fp_time"]; a["fp_secs"] += 1
-            rows.append({"id": sid, "kind": meta["kind"], **res})
+    def run_bench(manifest: dict, label: str) -> None:
+        """Misst alle Engines auf manifest, schreibt out/results_v3_<label>.{md,json}."""
+        agg = {e: {"b_start": [], "b_end": [], "f1": [], "rtf": [],
+                   "fp_time": 0.0, "fp_secs": 0, "n": 0} for e in engines}
+        rows = []
+        for sid, meta in manifest.items():
+            wav = load_wav16k(Path(meta["file"]))
+            for ename in engines:
+                res = evaluate(ename, wav, meta["gt"], ENGINES[ename])
+                a = agg[ename]
+                a["n"] += 1
+                a["b_start"].extend(res["b_start"]); a["b_end"].extend(res["b_end"])
+                if res["f1"] is not None:
+                    a["f1"].append(res["f1"])
+                a["rtf"].append(res["rtf"])
+                if not meta["gt"]:
+                    a["fp_time"] += res["fp_time"]; a["fp_secs"] += 1
+                rows.append({"id": sid, "kind": meta["kind"],
+                             "split": meta.get("split", label), **res})
 
-    md = ["# VAD-Benchmark (Change 060/062)", "",
-          f"Testset: {len(manifest)} Samples "
-          f"({sum(1 for m in manifest.values() if m['kind']=='de_synth')} DE-Synth, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='de_snr')} SNR-Mix, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='babble')} Babble, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='ten')} TEN, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='noise')} Noise, "
-          f"{sum(1 for m in manifest.values() if m['kind']=='music')} Musik)", "",
-          "| Engine | Lizenz | n | F1 (mean) | B-Start (med ms) | B-Ende (med ms) | FP-Speech (s) | RTF |"]
-    md.append("|---|---|---|---|---|---|---|---|")
-    for ename in engines:
-        a = agg[ename]
-        f1m = np.mean(a["f1"]) if a["f1"] else float("nan")
-        bs = np.median(a["b_start"]) if a["b_start"] else float("nan")
-        be = np.median(a["b_end"]) if a["b_end"] else float("nan")
-        fp = a["fp_time"]
-        rtf = np.mean(a["rtf"]) if a["rtf"] else float("nan")
-        md.append(f"| {ename} | {LICENSES.get(ename, '?')} | {a['n']} | {f1m:.3f} | "
-                  f"{bs:.0f} | {be:.0f} | {fp:.1f} | {rtf:.4f} |")
-    report = "\n".join(md)
-    print(report)
-    (out_dir / "results.md").write_text(report)
-    (out_dir / "results.json").write_text(json.dumps(
-        {"manifest": {k: {kk: vv for kk, vv in v.items() if kk != "file"} for k, v in manifest.items()},
-         "agg": {e: {k: (v if k not in ("b_start", "b_end") else None) for k, v in agg[e].items()}
-                 for e in engines}}, indent=2, default=str))
+        def cnt(kind):
+            return sum(1 for m in manifest.values() if m["kind"] == kind)
+
+        md = ["# VAD-Benchmark (Change 060/062) — Split: " + label, "",
+              f"Testset: {len(manifest)} Samples "
+              f"({cnt('de_synth')} DE-Synth, {cnt('de_snr')} SNR-Mix, "
+              f"{cnt('babble')} Babble, {cnt('ten')} TEN, "
+              f"{cnt('noise')} Noise, {cnt('music')} Musik)", "",
+              "| Engine | Lizenz | n | F1 (mean) | B-Start (med ms) | B-Ende (med ms) | FP-Speech (s) | RTF |"]
+        md.append("|---|---|---|---|---|---|---|---|")
+        for ename in engines:
+            a = agg[ename]
+            f1m = np.mean(a["f1"]) if a["f1"] else float("nan")
+            bs = np.median(a["b_start"]) if a["b_start"] else float("nan")
+            be = np.median(a["b_end"]) if a["b_end"] else float("nan")
+            fp = a["fp_time"]
+            rtf = np.mean(a["rtf"]) if a["rtf"] else float("nan")
+            md.append(f"| {ename} | {LICENSES.get(ename, '?')} | {a['n']} | {f1m:.3f} | "
+                      f"{bs:.0f} | {be:.0f} | {fp:.1f} | {rtf:.4f} |")
+        report = "\n".join(md)
+        print(report)
+        (out_dir / f"results_v3_{label}.md").write_text(report)
+        (out_dir / f"results_v3_{label}.json").write_text(json.dumps(
+            {"manifest": {k: {kk: vv for kk, vv in v.items() if kk != "file"}
+                           for k, v in manifest.items()},
+             "agg": {e: {k: (v if k not in ("b_start", "b_end") else None)
+                         for k, v in agg[e].items()}
+                     for e in engines}}, indent=2, default=str))
+
+    if args.v3 and args.split == "all":
+        pub = {k: v for k, v in manifest.items() if v.get("split") == "public"}
+        ho = {k: v for k, v in manifest.items() if v.get("split") == "heldout"}
+        print(f"\n── Split public: {len(pub)} Samples ──")
+        run_bench(pub, "public")
+        print(f"\n── Split heldout: {len(ho)} Samples ──")
+        run_bench(ho, "heldout")
+    else:
+        run_bench(manifest, args.split if args.v3 else "legacy")
 
 
 if __name__ == "__main__":

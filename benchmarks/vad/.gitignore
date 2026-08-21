@@ -4,7 +4,19 @@ assets/tenvad/*.so
 assets/tenvad/testset-audio-*.wav
 assets/tenvad/testset-audio-*.scv
 assets/demand/*.wav
+assets/demand/*.zip
+assets/musan/
+assets/humaware/
 assets/*.tar.bz2
 assets/tenvad-sherpa.onnx
+# V3-Testset (Change 063): von GitHub-Release laden (tilllt/vad-benchmark-data)
+assets/v3/
+# V3.1 held-out-Split (Change 064): NUR lokal — nie veröffentlichen!
+assets/v3-heldout/
+# Release-ZIP (Change 064): wird per assemble_release_zip.py erzeugt,
+# als GitHub-Release-Artefakt veröffentlicht, nicht versioniert
+vad-benchmark-v3.1-public.zip
+vad-benchmark-v3.1-public.zip.sha256
 out/
 .venv/
+.venv-torch/

@@ -166,6 +166,31 @@ def speechbrain(wav: np.ndarray) -> tuple[list[tuple[float, float]], float]:
     return _regions(p, wav.size, window=win, threshold=0.5), elapsed
 
 
+# ── fsmn-vad (FunASR, Apache-2.0) — streaming, multilingual inkl. DE ─────
+
+_FSMN_MODEL = None
+
+
+def fsmn_vad(wav: np.ndarray) -> tuple[list[tuple[float, float]], float]:
+    """Alibaba FSMN-VAD via funasr AutoModel (Modell wird gecacht)."""
+    global _FSMN_MODEL
+    if _FSMN_MODEL is None:
+        from funasr import AutoModel
+        _FSMN_MODEL = AutoModel(model="funasr/fsmn-vad", hub="hf", device="cpu")
+    t0 = time.perf_counter()
+    res = _FSMN_MODEL.generate(input=wav)
+    elapsed = time.perf_counter() - t0
+    regs = []
+    try:
+        for s_ms, e_ms in res[0]["value"]:
+            s, e = s_ms / 1000.0, e_ms / 1000.0
+            if e > s:
+                regs.append((s, e))
+    except (KeyError, IndexError, TypeError):
+        pass
+    return regs, elapsed
+
+
 # ── energy (deterministische Baseline) ────────────────────────────────────
 
 def energy(wav: np.ndarray, window: int = 512, thresh_db: float = -40.0) -> tuple[list[tuple[float, float]], float]:
@@ -190,6 +215,7 @@ ENGINES = {
     "webrtc": webrtc,
     "humaware": humaware,
     "speechbrain": speechbrain,
+    "fsmn_vad": fsmn_vad,
     "energy": energy,
 }
 
@@ -199,5 +225,6 @@ LICENSES = {
     "webrtc": "BSD — produktiv nutzbar (Baseline)",
     "humaware": "MIT — produktiv nutzbar (Forschung)",
     "speechbrain": "Apache-2.0 — produktiv nutzbar (EN-trainiert)",
+    "fsmn_vad": "Apache-2.0 — produktiv nutzbar (FunASR, multilingual)",
     "energy": "— deterministische Baseline",
 }
