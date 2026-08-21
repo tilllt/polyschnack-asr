@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
 import { RecordingCard, resolveAudioUrl } from "./RecordingCard";
 import type { Recording } from "../api";
-import { updateRecordingTitle } from "../api";
+import { updateRecordingTitle, toggleAnonLink } from "../api";
 import { useRealign } from "../hooks";
 
 /* Change 014 Frontend: Titel-Inline-Edit, zweite Zeile (original_name),
@@ -59,8 +59,10 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: vi.fn(() => ({ data: [], isLoading: false, isError: false, error: null })),
 }));
 
+const toastMock = vi.hoisted(() => ({ toast: vi.fn() }));
+
 vi.mock("./Toasts", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastMock.toast }),
 }));
 
 // Schwere Komponenten, die bei kollabierter Karte nicht gerendert werden:
@@ -124,6 +126,13 @@ function renderCard(rec: Recording, collapsed = true) {
 
 beforeEach(() => {
   vi.mocked(updateRecordingTitle).mockClear();
+  toastMock.toast.mockClear();
+  vi.mocked(toggleAnonLink).mockReset();
+  vi.mocked(toggleAnonLink).mockResolvedValue({
+    share_token: "t123",
+    retention_minutes: 60,
+    expires_at: null,
+  } as never);
 });
 
 describe("RecordingCard — Change 014 Titel", () => {
@@ -249,5 +258,43 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
     renderCard(makeRec(), false); // expandiert → Re-Align-Button sichtbar
     screen.getByText("Re-align").click();
     expect(hooks.realignMutate).toHaveBeenCalled();
+  });
+});
+
+describe("RecordingCard — Change 058 Popover/Dropdown-Konsistenz", () => {
+  test("Share-Dropdown schließt bei Klick außerhalb (mousedown)", () => {
+    renderCard(makeRec(), false); // expandiert → Actions-Zeile sichtbar
+    fireEvent.click(screen.getByRole("button", { name: "🔗 Teilen" }));
+    expect(screen.getByText("Noch nicht geteilt.")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText("Noch nicht geteilt.")).toBeNull();
+  });
+
+  test("Share-Dropdown schließt mit Escape", () => {
+    renderCard(makeRec(), false);
+    fireEvent.click(screen.getByRole("button", { name: "🔗 Teilen" }));
+    expect(screen.getByText("Noch nicht geteilt.")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("Noch nicht geteilt.")).toBeNull();
+  });
+
+  test("Anon-Link-Generierung kopiert automatisch in die Zwischenablage + Toast", async () => {
+    const writeMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeMock },
+      configurable: true,
+    });
+    renderCard(makeRec(), false);
+    fireEvent.click(screen.getByRole("button", { name: "🔗 Teilen" }));
+    // Toggle-Button im Dropdown (aria-label "Anonymer Link" — der sichtbare
+    // Text "Teilen" kollidiert mit dem Submit-Button der User-Share-Zeile)
+    fireEvent.click(screen.getByRole("button", { name: "Anonymer Link" }));
+    await waitFor(() =>
+      expect(writeMock).toHaveBeenCalledWith(expect.stringContaining("/r/r1")),
+    );
+    expect(toastMock.toast).toHaveBeenCalledWith(
+      "Anonymous link created and copied to clipboard",
+      "ok",
+    );
   });
 });

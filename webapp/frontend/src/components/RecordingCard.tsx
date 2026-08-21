@@ -19,6 +19,8 @@ import { buildShareUrl, formatExpiry } from "../share";
 import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { VersionDiff } from "./VersionDiff";
 import { TagEditor } from "./TagEditor";
+import { useDismiss } from "../useDismiss";
+import { copyToClipboard } from "../clipboard";
 
 /** ETA aus der beobachteten Fortschrittsrate (ms pro Prozentpunkt).
  *  Die alte Formel extrapolierte linear ueber created_at (Upload-Zeit!) —
@@ -316,6 +318,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     setPreviewFailed(false);
   }, [r.uid]);
   const dlRef = useRef<HTMLDivElement>(null);
+  // Change 058: Share-/Versionen-Dropdowns schließen wie das Download-Menü
+  // bei Klick außerhalb (+ Escape) — einheitliche Schließ-Logik über
+  // useDismiss statt nur Trigger-Toggle.
+  const shareRef = useRef<HTMLDivElement>(null);
+  const versRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { t } = useT();
   const qc = useQueryClient();
@@ -459,14 +466,27 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   async function toggleAnonLinkState(enabled: boolean) {
     try {
       const res = await toggleAnonLink(r.uid, enabled);
+      const url = buildShareUrl(r.uid);
       setAnonLink({
         active: res.share_token,
-        url: buildShareUrl(r.uid),
+        url,
         retentionMinutes: res.retention_minutes,
         expiresAt: res.expires_at,
       });
       setLinkCopied(false);
-      if (!enabled) toast(t("anon_link_off"), "ok");
+      if (enabled) {
+        // Change 058: generierter Link wird SOFORT in die Zwischenablage
+        // kopiert + Toast-Hinweis (User-Anforderung).
+        const ok = await copyToClipboard(url);
+        if (ok) {
+          setLinkCopied(true);
+          toast(t("anon_link_created"), "ok");
+        } else {
+          toast(t("copy_failed"), "err");
+        }
+      } else {
+        toast(t("anon_link_off"), "ok");
+      }
     } catch (e) {
       toast(`Anon-Link: ${(e as Error).message}`, "err");
     }
@@ -474,12 +494,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   async function copyAnonLink() {
     if (!anonLink) return;
-    try {
-      await navigator.clipboard.writeText(anonLink.url);
+    const ok = await copyToClipboard(anonLink.url);
+    if (ok) {
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      toast(anonLink.url, "ok");
+      toast(t("link_copied"), "ok");
+    } else {
+      toast(t("copy_failed"), "err");
     }
   }
 
@@ -664,15 +685,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     setActiveSegIdx((prev) => (prev === idx ? prev : idx));
   }, [displaySegments]);
 
-  // ──── Close dl menu on outside click ────
-  useEffect(() => {
-    if (!dlOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (!dlRef.current?.contains(e.target as Node)) setDlOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [dlOpen]);
+  // ──── Close dropdowns on outside click / Escape (Change 058) ────
+  // Einheitlich über useDismiss: dl (Download), share, vers.
+  useDismiss(dlRef, dlOpen, () => setDlOpen(false));
+  useDismiss(shareRef, shareOpen, () => setShareOpen(false));
+  useDismiss(versRef, versOpen, () => setVersOpen(false));
 
   // ──── Actions ────
   async function handleCopy() {
@@ -1463,7 +1480,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
         {/* Share dropdown (nur Owner — Backend liefert access_level "full") */}
         {r.status === "done" && (r.access_level === "full" || r.access_level === "owner") && (
-          <div className="relative inline-flex">
+          <div ref={shareRef} className="relative inline-flex">
             <button
               onClick={() => {
                 setShareOpen((o) => !o);
@@ -1495,7 +1512,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               <div
                 ref={shareFlip.ref}
                 style={{ transform: shareFlip.dx ? `translateX(${shareFlip.dx}px)` : undefined }}
-                className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)]`}
+                className={`dl-menu-enter absolute ${shareFlip.up ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} right-0 bg-panel3 border border-border2 rounded-sm p-2 min-w-[240px] max-w-[calc(100vw-16px)] z-50 shadow-[0_8px_24px_rgba(0,0,0,.4)] max-h-[min(72dvh,520px)] overflow-y-auto`}
               >
                 <div className="space-y-1 max-h-[150px] overflow-y-auto mb-1.5">
                   {shares.length === 0 && <p className="text-muted2 text-[11px]">{t("no_shares")}</p>}
@@ -1534,6 +1551,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     <span className="text-[11px] font-semibold text-txt">{t("anon_link")}</span>
                     <button
                       onClick={() => void toggleAnonLinkState(!(anonLink?.active ?? false))}
+                      title={t("anon_link")}
+                      aria-label={t("anon_link")}
                       className={`text-[10px] px-2 py-0.5 rounded-sm font-semibold ${
                         anonLink?.active
                           ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
@@ -1581,7 +1600,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
         {/* Versionen dropdown */}
         {r.status === "done" && (
-          <div className="relative inline-flex">
+          <div ref={versRef} className="relative inline-flex">
             <button
               onClick={() => { setVersOpen((o) => !o); if (!versOpen) void loadVersions(); }}
               className="btn-ghost-sm flex items-center gap-1"
@@ -1681,7 +1700,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           data-testid="annotate-popover"
         >
           <div
-            className="bg-panel border border-border rounded-md p-3 max-w-md w-full shadow-xl"
+            className="bg-panel border border-border rounded-md p-3 max-w-md w-full shadow-xl max-h-[85dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[13px] font-semibold mb-1 flex items-center gap-1.5">

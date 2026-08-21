@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, useEffect, useMemo } from "react";
+import { Fragment, useRef, useState, useEffect, useMemo, useLayoutEffect } from "react";
 import type { ReactNode } from "react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
@@ -6,6 +6,7 @@ import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
 import { moveBoundary, wordRangeToCharRange, type ResegWord } from "../resegment";
+import { computeSplitPopover } from "../splitPosition";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
 
@@ -162,6 +163,45 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Dropdown-Catcher (fixed inset-0) blockierte das ganze Popover.
   const [splitPopoverOpen, setSplitPopoverOpen] = useState(false);
   const [splitSpeakerOpen, setSplitSpeakerOpen] = useState(false);
+  // Change 058: Split-Popover-Position — NEBEN dem Split-Symbol (gemessen),
+  // nie am Viewport-Rand. Der alte Fix `left: 8` poppte auf Desktop neben
+  // dem Hauptcontainer links auf (User-Befund).
+  const splitPosRef = useRef<HTMLDivElement>(null);
+  const [splitPos, setSplitPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!splitPopoverOpen || !splitAnchor) return;
+    const row = rowRefs.current[splitAnchor.idx];
+    const pop = splitPosRef.current;
+    if (!row || !pop) return;
+    const rowRect = row.getBoundingClientRect();
+    // Spiegel der Button-Position (Kreis: left-[10px], top-Clamp wie im JSX)
+    const btnTop = Math.min(
+      Math.max(0, splitAnchor.y - 13),
+      Math.max(0, (rowRect.height ?? 26) - 26),
+    );
+    setSplitPos(
+      computeSplitPopover(
+        { left: rowRect.left + 10, top: rowRect.top + btnTop, width: 26, height: 26 },
+        pop.offsetWidth,
+        pop.offsetHeight,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    );
+  }, [splitPopoverOpen, splitAnchor]);
+  // Change 058: Escape schließt das Split-Popover (wie Klick-außerhalb).
+  useEffect(() => {
+    if (!splitPopoverOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSplitAnchor(null);
+        setSplitSpeakerOpen(false);
+        setSplitPopoverOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [splitPopoverOpen]);
   // Feature 2026-08-15: aktive Drag-Grenze (für visuelles Feedback)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const dragRef = useRef<{
@@ -1151,14 +1191,19 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
           }}
         />
         <div
+          ref={splitPosRef}
           className="fixed z-40 w-[260px] max-w-[70vw] bg-panel2 border border-border rounded-md shadow-xl p-3"
-          style={{
-            left: 8,
-            top: Math.min(
-              (rowRefs.current[splitAnchor.idx]?.getBoundingClientRect().top ?? 0) + splitAnchor.y,
-              window.innerHeight - 220,
-            ),
-          }}
+          style={
+            splitPos
+              ? { left: splitPos.left, top: splitPos.top }
+              : {
+                  left: 8,
+                  top: Math.min(
+                    (rowRefs.current[splitAnchor.idx]?.getBoundingClientRect().top ?? 0) + splitAnchor.y,
+                    window.innerHeight - 220,
+                  ),
+                }
+          }
         >
           <div className="text-[13px] font-semibold mb-1">✂ {t("split_segment_title")}</div>
           <div className="text-[12px] text-muted2 mb-2 leading-[1.5] break-words bg-panel rounded-sm px-2 py-1.5 max-h-[70px] overflow-y-auto scrollbar-thin">

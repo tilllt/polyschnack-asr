@@ -1037,7 +1037,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       {/* Mobile: animierte Gesten-Anleitung */}
       {isTouch && showHelp && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6" onClick={() => setShowHelp(false)}>
-          <div className="bg-panel border border-border rounded-card p-5 max-w-[320px] w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-panel border border-border rounded-card p-5 max-w-[320px] w-full space-y-4 max-h-[85dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-center font-bold text-[14px]">📱 {t("push_record_help_title")}</div>
 
             {/* Geste 1: Drücken & Loslassen = Pause */}
