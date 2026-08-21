@@ -526,13 +526,23 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         cancelled = true;
         window.clearInterval(decodePoll);
         window.clearTimeout(canPlayTimeout);
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
         if (rafId != null) cancelAnimationFrame(rafId);
         stopBgPoll();
         document.removeEventListener("visibilitychange", onVisibility);
         releaseExclusivePlayback(me);
         ws.destroy();
       };
-    }, [audioUrl, backend, inView]);
+      // Change 059-Fix (User-Befund 2026-08-21): seit der lite-Liste
+      // kommen die Peaks ASYNCHRON über den Detail-Fetch nach. `peaks`
+      // und `durationHint` MÜSSEN Dependencies sein — sonst startet der
+      // Player mit peaks=null (Browser-Decode der ganzen Datei) und wird
+      // nie neu initialisiert, wenn die Server-Peaks eintreffen
+      // („Loading waveform…" hängt für immer auf langsamen Verbindungen).
+    }, [audioUrl, backend, inView, peaks, durationHint]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
