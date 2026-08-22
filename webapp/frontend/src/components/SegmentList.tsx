@@ -454,27 +454,43 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
 
   function handleClick(idx: number) {
     if (editingIdx !== null) return;  // don't seek while editing
-    // Change 077 (Fix 2026-08-21-Regression): Text-Markierung startet
-    // KEIN Playback. Der alte Guard saß nur im Wort-Span-Click; die
-    // ZEILEN-Ebene (role=button, onClick → scheduleClick) umging ihn:
-    // nach einer Markierung im Text feuert der Browser den Click auf dem
-    // Container/der Zeile → Playback startete trotzdem. Guard zentral hier
-    // + im scheduleClick-Timer + in handleWordClick.
-    if (hasActiveTextSelection()) return;
-    if (touchSel && touchSel.idx === idx && touchSel.startWord !== touchSel.endWord) return;
+    // Change 091 (User 2026-08-22): Einfacher Klick (ohne Drag, ohne
+    // Doppelklick) räumt vorhandene Markierungen im Transkript weg und
+    // startet Playback. Nur der Klick, der DIREKT aus einem Text-Drag
+    // entsteht (dragMadeRef — Markierung wurde gerade gezogen), behält
+    // die Markierung für Split/Annotate und startet KEIN Playback.
+    if (dragMadeRef.current) return;
+    clearTextSelection();
     onActiveChange(idx);
     onSeekTo?.(shown[idx].start);
   }
 
   function handleWordClick(idx: number, seconds: number) {
     if (editingIdx !== null) return;
-    // Change 077: gleicher Markierungs-Guard wie in handleClick — der
-    // Wort-Span-Click prüft die Selection zwar schon, aber der 280-ms-Timer
-    // kann nach dem Loslassen feuern, wenn die Selection noch aktiv ist.
-    if (hasActiveTextSelection()) return;
-    if (touchSel && touchSel.idx === idx && touchSel.startWord !== touchSel.endWord) return;
+    // Change 091: gleiche Semantik wie handleClick — einfacher Klick =
+    // Markierungen aufräumen + Playback ab dem Wort.
+    if (dragMadeRef.current) return;
+    clearTextSelection();
     onActiveChange(idx);
     onSeekTo?.(seconds);
+  }
+
+  // Change 091: Markierungen im Transkript aufheben — Touch-Selection
+  // (Split/Annotate-Anker) + native Browser-Textmarkierung.
+  function clearTextSelection() {
+    setTouchSel(null);
+    window.getSelection()?.removeAllRanges();
+  }
+
+  // Change 091: der Klick nach einem Text-Drag (MouseUp mit Range) ist
+  // kein „einfacher Klick" — die Markierung bleibt erhalten (Split/Annotate).
+  // Gültig 500 ms, dann gilt der nächste Klick wieder als einfacher Klick.
+  const dragMadeRef = useRef(false);
+  function markDragJustMade() {
+    dragMadeRef.current = true;
+    window.setTimeout(() => {
+      dragMadeRef.current = false;
+    }, 500);
   }
 
   // ── Klick-vs-Doppelklick (2026-08-16): Einzelklick = Playback-Start,
@@ -492,20 +508,11 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // native Selection nicht kollabiert. Wird VOR jedem Playback-Start
   // geprüft (Zeilen-Klick, Wort-Klick, 280-ms-Timer), damit Markieren zum
   // Split/Annotieren nie Playback auslöst.
-  function hasActiveTextSelection(): boolean {
-    const sel = window.getSelection();
-    return !!sel && !sel.isCollapsed && sel.rangeCount > 0;
-  }
   function scheduleClick(fn: () => void) {
     cancelClickTimer();
     clickTimer.current = window.setTimeout(() => {
       clickTimer.current = null;
-      // Change 077: auch hier — der Timer feuert 280 ms nach dem Klick;
-      // ist die Markierung (noch) aktiv (z.B. nach Loslassen über Text),
-      // kein Playback. (Fix 2026-08-18 saß nur im Wort-Span-Click und
-      // wurde von der Zeilen-Ebene umgangen.)
-      if (hasActiveTextSelection()) return;
-      fn();
+      fn(); // Guards (dragMadeRef, editing) prüft die Ziel-Funktion selbst
     }, 280);
   }
   useEffect(() => cancelClickTimer, []);
@@ -720,6 +727,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     // Volle Segment-Selektion ist kein Split (nichts bliebe übrig)
     if (r.start === 0 && r.end >= text.length) return;
     setAnchorFromRange(i, r);
+    // Change 091: der auf diesen Drag folgende Klick behält die Markierung
+    // (Split/Annotate) und startet kein Playback.
+    markDragJustMade();
   }
 
   // ── Change 013 (Tablet): eigene Touch-Markierung ──────────────────────
@@ -804,6 +814,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     // Fix 2026-08-17: Touch-Markierung hat keine native Selection →
     // Y-Position über die Wort-Spans (Mitte des markierten Bereichs).
     setAnchorFromRange(ts.idx, r, touchAnchorY(ts.idx, ts.startWord, ts.endWord));
+    // Change 091: der auf diesen Touch-Drag folgende Klick behält die
+    // Markierung (Split/Annotate) und startet kein Playback.
+    markDragJustMade();
   }
 
   // Feature 2026-08-16 (Edit): Split bestätigen → Callback an den Parent
@@ -1446,15 +1459,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                               onAnnotateJump({ id: annForWord.id, segment_idx: i, start_s: seg.start ?? 0 });
                               return;
                             }
-                            // Fix 2026-08-18 (User-Vorgabe): Markieren darf
-                            // KEIN Play auslösen — nach einer Textauswahl
-                            // feuert der Browser zusätzlich ein click auf dem
-                            // Start-Wort. Nur ein einfacher Klick (Selection
-                            // kollabiert, kein Touch-Drag) spielt ab dem Wort.
-                            const sel = window.getSelection();
-                            if (sel && !sel.isCollapsed && sel.rangeCount > 0) return;
-                            const ts = touchSel;
-                            if (ts && ts.idx === i && ts.startWord !== ts.endWord) return;
+                            // Change 091 (User 2026-08-22): Einfacher Klick
+                            // (ohne Drag, ohne Doppelklick) räumt vorhandene
+                            // Markierungen auf und startet Playback ab dem
+                            // Wort (Playbackmarker springt zur Wort-Zeit).
+                            // Nur der direkt aus einem Text-Drag entstandene
+                            // Klick (dragMadeRef) behält die Markierung für
+                            // Split/Annotate — ohne Playback.
+                            if (dragMadeRef.current) return;
                             scheduleClick(() => handleWordClick(i, w.start));
                           }}
                           onKeyDown={(e) => {

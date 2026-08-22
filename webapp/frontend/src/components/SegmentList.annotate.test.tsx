@@ -182,11 +182,11 @@ describe("SegmentList — Change 077 Fixes", () => {
     expect(ta.selectionEnd).toBe(10);  // „Welt" = 4 Zeichen
   });
 
-  it("aktive Text-Markierung startet KEIN Playback (Zeilen-Klick-Guard)", () => {
+  it("einfacher Klick räumt Markierung auf und startet Playback (Change 091)", () => {
     const onSeekTo = vi.fn();
     const { container } = renderList(undefined, { onSeekTo });
     const splitContainer = container.querySelector("[data-split-container]") as HTMLElement;
-    // Markierung über 2 Wörter simulieren (nicht kollabierte Selection)
+    // „Alte“ Markierung: native Selection über beide Wörter (kein Drag davor)
     const spans = splitContainer.querySelectorAll("[data-word-index]");
     const range = document.createRange();
     range.setStart(spans[0].firstChild!, 0);
@@ -194,13 +194,37 @@ describe("SegmentList — Change 077 Fixes", () => {
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
-    // Zeilen-Klick (role=button) — der 280-ms-Timer feuert handleClick;
-    // mit aktiver Selection muss das Playback ausbleiben.
+    // Einfacher Klick auf die Zeile → Markierung weg + Playback startet
+    const row = container.querySelector("[role=button]") as HTMLElement;
+    fireEvent.click(row);
+    vi.waitFor(() => {
+      expect(onSeekTo).toHaveBeenCalled();
+      expect(sel?.isCollapsed).toBe(true);
+    });
+  });
+
+  it("Klick direkt nach einem Text-Drag behält die Markierung, kein Playback (Change 091)", () => {
+    const onSeekTo = vi.fn();
+    const { container } = renderList(undefined, { onSeekTo });
+    const splitContainer = container.querySelector("[data-split-container]") as HTMLElement;
+    // Teil-Selektion (nur „Welt“) — kein voller Segment-Umfang
+    const span = splitContainer.querySelectorAll("[data-word-index]")[1] as HTMLElement;
+    const range = document.createRange();
+    range.setStart(span.firstChild!, 0);
+    range.setEnd(span.firstChild!, 4);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    // MouseUp = Drag-Ende → Anker + dragMadeRef (500 ms)
+    fireEvent.mouseUp(splitContainer);
+    // Der auf den Drag folgende Klick (Browser feuert ihn nach dem Loslassen)
     const row = container.querySelector("[role=button]") as HTMLElement;
     fireEvent.click(row);
     vi.waitFor(() => {
       expect(onSeekTo).not.toHaveBeenCalled();
     });
+    // Markierung bleibt sichtbar (nicht kollabiert) — Split/Annotate möglich
+    expect(sel?.isCollapsed).toBe(false);
   });
 
   // Change 077-Fix (Mobile 2026-08-21): iOS/Android feuern bei Touch kein
