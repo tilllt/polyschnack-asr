@@ -1,6 +1,7 @@
 import { Fragment, useRef, useState, useEffect, useMemo, useLayoutEffect } from "react";
 import type { ReactNode } from "react";
 import { Lock } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
@@ -198,6 +199,24 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Hin-und-Her erscheinen die Änderungen").
   const [localTexts, setLocalTexts] = useState<Segment[] | null>(null);
   const shown = dragPreview ?? localTexts ?? segmentsProp;
+  // Change 087 (Frontend-Perf): Virtualisierung — nur sichtbare Zeilen +
+  // Overscan im DOM. Riesen-Segmente (95-min-Aufnahmen, bis 287 Wörter/
+  // Zeile) erzeugten sonst tausende Wort-Spans (2,2 FPS auf Mobile).
+  const virtualizer = useVirtualizer({
+    count: shown.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 48,
+    overscan: 2,
+  });
+  // Change 087: jsdom/Tests messen clientHeight 0 → Virtualizer liefert
+  // keine Zeilen. Fallback: alle Zeilen im normalen Flow rendern (Verhalten
+  // wie vor der Virtualisierung). Im Browser hat der Container immer eine
+  // Höhe (max-h-[260px] bzw. h-full) → Virtualisierung greift.
+  const virtualItems = virtualizer.getVirtualItems();
+  const renderAll = virtualItems.length === 0 && shown.length > 0;
+  const rows: Array<{ index: number; start: number }> = renderAll
+    ? shown.map((_, i) => ({ index: i, start: 0 }))
+    : virtualItems;
   // Change 077: pending-Flag während des eigenen Saves + Fingerprint-Guard.
   // localTexts wird verworfen, sobald (a) die eigene API/Yjs-Antwort den
   // identischen Stand liefert (Prop gewinnt) oder (b) eine FREMD-Änderung
@@ -912,14 +931,32 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
       ref={containerRef}
       className={`
         bg-seg-bg border border-border rounded-sm
-        overflow-y-auto scroll-smooth
-        scrollbar-thin py-1
+        relative overflow-y-auto scroll-smooth
+        scrollbar-thin
         ${fillHeight ? "h-full max-h-none flex-1" : "max-h-[260px]"}
       `}
     >
-      {shown.map((seg, i) => {
+      {/* Change 087: Virtualisierung — totalSize-Wrapper + absolute Zeilen.
+          renderAll (jsdom/0-Höhe) = normaler Flow, kein absolutes Layout. */}
+      <div
+        style={
+          renderAll
+            ? undefined
+            : { height: virtualizer.getTotalSize(), position: "relative", width: "100%" }
+        }
+      >
+      {rows.map((vr) => {
+        const i = vr.index;
+        const seg = shown[i];
         const speaker = seg.speaker;
         return (
+        <div
+          key={i}
+          data-index={i}
+          ref={virtualizer.measureElement}
+          className={renderAll ? undefined : "absolute left-0 top-0 w-full"}
+          style={renderAll ? undefined : { transform: `translateY(${vr.start}px)` }}
+        >
         <Fragment key={i}>
         {i > 0 && (
           /* ── Hairline als Segment-Trennung (Change 055): der „+"-Insert-
@@ -1386,9 +1423,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                               ? (annForWord.id === activeAnnotationId ? "annot-active" : "annot-mark")
                               : `${confidenceClass(w.confidence)} hover:text-accent/70`;
                       return (
-                        <>
+                        <Fragment key={wi}>
                         <span
-                          key={wi}
                           role="button"
                           tabIndex={0}
                           data-active-word={isActive ? "true" : undefined}
@@ -1446,7 +1482,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                             {" "}
                           </span>
                         ) : null}
-                        </>
+                        </Fragment>
                       );
                     });
                   })()
@@ -1463,8 +1499,10 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             Grenze (vor Segment 0) und letzte (nach dem letzten) existieren
             nicht — die äußeren Marker sind fix. */}
         </Fragment>
+        </div>
         );
       })}
+      </div>
     </div>
     {/* Feature 2026-08-16 (Edit): Split-Popover nach Klick auf das
         Split-Symbol (Change 013 — KEIN Auto-Modal mehr). Positioniert
