@@ -572,6 +572,13 @@ export async function importFromUrl(
   diarizeNumSpeakers?: number,
   diarizeMinDurationOff?: number,
   diarizeMethod?: string,
+  // Change 080: optionale Anmeldedaten für private/geschützte Videos.
+  username?: string,
+  password?: string,
+  // Vimeo-Stil: Passwort pro Video (--video-password), unabhängig von
+  // Account-Login.
+  videoPassword?: string,
+  cookiesFile?: File | null,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
@@ -583,6 +590,13 @@ export async function importFromUrl(
   if (diarizeNumSpeakers != null) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
   if (diarizeMinDurationOff != null) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
   if (diarizeMethod) fd.append("diarize_method", diarizeMethod);
+  // Change 080: Felder NUR bei gesetztem Wert senden (leere Strings würden
+  // serverseitig als „halbe Anmeldung" mit 422 abgelehnt). Das Passwort
+  // bleibt reiner Request-State — es wird nirgends persistiert.
+  if (username) fd.append("username", username);
+  if (password) fd.append("password", password);
+  if (videoPassword) fd.append("video_password", videoPassword);
+  if (cookiesFile) fd.append("cookies", cookiesFile, cookiesFile.name);
   // Kein endloses „Lädt herunter…" ohne Rückmeldung: Server-seitig läuft
   // yt-dlp max. 10 min, aber der User soll nach 5 min einen klaren
   // Timeout-Fehler sehen statt eines hängenden Spinners.

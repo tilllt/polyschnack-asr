@@ -84,11 +84,18 @@ def patch_ytdlp(monkeypatch):
     import app.routers.url_import as url_import_mod
 
     url_import_mod._last_args = []
+    url_import_mod._last_conf = ""  # Inhalt der transienten Auth-Config (während des Runs)
 
     def fake_run(args, **kwargs):
         if "-o" not in args:
             raise AssertionError(f"unerwarteter subprocess-Aufruf ohne -o: {args}")
         url_import_mod._last_args = args
+        if "--config-locations" in args:
+            ci = args.index("--config-locations")
+            try:
+                url_import_mod._last_conf = Path(args[ci + 1]).read_text()
+            except OSError:
+                pass
         out_idx = args.index("-o")
         tmpdir = Path(args[out_idx + 1]).parent
         if _simulate["v"] == "timeout":
@@ -395,3 +402,220 @@ def test_from_url_retry_nach_erstem_fehlschlag(client, patch_ytdlp):
     res = _post(client, url="https://youtu.be/WhCDm12of9A")
     assert res.status_code == 201, res.text
     assert _call_count["v"] == 1  # genau 1 Retry
+
+
+# ── Change 080: Anmeldedaten & Cookies (secure yt-dlp extras) ────────
+
+
+def _post_auth(client, url="https://example.com/audio.mp3",
+               username=None, password=None, cookies_bytes=None,
+               video_password=None):
+    data = {"url": url}
+    files = None
+    if username is not None:
+        data["username"] = username
+    if password is not None:
+        data["password"] = password
+    if video_password is not None:
+        data["video_password"] = video_password
+    if cookies_bytes is not None:
+        files = {"cookies": ("cookies.txt", cookies_bytes, "text/plain")}
+    return client.post("/api/recordings/from-url", data=data, files=files)
+
+
+def test_auth_erfolg_argv_sicher(client, patch_ytdlp):
+    """Auth-Download: 201; yt-dlp bekommt --no-config-locations +
+    --config-locations (transiente Datei); Passwort NIE in argv."""
+    res = _post_auth(client, username="joe", password="s3cret!")
+    assert res.status_code == 201, res.text
+    args = patch_ytdlp._last_args
+    assert "--no-config-locations" in args
+    ci = args.index("--config-locations")
+    assert Path(args[ci + 1]).name == "ytdlp-auth.conf"
+    assert "s3cret!" not in args  # argv-sicher (kein `ps`-Leak)
+    assert "--cookies" not in args
+
+
+def test_ohne_auth_keine_auth_flags(client, patch_ytdlp):
+    """Ohne Auth exakt die alte Argumentliste (keine Whitelist-Flags)."""
+    res = _post(client)
+    assert res.status_code == 201
+    args = patch_ytdlp._last_args
+    assert "--config-locations" not in args
+    assert "--no-config-locations" not in args
+    assert "--cookies" not in args
+
+
+def test_auth_retry_traegt_credentials(client, patch_ytdlp):
+    """Retry-Kaskade: der zweite (erfolgreiche) Versuch hat die
+    Auth-Flags weiterhin dabei (D5)."""
+    _simulate["v"] = "fail_once"
+    res = _post_auth(client, username="joe", password="s3cret!")
+    assert res.status_code == 201, res.text
+    args = patch_ytdlp._last_args
+    assert "--config-locations" in args
+    assert "s3cret!" not in args
+
+
+def test_write_auth_files_inhalt_und_perms(tmp_path):
+    """Unit: Config-Datei mit `--username=`/`--password=`/`--video-password=`
+    (optparse braucht den Präfix!) und shlex.quote-kodierten Werten
+    (Sonderzeichen!), Cookies-Datei mit Original-Bytes, beide 0600."""
+    import shlex
+
+    import app.routers.url_import as m
+
+    cookie_data = b"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tSID\tabc\n"
+    conf, ck = m._write_auth_files(
+        tmp_path, "joe#doe", "s3cret word'x", cookie_data,
+        video_password="pw#with spaces'x",
+    )
+    assert conf is not None and ck is not None
+    content = conf.read_text(encoding="utf-8")
+    assert f"--username={shlex.quote('joe#doe')}" in content
+    assert ("--password=" + shlex.quote("s3cret word'x")) in content
+    assert ("--video-password=" + shlex.quote("pw#with spaces'x")) in content
+    assert ck.read_bytes() == cookie_data
+    assert (conf.stat().st_mode & 0o777) == 0o600
+    assert (ck.stat().st_mode & 0o777) == 0o600
+
+
+def test_video_password_allein_erfolg(client, patch_ytdlp):
+    """Vimeo-Stil: `video_password` ist unabhängig von Account-Login —
+    allein gesetzt → 201, Config enthält --video-password, kein --username."""
+    res = _post_auth(client, video_password="youtube-dl")
+    assert res.status_code == 201, res.text
+    args = patch_ytdlp._last_args
+    assert "--no-config-locations" in args
+    assert "--video-password=youtube-dl" in patch_ytdlp._last_conf
+    assert "--username=" not in patch_ytdlp._last_conf
+    assert "youtube-dl" not in args  # argv-sicher
+
+
+def test_video_password_zu_lang_422(client, patch_ytdlp):
+    res = _post_auth(client, video_password="x" * 257)
+    assert res.status_code == 422
+    assert "too long" in res.json()["detail"]
+
+
+def test_video_password_kein_passwort_in_fehler(client, patch_ytdlp, caplog):
+    """D4: Video-Passwort wird ebenfalls aus Fehler/Log entfernt."""
+    import logging
+
+    _rc["v"] = 1
+    _stderr["v"] = "ERROR: [vimeo] 68375962: Wrong password (video pw: youtube-dl)"
+    _wav["v"] = None
+    with caplog.at_level(logging.WARNING, logger="app.routers.url_import"):
+        res = _post_auth(client, video_password="youtube-dl")
+    assert res.status_code == 400
+    assert "youtube-dl" not in res.json()["detail"]
+    assert "youtube-dl" not in caplog.text
+
+
+def test_redact_entfernt_secrets():
+    import app.routers.url_import as m
+
+    assert m._redact("user joe pw s3cret!", "joe", "s3cret!") == "user *** pw ***"
+
+
+def test_auth_nur_username_422(client, patch_ytdlp):
+    res = _post_auth(client, username="joe")
+    assert res.status_code == 422
+    assert "together" in res.json()["detail"]
+
+
+def test_auth_zu_lang_422(client, patch_ytdlp):
+    res = _post_auth(client, username="x" * 257, password="y")
+    assert res.status_code == 422
+    assert "too long" in res.json()["detail"]
+
+
+def test_auth_control_char_422(client, patch_ytdlp):
+    res = _post_auth(client, username="joe", password="bad\npass")
+    assert res.status_code == 422
+    assert "control" in res.json()["detail"]
+
+
+def test_cookies_upload_erfolg(client, patch_ytdlp):
+    cookie_data = b"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tSID\tabc123\n"
+    res = _post_auth(client, cookies_bytes=cookie_data)
+    assert res.status_code == 201, res.text
+    args = patch_ytdlp._last_args
+    ci = args.index("--cookies")
+    assert Path(args[ci + 1]).name == "cookies.txt"
+
+
+def test_cookies_zu_gross_422(client, patch_ytdlp):
+    res = _post_auth(client, cookies_bytes=b"x" * (1024 * 1024 + 1))
+    assert res.status_code == 422
+    assert "too large" in res.json()["detail"]
+
+
+def test_cookies_leer_422(client, patch_ytdlp):
+    res = _post_auth(client, cookies_bytes=b"")
+    assert res.status_code == 422
+    assert "empty" in res.json()["detail"]
+
+
+def test_auth_kein_passwort_in_fehler_und_log(client, patch_ytdlp, caplog):
+    """D4: yt-dlp-Stderr mit Passwort → weder im 400-Detail noch im Log."""
+    import logging
+
+    _rc["v"] = 1
+    _stderr["v"] = "ERROR: Login failed for user joe with password s3cret!"
+    _wav["v"] = None
+    with caplog.at_level(logging.WARNING, logger="app.routers.url_import"):
+        res = _post_auth(client, username="joe", password="s3cret!")
+    assert res.status_code == 400
+    assert "s3cret!" not in res.json()["detail"]
+    assert "***" in res.json()["detail"]
+    assert "s3cret!" not in caplog.text
+
+
+def test_tor_skip_bei_auth(client, patch_ytdlp, monkeypatch):
+    """Auth-Download mit Bot-Block → Tor-Fallback wird ÜBERSPRUNGEN
+    (D5: Login/Cookies über Tor-Exit = Account-Risiko)."""
+    import app.routers.url_import as m
+    from app.config import settings
+
+    _rc["v"] = 1
+    _stderr["v"] = "ERROR: [youtube] xyz: Sign in to confirm you're not a bot."
+    _wav["v"] = None
+    monkeypatch.setattr(settings, "POLYSCHNACK_TOR_FALLBACK", True)
+    called = {"v": False}
+
+    def _boom(*a, **k):
+        called["v"] = True
+        raise AssertionError("get_docker_client darf bei Auth nicht aufgerufen werden")
+
+    monkeypatch.setattr(m, "get_docker_client", _boom)
+    res = _post_auth(client, url="https://youtu.be/xyz", username="joe", password="s3cret!")
+    assert res.status_code == 400  # yt-dlp-Fehler bleibt (kein Tor-Rettungsversuch)
+    assert not called["v"]
+
+
+def test_tor_wird_ohne_auth_versucht(client, patch_ytdlp, monkeypatch):
+    """Kontrast: OHNE Auth greift der Tor-Fallback wie bisher (503, weil
+    der Container im Test nicht existiert)."""
+    import app.routers.url_import as m
+    from app.config import settings
+
+    _rc["v"] = 1
+    _stderr["v"] = "ERROR: [youtube] xyz: Sign in to confirm you're not a bot."
+    _wav["v"] = None
+    monkeypatch.setattr(settings, "POLYSCHNACK_TOR_FALLBACK", True)
+    called = {"v": False}
+
+    def _fake_proxy(*a, **k):
+        called["v"] = True
+
+        class P:
+            def container_state(self, name):
+                return None  # Container existiert nicht → 503
+
+        return P()
+
+    monkeypatch.setattr(m, "get_docker_client", _fake_proxy)
+    res = _post(client, url="https://youtu.be/xyz")
+    assert res.status_code == 503  # Tor-Fallback nicht verfügbar
+    assert called["v"]

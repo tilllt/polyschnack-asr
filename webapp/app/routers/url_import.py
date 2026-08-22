@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import logging
 import mimetypes
+import shlex
 import subprocess
 import tempfile
 import time
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlmodel import Session, select
 
 from ..audio_utils import original_path, prepare_storage, probe_duration_path, storage_path_for
@@ -34,6 +35,109 @@ _AUDIO_MIME = {
     ".aac": "audio/aac", ".flac": "audio/flac", ".mpeg": "audio/mpeg",
     ".mp4": "audio/mp4", ".oga": "audio/ogg", ".wma": "audio/x-ms-wma",
 }
+
+# ────────────────────────────────────────────────────────────────────
+# Change 080: Sichere yt-dlp-Zusatzparameter (Anmeldedaten & Cookies)
+# ────────────────────────────────────────────────────────────────────
+
+#: Max. Länge für Benutzername/Passwort (Validierung, s. design.md D6).
+_AUTH_MAX_LEN = 256
+
+#: Max. Größe der hochgeladenen Cookies-Datei (Memory-Schutz).
+_COOKIES_MAX_BYTES = 1 * 1024 * 1024
+
+#: Dateinamen der transienten Auth-Dateien im TemporaryDirectory.
+_AUTH_CONF_NAME = "ytdlp-auth.conf"
+_COOKIES_NAME = "cookies.txt"
+
+#: Whitelist-Parameter, die bei gesetztem Auth an JEDEN yt-dlp-Aufruf
+#: gehängt werden: transiente Config-Datei (argv-sicher, shlex.quote →
+#: beliebige Sonderzeichen) + optionale Cookies-Datei. `--no-config-locations`
+#: VOR `--config-locations` stellen, damit NUR unsere Datei geladen wird
+#: (argparse: store_const None → append; Reihenfolge entscheidet).
+def _auth_extra_args(conf_path: Optional[Path], cookies_path: Optional[Path]) -> List[str]:
+    extra: List[str] = []
+    if conf_path is not None:
+        extra += ["--no-config-locations", "--config-locations", str(conf_path)]
+    if cookies_path is not None:
+        extra += ["--cookies", str(cookies_path)]
+    return extra
+
+
+def _validate_auth_input(
+    username: Optional[str],
+    password: Optional[str],
+    video_password: Optional[str] = None,
+) -> None:
+    """422-Verstöße: nur eines von username/password gesetzt, zu lang,
+    Steuerzeichen. `video_password` ist UNABHÄNGIG (Vimeo-Stil: Passwort
+    pro Video, kein Account-Login — yt-dlp-Option --video-password)."""
+    if (username is None) != (password is None):
+        raise HTTPException(
+            status_code=422,
+            detail="username and password must be provided together",
+        )
+    for name, val in (
+        ("username", username),
+        ("password", password),
+        ("video_password", video_password),
+    ):
+        if val is None:
+            continue
+        if len(val) > _AUTH_MAX_LEN:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{name} too long (max {_AUTH_MAX_LEN} chars)",
+            )
+        if any(ord(c) < 32 for c in val):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{name} contains control characters",
+            )
+
+
+def _write_auth_files(
+    tmpdir: Path,
+    username: Optional[str],
+    password: Optional[str],
+    cookies_bytes: Optional[bytes],
+    video_password: Optional[str] = None,
+) -> Tuple[Optional[Path], Optional[Path]]:
+    """Transiente 0600-Dateien ins Tempdir schreiben → (conf, cookies).
+
+    yt-dlp parst Config-Dateien mit shlex.split(comments=True) und
+    optparse (verifiziert in yt_dlp/utils/_utils.py Config.read_file +
+    options.py parse_known_args): Optionen brauchen den `--`-Präfix,
+    sonst werden sie als Positional-Argumente (URLs) behandelt. Die Werte
+    werden mit shlex.quote() kodiert — Sonderzeichen wie `#`, Leerzeichen
+    oder Quotes sind damit sicher. Das TemporaryDirectory räumt beide
+    Dateien nach dem Request auf (Erfolg wie Fehler).
+    """
+    lines: List[str] = []
+    if username is not None and password is not None:
+        lines.append(f"--username={shlex.quote(username)}")
+        lines.append(f"--password={shlex.quote(password)}")
+    if video_password is not None:
+        lines.append(f"--video-password={shlex.quote(video_password)}")
+    conf_path = None
+    if lines:
+        conf_path = tmpdir / _AUTH_CONF_NAME
+        conf_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        conf_path.chmod(0o600)
+    cookies_path = None
+    if cookies_bytes is not None:
+        cookies_path = tmpdir / _COOKIES_NAME
+        cookies_path.write_bytes(cookies_bytes)
+        cookies_path.chmod(0o600)
+    return conf_path, cookies_path
+
+
+def _redact(text: str, *secrets: Optional[str]) -> str:
+    """Passwort/Benutzername aus Log-/Fehlertexten entfernen (D4)."""
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "***")
+    return text
 
 # ────────────────────────────────────────────────────────────────────
 # Change 043: Tor-Fallback (letzte Stufe der Download-Kaskade)
@@ -235,6 +339,13 @@ async def import_from_url(
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    # Change 080: optionale Anmeldedaten (whitelist, s. design.md).
+    username: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    # Vimeo-Stil: Passwort pro Video (yt-dlp --video-password), unabhängig
+    # von Account-Login.
+    video_password: Optional[str] = Form(None),
+    cookies: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Download audio from *url* via yt-dlp (natives Format), save.
@@ -262,9 +373,27 @@ async def import_from_url(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"invalid URL: {exc}")
 
+    # Change 080: Auth-Validierung + Cookies lesen (vor dem Download).
+    # Leere Strings aus dem Formular wie nicht gesetzt behandeln.
+    username = username or None
+    password = password or None
+    video_password = video_password or None
+    _validate_auth_input(username, password, video_password)
+    cookies_bytes = None
+    if cookies is not None:
+        cookies_bytes = await cookies.read(_COOKIES_MAX_BYTES + 1)
+        if len(cookies_bytes) > _COOKIES_MAX_BYTES:
+            raise HTTPException(status_code=422, detail="cookies file too large (max 1 MiB)")
+        if not cookies_bytes.strip():
+            raise HTTPException(status_code=422, detail="cookies file is empty")
+    has_auth = username is not None or video_password is not None or cookies_bytes is not None
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir) / "audio.%(ext)s"
         out_template = str(tmp)
+        conf_path, cookies_path = _write_auth_files(
+            Path(tmpdir), username, password, cookies_bytes, video_password)
+        extra = _auth_extra_args(conf_path, cookies_path)
 
         def _run_ytdlp() -> subprocess.CompletedProcess:
             # `--` vor dem Positionsargument: eine URL, die mit `-` beginnt,
@@ -277,6 +406,7 @@ async def import_from_url(
                     "-x",          # extrahieren, natives Format behalten (kein WAV-Zwang)
                     "-o", out_template,
                     "--no-playlist",
+                    *extra,        # Change 080: Whitelist-Auth (Config/Cookies)
                     "--",  # Ende der Optionen
                     clean_url,
                 ],
@@ -295,6 +425,7 @@ async def import_from_url(
                     "-o", out_template,
                     "--no-playlist",
                     "--extractor-args", f"youtube:player_client={client}",
+                    *extra,
                     "--",
                     clean_url,
                 ],
@@ -339,9 +470,13 @@ async def import_from_url(
         # Change 043: Tor-Fallback als LETZTE Stufe — nur wenn (a) Bot-Signatur
         # vorliegt, (b) aktiviert, (c) User eingeloggt (anon-Sperre: anon-Sessions
         # bekommen den ressourcenintensiven Tor-Pfad nicht, User-Entscheidung).
+        # Change 080: Auth-Downloads (Credentials/Cookies) überspringen den
+        # Tor-Pfad IMMER — Login/Cookies über Tor-Exit-IPs = Account-Risiko.
         if proc.returncode != 0 and _is_bot_block(proc.stderr or ""):
             current_user_id = _current_user(request, session)
-            if _is_anon_user(session, current_user_id):
+            if has_auth:
+                log.info("tor-fallback skipped for authenticated download (url=%s)", url[:80])
+            elif _is_anon_user(session, current_user_id):
                 # anon → kein Tor-Fallback: verständlicher 400 statt stiller
                 # Fehlversuch (die yt-dlp-Originalmeldung folgt unten).
                 log.info("tor-fallback skipped for anon user (url=%s)", url[:80])
@@ -352,7 +487,11 @@ async def import_from_url(
                     proc = tor_proc
 
         if proc.returncode != 0:
-            err = (proc.stderr or "no output")[:500]
+            # Change 080: Credentials vor Log/Fehler entfernen (D4).
+            err = _redact(
+                (proc.stderr or "no output")[:500],
+                username, password, video_password,
+            )
             log.warning("yt-dlp failed for url=%s: %s", url[:80], err)
             hint = _ytdlp_error_hint(err, url)
             detail = f"yt-dlp failed: {err}"

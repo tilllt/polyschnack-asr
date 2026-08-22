@@ -1351,6 +1351,13 @@ function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
 }) {
   const [url, setUrl] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
+  // Change 080: optionale Anmeldedaten — reiner Komponenten-State,
+  // wird nach dem Import geleert und nie persistiert.
+  const [showAuth, setShowAuth] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [videoPassword, setVideoPassword] = useState("");
+  const [cookiesFile, setCookiesFile] = useState<File | null>(null);
 
   async function handleSubmit() {
     if (!url.trim() || isDownloading) return;
@@ -1362,11 +1369,22 @@ function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
         importFeat.noise, importFeat.enhance,
         importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
         diarSensToMinDurationOff(importFeat.diarSens),
+        undefined, // diarizeMethod (nicht im URL-Tab)
+        username.trim() || undefined,
+        password || undefined,
+        videoPassword || undefined,
+        cookiesFile,
       );
       toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
       await qc.invalidateQueries({ queryKey: ["recordings"] });
       await qc.invalidateQueries({ queryKey: ["stats"] });
       setUrl("");
+      // Change 080: Anmeldedaten nach dem Import leeren.
+      setUsername("");
+      setPassword("");
+      setVideoPassword("");
+      setCookiesFile(null);
+      setShowAuth(false);
     } catch (e) {
       toast(`Import failed: ${(e as Error).message}`, "err");
     } finally {
@@ -1394,6 +1412,56 @@ function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
         >
           {isDownloading ? "⏳ " + t("url_downloading") : "🔗 " + t("url_download")}
         </button>
+      </div>
+      {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar) */}
+      <div className="w-full max-w-[500px]">
+        <button
+          type="button"
+          onClick={() => setShowAuth((s) => !s)}
+          className="text-[12px] text-muted hover:text-accent underline underline-offset-2"
+        >
+          {showAuth ? "▾ " : "▸ "}{t("url_auth_toggle")}
+        </button>
+        {showAuth && (
+          <div className="mt-2 flex flex-col gap-2 rounded-sm border border-border2 bg-panel p-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={t("url_username")}
+                autoComplete="off"
+                className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+              />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t("url_password")}
+                autoComplete="new-password"
+                className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+              />
+            </div>
+            <input
+              type="password"
+              value={videoPassword}
+              onChange={(e) => setVideoPassword(e.target.value)}
+              placeholder={t("url_video_password")}
+              autoComplete="new-password"
+              className="w-full bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+            />
+            <label className="flex items-center gap-2 text-[12px] text-muted cursor-pointer">
+              <input
+                type="file"
+                accept=".txt"
+                onChange={(e) => setCookiesFile(e.target.files?.[0] ?? null)}
+                className="text-[12px]"
+              />
+              {t("url_cookies")}
+            </label>
+            <div className="text-[11px] text-muted">{t("url_cookies_hint")}</div>
+          </div>
+        )}
       </div>
     </div>
   );
