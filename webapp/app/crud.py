@@ -212,6 +212,8 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     # nach Re-Transcribe sofort einen uralten „seit Xs"-Wert vom letzten Lauf.
     rec.last_heartbeat_at = dt.datetime.now(dt.timezone.utc)
     rec.phase_started_at = rec.last_heartbeat_at
+    # Change 082: Job-Beginn — Basis für ETA-Rest und „verarbeitet seit Xs".
+    rec.processing_started_at = rec.last_heartbeat_at
     session.add(rec)
     session.commit()
     session.refresh(rec)

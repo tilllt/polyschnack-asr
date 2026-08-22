@@ -82,6 +82,13 @@ export interface Recording {
   phase_started_at?: string | null;
   /** Change 011: Letzter Aktivitäts-Nachweis (ISO) — Heartbeat-Puls. */
   last_heartbeat_at?: string | null;
+  /** Change 082: Job-Beginn (ISO) — Basis für „verarbeitet seit Xs". */
+  processing_started_at?: string | null;
+  /** Change 082: ETA-Rest in Sekunden (Spanne) aus Dauer × RTF — nur
+   *  während processing, None ohne bekannte Rate (Anti-Fake). */
+  eta_total_s?: number | null;
+  eta_low_s?: number | null;
+  eta_high_s?: number | null;
   /** Change 011: Queue-Position (nur status="queued"). */
   queue_position?: number | null;
   /** Change 011: Warte-ETA in Sekunden (nur status="queued"). */

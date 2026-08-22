@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   activePhaseIndex,
+  fmtEtaRange,
   fmtEtaS,
   fmtSince,
   heartbeatState,
@@ -93,6 +94,25 @@ describe("heartbeatState (Change 011)", () => {
     expect(stNaive.stalled).toBe(false);
     expect(fmtSince(stNaive.sinceBeat)).toBe("seit 5s");
   });
+
+  it("Heartbeat-Level (Change 082): fresh ≤8s, warn 8–45s, stalled >45s", () => {
+    const now = Date.now() / 1000;
+    expect(heartbeatState({ last_heartbeat_at: iso(now - 3), status: "processing" }).level).toBe("fresh");
+    expect(heartbeatState({ last_heartbeat_at: iso(now - 20), status: "processing" }).level).toBe("warn");
+    expect(heartbeatState({ last_heartbeat_at: iso(now - 60), status: "processing" }).level).toBe("stalled");
+    // Anlauf ohne Heartbeat: neutral, NICHT stalled
+    expect(heartbeatState({ last_heartbeat_at: null, status: "processing" }).level).toBe("warn");
+  });
+
+  it("sinceStart aus processing_started_at (Change 082)", () => {
+    const now = Date.now() / 1000;
+    const st = heartbeatState({
+      last_heartbeat_at: iso(now - 3),
+      processing_started_at: iso(now - 90),
+      status: "processing",
+    });
+    expect(st.sinceStart).toBe(90);
+  });
 });
 
 describe("fmtSince / fmtEtaS (Change 011)", () => {
@@ -101,6 +121,17 @@ describe("fmtSince / fmtEtaS (Change 011)", () => {
     expect(fmtSince(59)).toBe("seit 59s");
     expect(fmtSince(60)).toBe("seit 1m 0s");
     expect(fmtSince(185)).toBe("seit 3m 5s");
+  });
+
+  it("fmtEtaRange (Change 082): ehrliche Spanne statt Punktwert", () => {
+    expect(fmtEtaRange(240, 520)).toBe("~4–9m");
+    expect(fmtEtaRange(300, 320)).toBe("~5m");
+    expect(fmtEtaRange(10, 40)).toBe("~10–40s");
+    expect(fmtEtaRange(70, 100)).toBe("~1–2m");
+    // Anti-Fake: ohne Backend-Werte leer
+    expect(fmtEtaRange(null, null)).toBe("");
+    expect(fmtEtaRange(0, 5)).toBe("");
+    expect(fmtEtaRange(undefined, 5)).toBe("");
   });
 
   it("fmtEtaS: kompakte Warte-ETA", () => {

@@ -76,6 +76,10 @@ class Recording(SQLModel, table=True):
     #: (frischer Heartbeat) von „eingefroren/hängend" (alter Heartbeat).
     last_heartbeat_at: Optional[dt.datetime] = Field(default=None)
 
+    #: Job-Beginn der Verarbeitung (Change 082) — Basis für ETA-Rest und
+    #: „verarbeitet seit Xs". Wird in set_processing gesetzt (Auto-Migrate).
+    processing_started_at: Optional[dt.datetime] = Field(default=None)
+
     # --- timestamps ---
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)

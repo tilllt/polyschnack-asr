@@ -54,6 +54,7 @@ from ..versions import list_versions
 from ..service import resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
 from ..timeutil import iso_utc
+from ..eta import elapsed_since, estimate_eta_s
 
 router = APIRouter(prefix="/api")
 
@@ -514,6 +515,21 @@ def _recording_to_dict(
     Frontend pro Karte über GET /api/recordings/{rid} nach.
     """
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
+    # Change 082: ETA-Rest aus Audio-Dauer × RTF (nur während processing).
+    eta = (
+        estimate_eta_s(
+            rec.duration_s,
+            rec.backend,
+            enable_vad=rec.enable_vad,
+            enable_diarize=rec.enable_diarize,
+            diarize_method=rec.diarize_method,
+            enable_noise_reduce=rec.enable_noise_reduce,
+            enable_enhance=rec.enable_enhance,
+            elapsed_s=elapsed_since(rec.processing_started_at),
+        )
+        if rec.status == "processing"
+        else None
+    )
     return {
         "id": rec.id,
         "uid": uid,
@@ -548,6 +564,11 @@ def _recording_to_dict(
         "last_heartbeat_at": (
             iso_utc(rec.last_heartbeat_at) if rec.last_heartbeat_at else None
         ),
+        # Change 082: Job-Beginn + gewähltes Backend (ETA-RTF-Quelle).
+        "processing_started_at": (
+            iso_utc(rec.processing_started_at) if rec.processing_started_at else None
+        ),
+        "backend": rec.backend,
         # Change 011: Queue-Position + Warte-ETA auf der Recording-Karte
         # (Werte wie im Queue-Watcher, aber direkt an der Aufnahme).
         "queue_position": _queue_position_for(rec.id) if rec.status == "queued" else None,
@@ -595,6 +616,11 @@ def _recording_to_dict(
         "shared_at": iso_utc(rec.shared_at) if getattr(rec, "shared_at", None) else None,
         "delivery_status": rec.delivery_status,
         "delivery_error": rec.delivery_error,
+        # Change 082: ETA aus Audio-Dauer × RTF — nur processing, nur mit
+        # bekannter Rate (Anti-Fake: None statt geratenem Wert).
+        "eta_total_s": eta[0] if eta else None,
+        "eta_low_s": eta[1] if eta else None,
+        "eta_high_s": eta[2] if eta else None,
     }
 
 

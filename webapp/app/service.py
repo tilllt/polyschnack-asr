@@ -1382,6 +1382,15 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         owner_id = rec.user_id
         if backend is None:
             backend = rec.backend or "ps-pk-onnx"
+            # Change 082: gewähltes Backend persistieren, damit das
+            # Recording-Dict es während processing führt (ETA-RTF-Wahl).
+            if rec.backend != backend:
+                with Session(engine) as s2:
+                    r2 = s2.get(Recording, rec_id)
+                    if r2 is not None:
+                        r2.backend = backend
+                        s2.add(r2)
+                        s2.commit()
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)

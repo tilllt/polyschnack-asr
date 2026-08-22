@@ -22,18 +22,17 @@ import { TagEditor } from "./TagEditor";
 import { useDismiss } from "../useDismiss";
 import { copyToClipboard } from "../clipboard";
 
-/** ETA aus der beobachteten Fortschrittsrate (ms pro Prozentpunkt).
- *  Die alte Formel extrapolierte linear ueber created_at (Upload-Zeit!) —
- *  bei Re-Transcribe stundenalter Dateien kam Unsinn heraus, und bei
- *  nicht-linearen Phasen (ASR schnell, Alignment langsam) massiv falsch. */
-function etaFromRate(rateMsPerPct: number | null, pct: number): string {
-  if (!rateMsPerPct || rateMsPerPct <= 0 || pct <= 0 || pct >= 100) return "";
-  const ms = rateMsPerPct * (100 - pct);
-  if (ms > 120_000) return `~${Math.round(ms / 60_000)}m`;
-  return `~${Math.max(1, Math.round(ms / 1000))}s`;
+/** Change 082: ETA-Rest als ehrliche Spanne (Sekunden) → „4–7m" / „45s–1m".
+ *  Kein Fake-Wert: nur die Backend-Berechnung (Dauer × RTF) füllt die
+ *  Felder — ohne bekannte Rate bleibt alles leer. */
+export function fmtEtaRange(lowS: number | null | undefined, highS: number | null | undefined): string {
+  if (!lowS || !highS || lowS <= 0 || highS <= 0) return "";
+  if (highS < 60) return `~${Math.max(1, Math.round(lowS))}–${Math.round(highS)}s`;
+  if (highS < 120) return `~${Math.max(1, Math.round(lowS / 60))}–${Math.round(highS / 60)}m`;
+  const l = Math.round(lowS / 60);
+  const h = Math.round(highS / 60);
+  return l === h ? `~${l}m` : `~${l}–${h}m`;
 }
-
-type EtaRef = { pct: number; ts: number; rate: number | null };
 
 /** Fix 2026-08-18: Audio-URL des Players. IMMER zuerst die schlanke
  *  64-kbps-MP3-Preview anfordern — der Server generiert das Sidecar beim
@@ -48,18 +47,6 @@ export function resolveAudioUrl(
 ): string {
   if (previewFailed) return rec.audio_url;
   return rec.audio_preview_url ?? `/api/recordings/${rec.uid}/audio/preview`;
-}
-
-/** Rate aus dem letzten Fortschrittssprung des Polls ableiten und ETA rendern. */
-function updateEta(ref: { current: EtaRef }, pct: number): string {
-  const now = Date.now();
-  const prev = ref.current;
-  if (prev.ts > 0 && pct > prev.pct && now - prev.ts > 1500) {
-    ref.current = { pct, ts: now, rate: (now - prev.ts) / (pct - prev.pct) };
-  } else if (pct !== prev.pct) {
-    ref.current = { pct, ts: now, rate: prev.rate };
-  }
-  return etaFromRate(ref.current.rate, pct);
 }
 
 /** Change 011: Sekunden seit einem ISO-Zeitstempel (0 wenn unbekannt/zukunft).
@@ -85,19 +72,32 @@ export function fmtSince(s: number): string {
 const HEARTBEAT_FRESH_S = 8;
 const HEARTBEAT_STALL_S = 45;
 
+export type HeartbeatLevel = "fresh" | "warn" | "stalled";
+
 export function heartbeatState(r: {
   last_heartbeat_at?: string | null;
   phase_started_at?: string | null;
+  processing_started_at?: string | null;
   status?: string;
-}): { fresh: boolean; stalled: boolean; sincePhase: number; sinceBeat: number } {
+}): {
+  fresh: boolean;
+  stalled: boolean;
+  sincePhase: number;
+  sinceBeat: number;
+  sinceStart: number;
+  level: HeartbeatLevel;
+} {
   const sinceBeat = secondsSince(r.last_heartbeat_at);
   const sincePhase = secondsSince(r.phase_started_at);
+  const sinceStart = secondsSince(r.processing_started_at);
   if (!r.last_heartbeat_at) {
-    return { fresh: false, stalled: false, sincePhase, sinceBeat: -1 };
+    // Anlauf: noch kein Signal — neutral warn, keine Stall-Warnung.
+    return { fresh: false, stalled: false, sincePhase, sinceBeat: -1, sinceStart, level: "warn" };
   }
   const fresh = sinceBeat <= HEARTBEAT_FRESH_S;
   const stalled = r.status === "processing" && sinceBeat > HEARTBEAT_STALL_S;
-  return { fresh, stalled, sincePhase, sinceBeat };
+  const level: HeartbeatLevel = sinceBeat <= HEARTBEAT_FRESH_S ? "fresh" : sinceBeat <= HEARTBEAT_STALL_S ? "warn" : "stalled";
+  return { fresh, stalled, sincePhase, sinceBeat, sinceStart, level };
 }
 
 /** Change 011: Warte-ETA (queued) kompakt formatieren. */
@@ -205,7 +205,13 @@ const KIND_LABEL: Record<string, string> = {
 
 export function RecordingCard({ recording: r, compact = false, isOidc = false, isAdmin = false, defaultCollapsed = false }: Props) {
   const wsRef = useRef<WaveSurferHandle>(null);
-  const etaRef = useRef<EtaRef>({ pct: -1, ts: 0, rate: null });
+  // Change 082: 1-s-Ticker — re-rendert die Karte, damit der Heartbeat-
+  // Zähler („Herzschlag vor Xs") und die Phasen-Dauer live ticken.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
   // Fix 2026-08-17: monotone Sequenznummer für Segment-Persistenz (PUT-Guard
   // „letzter Drag gewinnt"): Antworten älterer PUTs werden verworfen, damit
   // eine langsame Antwort keinen neueren Drag-Stand überschreibt.
@@ -868,11 +874,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     note.startsWith("alignment") && note.length > "alignment".length
       ? note.slice("alignment".length).trim()
       : "";
-  // Change 011: Heartbeat-Zustand + ETA für die Progress-Zeile. Die ETA
-  // kommt aus der beobachteten Rate; ohne Rate (Sync-ASR, Diarization)
-  // zeigt die Zeile „aktiv seit Xs" aus phase_started_at — nie mehr „…".
+  // Change 082: Heartbeat-Zustand + echte ETA (Backend: Dauer × RTF).
+  // Keine Rate-ETA mehr — ohne Backend-Felder zeigt die Zeile
+  // „verarbeitet seit Xs" bzw. „aktiv seit Xs" — nie mehr „…".
   const hb = heartbeatState(r);
-  const eta = updateEta(etaRef, r.progress_pct);
+  const etaRange = fmtEtaRange(r.eta_low_s, r.eta_high_s);
 
   function handleEdited(
     newSegs: typeof segments,
@@ -1355,19 +1361,40 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                       className={`text-[10px] px-[6px] py-[1px] rounded-full border font-semibold uppercase tracking-wide shrink-0 ${chip}`}
                     >
                       {t(p.labelKey)}
+                      {i === active && hb.sincePhase > 0 && (
+                        <span className="normal-case font-normal ml-1">
+                          {t("phase_running_since")} {fmtTime(hb.sincePhase)}
+                        </span>
+                      )}
                     </span>
                   );
                 })}
               </span>
-              {/* Change 011: ETA-Zeile wird NIE mehr ausgeblendet — auch bei
-                  phaseDetail (Alignment). Fallback: „aktiv seit Xs" statt „…". */}
-              <span className="text-muted2 tabular-nums shrink-0">
-                {r.progress_pct}%
-                {eta
-                  ? ` · ${eta}`
-                  : hb.sincePhase > 0
-                    ? ` · ${fmtSince(hb.sincePhase)}`
-                    : ""}
+              {/* Change 082: Ampel-Punkt (Heartbeat) + echter ETA-Rest aus
+                  Dauer × RTF; Fallbacks „verarbeitet seit" / „aktiv seit" —
+                  nie mehr „…" und nie eine Rate-ETA. */}
+              <span className="text-muted2 tabular-nums shrink-0 flex items-center gap-1.5">
+                <span
+                  title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    hb.level === "fresh"
+                      ? "bg-ok animate-pulse"
+                      : hb.level === "warn"
+                        ? "bg-warn"
+                        : "bg-red-500"
+                  }`}
+                />
+                {hb.sinceBeat > 0 && (
+                  <span className="text-muted2">{t("heartbeat_ago")} {hb.sinceBeat}s</span>
+                )}
+                <span>{r.progress_pct}%</span>
+                {etaRange
+                  ? ` · ${t("eta_estimated")} ${etaRange}`
+                  : hb.sinceStart > 0
+                    ? ` · ${t("processing_since")} ${fmtSince(hb.sinceStart)}`
+                    : hb.sincePhase > 0
+                      ? ` · ${fmtSince(hb.sincePhase)}`
+                      : ""}
               </span>
             </div>
             {/* Live-Details (Alignment: Gruppe 3/12 · CLI 45%) */}
