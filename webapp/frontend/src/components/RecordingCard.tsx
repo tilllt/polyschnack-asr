@@ -8,7 +8,7 @@ import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
-import { fmtBytes, fmtDurSec, fmtMs, fmtDate } from "../format";
+import { fmtBytes, fmtDurSec, fmtMs, fmtDate, parseUtcMs } from "../format";
 import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
 import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
@@ -62,10 +62,12 @@ function updateEta(ref: { current: EtaRef }, pct: number): string {
   return etaFromRate(ref.current.rate, pct);
 }
 
-/** Change 011: Sekunden seit einem ISO-Zeitstempel (0 wenn unbekannt/zukunft). */
+/** Change 011: Sekunden seit einem ISO-Zeitstempel (0 wenn unbekannt/zukunft).
+ *  Change 081: naive Strings (ohne Z/Offset) werden als UTC interpretiert —
+ *  sonst entsteht in UTC+2 ein konstanter 2h-Skew („keine Aktivität seit 120m"). */
 export function secondsSince(iso: string | null | undefined): number {
   if (!iso) return 0;
-  const t = new Date(iso).getTime();
+  const t = parseUtcMs(iso);
   if (!Number.isFinite(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 1000));
 }

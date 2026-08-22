@@ -70,6 +70,29 @@ describe("heartbeatState (Change 011)", () => {
     });
     expect(st.stalled).toBe(false);
   });
+
+  it("naiver ISO-String ohne Z (Backend vor Change 081) wird als UTC gelesen → frischer Heartbeat bleibt fresh (Regression: 'seit 120m' in UTC+2)", () => {
+    // Systemzeit ist 12:00:00Z; der naive String steht für 11:59:55 UTC
+    // (5 s alt) — OHNE Z-Suffix. Vor Change 081 interpretierte JS ihn als
+    // Lokalzeit (UTC+2 → 2h Skew → stalled „seit 120m").
+    const naive = "2026-08-17T11:59:55";
+    const withZ = "2026-08-17T11:59:55Z";
+    const stNaive = heartbeatState({
+      last_heartbeat_at: naive,
+      phase_started_at: null,
+      status: "processing",
+    });
+    const stZ = heartbeatState({
+      last_heartbeat_at: withZ,
+      phase_started_at: null,
+      status: "processing",
+    });
+    expect(stNaive.sinceBeat).toBe(5);
+    expect(stNaive.sinceBeat).toBe(stZ.sinceBeat);
+    expect(stNaive.fresh).toBe(true);
+    expect(stNaive.stalled).toBe(false);
+    expect(fmtSince(stNaive.sinceBeat)).toBe("seit 5s");
+  });
 });
 
 describe("fmtSince / fmtEtaS (Change 011)", () => {

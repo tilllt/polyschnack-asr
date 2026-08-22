@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import ApiKey, User, hash_token
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
@@ -50,10 +51,10 @@ def _key_response(key: ApiKey) -> dict:
         "name": key.name,
         "description": key.description,
         "level": key.level,
-        "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+        "expires_at": iso_utc(key.expires_at) if key.expires_at else None,
         "expired": _is_expired(key),
-        "created_at": key.created_at.isoformat(),
-        "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
+        "created_at": iso_utc(key.created_at),
+        "last_used_at": iso_utc(key.last_used_at) if key.last_used_at else None,
     }
 
 

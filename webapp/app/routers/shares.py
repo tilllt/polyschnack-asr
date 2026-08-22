@@ -16,6 +16,7 @@ from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..models import RecordingShare, User
 from ..permissions import ensure_access, get_access_level
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
@@ -72,7 +73,7 @@ def list_shares(rid: str, request: Request, session: Session = Depends(get_sessi
             "user": sh.user_id,
             "user_name": (u.name or u.preferred_username) if (u := session.get(User, sh.user_id)) else None,
             "level": sh.level,
-            "created_at": sh.created_at.isoformat(),
+            "created_at": iso_utc(sh.created_at),
         }
         for sh in shares
     ]

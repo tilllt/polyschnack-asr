@@ -39,11 +39,18 @@ export function fmtMs(ms: number | null | undefined): string {
   return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
 }
 
+/** ISO string → UTC epoch ms. Naive Strings (ohne Z/Offset, z.B. Backend
+ *  vor Change 081) werden als UTC interpretiert — nie als Lokalzeit. */
+export function parseUtcMs(iso: string): number {
+  const hasOffset = /(Z|[+-]\d{2}:\d{2})$/.test(iso);
+  return new Date(hasOffset ? iso : iso + "Z").getTime();
+}
+
 /** ISO string → locale date/time pt-BR */
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("pt-BR", {
+    return new Date(parseUtcMs(iso)).toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short",
     });
@@ -56,7 +63,7 @@ export function fmtDate(iso: string | null | undefined): string {
 export function fmtHHMM(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleTimeString("pt-BR", {
+    return new Date(parseUtcMs(iso)).toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
     });

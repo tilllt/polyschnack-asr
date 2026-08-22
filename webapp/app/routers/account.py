@@ -29,6 +29,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..deps import require_authenticated
 from ..models import Recording
+from ..timeutil import iso_utc
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def _recording_json(rec: Recording) -> Dict[str, Any]:
         "schema": _EXPORT_SCHEMA,
         "original_name": rec.original_name,
         "uid": rec.uid,
-        "created_at": rec.created_at.isoformat() if rec.created_at else None,
+        "created_at": iso_utc(rec.created_at) if rec.created_at else None,
         "language": rec.language,
         "duration_s": rec.duration_s,
         "status": rec.status,

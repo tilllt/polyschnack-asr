@@ -11,6 +11,7 @@ from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..permissions import ensure_access
 from ..versions import get_diff, list_versions, snapshot
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
@@ -70,7 +71,7 @@ def list_versions_endpoint(rid: str, request: Request,
             "kind": v.kind,
             "backend": v.backend,
             "language": v.language,
-            "created_at": v.created_at.isoformat(),
+            "created_at": iso_utc(v.created_at),
             "created_by_user_id": v.created_by_user_id,
         }
         for v in list_versions(session, rec.id, since=since)

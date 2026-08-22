@@ -53,6 +53,7 @@ from ..export_backup import build_backup_zip
 from ..versions import list_versions
 from ..service import resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
@@ -542,17 +543,17 @@ def _recording_to_dict(
         "progress_note": rec.progress_note,
         # Change 011: Aktivitäts-/Phasen-Zeitstempel (Heartbeat).
         "phase_started_at": (
-            rec.phase_started_at.isoformat() if rec.phase_started_at else None
+            iso_utc(rec.phase_started_at) if rec.phase_started_at else None
         ),
         "last_heartbeat_at": (
-            rec.last_heartbeat_at.isoformat() if rec.last_heartbeat_at else None
+            iso_utc(rec.last_heartbeat_at) if rec.last_heartbeat_at else None
         ),
         # Change 011: Queue-Position + Warte-ETA auf der Recording-Karte
         # (Werte wie im Queue-Watcher, aber direkt an der Aufnahme).
         "queue_position": _queue_position_for(rec.id) if rec.status == "queued" else None,
         "queue_eta_s": _queue_eta_s_for(rec.id) if rec.status == "queued" else None,
         "queue_backend": rec.backend if rec.status == "queued" else None,
-        "created_at": rec.created_at.isoformat(),
+        "created_at": iso_utc(rec.created_at),
         "language": rec.language,
         "segments": None if lite else rec.segments,
         # Change 009: manuelle Segment-Aufteilung aktiv (Anzeige nutzt
@@ -575,7 +576,7 @@ def _recording_to_dict(
         "backup_url": f"/api/recordings/{uid}/backup",
         # WhatsApp / batch fields
         "batch_id": rec.batch_id,
-        "recorded_at": rec.recorded_at.isoformat() if rec.recorded_at else None,
+        "recorded_at": iso_utc(rec.recorded_at) if rec.recorded_at else None,
         "source": rec.source,
         "enable_vad": rec.enable_vad,
         "enable_diarize": rec.enable_diarize,
@@ -586,12 +587,12 @@ def _recording_to_dict(
         "enable_noise_reduce": rec.enable_noise_reduce,
         "enable_enhance": rec.enable_enhance,
         "waveform_peaks": None if lite else rec.waveform_peaks,
-        "updated_at": rec.updated_at.isoformat() if getattr(rec, "updated_at", None) else None,
+        "updated_at": iso_utc(rec.updated_at) if getattr(rec, "updated_at", None) else None,
         "user_id": rec.user_id,
         "access_level": access_level,
         "is_anon_shared": bool(getattr(rec, "share_token", False)),
         "retention_minutes": settings.POLYSCHNACK_ANON_RETENTION_MINUTES,
-        "shared_at": rec.shared_at.isoformat() if getattr(rec, "shared_at", None) else None,
+        "shared_at": iso_utc(rec.shared_at) if getattr(rec, "shared_at", None) else None,
         "delivery_status": rec.delivery_status,
         "delivery_error": rec.delivery_error,
     }
@@ -1091,9 +1092,9 @@ def toggle_anon_link(
         expires = rec.shared_at + dt.timedelta(minutes=ret_min)
     return {
         "share_token": rec.share_token,
-        "shared_at": rec.shared_at.isoformat() if rec.shared_at else None,
+        "shared_at": iso_utc(rec.shared_at) if rec.shared_at else None,
         "retention_minutes": ret_min,
-        "expires_at": expires.isoformat() if expires else None,
+        "expires_at": iso_utc(expires) if expires else None,
     }
 
 

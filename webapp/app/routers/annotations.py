@@ -18,6 +18,7 @@ from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..models import Annotation, User
 from ..permissions import ensure_access
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
@@ -116,8 +117,8 @@ def _serialize(session: Session, ann: Annotation) -> Dict[str, Any]:
         "end_s": ann.end_s,
         "body": ann.body,
         "parent_id": ann.parent_id,
-        "created_at": ann.created_at.isoformat() if ann.created_at else None,
-        "updated_at": ann.updated_at.isoformat() if ann.updated_at else None,
+        "created_at": iso_utc(ann.created_at) if ann.created_at else None,
+        "updated_at": iso_utc(ann.updated_at) if ann.updated_at else None,
     }
 
 
