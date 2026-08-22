@@ -313,7 +313,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // null = Original-Segmente (ASR-Chunks, oft ~105 s); Zahl = max. Dauer in
   // Sekunden für die Re-Segmentierung. Preview UND Export nutzen dieselbe
   // Aufteilung (resegment.ts ←→ service.resegment_by_duration).
-  const [segMaxDuration, setSegMaxDuration] = useState<number | null>(null);
+  // Change 088: Default-Re-Segmentierung — 25 s statt null. ASR liefert
+  // chunk-bedingte Riesen-Segmente (Ø 119 s bei 95-min-Aufnahmen); ohne
+  // Default zeigt die Anzeige die rohen Blöcke. Feld leeren = Original.
+  // Bei segments_manual (gezogene Grenzen = Wahrheit, deriveSegments
+  // ignoriert die Länge) startet das Feld leer — kein irreführender Default.
+  const [segMaxDuration, setSegMaxDuration] = useState<number | null>(
+    () => (r.segments_manual ? null : 25),
+  );
   const [waveformError, setWaveformError] = useState(false);
   // Fix 2026-08-18: IMMER zuerst die 64-kbps-MP3-Preview anfordern — der
   // Server generiert das Sidecar beim ersten Zugriff synchron (recordings.py
@@ -1275,7 +1282,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     placeholder={t("seg_len_placeholder")}
                     className="w-[64px] bg-panel border border-border rounded-sm px-1.5 py-[3px] text-[12px] outline-none focus:border-accent tabular-nums"
                   />
-                  {segMaxDuration != null && (
+                  {segMaxDuration != null && !r.segments_manual && (
                     <span className="text-[11px] text-muted2">
                       {displaySegments.length} × ≤ {segMaxDuration} s
                     </span>
@@ -1488,7 +1495,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 ]).map((fmt) => (
                   <a
                     key={fmt.extension}
-                    href={`${r.download_url}?format=${fmt.extension}`}
+                    href={`${r.download_url}?format=${fmt.extension}${
+                      segMaxDuration != null ? `&max_duration_s=${segMaxDuration}` : ""
+                    }`}
                     download
                     onClick={() => setDlOpen(false)}
                     className="
