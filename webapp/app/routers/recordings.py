@@ -1772,6 +1772,32 @@ def set_recording_tags(
     return {"uid": rec.uid, "tags": list(rec.tags or [])}
 
 
+@router.get("/tags")
+def list_all_tags(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> List[str]:
+    """Change 092: Alle Tags des aktuellen Users über alle Aufnahmen
+    (dedup case-insensitiv, sortiert) — Vorschlagsliste für den
+    TagEditor-Autocomplete.
+
+    Konsistente Normalisierung wie PATCH: getrimmt, erste Schreibweise
+    gewinnt, leere Einträge verworfen. Nur eigene Aufnahmen (User-Isolation).
+    """
+    uid = _current_user(request, session)
+    seen: set[str] = set()
+    out: List[str] = []
+    for (rec_tags,) in session.execute(
+        select(Recording.tags).where(Recording.user_id == uid)
+    ).all():
+        for t in rec_tags or []:
+            t = str(t).strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                out.append(t)
+    return sorted(out, key=str.lower)
+
+
 # ---------------------------------------------------------------------------
 # Crop / transcribe-range
 # ---------------------------------------------------------------------------

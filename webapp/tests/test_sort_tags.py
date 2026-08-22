@@ -53,6 +53,27 @@ def _uids(rows) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Change 092 — GET /api/tags (Autocomplete-Vorschläge, User-Isoliert)
+# ---------------------------------------------------------------------------
+
+
+def test_list_all_tags_dedup_sort_user_isolated(db):
+    """GET /tags liefert deduplizierte (case-insensitiv), sortierte Tags —
+    nur die des aktuellen Users."""
+    with Session(db) as s:
+        tags = recordings.list_all_tags(
+            request=_FakeRequest(session={"user_id": 1}), session=s)
+    # r1: walzen + Review; r2: schellack; r4: walzen (Duplikat).
+    # Erste Schreibweise gewinnt („Review"); sortiert case-insensitiv.
+    assert tags == ["Review", "schellack", "walzen"]
+
+    # Anderer User (id=99, keine Recordings) → leer
+    with Session(db) as s:
+        assert recordings.list_all_tags(
+            request=_FakeRequest(session={"user_id": 99}), session=s) == []
+
+
+# ---------------------------------------------------------------------------
 # Sortierung (crud-Ebene)
 # ---------------------------------------------------------------------------
 

@@ -8,9 +8,9 @@
  * - Fehler sind sichtbar (Toast) — keine stillen Failures.
  */
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Plus, Loader2 } from "lucide-react";
-import { updateRecordingTags } from "../api";
+import { fetchAllTags, updateRecordingTags } from "../api";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
 
@@ -26,6 +26,22 @@ export function TagEditor({ uid, tags = [], canEdit }: Props) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  // Change 092: Vorschlagsliste existierender Tags beim Fokus/Eintippen.
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0); // Highlight-Index (Pfeiltasten)
+  const { data: allTags = [] } = useQuery({
+    queryKey: ["all-tags"],
+    queryFn: fetchAllTags,
+    staleTime: 60_000,
+    enabled: canEdit,
+  });
+  // Existierende Tags, die noch NICHT auf dieser Aufnahme liegen (und zum
+  // Tippfilter passen) — case-insensitiv wie Backend-Dedup.
+  const known = allTags.filter(
+    (x) =>
+      !tags.some((y) => y.toLowerCase() === x.toLowerCase()) &&
+      x.toLowerCase().includes(draft.trim().toLowerCase()),
+  );
 
   if (!tags.length && !canEdit) return null;
 
@@ -50,6 +66,33 @@ export function TagEditor({ uid, tags = [], canEdit }: Props) {
     }
     save([...tags, v]);
     setDraft("");
+    setOpen(false);
+  }
+
+  function pick(x: string) {
+    // Change 092: Vorschlag aus der Liste übernehmen.
+    if (tags.some((y) => y.toLowerCase() === x.toLowerCase())) return;
+    save([...tags, x]);
+    setDraft("");
+    setOpen(false);
+    setHi(0);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setHi((h) => (known.length ? Math.min(h + 1, known.length - 1) : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHi((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      if (open && known[hi]) pick(known[hi]);
+      else add();
+    } else if (e.key === "Escape") {
+      setDraft("");
+      setOpen(false);
+    }
   }
 
   return (
@@ -75,18 +118,45 @@ export function TagEditor({ uid, tags = [], canEdit }: Props) {
       ))}
       {canEdit && (
         <span className="inline-flex items-center gap-0.5">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") add();
-              if (e.key === "Escape") setDraft("");
-            }}
-            disabled={saving}
-            placeholder={t("tag_placeholder")}
-            aria-label={t("tag_add")}
-            className="w-[90px] text-[11px] px-1.5 py-[1px] rounded-sm bg-panel2 border border-border2 text-txt outline-none focus:border-accent placeholder:text-muted2 disabled:opacity-50"
-          />
+          <div className="relative">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              onFocus={() => {
+                setOpen(true);
+                setHi(0);
+              }}
+              onBlur={() => setOpen(false)}
+              disabled={saving}
+              placeholder={t("tag_placeholder")}
+              aria-label={t("tag_add")}
+              className="w-[90px] text-[11px] px-1.5 py-[1px] rounded-sm bg-panel2 border border-border2 text-txt outline-none focus:border-accent placeholder:text-muted2 disabled:opacity-50"
+            />
+            {open && known.length > 0 && (
+              <ul
+                data-testid="tag-suggestions"
+                className="absolute left-0 top-full z-20 mt-[2px] max-h-[140px] overflow-y-auto rounded-sm bg-panel border border-border2 shadow-lg"
+              >
+                {known.map((x, i) => (
+                  <li key={x}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault() /* Fokus behalten → kein Blur vor dem Klick */}
+                      onClick={() => pick(x)}
+                      className={`block w-full text-left text-[11px] px-2 py-[3px] ${
+                        i === hi
+                          ? "bg-accent/20 text-txt"
+                          : "text-muted hover:bg-panel2"
+                      }`}
+                    >
+                      #{x}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <button
             onClick={add}
             disabled={saving}

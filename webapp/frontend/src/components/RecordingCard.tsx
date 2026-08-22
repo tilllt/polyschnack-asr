@@ -1361,7 +1361,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         )}
         {r.status === "processing" && (
           <div className="px-4 pb-2">
-            <div className="flex items-center justify-between gap-2 text-[12px] mb-[6px]">
+            <div className="flex flex-wrap items-center gap-1 text-[12px] mb-[6px]">
               {/* Change 035: Phasen-Chips statt nur Text — jede Phase hat
                   einen Status (erledigt/aktiv/übersprungen/offen); die
                   Prozent-Zahl bleibt als Zusatzinfo, wo sie real ist. */}
@@ -1388,32 +1388,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   );
                 })}
               </span>
-              {/* Change 082: Ampel-Punkt (Heartbeat) + echter ETA-Rest aus
-                  Dauer × RTF; Fallbacks „verarbeitet seit" / „aktiv seit" —
-                  nie mehr „…" und nie eine Rate-ETA. */}
-              <span className="text-muted2 tabular-nums shrink-0 flex items-center gap-1.5">
-                <span
-                  title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    hb.level === "fresh"
-                      ? "bg-ok animate-pulse"
-                      : hb.level === "warn"
-                        ? "bg-warn"
-                        : "bg-red-500"
-                  }`}
-                />
-                {hb.sinceBeat > 0 && (
-                  <span className="text-muted2">{t("heartbeat_ago")} {hb.sinceBeat}s</span>
-                )}
-                <span>{r.progress_pct}%</span>
-                {etaRange
-                  ? ` · ${t("eta_estimated")} ${etaRange}`
-                  : hb.sinceStart > 0
-                    ? ` · ${t("processing_since")} ${fmtSince(hb.sinceStart)}`
-                    : hb.sincePhase > 0
-                      ? ` · ${fmtSince(hb.sincePhase)}`
-                      : ""}
-              </span>
             </div>
             {/* Live-Details (Alignment: Gruppe 3/12 · CLI 45%) */}
             {phaseDetail && (
@@ -1430,6 +1404,38 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 }`}
                 style={{ width: `${r.progress_pct}%` }}
               />
+            </div>
+            {/* Change 092b (User 2026-08-22): Heartbeat-Ampel + echter
+                ETA-Rest UNTER dem Progress-Bar (nicht neben den Chips) —
+                auf schmalen Screens blieb die Zeile sonst unter den
+                Chips hängen. ETA aus Dauer × RTF; Fallbacks „verarbeitet
+                seit" / „aktiv seit". */}
+            <div className="mt-[5px] flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-muted2 tabular-nums shrink-0 flex items-center gap-1.5">
+                <span
+                  title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    hb.level === "fresh"
+                      ? "bg-ok animate-pulse"
+                      : hb.level === "warn"
+                        ? "bg-warn"
+                        : "bg-red-500"
+                  }`}
+                />
+                {hb.sinceBeat > 0 && (
+                  <span className="text-muted2">{t("heartbeat_ago")} {hb.sinceBeat}s</span>
+                )}
+                <span>{r.progress_pct}%</span>
+              </span>
+              <span className="text-muted2 tabular-nums truncate">
+                {etaRange
+                  ? `${t("eta_estimated")} ${etaRange}`
+                  : hb.sinceStart > 0
+                    ? `${t("processing_since")} ${fmtSince(hb.sinceStart)}`
+                    : hb.sincePhase > 0
+                      ? fmtSince(hb.sincePhase)
+                      : ""}
+              </span>
             </div>
             {/* Change 011/035: Stall-Warnung nur bei totem Job (kein Heartbeat);
                 Text präzisiert — „möglicherweise hängend" statt kryptisch. */}

@@ -244,6 +244,13 @@ export async function fetchRecordings(
   return res.json() as Promise<Recording[]>;
 }
 
+/** Change 092: Alle Tags über alle Aufnahmen (Autocomplete-Vorschläge). */
+export async function fetchAllTags(): Promise<string[]> {
+  const res = await fetch("/api/tags");
+  if (!res.ok) throw new Error(`tags: ${res.status}`);
+  return res.json() as Promise<string[]>;
+}
+
 /** Change 054: Tags einer Aufnahme setzen (Backend dedupt case-insensitiv,
  *  Limits: ≤ 20 Tags, je ≤ 40 Zeichen). */
 export async function updateRecordingTags(
