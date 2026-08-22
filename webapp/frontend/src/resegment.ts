@@ -50,19 +50,22 @@ interface _W {
  * des Recording-Modells. Es gibt genau EINE Segment-Wahrheit (der
  * Server/Cache); die Anzeige kann nicht mehr davon abweichen.
  *
- * - segments_manual == true → segments direkt (die gespeicherte manuelle
- *   Aufteilung ist die Wahrheit, KEINE erneute Re-Segmentierung — eine
- *   gezogene Grenze verschwindet nie wieder aus der Anzeige).
- * - sonst + segMaxDuration gesetzt → resegmentByDuration (Auto-Vorschau).
- * - sonst → segments.
+ * - segMaxDuration gesetzt → resegmentByDuration (Auto-Vorschau): zerlegt
+ *   NUR Segmente ohne _manual-Flag; manuell angefasste (Grenz-Drag, +/−,
+ *   Split — markieren ihre betroffenen Segmente) bleiben exakt erhalten.
+ * - ohne Länge → segments direkt.
  */
 export function deriveSegments(
   segments: readonly unknown[] | null | undefined,
   segMaxDuration: number | null,
-  segmentsManual: boolean,
 ): readonly unknown[] {
   if (!segments || segments.length === 0) return [];
-  if (segmentsManual) return segments;
+  // Change 088-Hybrid: resegmentByDuration zerlegt NUR Segmente OHNE
+  // _manual-Flag — manuell angefasste Grenzen (moveBoundary/insert/
+  // delete/split setzen das Flag) bleiben exakt erhalten, unangefasste
+  // Original-Chunks teilen sich nach der gewählten Länge. segments_manual
+  // (Recording-Flag) ist dafür nicht mehr der Anzeige-Schalter: es zeigt
+  // nur an, dass es manuelle OPs gibt — die Flags steuern die Aufteilung.
   if (segMaxDuration != null && segMaxDuration > 0) {
     return resegmentByDuration(segments, segMaxDuration);
   }
@@ -77,42 +80,19 @@ export function resegmentByDuration(
     return segments ? ([...segments] as ResegSegment[]) : [];
   }
 
-  const words: _W[] = [];
-  for (const seg of segments) {
-    const s = seg as { speaker?: unknown; words?: unknown };
-    const speaker = typeof s.speaker === "string" ? s.speaker : "";
-    const segWords = Array.isArray(s.words) ? (s.words as _W[]) : [];
-    for (const w of segWords) {
-      words.push({ ...w, _speaker: speaker });
-    }
-  }
-  if (words.length === 0) return [...segments] as ResegSegment[];
-
-  const buckets: _W[][] = [];
+  // Change 088: manuell angefasste Segmente (_manual: true) werden NICHT
+  // aufgeteilt — sie wandern unverändert (Original-Referenz) in die
+  // Ausgabe. Kurze unmarkierte Segmente bleiben als 1 Bucket mit
+  // identischem Text erhalten; nur Riesen-Chunks (> Ziel) werden geteilt.
+  const out: ResegSegment[] = [];
   let cur: _W[] = [];
-  for (const w of words) {
-    const ws = typeof w.start === "number" ? w.start : 0;
-    const we = typeof w.end === "number" ? w.end : ws;
-    if (cur.length > 0) {
-      const firstS = typeof cur[0].start === "number" ? cur[0].start : 0;
-      const curSpeaker = cur[0]._speaker ?? "";
-      const overflow = we - firstS > maxDurationS;
-      const speakerChange = (w._speaker ?? "") !== curSpeaker;
-      if (overflow || speakerChange) {
-        buckets.push(cur);
-        cur = [];
-      }
-    }
-    cur.push(w);
-  }
-  if (cur.length > 0) buckets.push(cur);
-
-  return buckets.map((b) => {
-    const start = typeof b[0].start === "number" ? b[0].start : 0;
-    const last = b[b.length - 1];
+  const flush = () => {
+    if (cur.length === 0) return;
+    const start = typeof cur[0].start === "number" ? cur[0].start : 0;
+    const last = cur[cur.length - 1];
     const end = typeof last.end === "number" ? last.end : start;
-    const speaker = b[0]._speaker ?? "";
-    const text = b
+    const speaker = cur[0]._speaker ?? "";
+    const text = cur
       .map((x) => (typeof x.word === "string" ? x.word : String(x.word ?? "")))
       .join(" ")
       .trim();
@@ -120,11 +100,47 @@ export function resegmentByDuration(
       start,
       end,
       text,
-      words: b.map(({ _speaker: _sp, ...rest }) => rest as ResegWord),
+      words: cur.map(({ _speaker: _sp, ...rest }) => rest as ResegWord),
     };
     if (speaker) seg.speaker = speaker;
-    return seg;
-  });
+    out.push(seg);
+    cur = [];
+  };
+
+  for (const seg of segments) {
+    const s = seg as { speaker?: unknown; words?: unknown; _manual?: unknown };
+    if (s._manual === true) {
+      flush(); // offenen Bucket vor dem manuellen Segment schließen
+      out.push(seg as ResegSegment); // Original-Objekt, exakt erhalten
+      continue;
+    }
+    const speaker = typeof s.speaker === "string" ? s.speaker : "";
+    const segWords = Array.isArray(s.words) ? (s.words as _W[]) : [];
+    if (segWords.length === 0) {
+      // Keine Wort-Timestamps (kein Karaoke): Segment kann nicht geteilt
+      // werden → Original unverändert übernehmen.
+      flush();
+      out.push(seg as ResegSegment);
+      continue;
+    }
+    for (const w of segWords) {
+      const item: _W = { ...w, _speaker: speaker };
+      const ws = typeof w.start === "number" ? w.start : 0;
+      const we = typeof w.end === "number" ? w.end : ws;
+      if (cur.length > 0) {
+        const firstS = typeof cur[0].start === "number" ? cur[0].start : 0;
+        const curSpeaker = cur[0]._speaker ?? "";
+        const overflow = we - firstS > maxDurationS;
+        const speakerChange = (item._speaker ?? "") !== curSpeaker;
+        if (overflow || speakerChange) {
+          flush();
+        }
+      }
+      cur.push(item);
+    }
+  }
+  flush();
+  return out;
 }
 
 /** Ein Segment aus einer Wort-Liste bauen (start/end/text/words). */
@@ -202,15 +218,15 @@ export function moveBoundary(
     const split = aWords.length + n;
     const aNew = aWords.slice(0, split);
     const bNew = [...aWords.slice(split), ...bWords];
-    out[boundaryIdx] = { ...a, ...buildSeg(aNew) };
-    out[boundaryIdx + 1] = { ...b, ...buildSeg(bNew) };
+    out[boundaryIdx] = { ...a, ...buildSeg(aNew), _manual: true };
+    out[boundaryIdx + 1] = { ...b, ...buildSeg(bNew), _manual: true };
   } else {
     // Erste n Wörter von B → Ende von A
     const split = n;
     const aNew = [...aWords, ...bWords.slice(0, split)];
     const bNew = bWords.slice(split);
-    out[boundaryIdx] = { ...a, ...buildSeg(aNew) };
-    out[boundaryIdx + 1] = { ...b, ...buildSeg(bNew) };
+    out[boundaryIdx] = { ...a, ...buildSeg(aNew), _manual: true };
+    out[boundaryIdx + 1] = { ...b, ...buildSeg(bNew), _manual: true };
   }
   return out;
 }
@@ -240,9 +256,9 @@ export function insertSegment(
 
   const last = aWords[aWords.length - 1];
   const aNew = aWords.slice(0, -1);
-  const next = buildSeg([last]);
+  const next = { ...buildSeg([last]), _manual: true };
   if (a.speaker) next.speaker = a.speaker; // gleicher Sprecher wie voriges Segment
-  segs[afterIdx] = { ...a, ...buildSeg(aNew) };
+  segs[afterIdx] = { ...a, ...buildSeg(aNew), _manual: true };
   segs.splice(afterIdx + 1, 0, next);
   return segs;
 }
@@ -282,11 +298,11 @@ export function deleteSegment(
     // Erstes Segment: Wörter an den Anfang des neuen ersten Segments
     const b = segs[0];
     const bWords = (b.words ?? []) as _W[];
-    segs[0] = { ...b, ...buildSeg([...removedWords, ...bWords]) };
+    segs[0] = { ...b, ...buildSeg([...removedWords, ...bWords]), _manual: true };
   } else {
     const a = segs[idx - 1];
     const aWords = (a.words ?? []) as _W[];
-    segs[idx - 1] = { ...a, ...buildSeg([...aWords, ...removedWords]) };
+    segs[idx - 1] = { ...a, ...buildSeg([...aWords, ...removedWords]), _manual: true };
   }
   return segs;
 }
@@ -390,6 +406,7 @@ export function splitSegmentAtRange(
       before.end = midStart;
     }
     if (originalSpeaker !== undefined) before.speaker = originalSpeaker;
+    before._manual = true;
     out.push(before);
   }
 
@@ -399,6 +416,7 @@ export function splitSegmentAtRange(
   mid.start = midStart;
   mid.end = midEnd;
   mid.speaker = speaker;
+  mid._manual = true;
   out.push(mid);
 
   if (hasWords ? part3.length > 0 : ce < text.length) {
@@ -416,6 +434,7 @@ export function splitSegmentAtRange(
       after.start = midEnd;
     }
     if (originalSpeaker !== undefined) after.speaker = originalSpeaker;
+    after._manual = true;
     out.push(after);
   }
 

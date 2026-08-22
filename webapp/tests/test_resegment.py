@@ -108,6 +108,35 @@ def test_resegment_no_words_returns_original():
     assert resegment_by_duration(plain, 2) == plain
 
 
+def test_resegment_manual_segments_stay_exact():
+    from app.service import resegment_by_duration
+
+    # Change 088: _manual:true (vom Frontend bei Grenz-Drag/Insert/Delete/
+    # Split gesetzt) → Segment wandert UNVERÄNDERT durch, auch wenn es die
+    # Ziel-Dauer überschreitet. Nur unmarkierte Segmente werden geteilt.
+    manual = {**_seg(0, 10, _long_words()), "_manual": True}
+    auto = _seg(0, 10, _long_words())
+    out = resegment_by_duration([manual, auto], 4)
+    assert out[0] is manual  # exakt dasselbe Dict-Objekt, unverändert
+    assert out[0]["text"] == manual["text"]
+    assert len(out[1:]) > 1  # das unmarkierte Riesen-Segment wurde geteilt
+    for s in out[1:]:
+        assert s["end"] - s["start"] <= 4 + 1e-9
+
+
+def test_resegment_manual_position_preserved():
+    from app.service import resegment_by_duration
+
+    # Reihenfolge bleibt: manuelles Segment zwischen zwei geteilten Chunks.
+    manual = {**_seg(4, 14, _long_words()), "_manual": True}
+    out = resegment_by_duration(
+        [_seg(0, 4, [("x", 0, 4)]), manual, _seg(14, 18, [("y", 14, 18)])], 4
+    )
+    assert out[0]["text"] == "x"
+    assert out[1] is manual
+    assert out[2]["text"] == "y"
+
+
 def test_put_segments_persists_and_rebuilds_text(client):
     rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
 

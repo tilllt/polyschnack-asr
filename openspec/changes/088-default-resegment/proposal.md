@@ -7,22 +7,28 @@
 User-Eingabe zeigt die Anzeige die rohen Riesen-Blöcke (UX-Problem auf
 Mobile, siehe Change 087).
 
-## Lösung (User-OK 2026-08-22, Variante A — Anzeige-Default)
+## Lösung (User-OK 2026-08-22, Variante A — Anzeige-Default, Hybrid)
 
 1. `segMaxDuration`-State in RecordingCard: Default **25 s** statt null
-   (RecordingCard.tsx Z. 316). Jede Aufnahme zeigt automatisch
-   re-segmentierte Segmente ≤ 25 s (Sprecherwechsel trennt weiterhin).
-2. Kein Daten-Eingriff: gespeicherte Segmente bleiben unverändert;
-   `segments_manual == true` (gezogene Grenzen) hat weiterhin Vorrang
-   (deriveSegments, Z. 617).
-3. User kann das Feld leeren → Original-Segmente (bisheriges Verhalten).
-4. Export (SRT/VTT): nutzt denselben Wert (bestehende Übergabe) — Default
-   greift damit automatisch auch beim Export.
+   (RecordingCard.tsx). Jede Aufnahme zeigt automatisch re-segmentierte
+   Segmente ≤ 25 s (Sprecherwechsel trennt weiterhin).
+2. **Hybrid statt Total-Stop:** Manuell angefasste Segmente bekommen bei
+   jeder Bearbeitungs-OP (Grenz-Drag, +/−, Split) ein `_manual: true`-Flag
+   (resegment.ts) — sie bleiben trotz Segmentlänge EXAKT erhalten. Nur
+   unmarkierte Segmente (unangefasste ASR-Chunks) werden geteilt. Damit
+   gilt der Default auch bei `segments_manual=true`: der angefasste Teil
+   bleibt, der Rest („der größte Teil der Transkription") teilt sich.
+3. Backend `resegment_by_duration` (service.py) respektiert `_manual`
+   ebenso → Export (SRT/VTT) zeigt dieselbe Aufteilung wie die Anzeige.
+   PUT /segments persistiert die Flags 1:1 (keine Feld-Whitelist).
+4. User kann das Feld leeren → Original-Segmente (bisheriges Verhalten).
 
 ## Erwartete Wirkung
 
-- 95-min-Aufnahme: 48 Riesen-Zeilen → ~228 Zeilen ≤ 25 s — handliche
-  Blöcke auf Mobile, präzisere Navigation (Suche/Sprung), bessere
-  Zusammenarbeit mit der Virtualisierung (087) (kleine, schnell messbare
-  Zeilen).
-- Alt-Aufnahmen profitieren sofort (reine Anzeige-Transformation).
+- 95-min-Aufnahme: 48 Riesen-Zeilen → ~136 Zeilen ≤ 25 s; ein manuell
+  angefasstes 400-s-Segment bleibt als Ganzes (verifiziert: 120 Zeilen
+  mit einem markierten 287-Wörter-Segment).
+- Bestandsaufnahmen ohne Flags: alle Riesen-Chunks teilen sich (genau
+  der Wunsch „Originale teilen sich").
+- Alt-Logik „segments_manual stoppt alles" ist ersetzt — das Recording-
+  Flag ist nur noch Metadatum, die Pro-Segment-Flags steuern.

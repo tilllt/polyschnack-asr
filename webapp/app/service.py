@@ -1860,52 +1860,60 @@ def resegment_by_duration(
     - Mindestens 1 Wort pro Bucket (ein einzelnes langes Wort sprengt
       die Dauer bewusst nicht in zwei künstliche Hälften).
     - Text = Wörter verbunden; start/end aus erstem/letztem Wort.
+    - Change 088: Segmente mit `_manual: true` (im Frontend gesetzte
+      Markierung bei Grenz-Drag/Insert/Delete/Split) werden NICHT
+      aufgeteilt — sie wandern unverändert in die Ausgabe. Nur
+      unmarkierte Segmente werden nach max_duration_s zerlegt.
     """
     if not segments or max_duration_s <= 0:
         return list(segments)
 
-    words: List[Dict[str, Any]] = []
-    for seg in segments:
-        speaker = seg.get("speaker") or ""
-        for w in (seg.get("words") or []):
-            item = dict(w)
-            item["_speaker"] = speaker
-            words.append(item)
-    if not words:
-        return list(segments)
-
-    buckets: List[List[Dict[str, Any]]] = []
-    cur: List[Dict[str, Any]] = []
-    for w in words:
-        ws = float(w.get("start") or 0.0)
-        we = float(w.get("end") or ws)
-        if cur:
-            first_s = float(cur[0].get("start") or 0.0)
-            cur_speaker = cur[0].get("_speaker", "")
-            overflow = (we - first_s) > max_duration_s
-            speaker_change = w.get("_speaker", "") != cur_speaker
-            if overflow or speaker_change:
-                buckets.append(cur)
-                cur = []
-        cur.append(w)
-    if cur:
-        buckets.append(cur)
-
     out: List[Dict[str, Any]] = []
-    for b in buckets:
-        start = float(b[0].get("start") or 0.0)
-        end = float(b[-1].get("end") or start)
-        speaker = b[0].get("_speaker", "")
-        text = " ".join(str(x.get("word") or "") for x in b).strip()
+    cur: List[Dict[str, Any]] = []
+
+    def flush() -> None:
+        if not cur:
+            return
+        start = float(cur[0].get("start") or 0.0)
+        end = float(cur[-1].get("end") or start)
+        speaker = cur[0].get("_speaker", "")
+        text = " ".join(str(x.get("word") or "") for x in cur).strip()
         seg: Dict[str, Any] = {
             "start": start,
             "end": end,
             "text": text,
-            "words": [{k: v for k, v in x.items() if k != "_speaker"} for x in b],
+            "words": [{k: v for k, v in x.items() if k != "_speaker"} for x in cur],
         }
         if speaker:
             seg["speaker"] = speaker
         out.append(seg)
+        cur.clear()
+
+    for seg in segments:
+        if seg.get("_manual") is True:
+            flush()  # offenen Bucket vor dem manuellen Segment schließen
+            out.append(seg)  # Original-Dict unverändert übernehmen
+            continue
+        if not seg.get("words"):
+            # Keine Wort-Timestamps (kein Karaoke): nicht teilbar → Original.
+            flush()
+            out.append(seg)
+            continue
+        speaker = seg.get("speaker") or ""
+        for w in seg.get("words") or []:
+            item = dict(w)
+            item["_speaker"] = speaker
+            ws = float(item.get("start") or 0.0)
+            we = float(item.get("end") or ws)
+            if cur:
+                first_s = float(cur[0].get("start") or 0.0)
+                cur_speaker = cur[0].get("_speaker", "")
+                overflow = (we - first_s) > max_duration_s
+                speaker_change = item.get("_speaker", "") != cur_speaker
+                if overflow or speaker_change:
+                    flush()
+            cur.append(item)
+    flush()
     return out
 
 

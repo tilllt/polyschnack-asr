@@ -316,11 +316,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Change 088: Default-Re-Segmentierung — 25 s statt null. ASR liefert
   // chunk-bedingte Riesen-Segmente (Ø 119 s bei 95-min-Aufnahmen); ohne
   // Default zeigt die Anzeige die rohen Blöcke. Feld leeren = Original.
-  // Bei segments_manual (gezogene Grenzen = Wahrheit, deriveSegments
-  // ignoriert die Länge) startet das Feld leer — kein irreführender Default.
-  const [segMaxDuration, setSegMaxDuration] = useState<number | null>(
-    () => (r.segments_manual ? null : 25),
-  );
+  // Manuell angefasste Segmente sind per _manual-Flag markiert und bleiben
+  // trotz Default exakt erhalten (resegment.ts-Hybrid) — auch bei
+  // segments_manual=true greift der Default für die unangefassten Teile.
+  const [segMaxDuration, setSegMaxDuration] = useState<number | null>(25);
   const [waveformError, setWaveformError] = useState(false);
   // Fix 2026-08-18: IMMER zuerst die 64-kbps-MP3-Preview anfordern — der
   // Server generiert das Sidecar beim ersten Zugriff synchron (recordings.py
@@ -622,7 +621,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // verschwinden nie wieder aus der Anzeige); sonst + Segmentlänge →
   // resegmentByDuration (Auto-Vorschau); sonst segments.
   const displaySegments = useMemo(
-    () => deriveSegments(segments, segMaxDuration, !!r.segments_manual) as Segment[],
+    () => deriveSegments(segments, segMaxDuration) as Segment[],
     [segments, segMaxDuration, r.segments_manual],
   );
 
@@ -1282,7 +1281,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     placeholder={t("seg_len_placeholder")}
                     className="w-[64px] bg-panel border border-border rounded-sm px-1.5 py-[3px] text-[12px] outline-none focus:border-accent tabular-nums"
                   />
-                  {segMaxDuration != null && !r.segments_manual && (
+                  {segMaxDuration != null && (
                     <span className="text-[11px] text-muted2">
                       {displaySegments.length} × ≤ {segMaxDuration} s
                     </span>

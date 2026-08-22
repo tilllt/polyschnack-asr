@@ -47,9 +47,11 @@ class Recording(SQLModel, table=True):
     #: JSON list of {start, end, text} dicts; stored as SQLite JSON column.
     segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
     #: Change 009 (2026-08-17): manuelle Segment-Aufteilung aktiv (Grenz-Drag,
-    #: +/−, Split, Re-Segmentierung). true → Anzeige nutzt segments direkt
-    #: (keine Auto-Re-Segmentierung nach segMaxDuration); false bei neuer
-    #: Transkription/Retranscribe/Restore (Auto-Aufteilung gilt wieder).
+    #: true nach jeder Segment-Struktur-OP (Grenz-Drag, +/−, Split,
+    #: Re-Segmentierung). Die Anzeige unterscheidet seit Change 088 pro
+    #: Segment per `_manual`-Flag: markierte Segmente bleiben exakt,
+    #: unmarkierte werden nach der gewählten Segmentlänge geteilt.
+    #: false bei neuer Transkription/Retranscribe/Restore.
     segments_manual: bool = False
     error: Optional[str] = None
     processing_ms: Optional[float] = None

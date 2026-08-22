@@ -20,44 +20,54 @@ describe("deriveSegments (Change 009: Anzeige = reine Funktion des Modells)", ()
   for (let i = 0; i < 10; i++) words.push([`w${i}`, i, i + 1]);
   const input = [seg(0, 10, words)];
 
-  it("segments_manual=true → segments DIREKT (keine Re-Segmentierung)", () => {
-    const out = deriveSegments(input, 4, true);
-    // Manuelle Aufteilung ist die Wahrheit — die Segmentlänge darf sie
-    // nicht mehr zerlegen (Bug-Klasse „Anzeige springt zurück").
-    expect(out).toBe(input);
-    expect(out.length).toBe(1);
-  });
-
-  it("segments_manual=false + Segmentlänge → resegmentByDuration (Auto-Vorschau)", () => {
-    const out = deriveSegments(input, 4, false);
+  it("Segmentlänge → resegmentByDuration (Auto-Vorschau)", () => {
+    const out = deriveSegments(input, 4);
     expect(out.length).toBeGreaterThan(1);
     for (const s of out as { start?: unknown; end?: unknown }[]) {
       expect(Number(s.end) - Number(s.start)).toBeLessThanOrEqual(4 + 1e-9);
     }
   });
 
-  it("segments_manual=false + keine Segmentlänge → segments direkt", () => {
-    const out = deriveSegments(input, null, false);
+  it("keine Segmentlänge → segments direkt (Original-Referenz)", () => {
+    const out = deriveSegments(input, null);
     expect(out).toBe(input);
     expect(out.length).toBe(1);
   });
 
   it("null/leere Liste → []", () => {
-    expect(deriveSegments(null, 4, false)).toEqual([]);
-    expect(deriveSegments(undefined, null, true)).toEqual([]);
-    expect(deriveSegments([], 4, false)).toEqual([]);
+    expect(deriveSegments(null, 4)).toEqual([]);
+    expect(deriveSegments(undefined, null)).toEqual([]);
+    expect(deriveSegments([], 4)).toEqual([]);
   });
 
-  it("segments_manual=true + keine Segmentlänge → segments direkt", () => {
-    const out = deriveSegments(input, null, true);
-    expect(out).toBe(input);
+  it("Change 088: _manual-Segmente bleiben trotz Segmentlänge exakt", () => {
+    // Manuell angefasste Segmente (Grenz-Drag/Insert/Delete/Split setzen
+    // _manual: true) werden nie wieder zerlegt — auch bei gesetzter Länge.
+    const manual = [{ ...input[0], _manual: true }];
+    const out = deriveSegments(manual, 4);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(manual[0]); // exakt dieselbe Referenz
+    expect((out[0] as { text?: unknown }).text).toBe("w0 w1 w2 w3 w4 w5 w6 w7 w8 w9");
   });
 
-  it("Anzeige == Modell nach jedem Commit (kein Desync-Pfad möglich)", () => {
-    // Simuliert den Commit: Modell enthält die manuelle Liste + Flag true.
-    const manual = [seg(0, 10, words)]; // z. B. vom Server nach PUT zurück
-    const out = deriveSegments(manual, 4, true);
-    expect(out).toBe(manual); // exakt dieselbe Referenz — Anzeige kann nicht abweichen
+  it("Change 088: gemischt — manuelles bleibt, unmarkiertes Riesen-Segment teilt sich", () => {
+    // Das 95-min-Szenario: ein paar angefasste (kurze) Segmente, der Rest
+    // unangefasste ASR-Chunks — nur die Chunks werden geteilt.
+    const manual = { ...input[0], _manual: true };
+    const out = deriveSegments([manual, ...input], 4);
+    expect(out[0]).toBe(manual); // manuelles Segment unverändert an Position 0
+    const rest = out.slice(1) as { start?: unknown; end?: unknown }[];
+    expect(rest.length).toBeGreaterThan(1); // das 10-s-Segment wurde geteilt
+    for (const s of rest) {
+      expect(Number(s.end) - Number(s.start)).toBeLessThanOrEqual(4 + 1e-9);
+    }
+  });
+
+  it("Change 088: Segmente ohne Wort-Timestamps bleiben unverändert", () => {
+    const plain = [{ start: 0, end: 100, text: "kein karaoke" }];
+    const out = deriveSegments(plain, 4);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(plain[0]); // Original, nicht geteilt
   });
 });
 
