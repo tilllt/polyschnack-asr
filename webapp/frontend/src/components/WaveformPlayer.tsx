@@ -168,6 +168,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [zoomIdx, setZoomIdx] = useState(0);
+    // Spiegelt zoomIdx für Handler außerhalb von React-Render (Klick-Seek).
+    const zoomIdxRef = useRef(0);
     const [playing, setPlaying] = useState(false);
     // Change 2026-08-17: Playback-Rate (x0.5/x1/x2) — State für die UI,
     // Ref für getPlaybackRate aus dem Handle (stale-closure-sicher).
@@ -230,9 +232,21 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       ppsRef.current = pps;
       ws.zoom(pps);
       setZoomIdx(idx);
+      zoomIdxRef.current = idx;
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
       updateMarkers();
     }, [updateMarkers]);
+
+    // Change 083-Fix (2026-08-22): Initial-Zoom erst NACH dem
+    // Sichtbarwerden. Der ready-Handler lief mit display:none-Container
+    // (hidden bis ready → clientWidth 0) → fitPps fiel auf MIN_PPS:
+    // Welle nur 285 px statt Container-Breite und der Klick-Seek um
+    // Faktor ~3,4 verzerrt („Klick bei 9 min → Playback bei 31 min“).
+    useEffect(() => {
+      if (ready && !error && wsRef.current) {
+        doZoom(wsRef.current, 0);
+      }
+    }, [ready, error, doZoom]);
 
     // Change 052: Lazy-Loading — Audio erst laden, wenn der Player in den
     // Viewport kommt (IntersectionObserver, 200 px Vorlauf). Ohne das
@@ -374,11 +388,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         setReady(true);
         const dur = ws.getDuration();
         setDuration(dur);
-        // Change 083: Initial-Zoom = echter Fit — die komplette Audio-
-        // länge ist sichtbar (vorher erzwangen minPxPerSec=1 + der
-        // ZOOM_STEPS-Rundungsfehler bei langen Audios einen Ausschnitt;
-        // der Klick-Seek sprang dadurch „zu weit entfernte Stellen").
-        doZoom(ws, 0);
+        // Initial-Zoom läuft in einem useEffect auf `ready` (NACH dem
+        // React-Commit) — hier ist der Container noch display:none
+        // (hidden bis ready), clientWidth=0 → fitPps fiele auf MIN_PPS
+        // (Welle 285 px statt Container-Breite; Klick-Seek verzerrt um
+        // Faktor ~3,4: „Klick bei 9 min → Playback bei 31 min“).
 
         regions.addRegion({
           start: 0,
@@ -419,18 +433,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         isPlaying: () => ws.isPlaying(),
         isReady: () => canPlayRef.current,
       };
-      // Abspielbarkeit (Fix 2026-08-18): Polling auf ws.getDecodedData()
-      // statt zweitem Fetch. Der alte readyFetch lud die Audio-URL ein
-      // ZWEITES Mal — parallel zum WaveSurfer-internen Fetch, also KEIN
-      // Cache-Treffer: bei langen Aufnahmen (volle WAV ohne Preview)
-      // doppelter Download → „loading audio“ drehte sich scheinbar ewig.
-      // getDecodedData() ist der ECHTE decodierte Buffer: null, bis die
-      // Datei dekodiert ist (ready/decode-Events feuern im Peaks-Pfad
-      // vorher aus den Server-Peaks — deshalb kein Event, sondern Polling).
-      // Change 049: MediaElement-Backend dekodiert NICHT (Streaming) —
-      // dort ist das interne <audio>-Element abspielbar, sobald
-      // readyState >= HAVE_FUTURE_DATA (3) — d.h. genug gepuffert, um
-      // ohne Unterbrechung abzuspielen.
+      // Abspielbarkeit (Fix 2026-08-18, korrigiert 2026-08-22): Polling auf
+      // den ECHTEN Playback-Puffer statt ws.getDecodedData(). WS 7.12+
+      // erzeugt decodedData im Peaks-Pfad SOFORT aus den Server-Peaks
+      // (createBuffer) — getDecodedData() ist damit KEIN Indikator mehr für
+      // geladenes Audio; der Play-Button war wieder drückbar, bevor die
+      // Datei geladen/dekodiert war (Regression, User-Befund 22.08.:
+      // „Play drücken, nichts passiert“). Echte Abspielbarkeit:
+      // WebAudio: der decodeAudioData-Puffer des Media-Elements (.buffer)
+      // MediaElement: readyState >= 3 (HAVE_FUTURE_DATA, wie gehabt).
       const decodePoll = window.setInterval(() => {
         if (cancelled) return;
         try {
@@ -440,7 +451,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               .getMediaElement?.();
             playable = !!el && el.readyState >= 3;
           } else {
-            playable = !!ws.getDecodedData();
+            const el = (ws as unknown as {
+              getMediaElement?: () => { buffer?: unknown } | null;
+            }).getMediaElement?.();
+            playable = !!el && !!el.buffer; // echter decodeAudioData-Puffer
           }
           if (playable) {
             window.clearInterval(decodePoll);
@@ -504,13 +518,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         if (rect.width <= 0) return;
         const dur = ws.getDuration();
         if (!(dur > 0)) return;
-        // Change 083: Seek scroll-/zoombewusst — absolute Pixel-Position
-        // (Scroll + Klick) durch px/s. Vorher ratio×Dauer → bei Zoom/Scroll
-        // „Klick springt zu weit entfernte Stellen".
+        // Change 083-Fix (2026-08-22): px/s im Fit-Modus (idx 0) LIVE aus
+        // der aktuellen Container-Breite — robust gegen Layout-Änderungen
+        // nach dem Initial-Zoom (der frühere fixe ppsRef-Wert verzerrte
+        // den Seek um Faktor 3,4: „Klick bei 9 min → 31 min“).
+        const pps =
+          zoomIdxRef.current === 0 ? fitPps(el.clientWidth, dur) : ppsRef.current;
         const t = timeFromClick(
           e.clientX - rect.left,
           ws.getScroll?.() ?? 0,
-          ppsRef.current,
+          pps,
           dur,
         );
         ws.setTime(t);
