@@ -4,6 +4,7 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import { useT } from "../useLocale";
+import { fitPps, MIN_PPS, timeFromClick } from "../waveformTime";
 
 export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
@@ -145,6 +146,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const outerRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
+    // Change 083: aktuell angewandte px/s (fit oder Zoomstufe) — der
+    // Klick-Seek rechnet damit Scroll+Klick in Zeit um.
+    const ppsRef = useRef(MIN_PPS);
     const regionsRef = useRef<RegionsPlugin | null>(null);
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onPlayStateRef = useRef(onPlayStateChange);
@@ -216,7 +220,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     }, [updateMarkers]);
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
-      const pps = ZOOM_STEPS[idx];
+      // Change 083: Index 0 = „fit" (ganze Audiolänge sichtbar, exakter
+      // px/s-Wert statt Runden auf die kleinste Zoomstufe); danach die
+      // festen Stufen ZOOM_STEPS.
+      const pps =
+        idx === 0
+          ? fitPps(containerRef.current?.clientWidth ?? 800, ws.getDuration())
+          : ZOOM_STEPS[idx - 1];
+      ppsRef.current = pps;
       ws.zoom(pps);
       setZoomIdx(idx);
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
@@ -295,7 +306,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           // abgeschnitten).
           height: Math.max(20, height - 2 * WAVE_PAD),
           normalize: false,
-          minPxPerSec: 1,
+          // Change 083: minPxPerSec auf MIN_PPS (0.05) gesenkt — vorher
+          // erzwang 1 px/s bei langen Audios einen Ausschnitt statt Fit.
+          minPxPerSec: MIN_PPS,
           plugins: [regions, timeline, hover],
         });
       } catch (e) {
@@ -361,14 +374,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         setReady(true);
         const dur = ws.getDuration();
         setDuration(dur);
-        // Initial zoom = fit container width
-        const containerW = containerRef.current?.clientWidth ?? 800;
-        const fitPps = Math.max(1, Math.round(containerW / dur));
-        let zi = 0;
-        for (let i = 0; i < ZOOM_STEPS.length; i++) {
-          if (ZOOM_STEPS[i] <= fitPps) zi = i;
-        }
-        doZoom(ws, zi);
+        // Change 083: Initial-Zoom = echter Fit — die komplette Audio-
+        // länge ist sichtbar (vorher erzwangen minPxPerSec=1 + der
+        // ZOOM_STEPS-Rundungsfehler bei langen Audios einen Ausschnitt;
+        // der Klick-Seek sprang dadurch „zu weit entfernte Stellen").
+        doZoom(ws, 0);
 
         regions.addRegion({
           start: 0,
@@ -492,10 +502,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         if (!el) return;
         const rect = el.getBoundingClientRect();
         if (rect.width <= 0) return;
-        const ratio = (e.clientX - rect.left) / rect.width;
         const dur = ws.getDuration();
         if (!(dur > 0)) return;
-        const t = Math.max(0, Math.min(dur, ratio * dur));
+        // Change 083: Seek scroll-/zoombewusst — absolute Pixel-Position
+        // (Scroll + Klick) durch px/s. Vorher ratio×Dauer → bei Zoom/Scroll
+        // „Klick springt zu weit entfernte Stellen".
+        const t = timeFromClick(
+          e.clientX - rect.left,
+          ws.getScroll?.() ?? 0,
+          ppsRef.current,
+          dur,
+        );
         ws.setTime(t);
         ws.play();
       };
@@ -687,7 +704,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               title="Zoom out"
             >−</button>
             <span className="text-[11px] text-muted2 tabular-nums min-w-[36px] text-center">
-              {ZOOM_STEPS[zoomIdx]}×
+              {zoomIdx === 0 ? "fit" : `${ZOOM_STEPS[zoomIdx - 1]}×`}
             </span>
             <button
               onClick={() => { const w = wsRef.current; if (w) doZoom(w, Math.min(ZOOM_STEPS.length - 1, zoomIdx + 1)); }}
