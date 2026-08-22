@@ -350,12 +350,19 @@ def _make_set_zip(version: int = 2, n_samples: int = 1, evil: bool = False) -> b
         "samples": samples,
     }
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        entries = [("manifest.json", json.dumps(manifest, ensure_ascii=False))]
         for i in range(n_samples):
-            z.writestr(f"audio/clean_{i:03d}.wav", wav)
-            z.writestr(f"preview/clean_{i:03d}.wav", wav)
+            entries.append((f"audio/clean_{i:03d}.wav", wav))
+            entries.append((f"preview/clean_{i:03d}.wav", wav))
         if evil:
-            z.writestr("../../etc/passwd", "boom")
+            entries.append(("../../etc/passwd", "boom"))
+        for name, data in entries:
+            # Deterministische ZIPs: writestr() würde den aktuellen
+            # Zeitstempel setzen (2-s-Granularität) → SHA-Vergleich in
+            # test_install_via_git_uses_sha_file wird flaky (T7/083).
+            zi = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_STORED
+            z.writestr(zi, data)
     return buf.getvalue()
 
 
