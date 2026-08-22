@@ -37,6 +37,9 @@ export interface Recording {
   text: string | null;
   error: string | null;
   processing_ms: number | null;
+  // Change 086: Job-Kosten in Cent (null = nicht bepreist; optional für Fixtures).
+  cost_cents?: number | null;
+  reserved_cents?: number | null;
   created_at: string;
   language: string | null;
   segments: Segment[] | null;
@@ -1001,4 +1004,96 @@ export async function createApiKey(body: {
 
 export async function deleteApiKey(keyId: number): Promise<void> {
   await fetch(`/api/keys/${keyId}`, { method: "DELETE" }).then(checkOk);
+}
+
+/* ============================================================
+   CREDITS & MONETARISIERUNG (Change 086)
+   ============================================================ */
+
+export interface MyCredits {
+  credits_cents: number;
+  tier: string;
+  balance_eur: number;
+  entries: CreditLedgerEntry[];
+}
+
+export interface CreditLedgerEntry {
+  id: number;
+  user_id: number | null;
+  delta_cents: number;
+  reason: string;
+  ref_id: number | null;
+  created_at: string | null;
+  created_by?: number | null;
+}
+
+export interface AdminCreditUser {
+  user_id: number;
+  name: string | null;
+  tier: string;
+  credits_cents: number;
+  spent_cents: number;
+}
+
+export interface CostingSummary {
+  topup_cents: number;
+  cost_cents: number;
+  net_cents: number;
+  priced_jobs: number;
+}
+
+/** Eigener Kontostand + letzte Buchungen (eingeloggt). */
+export async function fetchMyCredits(): Promise<MyCredits> {
+  const res = await fetch("/api/account/credits").then(checkOk);
+  return res.json() as Promise<MyCredits>;
+}
+
+/** Admin: alle User mit Guthaben/Tier/Verbrauch. */
+export async function fetchAdminCreditUsers(): Promise<AdminCreditUser[]> {
+  const res = await fetch("/api/admin/credits/users").then(checkOk);
+  return res.json() as Promise<AdminCreditUser[]>;
+}
+
+/** Admin: virtuelles Guthaben erhöhen. */
+export async function adminTopup(userId: number, amountCents: number, reason = "topup"): Promise<{ ok: boolean; credits_cents: number | null }> {
+  const res = await fetch("/api/admin/credits/topup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, amount_cents: amountCents, reason }),
+  }).then(checkOk);
+  return res.json() as Promise<{ ok: boolean; credits_cents: number | null }>;
+}
+
+/** Admin: Tier setzen (free|paid|test). */
+export async function adminSetTier(userId: number, tier: string): Promise<{ ok: boolean; tier: string }> {
+  const res = await fetch("/api/admin/credits/tier", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, tier }),
+  }).then(checkOk);
+  return res.json() as Promise<{ ok: boolean; tier: string }>;
+}
+
+/** Admin: Journal (letzte Buchungen, optional je User). */
+export async function fetchAdminLedger(userId?: number, limit = 100): Promise<CreditLedgerEntry[]> {
+  const q = new URLSearchParams();
+  if (userId !== undefined) q.set("user_id", String(userId));
+  q.set("limit", String(limit));
+  const res = await fetch(`/api/admin/credits/ledger?${q}`).then(checkOk);
+  return res.json() as Promise<CreditLedgerEntry[]>;
+}
+
+/** Admin: Einnahmen vs. Instanzkosten. */
+export async function fetchCostingSummary(): Promise<CostingSummary> {
+  const res = await fetch("/api/admin/costing/summary").then(checkOk);
+  return res.json() as Promise<CostingSummary>;
+}
+
+/** Cent → „1,23 €" (User-sichtbar). */
+export function formatCents(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return "–";
+  return (cents / 100).toLocaleString("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  });
 }

@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
@@ -1073,6 +1073,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           <span title={t("processing_time")} className="flex items-center gap-1">
             <span>⚡</span>
             {fmtMs(r.processing_ms)}
+          </span>
+        )}
+        {/* Change 086: Job-Kosten (User sichtbar) */}
+        {r.cost_cents != null && r.status === "done" && (
+          <span title={t("cost")} className="flex items-center gap-1">
+            <span>💰</span>
+            {formatCents(r.cost_cents)}
+          </span>
+        )}
+        {r.reserved_cents != null && r.status === "processing" && (
+          <span title={t("reserved_cost")} className="flex items-center gap-1 text-muted2">
+            <span>💳</span>~{formatCents(r.reserved_cents)}
           </span>
         )}
         {r.created_at && (

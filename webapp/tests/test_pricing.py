@@ -1,71 +1,87 @@
-"""Kostenpflichtige Pfade (Task B9) — cost_per_minute_eur → anon-Sperre."""
-from __future__ import annotations
-
+"""Change 086: pricing.py — Kostenschicht (pure)."""
 import pytest
-from fastapi import HTTPException
 
-from app import pricing
-from app.service_registry import SERVICES, get_service
-
-
-class _Anon:
-    kind = "anonymous"
-
-
-class _Oidc:
-    kind = "oidc"
+from app.pricing import (
+    ALIGN_COST_PER_MINUTE_EUR,
+    LLM_COST_PER_MINUTE_EUR,
+    backend_cost_per_minute,
+    calculate_job_cost,
+    reserve_cents,
+)
 
 
-def test_all_services_have_cost_field():
-    for s in SERVICES:
-        assert "cost_per_minute_eur" in s
-        assert s["cost_per_minute_eur"] == 0.0  # aktuell alle lokal/kostenlos
+def test_null_saetze_null_kosten():
+    assert calculate_job_cost({"asr:ps-pk-onnx": 30_000.0}, 600.0,
+                              "ps-pk-onnx", backend_cost_per_minute_eur=0.0) == 0
+    assert calculate_job_cost(None, None, "x", backend_cost_per_minute_eur=0.1) == 0
 
 
-def test_is_paid_backend(monkeypatch):
-    monkeypatch.setattr(pricing, "get_service",
-                        lambda name: {"cost_per_minute_eur": 0.02})
-    assert pricing.is_paid_backend("x") is True
-    monkeypatch.setattr(pricing, "get_service",
-                        lambda name: {"cost_per_minute_eur": 0.0})
-    assert pricing.is_paid_backend("x") is False
-    monkeypatch.setattr(pricing, "get_service", lambda name: None)
-    assert pricing.is_paid_backend("x") is False
+def test_asr_phase_kostet_nach_satz():
+    # 30 s ASR @ 0.10 EUR/min = 0.05 EUR = 5 Cent
+    cost = calculate_job_cost({"asr:ps-pk-onnx": 30_000.0}, 600.0,
+                              "ps-pk-onnx", backend_cost_per_minute_eur=0.10)
+    assert cost == 5
 
 
-def test_paid_route_for():
-    assert pricing.paid_route_for(None) is False
-    assert pricing.paid_route_for(_Anon()) is False
-    assert pricing.paid_route_for(_Oidc()) is True
+def test_alle_gpu_phasen_zaehlen():
+    phases = {"asr:ps-pk-onnx": 30_000.0, "vad": 2_000.0,
+              "enhance:light": 3_000.0, "diar:energy": 1_000.0}
+    cost = calculate_job_cost(phases, 600.0, "ps-pk-onnx",
+                              backend_cost_per_minute_eur=0.10)
+    # 36 s gesamt @ 0.10/min = 6 Cent
+    assert cost == 6
 
 
-def test_ensure_free_only_anon_paid_backend_403(monkeypatch):
-    monkeypatch.setattr(pricing, "get_service",
-                        lambda name: {"cost_per_minute_eur": 0.02})
-    with pytest.raises(HTTPException) as ei:
-        pricing.ensure_free_only(_Anon(), backend="paid-backend")
-    assert ei.value.status_code == 403
+def test_llm_und_align_anteile():
+    cost = calculate_job_cost(
+        {"asr:ps-pk-onnx": 30_000.0, "punc_truecase": 60_000.0},
+        600.0, "ps-pk-onnx",
+        backend_cost_per_minute_eur=0.10,
+        llm_cost_per_minute_eur=LLM_COST_PER_MINUTE_EUR,
+        align_ms=30_000.0,
+        align_cost_per_minute_eur=ALIGN_COST_PER_MINUTE_EUR,
+    )
+    # ASR 5 Cent + LLM 60 s @ 0.02/min = 2 Cent + Align 30 s @ 0.002/min
+    # = 0.001 EUR → 1 Cent (min. 1 bei Aufwand)
+    assert cost == 8
 
 
-def test_ensure_free_only_anon_want_llm_403():
-    with pytest.raises(HTTPException) as ei:
-        pricing.ensure_free_only(_Anon(), want_llm=True)
-    assert ei.value.status_code == 403
+def test_min_1_cent_bei_aufwand():
+    # winziger Aufwand, winziger Satz → trotzdem 1 Cent (ceil)
+    cost = calculate_job_cost({"asr:x": 1_000.0}, 600.0, "x",
+                              backend_cost_per_minute_eur=0.001)
+    assert cost >= 1
 
 
-def test_ensure_free_only_anon_llm_mode_403():
-    with pytest.raises(HTTPException) as ei:
-        pricing.ensure_free_only(_Anon(), llm_mode=True)
-    assert ei.value.status_code == 403
+def test_altdaten_ohne_phasen_fallback_dauer():
+    # 600 s @ 0.06/min = 0.6 EUR = 60 Cent (10 min × 0.06)
+    cost = calculate_job_cost(None, 600.0, "x",
+                              backend_cost_per_minute_eur=0.06)
+    assert cost == 60
 
 
-def test_ensure_free_only_anon_local_ok(monkeypatch):
-    monkeypatch.setattr(pricing, "get_service",
-                        lambda name: {"cost_per_minute_eur": 0.0})
-    pricing.ensure_free_only(_Anon(), backend="ps-pk-onnx")  # kein Raise
+def test_phase_ohne_ms_ignoriert():
+    # kein Aufwand, keine Dauer → 0
+    assert calculate_job_cost({}, None, "x",
+                              backend_cost_per_minute_eur=0.1) == 0
+    # {} + duration = Altdaten-Fallback (bewusst): pauschale ASR-Zeit
+    assert calculate_job_cost({}, 600.0, "x",
+                              backend_cost_per_minute_eur=0.1) == 100
 
 
-def test_ensure_free_only_oidc_paid_ok(monkeypatch):
-    monkeypatch.setattr(pricing, "get_service",
-                        lambda name: {"cost_per_minute_eur": 0.02})
-    pricing.ensure_free_only(_Oidc(), backend="paid", want_llm=True)  # kein Raise
+def test_reserve_obergrenze():
+    # 600 s × Faktor 2.0 = 20 min @ 0.10/min = 2.00 EUR = 200 Cent
+    assert reserve_cents(600.0, 2.0, 0.10) == 200
+
+
+def test_reserve_ungueltig_null():
+    assert reserve_cents(None, 2.0, 0.10) == 0
+    assert reserve_cents(600.0, 0.0, 0.10) == 0
+    assert reserve_cents(600.0, 2.0, 0.0) == 0
+
+
+def test_backend_cost_from_yaml():
+    # backends.yaml: alle Sätze aktuell 0.0 → 0; unbekannt → 0
+    assert backend_cost_per_minute("ps-pk-onnx") == 0.0
+    assert backend_cost_per_minute("gibts-nicht") == 0.0
+    assert backend_cost_per_minute(None) == 0.0

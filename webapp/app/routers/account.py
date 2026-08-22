@@ -105,6 +105,37 @@ def _current_user_id(request: Request, session: Session) -> Optional[int]:
     return ident.user.id if ident and ident.user else None
 
 
+@router.get("/account/credits")
+def account_credits(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Eigener Credit-Kontostand + letzte Buchungen (Change 086)."""
+    from ..ledger import ledger_for_user
+    from ..models import User
+    from ..timeutil import iso_utc
+
+    uid = _current_user_id(request, session)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="nicht angemeldet")
+    user = session.get(User, uid)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    entries = [{
+        "id": r.id,
+        "delta_cents": r.delta_cents,
+        "reason": r.reason,
+        "ref_id": r.ref_id,
+        "created_at": iso_utc(r.created_at) if r.created_at else None,
+    } for r in ledger_for_user(session, uid, limit=20)]
+    return {
+        "credits_cents": user.credits_cents,
+        "tier": user.tier,
+        "balance_eur": round(user.credits_cents / 100.0, 2),
+        "entries": entries,
+    }
+
+
 @router.get("/account/export")
 def export_account(
     request: Request,

@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
-import type { AdminConfig, AdminService, EnvSetting, ModelMatrixEntry, VacuumResult } from "../api";
+import type { AdminConfig, AdminCreditUser, AdminService, CostingSummary, CreditLedgerEntry, EnvSetting, ModelMatrixEntry, VacuumResult } from "../api";
 import {
   adminServiceAction,
+  adminSetTier,
+  adminTopup,
   adminVacuum,
   fetchAdminConfig,
+  fetchAdminCreditUsers,
+  fetchAdminLedger,
   fetchAdminServices,
+  fetchCostingSummary,
   fetchEnvSettings,
   fetchModelsMatrix,
+  formatCents,
   putAdminConfig,
   resetAdminConfig,
 } from "../api";
@@ -18,7 +24,7 @@ import { useT } from "../useLocale";
    Config (Default-Backend mit Auto-Start), Modell-Matrix, Wartung (VACUUM).
    ============================================================ */
 
-type Tab = "services" | "config" | "matrix" | "vacuum";
+type Tab = "services" | "config" | "matrix" | "vacuum" | "credits";
 
 function statusColor(status: string): string {
   switch (status) {
@@ -39,6 +45,43 @@ export function AdminPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [vacResult, setVacResult] = useState<VacuumResult | null>(null);
+  // Change 086: Credits & Monetarisierung
+  const [creditUsers, setCreditUsers] = useState<AdminCreditUser[]>([]);
+  const [summary, setSummary] = useState<CostingSummary | null>(null);
+  const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
+
+  async function doTopup(userId: number) {
+    const raw = window.prompt(t("topup_prompt"));
+    if (raw === null) return;
+    const euros = parseFloat(raw.replace(",", "."));
+    if (!Number.isFinite(euros) || euros <= 0) {
+      setErr(t("topup_invalid"));
+      return;
+    }
+    setBusy(`topup:${userId}`);
+    setErr(null);
+    try {
+      await adminTopup(userId, Math.round(euros * 100));
+    } catch (e) {
+      setErr(`topup: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+      await reload();
+    }
+  }
+
+  async function doTier(userId: number, tier: string) {
+    setBusy(`tier:${userId}`);
+    setErr(null);
+    try {
+      await adminSetTier(userId, tier);
+    } catch (e) {
+      setErr(`tier: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+      await reload();
+    }
+  }
 
   async function runVacuum() {
     setBusy("vacuum");
@@ -64,6 +107,16 @@ export function AdminPanel() {
       setConfig(c);
       setMatrix(m);
       fetchEnvSettings().then(setEnvSettings).catch(() => {});
+      // Change 086: Credits-Daten mitschleppen (Fehler nicht fatal).
+      Promise.all([
+        fetchAdminCreditUsers().catch(() => [] as AdminCreditUser[]),
+        fetchCostingSummary().catch(() => null),
+        fetchAdminLedger().catch(() => [] as CreditLedgerEntry[]),
+      ]).then(([cu, sm, lg]) => {
+        setCreditUsers(cu);
+        setSummary(sm);
+        setLedger(lg);
+      });
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
@@ -118,7 +171,7 @@ export function AdminPanel() {
     <div className="bg-panel border border-border rounded-card px-3 py-3 mb-3 text-[12px]">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <span className="font-bold text-txt text-[13px]">🛠 {t("admin")}</span>
-        {(["services", "config", "matrix", "vacuum"] as Tab[]).map((tb) => (
+        {(["services", "config", "matrix", "vacuum", "credits"] as Tab[]).map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
@@ -313,8 +366,118 @@ export function AdminPanel() {
           </div>
         </div>
       )}
+      {tab === "credits" && (
+        <div className="space-y-3">
+          {/* Kostenübersicht — Balken statt Tabelle */}
+          <div className="space-y-1.5">
+            <div className="font-bold text-txt text-[12px]">💶 {t("credits_overview")}</div>
+            {summary ? (
+              <div className="space-y-1.5 max-w-[440px]">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted w-28 shrink-0">{t("credits_income")}</span>
+                  <div className="h-2 flex-1 bg-panel2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500"
+                      style={{ width: barPct(summary.topup_cents, summary.cost_cents) }}
+                    />
+                  </div>
+                  <span className="text-txt w-24 text-right">{formatCents(summary.topup_cents)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted w-28 shrink-0">{t("credits_expense")}</span>
+                  <div className="h-2 flex-1 bg-panel2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-rose-500"
+                      style={{ width: barPct(summary.cost_cents, summary.topup_cents) }}
+                    />
+                  </div>
+                  <span className="text-txt w-24 text-right">{formatCents(summary.cost_cents)}</span>
+                </div>
+                <div className="text-[11px] text-muted">
+                  {t("credits_net")}: {formatCents(summary.net_cents)} · {t("credits_jobs")}: {summary.priced_jobs}
+                </div>
+              </div>
+            ) : (
+              <div className="text-muted text-[11px]">…</div>
+            )}
+          </div>
+
+          {/* User-Verwaltung: Tier + TopUp */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] border-collapse">
+              <thead>
+                <tr className="text-muted2 text-left">
+                  <th className="pr-2 py-1">{t("user")}</th>
+                  <th className="pr-2">{t("tier")}</th>
+                  <th className="pr-2">{t("balance")}</th>
+                  <th className="pr-2">{t("spent")}</th>
+                  <th className="pr-2">{t("topup")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {creditUsers.map((u) => (
+                  <tr key={u.user_id} className="border-t border-border">
+                    <td className="pr-2 py-1 font-semibold text-txt">{u.name ?? `#${u.user_id}`}</td>
+                    <td className="pr-2">
+                      <select
+                        value={u.tier}
+                        disabled={busy !== null}
+                        onChange={(e) => void doTier(u.user_id, e.target.value)}
+                        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[1px]"
+                      >
+                        <option value="free">free</option>
+                        <option value="paid">paid</option>
+                        <option value="test">test</option>
+                      </select>
+                    </td>
+                    <td className="pr-2 text-txt">{formatCents(u.credits_cents)}</td>
+                    <td className="pr-2 text-muted">{formatCents(u.spent_cents)}</td>
+                    <td>
+                      <button
+                        onClick={() => void doTopup(u.user_id)}
+                        disabled={busy !== null}
+                        className="btn-ghost-sm text-accent disabled:opacity-40"
+                      >
+                        + {t("topup")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {creditUsers.length === 0 && (
+                  <tr className="border-t border-border">
+                    <td colSpan={5} className="py-1 text-muted">—</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Journal (letzte 100) */}
+          <div>
+            <div className="font-bold text-txt text-[12px] mb-1">📒 {t("journal")}</div>
+            <div className="max-h-44 overflow-y-auto border border-border rounded-sm">
+              {ledger.map((e) => (
+                <div key={e.id} className="flex items-center gap-2 px-2 py-[3px] border-b border-border/50 text-[11px]">
+                  <span className={e.delta_cents >= 0 ? "text-emerald-500" : "text-rose-500"}>
+                    {e.delta_cents >= 0 ? "+" : ""}{formatCents(e.delta_cents)}
+                  </span>
+                  <span className="text-muted w-20 shrink-0">{e.reason}</span>
+                  {e.ref_id != null && <span className="text-muted2">#{e.ref_id}</span>}
+                  <span className="ml-auto text-muted2">{e.created_at ? new Date(e.created_at).toLocaleString() : ""}</span>
+                </div>
+              ))}
+              {ledger.length === 0 && <div className="px-2 py-1 text-muted text-[11px]">—</div>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function barPct(value: number, other: number): string {
+  const max = Math.max(value, other, 1);
+  return `${Math.max(2, Math.round((value / max) * 100))}%`;
 }
 
 function fmtMb(bytes: number): string {

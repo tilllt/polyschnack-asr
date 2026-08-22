@@ -60,6 +60,26 @@ router = APIRouter(prefix="/api")
 
 log = __import__("logging").getLogger(__name__)
 
+_LEARNER_TTL_S = 5.0
+#: Change 085: TTL-Cache für den ETA-Learner (ändert sich nur bei
+#: Job-Abschluss/Admin-Reset — kein DB-Read je Listen-Poll nötig).
+_learner_cache: Dict[str, Any] = {"ts": 0.0, "learner": None}
+
+
+def _eta_learner():
+    """Gelernter ETA-Learner (max. 5 s alt); None bei Fehler (Fallback-Pfad)."""
+    import time as _time
+    from ..learner_store import load_learner
+
+    now = _time.monotonic()
+    if now - _learner_cache["ts"] > _LEARNER_TTL_S:
+        try:
+            _learner_cache["learner"] = load_learner()
+        except Exception:
+            _learner_cache["learner"] = None
+        _learner_cache["ts"] = now
+    return _learner_cache["learner"]
+
 _HEALTH_WAIT_S = 120
 _HEALTH_POLL_S = 2
 
@@ -525,7 +545,10 @@ def _recording_to_dict(
             diarize_method=rec.diarize_method,
             enable_noise_reduce=rec.enable_noise_reduce,
             enable_enhance=rec.enable_enhance,
+            enable_punctuation=rec.enable_punctuation,
             elapsed_s=elapsed_since(rec.processing_started_at),
+            # Change 085: selbstlernende Faktoren (gelernt > Fallback > None).
+            learner=_eta_learner(),
         )
         if rec.status == "processing"
         else None
@@ -551,6 +574,9 @@ def _recording_to_dict(
         "audio_missing": bool(rec.stored_path)
         and not Path(rec.stored_path).is_file(),
         "processing_ms": rec.processing_ms,
+        # Change 086: Job-Kosten in Cent (User sichtbar; null = nicht bepreist).
+        "cost_cents": rec.cost_cents,
+        "reserved_cents": rec.reserved_cents,
         # Change 045: Status des präzisen Alignments (done|pending|running|skipped).
         "alignment": getattr(rec, "alignment", "done"),
         # Change 057: Status der Diarization (done|pending|running|failed|skipped).

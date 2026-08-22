@@ -370,3 +370,200 @@ def self_heal(dry_run: bool = True,
                                  min_age_s=3600, dry_run=dry_run)
     return {"dry_run": dry_run, "removed": removed,
             "referenced_files": len(refs)}
+
+
+# ---------------------------------------------------------------------------
+# Change 086: Credits & Monetarisierung (Admin)
+# ---------------------------------------------------------------------------
+
+class TopUpRequest(BaseModel):
+    """POST /api/admin/credits/topup — virtuelles Guthaben erhöhen."""
+    user_id: int
+    amount_cents: int
+    reason: str = "topup"
+
+
+class TierRequest(BaseModel):
+    """POST /api/admin/credits/tier — Zugangskontrolle free|paid|test."""
+    user_id: int
+    tier: str
+
+
+def _admin_user_id(request: Request, session) -> Optional[int]:
+    """User-ID des aufrufenden Admins (für created_by); None bei Fehler."""
+    try:
+        from ..identity import current_identity
+        ident = current_identity(request, session)
+        return ident.user.id if ident and ident.user else None
+    except Exception:
+        return None
+
+
+@router.get("/credits/users")
+def credits_users(request: Request,
+                  session=Depends(get_session)) -> List[Dict[str, Any]]:
+    """Alle User: Guthaben, Tier, Verbrauch (für Admin-GUI)."""
+    from sqlmodel import select
+
+    from ..ledger import user_spent_cents
+    from ..models import User
+
+    out: List[Dict[str, Any]] = []
+    for u in session.exec(select(User).order_by(User.id)).all():
+        out.append({
+            "user_id": u.id,
+            "name": u.name or u.preferred_username or u.display_name,
+            "tier": u.tier,
+            "credits_cents": u.credits_cents,
+            "spent_cents": user_spent_cents(session, u.id),
+        })
+    return out
+
+
+@router.post("/credits/topup")
+def credits_topup(req: TopUpRequest, request: Request,
+                  session=Depends(get_session)) -> Dict[str, Any]:
+    """Virtuelles Guthaben erhöhen (TopUp) — Ledger-Buchung append-only."""
+    if not 1 <= req.amount_cents <= 1_000_000:
+        raise HTTPException(status_code=422,
+                            detail="amount_cents muss 1..1.000.000 sein")
+    from ..ledger import topup
+    from ..models import User
+
+    if session.get(User, req.user_id) is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user = topup(session, req.user_id, req.amount_cents,
+                 reason=req.reason
+                 if req.reason in ("topup", "refund", "signup_bonus")
+                 else "topup",
+                 created_by=_admin_user_id(request, session))
+    return {"ok": True, "user_id": req.user_id,
+            "credits_cents": user.credits_cents if user else None}
+
+
+@router.post("/credits/tier")
+def credits_tier(req: TierRequest, request: Request,
+                 session=Depends(get_session)) -> Dict[str, Any]:
+    """Tier setzen: free | paid | test (Zugangskontrolle)."""
+    if req.tier not in ("free", "paid", "test"):
+        raise HTTPException(status_code=422, detail="tier muss free|paid|test sein")
+    from ..models import User
+
+    user = session.get(User, req.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.tier = req.tier
+    session.add(user)
+    session.commit()
+    return {"ok": True, "user_id": req.user_id, "tier": user.tier}
+
+
+@router.get("/credits/ledger")
+def credits_ledger(request: Request, user_id: Optional[int] = None,
+                   limit: int = 100,
+                   session=Depends(get_session)) -> List[Dict[str, Any]]:
+    """Journal (append-only) — neueste zuerst, optional je User."""
+    from ..ledger import ledger_all
+    from ..timeutil import iso_utc
+
+    rows = ledger_all(session, limit=min(max(limit, 1), 500), user_id=user_id)
+    return [{
+        "id": r.id,
+        "user_id": r.user_id,
+        "delta_cents": r.delta_cents,
+        "reason": r.reason,
+        "ref_id": r.ref_id,
+        "created_at": iso_utc(r.created_at) if r.created_at else None,
+        "created_by": r.created_by,
+    } for r in rows]
+
+
+@router.get("/costing/summary")
+def costing_summary(request: Request,
+                    session=Depends(get_session)) -> Dict[str, Any]:
+    """Einnahmen (TopUps) vs. Instanzkosten (Job-Kosten) + Budget-Rest."""
+    from sqlmodel import func, select
+
+    from ..models import CreditLedger, Recording
+
+    topups = session.exec(
+        select(func.coalesce(func.sum(CreditLedger.delta_cents), 0)).where(
+            CreditLedger.delta_cents > 0)
+    ).one()
+    costs = session.exec(
+        select(func.coalesce(func.sum(CreditLedger.delta_cents), 0)).where(
+            CreditLedger.delta_cents < 0)
+    ).one()
+    jobs = session.exec(
+        select(func.count()).select_from(Recording).where(
+            Recording.cost_cents.is_not(None))
+    ).one()
+    return {
+        "topup_cents": int(topups or 0),
+        "cost_cents": int(-(costs or 0)),
+        "net_cents": int((topups or 0) + (costs or 0)),
+        "priced_jobs": int(jobs or 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Change 085: ETA-Learner (selbstlernende Faktoren)
+# ---------------------------------------------------------------------------
+
+class LearnerResetRequest(BaseModel):
+    """POST /api/admin/learner/reset — Key optional; None = alle zurücksetzen."""
+    phase_key: Optional[str] = None
+
+
+def _learner_fallback(key: str) -> Optional[float]:
+    """Statischer Fallback je Phase-Key (gleiche Quelle wie app/eta.py)."""
+    from ..eta import (
+        ALIGN_MS_PER_GROUP_FALLBACK, ASR_RTF, DIAR_RTF, ENHANCE_OVERHEAD,
+        NOISE_REDUCE_OVERHEAD, PUNCT_OVERHEAD, VAD_OVERHEAD,
+    )
+    if key.startswith("asr:"):
+        return ASR_RTF.get(key[4:])
+    if key.startswith("diar:"):
+        return DIAR_RTF.get(key[5:], 0.4)
+    if key.startswith("enhance:"):
+        return ENHANCE_OVERHEAD
+    return {
+        "vad": VAD_OVERHEAD,
+        "noise_reduce": NOISE_REDUCE_OVERHEAD,
+        "punc_truecase": PUNCT_OVERHEAD,
+        "align": ALIGN_MS_PER_GROUP_FALLBACK,
+    }.get(key)
+
+
+@router.get("/learner/estimates")
+def learner_estimates(request: Request) -> List[Dict[str, Any]]:
+    """Gelernte ETA-Faktoren je Phase-Key (Historie n + Schätzung)."""
+    from ..learner_store import load_learner
+
+    learner = load_learner()
+    out: List[Dict[str, Any]] = []
+    for key in learner.keys():
+        est = learner.estimate(key, fallback=_learner_fallback(key))
+        out.append({
+            "phase_key": key,
+            "n": learner.sample_count(key),
+            "factor": est.factor if est else None,
+            "low": est.low if est else None,
+            "high": est.high if est else None,
+            "fallback": _learner_fallback(key),
+        })
+    out.sort(key=lambda x: x["phase_key"])
+    return out
+
+
+@router.post("/learner/reset")
+def learner_reset(req: LearnerResetRequest, request: Request) -> Dict[str, Any]:
+    """Lern-Historie zurücksetzen (ein Key oder alle) — nach Backend-/Image-Wechsel."""
+    from ..learner_store import reset_estimates
+
+    deleted = reset_estimates(req.phase_key or None)
+    # TTL-Cache sofort invalidieren (sonst bis zu 5 s alte Schätzwerte).
+    from .recordings import _learner_cache
+
+    _learner_cache["ts"] = 0.0
+    return {"deleted": deleted, "phase_key": req.phase_key}

@@ -23,7 +23,7 @@ import {
 } from "./benchmark";
 import { BenchmarkPageContent } from "./components/BenchmarkPage";
 import { SharedRecordingView } from "./components/SharedRecordingView";
-import { fetchMe, type UserInfo } from "./api";
+import { fetchMe, fetchMyCredits, formatCents, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
@@ -86,6 +86,16 @@ function AppContent() {
   useEffect(() => {
     fetchMe().then(setUser).catch(() => setUser({ anonymous: true }));
   }, []);
+
+  // Change 086: Kontostand (virtuelle Credits) für eingeloggte User.
+  const [credits, setCredits] = useState<{ credits_cents: number } | null>(null);
+  useEffect(() => {
+    if (user?.authenticated) {
+      fetchMyCredits().then(setCredits).catch(() => setCredits(null));
+    } else {
+      setCredits(null);
+    }
+  }, [user?.authenticated]);
 
   // ── Globaler Play/Stop-Shortcut: Space (Feature 2026-08-16) ──
   // Läuft im CAPTURE-Modus: verhindert den Zeilen-Space-Seek und das
@@ -173,6 +183,15 @@ function AppContent() {
             {user?.authenticated && (
               <div className="flex items-center gap-2">
                 <span className="text-[12px] text-muted">{user.name}</span>
+                {credits != null && (
+                  <button
+                    className="btn-ghost-sm text-[12px]"
+                    title={t("credits_balance")}
+                    onClick={() => setView(view === "settings" ? "main" : "settings")}
+                  >
+                    💰 {formatCents(credits.credits_cents)}
+                  </button>
+                )}
                 <button
                   className="btn-ghost-sm text-[12px]"
                   onClick={() => setView(view === "settings" ? "main" : "settings")}

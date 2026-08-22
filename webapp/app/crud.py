@@ -6,11 +6,14 @@ No HTTP calls, no business logic, no side effects beyond the DB.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
 from .models import Recording, RecordingShare, User
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +217,30 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     rec.phase_started_at = rec.last_heartbeat_at
     # Change 082: Job-Beginn — Basis für ETA-Rest und „verarbeitet seit Xs".
     rec.processing_started_at = rec.last_heartbeat_at
+    # Change 086: Reserve (konservative Obergrenze) für die virtuelle
+    # Credit-Abrechnung — nie blockierend, Fehler → keine Reserve.
+    try:
+        from .eta import _estimate_eta_s
+        from .learner_store import load_learner
+        from .pricing import backend_cost_per_minute, reserve_cents
+
+        learner = load_learner()
+        core = _estimate_eta_s(
+            rec.duration_s, rec.backend,
+            enable_vad=rec.enable_vad,
+            enable_diarize=rec.enable_diarize,
+            diarize_method=rec.diarize_method,
+            enable_noise_reduce=rec.enable_noise_reduce,
+            enable_enhance=rec.enable_enhance,
+            learner=learner,
+        )
+        factor_high = core[2] if core else None
+        rec.reserved_cents = reserve_cents(
+            rec.duration_s, factor_high,
+            backend_cost_per_minute(rec.backend),
+        )
+    except Exception:
+        rec.reserved_cents = None
     session.add(rec)
     session.commit()
     session.refresh(rec)
@@ -272,6 +299,7 @@ def update_result(
     error: Optional[str],
     progress_pct: int = 100,
     waveform_peaks: Optional[List[float]] = None,
+    phase_times_ms: Optional[Dict[str, float]] = None,
 ) -> Optional[Recording]:
     """Persist the transcription result (success or failure) for *rec_id*."""
     rec = session.get(Recording, rec_id)
@@ -288,6 +316,27 @@ def update_result(
     if segments is not None:
         rec.segments_manual = False
     rec.processing_ms = processing_ms
+    # Change 085: Phasen-Zeiten persistieren (Stichproben für rtf_learner).
+    if phase_times_ms is not None:
+        rec.phase_times_ms = phase_times_ms
+    # Change 086: Ist-Kosten berechnen + buchen (nie den Abschluss brechen).
+    if status == "done":
+        try:
+            from .ledger import book_job_cost
+            from .pricing import backend_cost_per_minute, calculate_job_cost
+
+            rate = backend_cost_per_minute(rec.backend)
+            cost = calculate_job_cost(
+                rec.phase_times_ms, rec.duration_s, rec.backend,
+                backend_cost_per_minute_eur=rate,
+                llm_seconds=(rec.phase_times_ms or {})
+                .get("punc_truecase", 0.0) / 1000.0,
+            )
+            rec.cost_cents = cost
+            if cost > 0 and rec.user_id is not None:
+                book_job_cost(session, rec.user_id, rec_id, cost)
+        except Exception:
+            log.exception("credits: cost booking failed for rec_id=%d", rec_id)
     rec.error = error
     rec.progress_pct = progress_pct
     rec.updated_at = dt.datetime.now(dt.timezone.utc)
@@ -406,6 +455,18 @@ def get_or_create_user(
     )
     session.add(user)
     session.flush()
+    # Change 086: Startguthaben (virtuell) — einmalig beim ersten Anlegen.
+    try:
+        from .ledger import SIGNUP_BONUS_CENTS
+        from .models import CreditLedger
+
+        user.credits_cents = SIGNUP_BONUS_CENTS
+        session.add(CreditLedger(
+            user_id=user.id, delta_cents=SIGNUP_BONUS_CENTS,
+            reason="signup_bonus",
+        ))
+    except Exception:
+        pass  # Bonus optional — nie den User-Fluss brechen
     return user
 
 

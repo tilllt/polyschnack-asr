@@ -642,6 +642,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
             tmp_audio = tfh.name
             tfh.write(audio_bytes)
 
+        _t_align0 = time.perf_counter()
         groups = build_align_groups(segments)
         for gi, (g_start, g_end, g_text) in enumerate(groups):
             # Cancel/Timeout zwischen den Gruppen prüfen — nicht erst nach
@@ -779,6 +780,16 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
 
     if aligned_any:
         log.info("align: Word-Timestamps für rec_id=%s ersetzt", rec_id)
+        # Change 085: Align-Stichprobe (ms/Gruppe) für den ETA-Learner —
+        # Bezugsgröße ist die Gruppenzahl, nicht die Audio-Dauer.
+        try:
+            from . import learner_store
+            learner_store.ingest_align_sample(
+                rec_id, len(groups), (time.perf_counter() - _t_align0) * 1000
+            )
+        except Exception:
+            log.warning("align: rtf sample ingest failed for rec_id=%s", rec_id,
+                        exc_info=True)
     return segments
 
 
@@ -952,8 +963,12 @@ def _run_background_align(rec_id: int) -> None:
     except Exception as exc:
         log.warning("bg-align: Write fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
     _AlignmentCache.delete(rec_id)
-    log.info("bg-align: rec_id=%s fertig (alignment=%s)", rec_id,
-             rec.alignment if rec is not None else "?")
+    try:
+        _align_state = rec.alignment if rec is not None else "?"
+    except Exception:
+        # Detached/expired nach commit — nur Logging, kein Crash im Worker.
+        _align_state = "?"
+    log.info("bg-align: rec_id=%s fertig (alignment=%s)", rec_id, _align_state)
 
 
 def recover_stale_alignments(session: Session) -> int:
@@ -1396,6 +1411,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
 
     t0 = time.perf_counter()
+    # Change 085: Phasen-Zeiten je Job (ms) — Stichproben für rtf_learner.
+    phase_times: Dict[str, float] = {}
     status = "done"
     text: str = ""
     duration = None
@@ -1421,14 +1438,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 
         # Optional VAD silence trimming
         if _VAD_TRIM and enable_vad:
+            _t_vad0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 12, note="vad")
             audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
+            phase_times["vad"] = (time.perf_counter() - _t_vad0) * 1000
             if trim_offset_s > 0:
                 log.info("VAD trim: rec_id=%s offset=%.2fs", rec_id, trim_offset_s)
 
         # Optional audio enhancement (ffmpeg filters before ASR)
         if enable_enhance and enable_enhance != "off":
+            _t_enh0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 16, note="enhance")
             log.info("Enhance: rec_id=%s level=%s", rec_id, enable_enhance)
@@ -1436,11 +1456,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             if len(enhanced) != len(audio_bytes):
                 log.info("Enhance: rec_id=%s %d→%d bytes", rec_id, len(audio_bytes), len(enhanced))
             audio_bytes = enhanced
+            phase_times[f"enhance:{enable_enhance}"] = (time.perf_counter() - _t_enh0) * 1000
 
         with Session(engine) as session:
             set_progress(session, rec_id, 20, note="asr")
 
         # Run ASR (batched sync or SSE streaming)
+        _t_asr0 = time.perf_counter()
         client = get_client(backend)
         # Storage ist seit 2026-08-14 nativ (MP3/OGG/…). Backends ohne
         # Compressed-Support (CrispASR-Familie) bekommen eine 16-kHz-mono-WAV
@@ -1520,6 +1542,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         duration = result["duration"]
         language = result["language"]
         segments = result["segments"]
+        phase_times[f"asr:{backend}"] = (time.perf_counter() - _t_asr0) * 1000
 
         # Cancel-Prüfung nach ASR: teuerste Phasen (Diar/Align) nicht starten
         if _cancelled(job, rec_id):
@@ -1527,6 +1550,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             return
 
         # Optional speaker diarization — merge labels into segments
+        _t_diar0 = time.perf_counter()
         if enable_diarize:
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
             # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
@@ -1589,6 +1613,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         session.commit()
         else:
             diar = None
+        if enable_diarize:
+            phase_times[f"diar:{rec.diarize_method or 'pyannote'}"] = (
+                time.perf_counter() - _t_diar0
+            ) * 1000
         if diar:
             word_stream = _build_word_stream(segments or [], duration)
             merged = _merge_diarization(segments or [], diar, word_stream,
@@ -1654,6 +1682,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             or enable_llm_enhance or prompt_template_id or llm_endpoint_id
         )
         if _llm_work:
+            _t_punc0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 95, note="postprocessing")
             hb_stop_llm = _start_heartbeat(rec_id, 95, "postprocessing")
@@ -1692,6 +1721,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         finally:
             if hb_stop_llm is not None:
                 hb_stop_llm.set()
+            if _llm_work:
+                phase_times["punc_truecase"] = (time.perf_counter() - _t_punc0) * 1000
     except DiarizationError as exc_d:
         # Präzise Diarization-Fehlermeldung (gated, no-token, …) —
         # ohne TypeName-Prefix, damit der User den Admin-Hinweis direkt liest.
@@ -1723,6 +1754,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             processing_ms=elapsed_ms,
             error=error,
             waveform_peaks=peaks,
+            phase_times_ms=phase_times or None,
         )
         if status == "done":
             rec = crud.get_recording(session, rec_id)
@@ -1763,6 +1795,16 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         daemon=True,
                         name=f"bg-align-{rec_id}",
                     ).start()
+
+    # Change 085: Phasen-Stichproben in den ETA-Learner einspeisen (eigene
+    # Session; ein Fehler darf den Job-Abschluss nie blockieren).
+    if status == "done" and phase_times:
+        try:
+            from . import learner_store
+            learner_store.ingest_job_sample(rec_id, phase_times, duration)
+        except Exception:
+            log.warning("rtf_learner: ingest failed for rec_id=%s", rec_id,
+                        exc_info=True)
 
 
 # ---------------------------------------------------------------------------

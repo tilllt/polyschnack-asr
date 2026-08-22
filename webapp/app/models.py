@@ -53,6 +53,18 @@ class Recording(SQLModel, table=True):
     segments_manual: bool = False
     error: Optional[str] = None
     processing_ms: Optional[float] = None
+    #: Change 085: Phasen-Zeiten je Job (ms) — Stichproben für die
+    #: selbstlernende ETA. Keys: vad, enhance:<level>, asr:<backend>,
+    #: diar:<methode>, punc_truecase. Align läuft post-done im
+    #: Hintergrund-Worker (Ingest separat über rtf_estimates).
+    phase_times_ms: Optional[Dict[str, float]] = Field(
+        default=None, sa_column=Column(JSON)
+    )
+    # --- Change 086: Kosten je Job (virtuelle Credits) ---
+    #: Endabrechnung in Cent nach Abschluss (User sichtbar).
+    cost_cents: Optional[int] = None
+    #: Vorschuss beim Start (Reserve-System) — Delta wird bei Abschluss gebucht.
+    reserved_cents: Optional[int] = None
     # --- Change 045: Status des präzisen (Forced-)Alignments ---
     # "done" (Default: aligniert/synchron) | "pending" (läuft im Hintergrund) |
     # "running" (Worker aktiv) | "skipped" (Aligner down / deaktiviert)
@@ -188,6 +200,15 @@ class User(SQLModel, table=True):
     preferred_username: Optional[str] = None
     email: Optional[str] = None
     name: Optional[str] = None
+    # --- Change 086: virtuelle Credits (Zugangskontrolle) ---
+    # server_default, damit auch rohe SQL-Inserts (Tests/Migrationen) ohne
+    # die Spalten funktionieren (NOT NULL sonst verletzt).
+    credits_cents: int = Field(
+        default=0, sa_column_kwargs={"server_default": "0"}
+    )
+    tier: str = Field(
+        default="test", sa_column_kwargs={"server_default": "'test'"}
+    )  # free | paid | test (test = virtuelles Guthaben)
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
@@ -325,6 +346,41 @@ class Annotation(SQLModel, table=True):
     created_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
+    updated_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class CreditLedger(SQLModel, table=True):
+    """Change 086 — append-only Buchungs-Journal der virtuellen Credits.
+
+    Eine Zeile je Buchung (topup/job_cost/refund/signup_bonus). Nichts
+    wird gelöscht; bei User-Löschung werden die Zeilen anonymisiert
+    (user_id → NULL), die Summen bleiben erhalten.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    delta_cents: int = 0
+    reason: str = "job_cost"  # topup | job_cost | refund | signup_bonus
+    ref_id: Optional[int] = None       # Recording-/Job-ID bei job_cost
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    created_by: Optional[int] = None   # Admin-User-ID bei topup/refund
+
+
+class RtfEstimate(SQLModel, table=True):
+    """Change 085 — persistierte Lern-Historie der ETA-Faktoren.
+
+    Eine Zeile je Phase-Key (z. B. ``asr:ps-pk-onnx``, ``diar:pyannote``,
+    ``align``). Die rollende Stichproben-Historie liegt als JSON in
+    ``history_json``; ``digest`` invalidiert bei Backend-Image-Wechsel.
+    Schätzwerte (factor/low/high) berechnet der rtf_learner live aus der
+    Historie — keine gecachten Anzeige-Werte.
+    """
+    phase_key: str = Field(primary_key=True)
+    history_json: str = "[]"            # rollende Faktor-Stichproben
+    digest: Optional[str] = None
     updated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
