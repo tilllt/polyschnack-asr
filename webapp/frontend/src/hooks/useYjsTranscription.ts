@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { replaceSegments } from "../api";
+import { editorsFromStates, type EditLock } from "../collabLock";
 
 export type YjsConnState = "solo" | "connecting" | "connected" | "offline";
 
@@ -48,6 +49,9 @@ export function useYjsTranscription<T extends { text: string }>(
   // Kollaborations-Leiste nur, wenn die Datei wirklich geteilt ist UND
   // jemand anderes gerade darin arbeitet.
   const [activeEditors, setActiveEditors] = useState<string[]>([]);
+  // Change 084: fremder Edit-Lock { index, name } — sperrt
+  // Strukturoperationen, solange ein anderer Client ein Segment editiert.
+  const [editLock, setEditLock] = useState<EditLock | null>(null);
   const [saving, setSaving] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
   const provRef = useRef<WebsocketProvider | null>(null);
@@ -182,17 +186,17 @@ export function useYjsTranscription<T extends { text: string }>(
     // bearbeiten (editing-Flag). Der eigene Client wird über clientID
     // ausgeschlossen — sonst stünde „1 bearbeitet gerade", obwohl nur
     // die eigene Seite offen ist (User-Befund 2026-08-21).
+    // Change 084: editing trägt den Segment-Index; editorsFromStates
+    // liefert zusätzlich den editLock (fremder Editor + Segment) für
+    // die Sperre von Strukturoperationen.
     const onAwareness = () => {
       const myId = provider.awareness.clientID;
-      const names: string[] = [];
-      provider.awareness.getStates().forEach((st: unknown, clientId: number) => {
-        if (clientId === myId) return;
-        const s = st as { user?: { name?: string }; editing?: boolean };
-        if (s?.editing && typeof s?.user?.name === "string" && s.user.name) {
-          names.push(s.user.name);
-        }
-      });
-      setActiveEditors([...new Set(names)]);
+      const { activeEditors: names, editLock: lock } = editorsFromStates(
+        provider.awareness.getStates(),
+        myId,
+      );
+      setActiveEditors(names);
+      setEditLock(lock);
     };
     provider.awareness.on("change", onAwareness);
     provider.awareness.setLocalStateField("user", {
@@ -226,11 +230,16 @@ export function useYjsTranscription<T extends { text: string }>(
   }, [recordingId, enabled, save, scheduleAutosave]);
 
   /** Eigene Bearbeitungs-Aktivität melden; beim Verlassen des Edit-Mode
-   *  (aktiv → inaktiv) genau EINE Version anlegen (Change 068). */
+   *  (aktiv → inaktiv) genau EINE Version anlegen (Change 068).
+   *  Change 084: editing trägt den Segment-Index (number) oder null —
+   *  andere Clients sehen damit, WELCHES Segment gesperrt ist. */
   const setEditingActive = useCallback(
-    (active: boolean) => {
-      provRef.current?.awareness.setLocalStateField("editing", active);
-      if (!active) {
+    (idx: number | null) => {
+      provRef.current?.awareness.setLocalStateField(
+        "editing",
+        idx === null ? false : idx,
+      );
+      if (idx === null) {
         void save(true);
       }
     },
@@ -266,5 +275,15 @@ export function useYjsTranscription<T extends { text: string }>(
   }, []);
 
   const hasCollab = conn === "connected" || conn === "connecting";
-  return { conn, activeEditors, hasCollab, setSegmentText, getSegmentTexts, save, saving, setEditingActive };
+  return {
+    conn,
+    activeEditors,
+    editLock,
+    hasCollab,
+    setSegmentText,
+    getSegmentTexts,
+    save,
+    saving,
+    setEditingActive,
+  };
 }

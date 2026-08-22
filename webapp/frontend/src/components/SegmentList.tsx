@@ -1,5 +1,6 @@
 import { Fragment, useRef, useState, useEffect, useMemo, useLayoutEffect } from "react";
 import type { ReactNode } from "react";
+import { Lock } from "lucide-react";
 import type { Segment } from "../api";
 import { updateSegment, renameSpeaker } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
@@ -138,6 +139,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   const {
     conn: yjsConn,
     activeEditors,
+    editLock,
     hasCollab,
     setSegmentText,
     saving: yjsSaving,
@@ -163,12 +165,24 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Touch nicht (user-select:none, Change 013). Zwei Taps auf dasselbe
   // Wort innerhalb 350 ms öffnen den Edit-Modus mit Cursor auf dem Wort.
   const lastTouchTapRef = useRef<{ idx: number; wi: number; t: number } | null>(null);
+  // Change 084: monotone Commit-Sequenz — ein verspäteter Edit-Save
+  // (updateSegment) darf keinen neueren Struktur-Commit (Grenz-Drag,
+  // Split) überschreiben („letzter gewinnt", Muster aus Change 007).
+  const commitSeqRef = useRef(0);
+  // Change 084: Strukturoperationen sind gesperrt, solange IRGENDEIN
+  // Segment im Edit-Mode ist (eigenes editingIdx oder fremdes editLock) —
+  // sonst zeigt die Edit-Box nach der Verschiebung alten Text (Desync).
+  // Achtung: `!= null` (nicht `!== null`) — der Hook/Mocks können
+  // editLock als undefined liefern; `undefined !== null` wäre true.
+  const structureLocked = editingIdx !== null || editLock != null;
 
   // Change 067-Fix: eigenes editing-Flag in die Awareness melden —
   // Andere sehen „X bearbeitet gerade" nur, während wirklich ein
   // Textfeld aktiv ist (nicht beim bloßen Öffnen der Seite).
+  // Change 084: editing trägt den Segment-Index (Sperre + „wer editiert
+  // welches Segment").
   useEffect(() => {
-    setEditingActive(editingIdx !== null);
+    setEditingActive(editingIdx);
   }, [editingIdx, setEditingActive]);
   const [saving, setSaving] = useState(false);
   const [renamingSpeakerIdx, setRenamingSpeakerIdx] = useState<number | null>(null);
@@ -484,6 +498,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // Wortes (native Selektion gibt es auf Touch nicht).
   function openEditorAt(i: number, charStart?: number, charEnd?: number) {
     if (!recordingId) return;
+    // Change 084: das von einem ANDEREN Client editierte Segment ist
+    // gesperrt (Lock-Symbol + „Bearbeitet von <Name>").
+    if (editLock && editLock.index === i) return;
     // Erster Klick des Doppelklicks/Doppeltaps: Playback-Timer verwerfen —
     // Doppelklick = Edit-Modus, KEIN Playback.
     cancelClickTimer();
@@ -511,9 +528,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // auf die Zeile selbst (Seek) bleibt unberührt (stopPropagation).
   function onBoundaryPointerDown(e: React.PointerEvent, idx: number) {
     if (!onBoundaryDragEnd) return;
+    // Change 084: während ein Segment editiert wird (eigenes oder fremdes
+    // editLock) keine Grenz-Verschiebung — das Wort-Gerüst ist gesperrt.
+    if (structureLocked) return;
     if (e.button !== 0 && e.pointerType === "mouse") return;
     e.preventDefault();
     e.stopPropagation();
+    commitSeqRef.current++; // Change 084: jeder Drag startet eine neue Sequenz
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     // Basis-Liste einfrieren + kumulativen Wort-Offset speichern. moveBoundary
     // wird bei JEDEM Pointer-Move mit dem kumulativen words-Wert auf DIESER
@@ -551,11 +572,23 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     setDragIdx(null);
     // Change 009: Preview verwerfen; Commit über den Callback.
     setDragPreview(null);
+    // Change 084 (Fix A): Das lokale Edit-Overlay wird VOR dem Commit
+    // verworfen — d.currentList (basiert auf `shown`, inkl. lokaler
+    // Edits) ist die neue Wahrheit. Vorher konnte `localTexts` nach dem
+    // Drag hängen bleiben (Fingerprint-Guard wartete auf eine
+    // Bestätigung, die nach der Strukturänderung nie eintraf) → die
+    // Edit-Box zeigte dauerhaft den alten Text.
+    setLocalTexts(null);
+    localPendingRef.current = false;
     onBoundaryDragEnd?.(d.currentList);
   }
 
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
+    // Change 084 (Fix B): Sequenz markieren — kommt während des PUTs ein
+    // neuerer Commit (Grenz-Drag, Split), verwirft dieser Save seine
+    // Antwort („letzter gewinnt"), statt den neueren Stand zu überdecken.
+    const seq = ++commitSeqRef.current;
     if (hasCollab) {
       // Change 053 + 068: Kollaboration — Änderung geht live an alle
       // Clients (Yjs) und wird automatisch gespeichert: Autosave nach
@@ -577,6 +610,14 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     localPendingRef.current = true;
     try {
       const result = await updateSegment(recordingId, idx, editText);
+      if (commitSeqRef.current !== seq) {
+        // Change 084: ein neuerer Commit hat gewonnen — Antwort verwerfen,
+        // Edit schließen (die neuere Liste ist die Wahrheit).
+        setEditingIdx(null);
+        setLocalTexts(null);
+        localPendingRef.current = false;
+        return;
+      }
       onEdited(result.segments, result.text);
       setEditingIdx(null);
     } catch {
@@ -594,6 +635,9 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // native Selektion; Touch hat die eigene Markierung (touchSel) → hier wird
   // nur der Anker gesetzt.
   function setAnchorFromRange(i: number, r: { start: number; end: number }, yOverride?: number) {
+    // Change 084: während ein Segment editiert wird keine Struktur-OP —
+    // das Split-Symbol erscheint erst gar nicht.
+    if (structureLocked) return;
     const text = shown[i]?.text ?? "";
     // Y-Position der AUSWAHL-MITTE relativ zur Segment-Zeile (User-Vorgabe
     // 2026-08-18: das Symbol erscheint links mittig zur Markierung, nicht
@@ -747,6 +791,8 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
   // (der persistiert). Default-Sprecher: der des Original-Segments.
   function confirmSplit() {
     if (!splitAnchor) return;
+    // Change 084: Defense in Depth — kein Split während eines Edit-Mode.
+    if (structureLocked) return;
     const orig = shown[splitAnchor.idx]?.speaker;
     const spk = splitSpeaker || orig || "SPEAKER_00";
     onSplitSegment?.(splitAnchor.idx, splitAnchor.charStart, splitAnchor.charEnd, spk);
@@ -1035,12 +1081,16 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                 e.stopPropagation();
                 onSegmentDelete(i);
               }}
-              disabled={shown.length <= 1}
+              disabled={shown.length <= 1 || structureLocked}
               className="w-[18px] h-[18px] rounded-full flex items-center justify-center flex-shrink-0
                 text-[12px] leading-none text-muted2 border border-border/70
                 opacity-40 hover:opacity-100 hover:text-err hover:bg-err/10 hover:border-err/40
                 transition-opacity disabled:opacity-15 disabled:hover:opacity-15 disabled:cursor-not-allowed"
-              title={t("segment_delete_hint")}
+              title={
+                structureLocked && editLock
+                  ? t("edit_locked_by").replace("{name}", editLock.name)
+                  : t("segment_delete_hint")
+              }
               aria-label={t("segment_delete_hint")}
             >
               −
@@ -1050,9 +1100,11 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             className={`
               text-[11px] font-semibold text-accent min-w-[38px] flex-shrink-0
               opacity-85 tabular-nums
-              ${i > 0 && onBoundaryDragEnd
+              ${i > 0 && onBoundaryDragEnd && !structureLocked
                 ? `cursor-ns-resize touch-none select-none rounded-sm px-0.5 -mx-0.5 ${dragIdx === i - 1 ? "bg-[rgba(91,140,255,0.16)] text-accent" : "hover:bg-[rgba(91,140,255,0.08)]"}`
-                : ""}
+                : structureLocked
+                  ? "cursor-not-allowed"
+                  : ""}
             `}
             onClick={(e) => {
               // Timecode = Drag-Handle der Grenze davor — kein Seek/Edit
@@ -1061,11 +1113,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
             onDoubleClick={(e) => {
               if (i > 0 && onBoundaryDragEnd) e.stopPropagation();
             }}
-            onPointerDown={i > 0 && onBoundaryDragEnd ? (e) => onBoundaryPointerDown(e, i - 1) : undefined}
-            onPointerMove={i > 0 && onBoundaryDragEnd ? onBoundaryPointerMove : undefined}
-            onPointerUp={i > 0 && onBoundaryDragEnd ? onBoundaryPointerUp : undefined}
-            onPointerCancel={i > 0 && onBoundaryDragEnd ? onBoundaryPointerUp : undefined}
-            title={i > 0 && onBoundaryDragEnd ? t("boundary_drag_hint") : undefined}
+            onPointerDown={i > 0 && onBoundaryDragEnd && !structureLocked ? (e) => onBoundaryPointerDown(e, i - 1) : undefined}
+            onPointerMove={i > 0 && onBoundaryDragEnd && !structureLocked ? onBoundaryPointerMove : undefined}
+            onPointerUp={i > 0 && onBoundaryDragEnd && !structureLocked ? onBoundaryPointerUp : undefined}
+            onPointerCancel={i > 0 && onBoundaryDragEnd && !structureLocked ? onBoundaryPointerUp : undefined}
+            title={
+              i > 0 && onBoundaryDragEnd
+                ? structureLocked && editLock
+                  ? t("edit_locked_by").replace("{name}", editLock.name)
+                  : t("boundary_drag_hint")
+                : undefined
+            }
           >
             {fmtTimecode(seg.start)}
           </span>
@@ -1267,6 +1325,17 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
               onPointerCancel={onSplitSegment || onAnnotate ? () => setTouchSel(null) : undefined}
               data-split-container
             >
+              {editLock?.index === i && (
+                // Change 084: fremder Editor an diesem Segment → gesperrt
+                // mit Lock-Symbol; Hover (Rollover) zeigt den Namen.
+                <span
+                  className="inline-flex items-center align-middle mr-1 text-muted2 shrink-0"
+                  title={t("edit_locked_by").replace("{name}", editLock.name)}
+                  data-testid="edit-lock"
+                >
+                  <Lock size={12} className="shrink-0" />
+                </span>
+              )}
               {/* Fix 2026-08-18: Wort-Spans IMMER rendern, wenn Split möglich
                   (onSplitSegment) — vorher nur bei hasConfidence ODER aktivem
                   Segment (currentTime != null). Beim ersten Laden war
