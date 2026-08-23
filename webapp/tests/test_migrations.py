@@ -110,3 +110,47 @@ def test_migration_bereits_migrierte_db_bleibt_unberuehrt(tmp_path):
         _drop_legacy_settings_columns(s)  # drop leer → return, kein Crash
     eng.dispose()
     eng2.dispose()
+
+
+def test_backfill_zwischenzustand_teilweise_spalten(tmp_path):
+    """Change 103 (defensiv): transcriptionrun hat NUR EINIGE Settings-Spalten
+    (Migrations-Zwischenzustand) → Backfill crasht NICHT mit 'no such column'
+    und backfillt die Schnittmenge. Produktions-Befund 2026-08-23."""
+    from app.db import _backfill_baseline_runs
+
+    db_path = tmp_path / "mig_zwischen.db"
+    eng = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(eng)
+    with Session(eng) as s:
+        # transcriptionrun: die Hälfte der Settings-Spalten fehlt
+        s.exec(sa_text("ALTER TABLE transcriptionrun DROP COLUMN enable_vad"))
+        s.exec(sa_text("ALTER TABLE transcriptionrun DROP COLUMN enable_noise_reduce"))
+        s.exec(sa_text("ALTER TABLE transcriptionrun DROP COLUMN enable_enhance"))
+        # recording: Alt-Spalten (094-Zustand)
+        for col in (
+            "enable_vad BOOLEAN NOT NULL DEFAULT 1",
+            "enable_diarize BOOLEAN NOT NULL DEFAULT 0",
+            "enable_noise_reduce BOOLEAN NOT NULL DEFAULT 1",
+            "enable_enhance VARCHAR NOT NULL DEFAULT 'off'",
+        ):
+            s.exec(sa_text(f"ALTER TABLE recording ADD COLUMN {col}"))
+        s.exec(sa_text("""INSERT INTO recording
+            (id, uid, original_name, stored_path, mime, size_bytes, status,
+             backend, segments_manual, alignment, diar_status, progress_pct,
+             created_at, updated_at, share_token, text)
+            VALUES (1, 'u1', 'a.mp3', '/x/a.mp3', 'audio/mpeg', 10, 'done',
+                    'ps-pk-onnx', 0, 'none', 'none', 100,
+                    '2026-08-01', '2026-08-01', 't', 'Hallo')"""))
+        s.commit()
+        # KEIN Crash:
+        _backfill_baseline_runs(s)
+    with Session(eng) as s:
+        runs = s.exec(sa_text(
+            "SELECT rec_id, enable_vad, enable_diarize, enable_enhance, "
+            "status FROM transcriptionrun")).all()
+        assert len(runs) == 1
+        assert runs[0][1] == 1      # enable_vad übernommen (Schnittmenge)
+        assert runs[0][2] == 0      # enable_diarize
+        assert runs[0][3] == "off"  # enable_enhance
+        assert runs[0][4] == "done"
+    eng.dispose()

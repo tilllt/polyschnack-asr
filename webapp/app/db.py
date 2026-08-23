@@ -186,21 +186,58 @@ _LEGACY_SETTINGS_COLUMNS = {
 def _backfill_baseline_runs(session: Session) -> None:
     """Change 099: Recordings ohne Run bekommen einen Baseline-Run aus den
     Alt-Spalten (Settings) — status 'done' bei vorhandenem Text (das Ergebnis
-    des Laufs wird als Result archiviert), sonst 'queued' (Upload-Plan)."""
+    des Laufs wird als Result archiviert), sonst 'queued' (Upload-Plan).
+
+    Change 103 (defensiv): Der INSERT wird dynamisch aus der Schnittmenge der
+    tatsächlich existierenden Spalten von transcriptionrun ∩ recording gebaut.
+    Produktions-Befund 2026-08-23: 'no such column: enable_vad' beim App-Start
+    trotz _ensure_run_settings_columns — die DB kann Migrations-Zwischenzustände
+    haben, die ein statischer Spaltenkatalog nicht überlebt. Mit der
+    Schnittmenge kann dieser Backfill in JEDEM Zustand laufen (und ein
+    Zwischenzustand wird beim nächsten Lauf automatisch nachgeholt).
+    """
+    _ensure_run_settings_columns(session)  # Change 103: Modell-Spalten sicherstellen
+    run_cols = [r[1] for r in session.exec(
+        sa_text("PRAGMA table_info(transcriptionrun)")).all()]
+    rec_cols = [r[1] for r in session.exec(
+        sa_text("PRAGMA table_info(recording)")).all()]
+    want = ["backend", "language", "enable_vad", "enable_diarize",
+            "diarize_num_speakers", "diarize_min_duration_off", "diarize_method",
+            "enable_streaming", "enable_noise_reduce", "enable_enhance",
+            "enable_punctuation", "enable_llm_enhance", "prompt_template_id",
+            "delivery_target_id", "llm_endpoint_id"]
+    # Modell-Defaults (SQL-Literale) für Spalten, die recording (noch) nicht hat
+    defaults = {
+        "backend": "'ps-pk-onnx'",
+        "language": "NULL",
+        "enable_vad": "0",
+        "enable_diarize": "0",
+        "diarize_num_speakers": "NULL",
+        "diarize_min_duration_off": "NULL",
+        "diarize_method": "NULL",
+        "enable_streaming": "0",
+        "enable_noise_reduce": "1",
+        "enable_enhance": "'off'",
+        "enable_punctuation": "0",
+        "enable_llm_enhance": "0",
+        "llm_endpoint_id": "NULL",
+        "prompt_template_id": "NULL",
+        "delivery_target_id": "NULL",
+    }
+    cols = [c for c in want if c in run_cols]
+    if not cols:
+        log.info("Change 099: Backfill übersprungen (transcriptionrun ohne "
+                 "Settings-Spalten)")
+        return
+    col_sql = ", ".join(cols)
+    sel_sql = ", ".join(
+        f"COALESCE(\"{c}\", {defaults[c]})" if c in rec_cols else defaults[c]
+        for c in cols)
     session.exec(sa_text(
-        """
+        f"""
         INSERT INTO transcriptionrun
-          (rec_id, backend, language, enable_vad, enable_diarize,
-           diarize_num_speakers, diarize_min_duration_off, diarize_method,
-           enable_streaming, enable_noise_reduce, enable_enhance,
-           enable_punctuation, enable_llm_enhance, prompt_template_id,
-           delivery_target_id, llm_endpoint_id, status, created_by_user_id,
-           created_at)
-        SELECT id, COALESCE(backend, 'ps-pk-onnx'), language, enable_vad,
-           enable_diarize, diarize_num_speakers, diarize_min_duration_off,
-           diarize_method, enable_streaming, enable_noise_reduce,
-           enable_enhance, enable_punctuation, enable_llm_enhance,
-           prompt_template_id, delivery_target_id, llm_endpoint_id,
+          (rec_id, {col_sql}, status, created_by_user_id, created_at)
+        SELECT id, {sel_sql},
            CASE WHEN text IS NOT NULL THEN 'done' ELSE 'queued' END,
            user_id, created_at
         FROM recording WHERE current_run_id IS NULL
