@@ -38,7 +38,13 @@ from ..crud import (
 )
 from .. import crud
 from ..db import engine, get_session
-from ..models import Recording, RecordingShare, User
+from ..models import (
+    Recording,
+    RecordingShare,
+    TranscriptionResult,
+    TranscriptionRun,
+    User,
+)
 from ..permissions import ensure_access, get_access_level
 from ..queue import QueueError, QueueFullError, queue_manager
 from ..export import (
@@ -1107,6 +1113,122 @@ def get_recording_endpoint(
         "total_words": sum(len(s.get("words") or []) for s in segs),
     }
     return d
+
+
+def _run_settings_dict(run: TranscriptionRun) -> Dict[str, Any]:
+    """Change 094: Settings-Snapshot eines Runs als Dict."""
+    return {
+        "enable_vad": run.enable_vad,
+        "enable_diarize": run.enable_diarize,
+        "diarize_num_speakers": run.diarize_num_speakers,
+        "diarize_min_duration_off": run.diarize_min_duration_off,
+        "diarize_method": run.diarize_method,
+        "enable_streaming": run.enable_streaming,
+        "enable_noise_reduce": run.enable_noise_reduce,
+        "enable_enhance": run.enable_enhance,
+        "enable_punctuation": run.enable_punctuation,
+        "enable_llm_enhance": run.enable_llm_enhance,
+        "prompt_template_id": run.prompt_template_id,
+        "llm_endpoint_id": run.llm_endpoint_id,
+    }
+
+
+@router.get("/recordings/{rid}/runs")
+def list_runs_endpoint(
+    rid: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 094: Transkriptionsläufe einer Aufnahme, neueste zuerst.
+
+    Jeder Run trägt den Settings-Snapshot + Status des Laufs — die
+    versionierte Antwort auf „welche Version entstand mit welchen
+    Einstellungen?". Owner/Admin only (read).
+    """
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+    runs = session.exec(
+        select(TranscriptionRun)
+        .where(TranscriptionRun.rec_id == rec.id)
+        .order_by(TranscriptionRun.id.desc())
+    ).all()
+    run_ids = [r.id for r in runs]
+    results = session.exec(
+        select(TranscriptionResult).where(TranscriptionResult.run_id.in_(run_ids))
+    ).all() if run_ids else []
+    by_run: Dict[int, TranscriptionResult] = {res.run_id: res for res in results}
+    return {
+        "runs": [
+            {
+                "id": r.id,
+                "status": r.status,
+                "backend": r.backend,
+                "language": r.language,
+                "settings": _run_settings_dict(r),
+                "error": r.error,
+                "duration_s": r.duration_s,
+                "progress_pct": r.progress_pct,
+                "phase": r.phase,
+                "started_at": iso_utc(r.started_at),
+                "finished_at": iso_utc(r.finished_at),
+                "created_by_user_id": r.created_by_user_id,
+                "result_id": by_run[r.id].id if r.id in by_run else None,
+                "segment_count": len(by_run[r.id].segments or []) if r.id in by_run else 0,
+            }
+            for r in runs
+        ]
+    }
+
+
+@router.get("/recordings/{rid}/runs/{run_id}")
+def get_run_endpoint(
+    rid: str,
+    run_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 094: Run-Detail mit vollem Ergebnis (Text + Segmente)."""
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+    run = session.get(TranscriptionRun, run_id)
+    if run is None or run.rec_id != rec.id:
+        raise HTTPException(status_code=404, detail="run not found")
+    results = session.exec(
+        select(TranscriptionResult)
+        .where(TranscriptionResult.run_id == run.id)
+        .order_by(TranscriptionResult.id.asc())
+    ).all()
+    return {
+        "id": run.id,
+        "rec_id": run.rec_id,
+        "status": run.status,
+        "backend": run.backend,
+        "language": run.language,
+        "settings": _run_settings_dict(run),
+        "error": run.error,
+        "duration_s": run.duration_s,
+        "progress_pct": run.progress_pct,
+        "phase": run.phase,
+        "started_at": iso_utc(run.started_at),
+        "finished_at": iso_utc(run.finished_at),
+        "created_by_user_id": run.created_by_user_id,
+        "results": [
+            {
+                "id": x.id,
+                "text": x.text,
+                "segments": x.segments or [],
+                "created_by_user_id": x.created_by_user_id,
+                "created_at": iso_utc(x.created_at),
+            }
+            for x in results
+        ],
+    }
 
 
 class AnonLinkUpdate(BaseModel):

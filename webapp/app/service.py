@@ -1275,6 +1275,15 @@ def _abort_recording(rec_id: int, message: str) -> None:
                 rec.error = message
                 rec.progress_pct = 100
                 rec.progress_note = None
+                # Change 094: auch den aktiven Run als failed markieren.
+                if rec.current_run_id:
+                    from .models import TranscriptionRun as _Run
+                    run = session.get(_Run, rec.current_run_id)
+                    if run is not None and run.status not in ("done", "failed"):
+                        run.status = "failed"
+                        run.error = message[:500]
+                        run.finished_at = datetime.now(timezone.utc)
+                        session.add(run)
                 session.add(rec)
                 session.commit()
     except Exception:
@@ -1406,6 +1415,48 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         r2.backend = backend
                         s2.add(r2)
                         s2.commit()
+
+    # Change 094 (runs → results): Run-Snapshot beim Job-Start — die
+    # Settings DIESES Laufs, versioniert. „Welche Version entstand mit
+    # welchen Einstellungen?" lebt ab hier im Run; das Recording bleibt
+    # Spiegel (Deprecation der enable_*-Spalten, Etappe 2).
+    run_id: Optional[int] = None
+    try:
+        from .models import TranscriptionRun as _Run, Recording as _Rec
+        with Session(engine) as session:
+            run = _Run(
+                rec_id=rec_id,
+                backend=backend or "",
+                language=rec.language,
+                enable_vad=enable_vad,
+                enable_diarize=enable_diarize,
+                diarize_num_speakers=rec.diarize_num_speakers,
+                diarize_min_duration_off=rec.diarize_min_duration_off,
+                diarize_method=rec.diarize_method,
+                enable_streaming=enable_streaming,
+                enable_noise_reduce=enable_noise_reduce,
+                enable_enhance=enable_enhance,
+                enable_punctuation=enable_punctuation,
+                enable_llm_enhance=enable_llm_enhance,
+                llm_endpoint_id=llm_endpoint_id,
+                prompt_template_id=prompt_template_id,
+                status="processing",
+                progress_pct=rec.progress_pct,
+                phase=rec.progress_note,
+                started_at=datetime.now(timezone.utc),
+                created_by_user_id=owner_id,
+            )
+            session.add(run)
+            session.commit()
+            session.refresh(run)
+            run_id = run.id
+            r2 = session.get(_Rec, rec_id)
+            if r2 is not None:
+                r2.current_run_id = run_id
+                session.add(r2)
+                session.commit()
+    except Exception:
+        log.exception("Change 094: Run-Anlage fehlgeschlagen (rec_id=%s)", rec_id)
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
@@ -1756,6 +1807,41 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             waveform_peaks=peaks,
             phase_times_ms=phase_times or None,
         )
+        # Change 094 (runs → results): Run/Result-Abschluss — bei done
+        # hängt das Ergebnis am Run (TranscriptionResult), Zeiger auf dem
+        # Recording; bei failed/Fehler wird der aktive Run markiert.
+        if status == "done" or error:
+            rec2 = crud.get_recording(session, rec_id)
+            if rec2 is not None and rec2.current_run_id:
+                from .models import (
+                    TranscriptionRun as _Run,
+                    TranscriptionResult as _Result,
+                )
+                run = session.get(_Run, rec2.current_run_id)
+                if run is not None:
+                    if status == "done":
+                        result = _Result(
+                            run_id=run.id,
+                            text=text or None,
+                            segments=segments if segments else None,
+                            created_by_user_id=owner_id,
+                        )
+                        session.add(result)
+                        session.flush()
+                        run.status = "done"
+                        run.duration_s = duration
+                        run.language = language or run.language
+                        rec2.current_result_id = result.id
+                    else:
+                        run.status = "failed"
+                        run.error = (error or "Unbekannter Fehler")[:500]
+                    run.finished_at = datetime.now(timezone.utc)
+                    session.add(run)
+                    session.add(rec2)
+                    # Explizit committen: im failed-Pfad folgt KEIN snapshot()/
+                    # delivery-Commit mehr — ohne diesen Commit bliebe der Run
+                    # ewig "processing".
+                    session.commit()
         if status == "done":
             rec = crud.get_recording(session, rec_id)
             if rec:

@@ -107,6 +107,9 @@ class Recording(SQLModel, table=True):
     )
 
     # --- post-processing flags ---
+    #: Deprecation (Change 094, Etappe 1→2): diese Settings sind Read-Mirror.
+    #: Die versionierte Wahrheit liegt im TranscriptionRun-Snapshot (siehe
+    #: current_run_id); Etappe 2 entfernt die Spalten per Migration.
     #: User opted into VAD silence trimming for this recording.
     enable_vad: bool = False
     #: User opted into speaker diarization for this recording.
@@ -186,6 +189,67 @@ class Recording(SQLModel, table=True):
     recorded_at: Optional[dt.datetime] = None
     #: "whatsapp" if the filename matched the WhatsApp pattern, else None.
     source: Optional[str] = None
+
+    # --- Change 094 (runs → results, Etappe 1): Zeiger auf den aktuellen
+    # Transkriptionslauf + sein Ergebnis. Settings-/Ergebnis-Spalten oben
+    # sind ab sofort Read-Mirror (Deprecation; Etappe 2: DROP + Lesepfad
+    # komplett auf Runs/Results).
+    current_run_id: Optional[int] = Field(default=None, foreign_key="transcriptionrun.id")
+    current_result_id: Optional[int] = Field(default=None, foreign_key="transcriptionresult.id")
+
+
+class TranscriptionRun(SQLModel, table=True):
+    """Ein Transkriptionslauf (Change 094): Settings-Snapshot + Status.
+
+    Jeder transcribe/re-transcribe legt einen Run an — die Antwort auf
+    „welche Version entstand mit welchen Einstellungen?" lebt HIER, nicht
+    im Recording. Status: queued | processing | done | failed.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rec_id: int = Field(foreign_key="recording.id", index=True)
+
+    # --- Settings-Snapshot (Kopie des Recording-Zustands bei Job-Start) ---
+    backend: str = ""
+    language: Optional[str] = None
+    enable_vad: bool = False
+    enable_diarize: bool = False
+    diarize_num_speakers: Optional[int] = Field(default=None)
+    diarize_min_duration_off: Optional[float] = Field(default=None)
+    diarize_method: Optional[str] = Field(default=None)
+    enable_streaming: bool = False
+    enable_noise_reduce: bool = True
+    enable_enhance: str = "off"
+    enable_punctuation: bool = False
+    enable_llm_enhance: bool = False
+    llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
+    prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
+
+    # --- Betrieb ---
+    status: str = "queued"  # queued | processing | done | failed
+    progress_pct: Optional[float] = Field(default=None)
+    phase: Optional[str] = Field(default=None)
+    error: Optional[str] = Field(default=None)
+    duration_s: Optional[float] = Field(default=None)
+    started_at: Optional[dt.datetime] = Field(default=None)
+    finished_at: Optional[dt.datetime] = Field(default=None)
+    created_by_user_id: Optional[int] = Field(default=None)
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class TranscriptionResult(SQLModel, table=True):
+    """Ergebnis eines TranscriptionRun (Change 094): text + segments."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="transcriptionrun.id", index=True)
+    text: Optional[str] = Field(default=None)
+    segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
+    created_by_user_id: Optional[int] = Field(default=None)
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
 
 
 class User(SQLModel, table=True):
