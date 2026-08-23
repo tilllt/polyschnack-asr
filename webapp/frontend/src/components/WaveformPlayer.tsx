@@ -432,22 +432,28 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         return;
       }
 
-      // Timeout safety net — mit Server-Peaks rendert WaveSurfer sofort (10s);
-      // OHNE Peaks muss der Browser die ganze Datei dekodieren (WebAudio) —
-      // bei langen Aufnahmen dauert das deutlich länger, der alte 10s-Timeout
-      // warf dann faelschlich "Waveform data corrupted". 60s fuer den
-      // Browser-Decode-Pfad.
+      // Timeout safety net — mit Server-Peaks rendert WaveSurfer die Welle
+      // sofort, ABER `ready` kommt trotzdem erst NACH dem Decode (WS
+      // dekodiert die Datei immer, auch mit Peaks). OHNE Peaks muss der
+      // Browser die ganze Datei dekodieren (WebAudio).
+      // Change 097 (Ruben-Review 24.08., User-Befund „30 s bis Play"): Der
+      // alte 10-s-Wert (mit Peaks) ging fälschlich von sofortigem ready aus
+      // → bei Decodes > 10 s feuerte der Timeout → onLoadError → Wechsel auf
+      // die volle Original-Datei → doppelter Load (AbortError) + noch
+      // längerer Decode. Der Timeout ist jetzt ein reines Netz-/Decode-
+      // Sicherheitsnetz (60 s) und löst KEIN onLoadError aus (kein Wechsel
+      // auf die volle Datei — die Preview ist die richtige Wahl; echte
+      // Preview-Fehler meldet ws.on("error")). Ein späteres `ready` heilt
+      // den Timeout-Fehlerzustand (setError(false) im ready-Handler).
       // Change 049: MediaElement streamt (kein Decode) — aber der erste
       // Preview-Zugriff kann den Server-ffmpeg synchron triggern (Minuten
       // bei sehr langen Dateien) → grosszuegiger Timeout, der Fehlerpfad
       // bleibt ws.on("error").
-      const loadTimeoutMs =
-        backend === "MediaElement" ? 120000 : hasPeaks ? 10000 : 60000;
+      const loadTimeoutMs = backend === "MediaElement" ? 120000 : 60000;
       timerRef.current = setTimeout(() => {
         if (!cancelled) {
           setError(true);
           setReady(true);
-          onLoadErrorRef.current?.();
         }
       }, loadTimeoutMs);
 
@@ -463,6 +469,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       ws.on("ready", () => {
         if (cancelled) return;
         if (timerRef.current) clearTimeout(timerRef.current);
+        setError(false); // Change 097: heilt einen Timeout-Fehlerzustand
         setReady(true);
         setLoadPct(100); // geladen — der Progress-Background ist voll
         const dur = ws.getDuration();
