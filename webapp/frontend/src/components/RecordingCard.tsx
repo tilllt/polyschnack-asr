@@ -1226,6 +1226,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <span>Präzises Alignment läuft im Hintergrund …</span>
           </div>
         )}
+        {/* Change 101: Re-Align ohne Effekt — der Aligner hat keine Wörter
+            ersetzt (nicht erreichbar oder lieferte nichts). Statt der
+            stillen „done“-Lüge ein sichtbarer Hinweis; Grund im Tooltip. */}
+        {r.status === "done" && r.alignment === "skipped" && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-err/90"
+            data-testid={`bg-align-skipped-${r.uid}`}
+            title={r.error ?? undefined}
+          >
+            <span aria-hidden>⚠️</span>
+            <span>{t("align_skipped")}</span>
+          </div>
+        )}
         {/* Change 057: Re-Diarize läuft — ehrlicher Hintergrund-Hinweis,
             kein Fake-Progress; verschwindet beim nächsten Polling. */}
         {(r.status === "done" && (r.diar_status === "running" || r.diar_status === "pending")) && (

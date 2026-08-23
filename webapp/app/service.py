@@ -951,8 +951,24 @@ def _run_background_align(rec_id: int) -> None:
                 _AlignmentCache.delete(rec_id)
                 return
             if new_segments is not None and _same_segments(rec.segments, segments):
-                rec.segments = new_segments
-                rec.alignment = "done"
+                if not _same_segments(new_segments, segments):
+                    # Change 101: Wörter wirklich ersetzt → done.
+                    rec.segments = new_segments
+                    rec.alignment = "done"
+                    rec.error = None
+                else:
+                    # Change 101: Der Aligner hat NICHTS ersetzt — „done“
+                    # wäre eine stille Lüge (User-Befund 2026-08-23:
+                    # „Re-Align bringt nichts“, Karaoke rast im 80-ms-Raster
+                    # der Backend-Platzhalter). Grund sichtbar machen.
+                    from .aligner_client import AlignerClient as _AlignCl
+                    if _AlignCl().health():
+                        reason = "Aligner lieferte keine Wort-Timestamps"
+                    else:
+                        reason = "Aligner nicht erreichbar"
+                    rec.alignment = "skipped"
+                    rec.error = f"Re-Align ohne Effekt: {reason}"
+                    log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
             elif new_segments is not None:
                 log.info("bg-align: Segmente geändert während des Laufs (rec_id=%s) — Ergebnis verworfen", rec_id)
                 rec.alignment = "skipped"

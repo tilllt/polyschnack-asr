@@ -248,6 +248,7 @@ class _FakeRecording:
         self.segments = list(segments)
         self.language = "de"
         self.alignment = alignment
+        self.error = None
         self.commits = 0
 
     def __repr__(self):
@@ -355,3 +356,54 @@ def test_background_align_versionsguard_verwirft(tmp_path, monkeypatch):
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
+
+
+def test_background_align_ohne_effekt_ist_skipped_nicht_done(tmp_path, monkeypatch):
+    """Change 101: Aligner down → Wörter unverändert → NIE „done“ — skipped
+    mit Grund. Vorher: alignment=done trotz identischer Wörter (stille Lüge;
+    User-Befund „Re-Align bringt nichts“, Karaoke rast im 80-ms-Raster)."""
+    from app import service as svc
+    from app import aligner_client as ac
+
+    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    monkeypatch.setattr(ac, "ALIGN_URL", "http://127.0.0.1:1")  # sicher down
+    monkeypatch.setattr(svc, "engine", object())
+
+    rec = _FakeRecording([{
+        "start": 0, "end": 1, "text": "Hallo Welt",
+        "words": [{"word": "Hallo", "start": 0.0, "end": 0.5}],
+    }])
+    monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
+    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+
+    svc._run_background_align(7)
+    assert rec.alignment == "skipped"
+    assert "Aligner nicht erreichbar" in (rec.error or "")
+    # Die (unveränderten) Wörter blieben erhalten
+    assert rec.segments[0]["words"][0]["word"] == "Hallo"
+
+
+def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch):
+    """Change 101: Aligner erreichbar, liefert aber keine Wörter → skipped
+    mit passendem Grund (nicht „done“)."""
+    from app import service as svc
+    from app import aligner_client as ac
+
+    class _FakeClient:
+        def health(self):
+            return True
+
+        def align(self, audio, text, lang="de", timeout_s=None):
+            return []
+
+    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    monkeypatch.setattr(ac, "AlignerClient", _FakeClient)
+    monkeypatch.setattr(svc, "engine", object())
+
+    rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
+    monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
+    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+
+    svc._run_background_align(7)
+    assert rec.alignment == "skipped"
+    assert "keine Wort-Timestamps" in (rec.error or "")

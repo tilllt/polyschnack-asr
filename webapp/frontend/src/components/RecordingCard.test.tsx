@@ -260,6 +260,20 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
     screen.getByText("Re-align").click();
     expect(hooks.realignMutate).toHaveBeenCalled();
   });
+
+  test("Change 101: alignment=skipped zeigt sichtbaren Hinweis (keine stille done-Lüge)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        alignment: "skipped",
+        error: "Re-Align ohne Effekt: Aligner nicht erreichbar",
+      }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-align-skipped-r1");
+    expect(hint).toBeTruthy();
+    expect(hint.getAttribute("title")).toContain("Aligner nicht erreichbar");
+  });
 });
 
 describe("RecordingCard — Change 058 Popover/Dropdown-Konsistenz", () => {
