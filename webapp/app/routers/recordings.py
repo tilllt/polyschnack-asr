@@ -534,6 +534,7 @@ def _recording_to_dict(
     access_level: Optional[str] = None,
     lite: bool = False,
     run: Optional[Any] = None,
+    session: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Serialise a Recording row to the canonical API response shape.
 
@@ -547,12 +548,8 @@ def _recording_to_dict(
     `run` durch; sonst wird er hier geladen.
     """
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
-    if run is None:
-        from ..db import engine as _engine
-        from sqlmodel import Session as _S
-
-        with _S(_engine) as _s:
-            run = _current_run(_s, rec)
+    if run is None and session is not None:
+        run = _current_run(session, rec)
     _s_vad = bool(run and run.enable_vad)
     _s_diarize = bool(run and run.enable_diarize)
     _s_diarize_num = run.diarize_num_speakers if run else None
@@ -763,7 +760,7 @@ async def upload_recording(
         return {
             "duplicate": True,
             "existing_id": existing.id,
-            "recording": _recording_to_dict(existing),
+            "recording": _recording_to_dict(existing, session=session),
         }
 
     # Storage-Policy (2026-08-14): native Formate (MP3/OGG/WebM/…) werden
@@ -875,7 +872,7 @@ async def upload_recording(
     # Query-Parameter bleibt es beim JSON für die SPA (Upload-Formular).
     if request.query_params.get("from") == "share" and rec.uid:
         return RedirectResponse(f"/r/{rec.uid}", status_code=303)
-    return _recording_to_dict(rec)
+    return _recording_to_dict(rec, session=session)
 
 
 @router.post("/recordings/{rid}/duplicate", status_code=201)
@@ -951,7 +948,7 @@ def duplicate_recording(
         new_rec.waveform_peaks = rec.waveform_peaks
         session.add(new_rec)
         session.commit()
-    return _recording_to_dict(new_rec)
+    return _recording_to_dict(new_rec, session=session)
 
 
 class MergeRequest(BaseModel):
@@ -1050,7 +1047,7 @@ def merge_recordings(
         path = Path(rec.stored_path)
         delete_recording(session, rec.id)
         path.unlink(missing_ok=True)
-    return _recording_to_dict(new_rec)
+    return _recording_to_dict(new_rec, session=session)
 
 
 # ---------------------------------------------------------------------------
@@ -1115,7 +1112,7 @@ def list_recordings_endpoint(
         }
     for r in rows:
         d = _recording_to_dict(r, access_level=get_access_level(
-            session, r, uid, cap=_key_cap(request, session)), lite=lite)
+            session, r, uid, cap=_key_cap(request, session)), lite=lite, session=session)
         d["shared_with_me"] = r.user_id != uid and r.id in share_rec_ids
         d["has_shares"] = r.id in shared_out_ids
         out.append(d)
@@ -1135,7 +1132,7 @@ def get_recording_endpoint(
     uid = _current_user(request, session)
     ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
     d = _recording_to_dict(rec, access_level=get_access_level(
-        session, rec, uid, cap=_key_cap(request, session)))
+        session, rec, uid, cap=_key_cap(request, session)), session=session)
     # Visuelle Markierung: "shared_with_me" = fremde Recording via User-Share
     shared_with_me = False
     if uid is not None and rec.user_id != uid:
@@ -1581,13 +1578,13 @@ def import_backup_ep(
             detail={
                 "duplicate": True,
                 "existing_id": dup.uid,
-                "recording": _recording_to_dict(dup),
+                "recording": _recording_to_dict(dup, session=session),
             },
         )
 
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort rechnen
-    return _recording_to_dict(rec)
+    return _recording_to_dict(rec, session=session)
 
 
 @router.get("/export-templates")
@@ -2043,7 +2040,7 @@ def transcribe_range(
     new_rec.current_run_id = run.id
     session.add(new_rec)
     session.commit()
-    return _recording_to_dict(new_rec)
+    return _recording_to_dict(new_rec, session=session)
 
 
 # ---------------------------------------------------------------------------

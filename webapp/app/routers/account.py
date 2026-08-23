@@ -49,15 +49,12 @@ def _sanitize(name: str) -> str:
     return cleaned or "recording"
 
 
-def _recording_json(rec: Recording, run: Optional[Any] = None) -> Dict[str, Any]:
+def _recording_json(rec: Recording, run: Optional[Any] = None, session: Optional[Any] = None) -> Dict[str, Any]:
     """PolySchnack-JSON-Format v1 für EINE Transkription."""
-    if run is None:
-        from ..db import engine as _engine
-        from sqlmodel import Session as _S
+    if run is None and session is not None:
         from ..crud import current_run_for
 
-        with _S(_engine) as _s:
-            run = current_run_for(_s, rec)  # Change 099: Settings aus dem Run
+        run = current_run_for(session, rec)  # Change 099: Settings aus dem Run
     return {
         "schema": _EXPORT_SCHEMA,
         "original_name": rec.original_name,
@@ -74,7 +71,7 @@ def _recording_json(rec: Recording, run: Optional[Any] = None) -> Dict[str, Any]
     }
 
 
-def _zip_recordings(recs: List[Recording], zip_path: Path) -> int:
+def _zip_recordings(recs: List[Recording], zip_path: Path, session: Optional[Any] = None) -> int:
     """Schreibe alle *recs* als ZIP nach *zip_path*; returns Anzahl Ordner."""
     n = 0
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
@@ -82,7 +79,7 @@ def _zip_recordings(recs: List[Recording], zip_path: Path) -> int:
             folder = f"{rec.uid}-{_sanitize(Path(rec.original_name).stem)}"
             zf.writestr(
                 f"{folder}/transkription.json",
-                json.dumps(_recording_json(rec), ensure_ascii=False, indent=2),
+                json.dumps(_recording_json(rec, session=session), ensure_ascii=False, indent=2),
             )
             audio = Path(rec.stored_path)
             if audio.is_file():
@@ -166,7 +163,7 @@ def export_account(
 
     _os.close(fd)  # FD sofort schließen — zipfile öffnet selbst
     try:
-        n = _zip_recordings(recs, Path(tmp_path))
+        n = _zip_recordings(recs, Path(tmp_path), session)
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
         fname = f"polyschnack-export-{stamp}.zip"
         log.info("account export: user_id=%s, %d ordner → %s", uid, n, fname)
