@@ -3,7 +3,7 @@
  * Change 092 — Autocomplete: Vorschlagsliste existierender Tags.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
 import { TagEditor } from "./TagEditor";
 import { updateRecordingTags } from "../api";
@@ -81,12 +81,16 @@ describe("TagEditor", () => {
     expect(updateRecordingTags).not.toHaveBeenCalled();
   });
 
-  test("× entfernt Tag → PATCH ohne das Tag", () => {
+  test("× entfernt Tag → PATCH ohne das Tag", async () => {
     renderEditor();
     // aria-label ist „Remove tag #<tag>" (Screenreader: welches Tag)
     const remove = screen.getAllByLabelText(/Remove tag/);
     fireEvent.click(remove[0]); // walzen
-    expect(updateRecordingTags).toHaveBeenCalledWith("r1", ["review"]);
+    // Change 103 (CI-Flakiness): PATCH feuert asynchron — erst waitFor,
+    // die sofortige Assertion schlug in der CI sporadisch fehl.
+    await waitFor(() =>
+      expect(updateRecordingTags).toHaveBeenCalledWith("r1", ["review"]),
+    );
   });
 
   test("Fokus ins Feld öffnet Vorschlagsliste — nur nicht vergebene Tags (Change 092)", () => {

@@ -38,6 +38,11 @@ Spalten nicht.
    die Zeile komplett zu verwerfen entfernte auch Nicht-drop-Spalten wie
    `current_result_id` und der CREATE scheiterte mit „unknown column in
    foreign key definition“).
+3. CI-Flakiness-Fix (TagEditor.test.tsx): „× entfernt Tag → PATCH ohne das
+   Tag“ prüfte synchron direkt nach dem Klick — der PATCH feuert
+   asynchron und der Test schlug in der CI sporadisch fehl
+   („expected vi.fn() to be called at least once“). Assertion auf
+   `waitFor` umgestellt.
 
 ## Tests
 
