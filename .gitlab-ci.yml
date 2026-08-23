@@ -121,6 +121,24 @@ build-aligner:
   needs:
     - test-webapp
 
+# Source-Separation (Change 106): CrispASR-Fork mit htdemucs +
+# mel-band-roformer. Baut den kompletten Fork (ggml + CUDA) im Image —
+# deshalb 90-min-Timeout. Startet NICHT mit, solange separate_backend=none.
+build-sep:
+  timeout: 90 minutes
+  stage: build
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-sep" "sep-service/"
+  only:
+    - main
+  tags:
+    - shared
+  needs:
+    - test-webapp
+
 # pk-cpp (Weg 1): eigenes hybrides CrispASR-Image mit parakeet-Backend
 # statt externem mudler/parakeet.cpp-server. Gleiche GGUF wie diar-Service.
 build-cpp:
@@ -320,6 +338,7 @@ mirror-github:
     - build-ark
     - build-diar
     - build-aligner
+    - build-sep
     - build-cpp
     - build-moonshine-de
     - build-canary
@@ -341,7 +360,7 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-    for img in "" -webapp -qwen3 -ark -diar -aligner -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
+    for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
       docker pull "${src}:latest"
@@ -365,6 +384,7 @@ mirror-ghcr:
     - build-ark
     - build-diar
     - build-aligner
+    - build-sep
     - build-cpp
     - build-moonshine-de
     - build-canary
