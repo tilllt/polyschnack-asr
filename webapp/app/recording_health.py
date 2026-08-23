@@ -247,12 +247,12 @@ def _ensure_healthy(rec: Recording) -> Tuple[bool, str]:
 
 def _ensure_preview(rec: Recording) -> None:
     """Sidecar-Preview für den Browser-Player sicherstellen (User-Vorgabe
-    20.08.): Preview-Datei (`<stem>_preview.mp3`, peaks-Konvention) muss
-    existieren und gültig sein — sonst wird sie (neu) erzeugt."""
+    20.08.): Preview-Datei (`<stem>_preview.opus`, peaks-Konvention, Change 096)
+    muss existieren und gültig sein — sonst wird sie (neu) erzeugt."""
     from .peaks import compute_preview_path
 
     stored = Path(rec.stored_path)
-    preview = stored.with_name(stored.stem + "_preview.mp3")
+    preview = stored.with_name(stored.stem + "_preview.opus")
     if preview.exists() and preview.stat().st_size > 0 \
             and is_valid_audio_file(preview)[0]:
         return

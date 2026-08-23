@@ -231,13 +231,18 @@ def compute_peaks_path(path: Path) -> List[float]:
             proc.kill()
 
 
-PREVIEW_BITRATE = "64k"
+# Change 096: 24-kbps-Opus statt 64-kbps-MP3 — die Preview wird nur fürs
+# Playback im Browser gebraucht (die Welle kommt aus den Server-Peaks).
+# Netzlast 46 → ~17 MB bei 95 min; der Opus-Decode (libopus) ist ~4×
+# schneller als MP3 — der eigentliche Flaschenhals war decodeAudioData
+# (26 s Desktop / 60–90 s Mobile bei 64-kbps-MP3).
+PREVIEW_BITRATE = "24k"
 PREVIEW_SR = 16000
 
 
 def compute_preview_path(src: Path) -> Optional[Path]:
     """Erzeugt eine schlanke Playback-Preview (64 kbps MP3, 16 kHz mono)
-    NEBEN der Originaldatei: ``<stem>_preview.mp3``.
+    NEBEN der Originaldatei: ``<stem>_preview.opus``.
 
     Wiedereinführung der Sidecar-Pipeline (2026-08-15): der Browser-Player
     lädt nur diese kleine Datei fürs Playback — WebAudio muss sonst die
@@ -249,7 +254,7 @@ def compute_preview_path(src: Path) -> Optional[Path]:
     """
     if src is None or not Path(src).exists():
         return None
-    preview_p = Path(src).with_name(Path(src).stem + "_preview.mp3")
+    preview_p = Path(src).with_name(Path(src).stem + "_preview.opus")
     if preview_p.exists() and preview_p.stat().st_size > 0:
         return preview_p
     try:
@@ -257,7 +262,7 @@ def compute_preview_path(src: Path) -> Optional[Path]:
             [
                 "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
                 "-i", str(src),
-                "-c:a", "libmp3lame", "-b:a", PREVIEW_BITRATE,
+                "-c:a", "libopus", "-b:a", PREVIEW_BITRATE,
                 "-ar", str(PREVIEW_SR), "-ac", "1",
                 str(preview_p),
             ],

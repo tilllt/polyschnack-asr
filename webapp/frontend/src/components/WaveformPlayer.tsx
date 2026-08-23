@@ -66,6 +66,51 @@ const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 /** Vertikaler Kopfraum der Wellenform in px (oben+unten, 2026-08-16). */
 const WAVE_PAD = 5;
 
+// Change 096: Preview-Fetch + -DECODE im Web-Worker — der ArrayBuffer
+// (bei Worker-Decode: 16-bit-PCM-WAV, sonst Originalformat) kommt
+// transferable zurück; Progress 0–100 speist den Fortschritts-Background
+// (Change 095). WaveSurfer dekodiert die WAV dann in Millisekunden.
+// Safari-Worker ohne OfflineAudioContext → Fallback (Originalformat).
+function workerFetch(
+  url: string,
+  onProgress: (pct: number) => void,
+): Promise<{ arrayBuffer: ArrayBuffer; wav: boolean }> {
+  return new Promise((resolve, reject) => {
+    try {
+      const worker = new Worker(new URL("../workers/fetch.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      const done = (fn: () => void) => {
+        worker.terminate();
+        fn();
+      };
+      worker.onmessage = (
+        e: MessageEvent<{
+          type: string;
+          pct?: number;
+          arrayBuffer?: ArrayBuffer;
+          wav?: boolean;
+          reason?: string;
+        }>,
+      ) => {
+        if (e.data.type === "progress" && typeof e.data.pct === "number") {
+          onProgress(e.data.pct);
+        } else if (e.data.type === "done" && e.data.arrayBuffer) {
+          done(() =>
+            resolve({ arrayBuffer: e.data.arrayBuffer as ArrayBuffer, wav: e.data.wav === true }),
+          );
+        } else if (e.data.type === "error") {
+          done(() => reject(new Error(e.data.reason || "worker fetch failed")));
+        }
+      };
+      worker.onerror = (e) => done(() => reject(new Error(e.message || "worker error")));
+      worker.postMessage({ url });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 /* ============================================================
    AUDIO-EXKLUSIVITÄT — immer nur EIN Player spielt app-weit.
    Modul-Singleton: der zuletzt gestartete Player pausiert den
@@ -341,15 +386,45 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // da sind (ohne durationHint kann WaveSurfer die Timeline nicht
       // skalieren — dann lieber selbst dekodieren).
       const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
+      const doLoad = (url: string) => {
+        ws.load(
+          url,
+          hasPeaks ? [peaks as number[]] : undefined,
+          hasPeaks ? (durationHint as number) : undefined,
+        );
+      };
       try {
         // Peaks roh übergeben — der Kopfraum kommt aus dem Container-Padding
         // (WaveSurfer zeichnet nach dem Decode ohnehin aus dem Audio, eine
         // Client-Skalierung der Peaks wäre nach dem Decode wirkungslos).
-        ws.load(
-          audioUrl,
-          hasPeaks ? [peaks as number[]] : undefined,
-          hasPeaks ? (durationHint as number) : undefined,
-        );
+        // Change 096: Der Netz-Fetch läuft im Web-Worker (kein Buffer-
+        // Handling auf dem JS-Main-Thread); WS lädt das Blob — genau EIN
+        // Fetch, kein doppelter Decode (WS dekodiert das Blob wie gehabt
+        // im Browser-Audio-Thread). Worker nicht verfügbar / Fehler →
+        // direkter WS-Fetch (bisheriges Verhalten).
+        if (typeof Worker !== "undefined" && audioUrl) {
+          workerFetch(audioUrl, (pct) => {
+            if (!cancelled) setLoadPct(pct);
+          })
+            .then(({ arrayBuffer: buf, wav }) => {
+              if (cancelled) return;
+              // Worker-Decode → unkomprimierte WAV (WS-decode trivial);
+              // sonst Originalformat (Opus-Preview / Alt-MP3).
+              const mime = wav
+                ? "audio/wav"
+                : audioUrl.toLowerCase().endsWith(".opus")
+                  ? "audio/ogg"
+                  : "audio/mpeg";
+              const blobUrl = URL.createObjectURL(new Blob([buf], { type: mime }));
+              doLoad(blobUrl);
+            })
+            .catch(() => {
+              if (cancelled) return;
+              doLoad(audioUrl);
+            });
+        } else {
+          doLoad(audioUrl);
+        }
       } catch (e) {
         setError(true);
         setReady(true);
@@ -409,10 +484,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
       // Change 095: Ladefortschritt des Audio-Fetches (0–100) — füllt den
       // Hintergrund des "Loading…"-Textes als temporären Progress-Bar.
-      ws.on("loading", (pct: number) => {
-        if (cancelled) return;
-        setLoadPct(pct);
-      });
+      // Change 096: im Worker-Fetch-Pfad liefert der Worker den Fortschritt
+      // (der WS-"loading"-Event des Blobs wäre nur ein instanter 0→100).
+      if (typeof Worker === "undefined" || !audioUrl) {
+        ws.on("loading", (pct: number) => {
+          if (cancelled) return;
+          setLoadPct(pct);
+        });
+      }
 
       ws.on("timeupdate", (t) => {
         // Fix 2026-08-17 (Space-Stop-Sprung): WaveSurfer 7 feuert beim Pause

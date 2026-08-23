@@ -675,7 +675,7 @@ def test_health_scan_konvertiert_nicht_natives_ogg(client, tmp_path):
 
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg fehlt")
 def test_health_scan_stellt_preview_sidecar_sicher(client, tmp_path):
-    """User-Vorgabe 20.08.: Preview-Sidecar (`<stem>_preview.mp3`) wird
+    """User-Vorgabe 20.08.: Preview-Sidecar (`<stem>_preview.opus`) wird
     sichergestellt und bei kaputter/fehlender Datei regeneriert."""
     rec = _upload(client)  # fake-bytes → Upload-Preview scheitert (keine Preview)
     from app.db import engine
@@ -695,7 +695,7 @@ def test_health_scan_stellt_preview_sidecar_sicher(client, tmp_path):
         r = s.get(Recording, rec["id"])
         stored = Path(r.stored_path)
         stored.write_bytes(wav.read_bytes())
-        preview = stored.with_name(stored.stem + "_preview.mp3")
+        preview = stored.with_name(stored.stem + "_preview.opus")
         preview.write_bytes(b"XXXXXXXXXXXXXXXX")  # kaputte Preview
         r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
         s.add(r)
@@ -709,7 +709,7 @@ def test_health_scan_stellt_preview_sidecar_sicher(client, tmp_path):
         r = s.get(Recording, rec["id"])
         assert r.status != "failed", r.error
         preview = Path(r.stored_path).with_name(
-            Path(r.stored_path).stem + "_preview.mp3")
+            Path(r.stored_path).stem + "_preview.opus")
         assert preview.exists(), "Preview fehlt"
         ok, _reason = is_valid_audio_file(preview)
         assert ok, f"Preview ungültig: {_reason}"

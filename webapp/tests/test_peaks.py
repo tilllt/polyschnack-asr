@@ -94,3 +94,54 @@ def test_probe_sample_count_fallback_ohne_ffprobe(monkeypatch):
     monkeypatch.setattr(peaks_mod.sp, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
     n = peaks_mod.probe_sample_count(b"x" * 32000)
     assert n == 16000  # len/2
+
+
+def test_compute_preview_path_erzeugt_opus(tmp_path):
+    """Change 096: Playback-Preview ist 24-kbps-Opus (statt 64-kbps-MP3).
+
+    Die Preview wird nur fürs Browser-Playback gebraucht — die Welle kommt
+    aus den Server-Peaks. Opus: ~2,9× kleiner + ~4× schnellerer Decode
+    (decodeAudioData war der Lade-Flaschenhals: 26 s Desktop / 60–90 s
+    Mobile bei 64-kbps-MP3). ffmpeg nötig → sonst skip (CI-Image hat es).
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        import pytest
+
+        pytest.skip("ffmpeg/ffprobe nicht verfügbar")
+
+    src = tmp_path / "src.wav"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+            "-ar", "16000", "-ac", "1", str(src),
+        ],
+        check=True, capture_output=True,
+    )
+
+    out = peaks_mod.compute_preview_path(src)
+    assert out is not None
+    assert out.name == "src_preview.opus"
+    assert out.exists() and out.stat().st_size > 0
+
+    # Codec per ffprobe verifizieren (nicht nur Endung).
+    p = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_name,sample_rate",
+            "-of", "csv=p=0", str(out),
+        ],
+        check=True, capture_output=True, text=True,
+    )
+    codec, sr = p.stdout.strip().split(",")
+    assert codec == "opus"
+    # Opus-Dateien melden im Container IMMER 48000 (Opus-Spezifikation) —
+    # die tatsächliche Bandbreite steckt im Stream; der Browser-Worker
+    # rendert fürs Playback auf 16 kHz herunter (fetch.worker.ts).
+    assert sr == "48000"
+
+    # Idempotenz: zweiter Aufruf gibt denselben Pfad zurück (kein Re-encode).
+    assert peaks_mod.compute_preview_path(src) == out
