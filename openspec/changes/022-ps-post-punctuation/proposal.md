@@ -1,4 +1,4 @@
-# Change 022 — ps-post: Punctuation + Truecasing im Post-Processing-Container
+# Change 022 — ps-auxiliary: Punctuation + Truecasing im Post-Processing-Container
 
 ## Problem
 
@@ -9,7 +9,7 @@ ASR-Backend-Images**: `crispr-moonshine-de`, `crispr-pk-cpp` und
 `CRISPASR_EXTRA_ARGS` bzw. onstart). Drei belegte Nachteile:
 
 1. **Falsche Schicht:** Punc/Truecase ist Post-Processing, nicht ASR.
-   Change 020 definiert dafür den `ps-post`-Container (Diarization +
+   Change 020 definiert dafür den `ps-auxiliary`-Container (Diarization +
    Aligner, modell-unabhängig) — genau dort gehört auch die
    Formatierung hin, nicht in jedes `ps-asr-<backend>`-Image.
 2. **Startzeit-Verfälschung + Hänger:** Beide GGUFs sind nicht im Image;
@@ -26,7 +26,7 @@ ASR-Backend-Images**: `crispr-moonshine-de`, `crispr-pk-cpp` und
 
 ### Verhaltens-Delta
 
-- **ps-post-Container wird um den Formatierungs-Dienst erweitert**
+- **ps-auxiliary-Container wird um den Formatierungs-Dienst erweitert**
   (MODIFIZIERT Change-020-Definition „Supervisor: zwei Prozesse" →
   **drei Prozesse**):
   1. **crispr-diar** — Diarization (CPU-only, empirisch belegt PR #364)
@@ -40,7 +40,7 @@ ASR-Backend-Images**: `crispr-moonshine-de`, `crispr-pk-cpp` und
   einzeln durch den punc-Dienst — Satzzeichen/Großschreibung ändern die
   Wortreihenfolge nicht, Segment-Grenzen, Wort-Timestamps und
   Sprecher-Zuordnung bleiben gültig.
-- **Webapp-Pipeline:** `Upload → ASR (roh) → ps-post (Diar + Align +
+- **Webapp-Pipeline:** `Upload → ASR (roh) → ps-auxiliary (Diar + Align +
   Punc) → LLM-Template (opt-in, Change 005) → Version/Export`. Das LLM
   arbeitet auf formatiertem Text. Konfiguration über
   `POLYSCHNACK_PS_POST_URL`; solange nicht gesetzt, liefern die
@@ -49,31 +49,31 @@ ASR-Backend-Images**: `crispr-moonshine-de`, `crispr-pk-cpp` und
   erreichbar, wird der rohe Text verwendet und am Recording ein
   sichtbares Flag `postprocess_status="punc-fallback"` gesetzt; die
   Transkription selbst bleibt `done`.
-- **ASR-Images:** Nach dem ps-post-Deploy verlieren die Deploy-Images
+- **ASR-Images:** Nach dem ps-auxiliary-Deploy verlieren die Deploy-Images
   `--punc-model`/`--truecase-model` (in den Benchmark-Onstarts von
   Change 021 bereits entfernt — dort misst der Benchmark den rohen
   ASR-Kern).
 
 ### Bezug zu anderen Changes
 
-- **Change 020:** Dies ist der Bau-Auftrag für den ps-post-Container
-  (Phase 3-Task „ps-post-Image") — erweitert um den dritten Dienst.
+- **Change 020:** Dies ist der Bau-Auftrag für den ps-auxiliary-Container
+  (Phase 3-Task „ps-auxiliary-Image") — erweitert um den dritten Dienst.
   Die Diar-CPU-Entscheidung (PR #364) und der Align-CPU-Messpunkt
   bleiben gültig; der punc-Dienst ist CPU-only (kleine Modelle).
 - **Change 021:** Benchmark misst rohen ASR-Output (WER via jiwer auf
   normalisiertem Text, punc-unabhängig) — bereits umgesetzt.
 - **Change 005:** Bestehende Post-Processing-Capability (LLM-Templates,
-  Delivery) bleibt unverändert; ps-post ist eine zusätzliche Stufe.
+  Delivery) bleibt unverändert; ps-auxiliary ist eine zusätzliche Stufe.
 
 ## Betroffene Verhaltensbereiche
 
 - **Post-Processing (MODIFIED):** neue Req „Punctuation + Truecasing
-  (ps-post)" — siehe `specs/postprocessing/spec.md`.
+  (ps-auxiliary)" — siehe `specs/postprocessing/spec.md`.
 - **Transcription (MODIFIED):** Ablauf Req 2 erweitert um die
-  ps-post-Stufe — siehe `specs/transcription/spec.md`.
+  ps-auxiliary-Stufe — siehe `specs/transcription/spec.md`.
 
 ## Downgrade
 
 - `POLYSCHNACK_PS_POST_URL` entfernen → ASR-interne punc/truecase-Args
-  wieder aktiv (Images behalten sie bis zum ps-post-Deploy);
-  ps-post-Container bleibt für Diar/Align nutzbar.
+  wieder aktiv (Images behalten sie bis zum ps-auxiliary-Deploy);
+  ps-auxiliary-Container bleibt für Diar/Align nutzbar.

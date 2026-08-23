@@ -1,12 +1,12 @@
-# Design — Change 022 (ps-post: Punctuation + Truecasing)
+# Design — Change 022 (ps-auxiliary: Punctuation + Truecasing)
 
-## ps-post-Container: drei Prozesse unter einem Supervisor
+## ps-auxiliary-Container: drei Prozesse unter einem Supervisor
 
-Der `ps-post`-Container aus Change 020 (Supervisor: crispr-diar +
+Der `ps-auxiliary`-Container aus Change 020 (Supervisor: crispr-diar +
 crispr-align) bekommt als dritten Dienst den Formatierungs-Dienst:
 
 ```
-ps-post (1 Image, Supervisor)
+ps-auxiliary (1 Image, Supervisor)
 ├── crispr-diar     :5098  Diarization     (CPU-only, belegt PR #364)
 ├── crispr-align    :5099  Forced Aligner  (ggml-hybrid, CPU-Messpunkt offen)
 └── punc-dienst     :5100  Punc+Truecase   (CPU-only, NEU — dieser Change)
@@ -46,7 +46,7 @@ Gesamttranskript):
 
 ## Pipeline-Reihenfolge
 
-`Upload → ASR (roh) → ps-post (Diar + Align + Punc) → LLM-Template
+`Upload → ASR (roh) → ps-auxiliary (Diar + Align + Punc) → LLM-Template
 (opt-in, Change 005) → Version/Export`
 
 Begründung: Das LLM-Template (Zusammenfassung etc.) arbeitet auf
@@ -58,7 +58,7 @@ erst selbst reparieren.
 1. **Jetzt:** Webapp bekommt die Stufe hinter `POLYSCHNACK_PS_POST_URL`
    (Default: nicht gesetzt → ASR-interne punc/truecase-Args bleiben
    aktiv). Kein Verhaltensbruch im Ist-Betrieb.
-2. **ps-post deployed:** Env setzen → Stufe aktiv; ASR-Images verlieren
+2. **ps-auxiliary deployed:** Env setzen → Stufe aktiv; ASR-Images verlieren
    die Args (separater Schritt, mit Deploy-Runde).
 3. **Fehlerfall:** punc-dienst down → roher Text +
    `postprocess_status="punc-fallback"` am Recording (sichtbar in
@@ -76,5 +76,5 @@ erst selbst reparieren.
 
 - Sprach-Steuerung: fullstop-punc kann EN/DE/FR/IT — Sprache pro Request
   oder aus ASR-Metadaten (`language`-Feld) übernehmen?
-- Align-CPU-Messpunkt (020 Phase 3) entscheidet, ob ps-post auf
+- Align-CPU-Messpunkt (020 Phase 3) entscheidet, ob ps-auxiliary auf
   CPU-only-Instanzen laufen kann — betrifft den ganzen Container.

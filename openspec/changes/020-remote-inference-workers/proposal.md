@@ -1,4 +1,4 @@
-# Change 020 — Remote Inference-Worker: verschlüsselter Job-Transfer, Webapp/ASR/ps-post-Trennung, modularer Dispatcher
+# Change 020 — Remote Inference-Worker: verschlüsselter Job-Transfer, Webapp/ASR/ps-auxiliary-Trennung, modularer Dispatcher
 
 ## Problem
 
@@ -15,7 +15,7 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 
 1. **Dienst-Trennung in drei Rollen:** webapp (kein GPU-Bedarf, bleibt auf der
    Box) · ps-asr-&lt;backend&gt; (ein ASR-Modell je Image, schlank, läuft auf
-   günstigen 12-GB-Karten) · ps-post (Diarization + Aligner, modell-unabhängig,
+   günstigen 12-GB-Karten) · ps-auxiliary (Diarization + Aligner, modell-unabhängig,
    KEINE GPU-Pflicht — siehe Punkt 4). Diar/Align existiert genau EINMAL,
    nicht in jedem ASR-Image.
 2. **Ende-zu-Ende-verschlüsselter Job-Transfer:** Audio verlässt die Box nur
@@ -34,7 +34,7 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
    **Der Aligner (qwen3-forced-aligner via llama.cpp/ggml) ist davon
    NICHT abgedeckt:** hybrid mit CPU-Fallback, aber aktuell mit
    runtime: nvidia in der Box — CPU-vs-GPU-RTF ist NICHT gemessen
-   (anderer Workload: ganze Aufnahme statt kurzer Segmente). ps-post
+   (anderer Workload: ganze Aufnahme statt kurzer Segmente). ps-auxiliary
    wird daher zunächst mit optionaler small-GPU geplant; eine
    Align-CPU-Messung entscheidet, ob CPU-only-Instanzen reichen
    (offener Messpunkt, siehe tasks.md).
@@ -48,7 +48,7 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 - **ps-asr-&lt;backend&gt;**: ein Image je ASR-Modell (parakeet, qwen3, ark,
   moonshine…), Modell + Runtime + Worker-Wrapper. GPU-Klasse: small
   (12 GB, z. B. RTX 3060/4070). Gibt Hypothese + Wort-Timestamps zurück.
-- **ps-post**: Diarization + Aligner in EINEM Image (Supervisor: zwei
+- **ps-auxiliary**: Diarization + Aligner in EINEM Image (Supervisor: zwei
   Prozesse). Diar: CPU-only (empirisch belegt, PR #364). Aligner: hybrid
   (ggml), CPU-Fallback vorhanden, aber CPU-vs-GPU-RTF UNGEMESSEN →
   zunächst mit optionaler small-GPU geplant; CPU-only-Instanz erst nach
@@ -68,8 +68,8 @@ Drei Entscheidungen aus der Diskussion (2026-08-18) werden hier verbindlich:
 3. ASR-Worker: Paket über HTTPS+TLS holen → in tmpfs entschlüsseln → ASR →
    Hypothese + Timestamps mit demselben Schlüssel verschlüsseln → zurück.
 4. webapp entschlüsselt, validiert → zweite Stufe: Dispatcher besorgt
-   ps-post-Instanz → Paket {Audio-Chiffre, Hypothese-Chiffre}.
-5. ps-post: entschlüsseln (tmpfs) → Diar + Align → Segmente verschlüsseln →
+   ps-auxiliary-Instanz → Paket {Audio-Chiffre, Hypothese-Chiffre}.
+5. ps-auxiliary: entschlüsseln (tmpfs) → Diar + Align → Segmente verschlüsseln →
    zurück → webapp persistiert. Instanz gemäß Warm-Pool-Regel behalten oder
    destroyen (NIE nur stoppen).
 
@@ -176,9 +176,9 @@ VRAM), max. Instanzen, Warm-Pool-Größe, Monatsbudget. Der EU-only-Modus
 
 - `dispatcher/` (neu): `backends/base.py`, `backends/local.py`,
   `backends/vast.py`, `backends/nebius.py`, `scheduler.py`, `costs.py`
-- `worker/` (neu): `worker_wrapper.py` (ASR und ps-post teilen sich den
+- `worker/` (neu): `worker_wrapper.py` (ASR und ps-auxiliary teilen sich den
   Wrapper), `crypto.py` (AES-256-GCM, tmpfs-Handling)
 - `webapp/`: Job-Queue-Erweiterung (Stufen-Orchestrierung), Key-Verwaltung,
   Audit-Log
-- Images: `ps-asr-<backend>` (aus bestehenden ASR-Builds), `ps-post` (aus
+- Images: `ps-asr-<backend>` (aus bestehenden ASR-Builds), `ps-auxiliary` (aus
   crispr-diar + crispr-align)
