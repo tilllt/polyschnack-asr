@@ -661,7 +661,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // Stelle, obwohl der Cursor gesprungen war.
         setCurrentTime(t);
         onTimeUpdateRef.current?.(t);
-        ws.play();
+        // Change 104: KEIN ws.play() ohne abspielbares Audio — während der
+        // Decode noch läuft (canPlay=false, Play-Button grau) würde der
+        // Klick den Play-State setzen (Flicker zum Pause-Symbol), aber kein
+        // Ton startet (User-Befund 2026-08-23). Nur Seek + Transkript-Scroll.
+        if (canPlayRef.current) ws.play();
       };
       containerRef.current.addEventListener("click", onContainerClick);
 

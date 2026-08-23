@@ -150,8 +150,21 @@ describe("activeSegmentIndex (Auto-Scroll + Karaoke-Basis)", () => {
     expect(activeSegmentIndex(segments, 10.0)).toBe(2);
   });
 
-  it("liefert -1 vor dem ersten Segment", () => {
-    expect(activeSegmentIndex(segments, -1)).toBe(-1);
+  it("Lücke vor dem ersten Segment → erstes Segment (Change 104)", () => {
+    // Klick in der Waveform auf eine Stelle ohne Dialog VOR dem ersten
+    // Segment (z. B. t=0.5 bei Start=1.0) → das nächste Segment wird aktiv.
+    expect(activeSegmentIndex(segments, -1)).toBe(0);
+  });
+
+  it("Lücke zwischen Segmenten → nächstes Segment (Change 104)", () => {
+    // 2 Segmente mit Dialog-Lücke dazwischen (kein nahtloser Anschluss).
+    const gap: KaraokeSegment[] = [
+      { start: 1.0, end: 5.0, text: "A" },
+      { start: 6.0, end: 9.0, text: "B" },
+    ];
+    expect(activeSegmentIndex(gap, 5.5)).toBe(1); // Lücke → nächstes
+    expect(activeSegmentIndex(gap, 0.2)).toBe(0); // vor Segment 1 → Segment 1
+    expect(activeSegmentIndex(gap, 7.0)).toBe(1); // innerhalb Segment 2
   });
 
   it("bleibt nach dem Ende am letzten Segment", () => {

@@ -89,6 +89,15 @@ export function activeSegmentIndex(
     const s = segments[i];
     if (currentTime >= s.start && currentTime < s.end) return i;
   }
+  // Lücke (User 2026-08-23): Kein Segment enthält die Zeit — z. B. Klick in
+  // der Waveform auf eine Stelle ohne Dialog (zwischen Segment-Ende und
+  // nächstem Segment-Start oder vor dem ersten Segment) → das NÄCHSTE
+  // Segment wählen, damit das Transkript trotzdem an die Stelle scrollt,
+  // die als Nächstes drankommt.
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    if (typeof s.start === "number" && s.start >= currentTime) return i;
+  }
   // Nach dem letzten Segment-Ende → letztes Segment
   const last = segments[segments.length - 1];
   if (currentTime >= (last?.end ?? 0)) return segments.length - 1;
