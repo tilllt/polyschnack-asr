@@ -4,6 +4,7 @@
 > Scheduling aller Workflows").
 > Design-Change: Analyse + Ziel-Architektur; Umsetzung als Folge-Change
 > (baut auf Change 109 auf, liefert den Unterbau für Change 108 reprocess).
+> Teil des Refactoring-Programms (openspec/refactoring-program.md): Stufe 2.
 
 ## Problem
 

@@ -1,5 +1,9 @@
 # Change 108 — GUI/Workflow-Refactoring: Timeline als Source of Truth
 
+> Teil des Refactoring-Programms (openspec/refactoring-program.md): Stufe 3 —
+> reprocess (M3) baut auf `run_workflow` aus Change 110; Sofort-Fixes F2/B3
+> sind unabhängig und können vorab laufen.
+
 > Status: KONZEPT (User-Auftrag 23.08.2026: „kompletter Refactoring der GUI … nochmal von vorne anfangen und überlegen, wie man es besser hinkriegt")
 > Dieser Change ist ein Design-Change: Er beschreibt die Ziel-Architektur und den Migrationspfad. Umsetzung in Folge-Changes.
 

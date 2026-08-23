@@ -2,6 +2,7 @@
 
 > Status: KONZEPT (Anmerkung Ruben, 23.08.2026: „das Queuing ist insgesamt im negativen Sinne organisch gewachsen").
 > Design-Change: Analyse + Ziel-Architektur; Umsetzung als Folge-Change.
+> Teil des Refactoring-Programms (openspec/refactoring-program.md): Stufe 1, Basis für 110 + 108.
 
 ## Problem
 
