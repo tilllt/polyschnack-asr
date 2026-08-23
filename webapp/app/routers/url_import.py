@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from ..audio_utils import original_path, prepare_storage, probe_duration_path, storage_path_for
 from ..config import settings
-from ..crud import create_recording
+from ..crud import create_queued_run, create_recording
 from ..db import get_session
 from ..docker_proxy import DockerProxyClient, DockerProxyError, get_docker_client
 from ..llm_url import validate_llm_url
@@ -558,6 +558,13 @@ async def import_from_url(
         mime=mime,
         size_bytes=len(audio_data),
         duration_s=est_duration_s,
+        content_hash=content_hash,
+        user_id=current_user_id,  # session nötig (anon-Identität)
+    )
+    # Change 099: Settings landen im queued-Run (Recording = Stamm ohne
+    # Settings-Spalten).
+    run = create_queued_run(
+        session, rec.id,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
@@ -566,9 +573,11 @@ async def import_from_url(
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
-        content_hash=content_hash,
-        user_id=current_user_id,  # session nötig (anon-Identität)
+        user_id=current_user_id,
     )
+    rec.current_run_id = run.id
+    session.add(rec)
+    session.commit()
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
     return _recording_to_dict(rec)

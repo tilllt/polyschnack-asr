@@ -29,6 +29,7 @@ from ..audio_utils import (
     write_sidecar,
 )
 from ..crud import (
+    create_queued_run,
     create_recording,
     delete_recording,
     get_recording,
@@ -57,7 +58,7 @@ from ..export import (
 )
 from ..export_backup import build_backup_zip
 from ..versions import list_versions
-from ..service import resegment_by_duration, trim_audio
+from ..service import _current_run, resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
 from ..timeutil import iso_utc
 from ..eta import elapsed_since, estimate_eta_s
@@ -532,6 +533,7 @@ def _recording_to_dict(
     rec: Recording,
     access_level: Optional[str] = None,
     lite: bool = False,
+    run: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Serialise a Recording row to the canonical API response shape.
 
@@ -539,19 +541,38 @@ def _recording_to_dict(
     weg (`text`, `segments`, `waveform_peaks` = None) — die Karten-Shell
     lädt auch im langsamen Netz sofort; Transkription + Peaks holt das
     Frontend pro Karte über GET /api/recordings/{rid} nach.
+
+    Change 099: Settings (enable_* usw.) kommen aus dem TranscriptionRun
+    (versionierte Wahrheit) — Aufrufer mit bekanntem Run reichen ihn als
+    `run` durch; sonst wird er hier geladen.
     """
     uid = rec.uid or str(rec.id)  # fallback for legacy rows without uid
+    if run is None:
+        from ..db import engine as _engine
+        from sqlmodel import Session as _S
+
+        with _S(_engine) as _s:
+            run = _current_run(_s, rec)
+    _s_vad = bool(run and run.enable_vad)
+    _s_diarize = bool(run and run.enable_diarize)
+    _s_diarize_num = run.diarize_num_speakers if run else None
+    _s_diarize_off = run.diarize_min_duration_off if run else None
+    _s_diarize_method = run.diarize_method if run else None
+    _s_streaming = bool(run and run.enable_streaming)
+    _s_noise = True if run is None else bool(run.enable_noise_reduce)
+    _s_enhance = "off" if run is None else (run.enable_enhance or "off")
+    _s_punct = bool(run and run.enable_punctuation)
     # Change 082: ETA-Rest aus Audio-Dauer × RTF (nur während processing).
     eta = (
         estimate_eta_s(
             rec.duration_s,
             rec.backend,
-            enable_vad=rec.enable_vad,
-            enable_diarize=rec.enable_diarize,
-            diarize_method=rec.diarize_method,
-            enable_noise_reduce=rec.enable_noise_reduce,
-            enable_enhance=rec.enable_enhance,
-            enable_punctuation=rec.enable_punctuation,
+            enable_vad=_s_vad,
+            enable_diarize=_s_diarize,
+            diarize_method=_s_diarize_method,
+            enable_noise_reduce=_s_noise,
+            enable_enhance=_s_enhance,
+            enable_punctuation=_s_punct,
             elapsed_s=elapsed_since(rec.processing_started_at),
             # Change 085: selbstlernende Faktoren (gelernt > Fallback > None).
             learner=_eta_learner(),
@@ -631,14 +652,14 @@ def _recording_to_dict(
         "batch_id": rec.batch_id,
         "recorded_at": iso_utc(rec.recorded_at) if rec.recorded_at else None,
         "source": rec.source,
-        "enable_vad": rec.enable_vad,
-        "enable_diarize": rec.enable_diarize,
-        "diarize_num_speakers": rec.diarize_num_speakers,
-        "diarize_min_duration_off": rec.diarize_min_duration_off,
-        "diarize_method": rec.diarize_method,
-        "enable_streaming": rec.enable_streaming,
-        "enable_noise_reduce": rec.enable_noise_reduce,
-        "enable_enhance": rec.enable_enhance,
+        "enable_vad": _s_vad,
+        "enable_diarize": _s_diarize,
+        "diarize_num_speakers": _s_diarize_num,
+        "diarize_min_duration_off": _s_diarize_off,
+        "diarize_method": _s_diarize_method,
+        "enable_streaming": _s_streaming,
+        "enable_noise_reduce": _s_noise,
+        "enable_enhance": _s_enhance,
         "waveform_peaks": None if lite else rec.waveform_peaks,
         "updated_at": iso_utc(rec.updated_at) if getattr(rec, "updated_at", None) else None,
         "user_id": rec.user_id,
@@ -826,6 +847,14 @@ async def upload_recording(
         recorded_at=recorded_at,
         source=source,
         duration_s=est_duration_s,
+        content_hash=content_hash,
+        user_id=uid,
+        owner_user_id=uid,
+    )
+    # Change 099: Settings landen im queued-Run (Recording = Stamm ohne
+    # Settings-Spalten); process_recording übernimmt den ältesten queued-Run.
+    run = create_queued_run(
+        session, rec.id,
         enable_vad=enable_vad,
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
@@ -834,10 +863,11 @@ async def upload_recording(
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
-        content_hash=content_hash,
         user_id=uid,
-        owner_user_id=uid,
     )
+    rec.current_run_id = run.id
+    session.add(rec)
+    session.commit()
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
     # Share-Target (Android): nach dem Upload zur Aufnahme springen — der
@@ -879,6 +909,8 @@ def duplicate_recording(
 
     shutil.copy2(src, new_path)
 
+    from ..service import _current_run
+    src_run = _current_run(session, rec)  # Change 099: Settings aus dem Run
     new_rec = create_recording(
         session,
         original_name=rec.original_name,
@@ -889,17 +921,30 @@ def duplicate_recording(
         recorded_at=rec.recorded_at,
         source=rec.source,
         duration_s=rec.duration_s,
-        enable_vad=rec.enable_vad,
-        enable_diarize=rec.enable_diarize,
-        diarize_num_speakers=rec.diarize_num_speakers,
-        diarize_min_duration_off=rec.diarize_min_duration_off,
-        diarize_method=rec.diarize_method,
-        enable_streaming=rec.enable_streaming,
-        enable_noise_reduce=rec.enable_noise_reduce,
-        enable_enhance=rec.enable_enhance,
         content_hash=rec.content_hash,
         user_id=uid,
     )
+    # Change 099: Settings des Originals (aktueller Run) in den queued-Run
+    # des Duplikats kopieren — das Recording selbst trägt keine Settings.
+    run = create_queued_run(
+        session, new_rec.id,
+        backend=src_run.backend if src_run else "ps-pk-onnx",
+        enable_vad=bool(src_run and src_run.enable_vad),
+        enable_diarize=bool(src_run and src_run.enable_diarize),
+        diarize_num_speakers=src_run.diarize_num_speakers if src_run else None,
+        diarize_min_duration_off=src_run.diarize_min_duration_off if src_run else None,
+        diarize_method=src_run.diarize_method if src_run else None,
+        enable_streaming=bool(src_run and src_run.enable_streaming),
+        enable_noise_reduce=True if src_run is None else bool(src_run.enable_noise_reduce),
+        enable_enhance="off" if src_run is None else (src_run.enable_enhance or "off"),
+        prompt_template_id=src_run.prompt_template_id if src_run else None,
+        delivery_target_id=src_run.delivery_target_id if src_run else None,
+        llm_endpoint_id=src_run.llm_endpoint_id if src_run else None,
+        user_id=uid,
+    )
+    new_rec.current_run_id = run.id
+    session.add(new_rec)
+    session.commit()
     if new_rec.id is not None:
         # Peaks übernehmen statt neu dekodieren — identischer Inhalt, und
         # bei 300+-MB-Dateien wäre der Voll-Decode der OOM-Trigger gewesen.
@@ -1602,39 +1647,57 @@ def transcribe_ep(
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
 
-    # Update toggle values from the transcribe request (they may have changed since upload)
-    rec.enable_vad = enable_vad
-    rec.enable_diarize = enable_diarize
-    rec.diarize_num_speakers = diarize_num_speakers
-    rec.diarize_min_duration_off = diarize_min_duration_off
-    rec.diarize_method = diarize_method
-    rec.enable_streaming = enable_streaming
-    rec.enable_noise_reduce = enable_noise_reduce
-    rec.enable_enhance = enable_enhance
-    if enable_punctuation is not None:
-        rec.enable_punctuation = enable_punctuation
-    if enable_llm_enhance is not None:
-        rec.enable_llm_enhance = enable_llm_enhance
+    # Change 099: Settings in den queued-Run (versionierte Wahrheit) — das
+    # Recording trägt keine Settings-Spalten mehr. Existiert ein queued-Run
+    # (vom Upload), werden DESSEN Settings aktualisiert; sonst neuer Run.
+    from ..models import (DeliveryTarget, PromptTemplate, TranscriptionRun,
+                          UserLlmEndpoint)
+    from sqlmodel import select as _select
 
-    from ..models import DeliveryTarget, PromptTemplate, UserLlmEndpoint
+    run = session.exec(_select(TranscriptionRun).where(
+        TranscriptionRun.rec_id == rec.id,
+        TranscriptionRun.status == "queued",
+    ).order_by(TranscriptionRun.id.asc())).first()
+    if run is None:
+        run = TranscriptionRun(
+            rec_id=rec.id, status="queued", created_by_user_id=uid)
+        session.add(run)
+    run.enable_vad = enable_vad
+    run.enable_diarize = enable_diarize
+    run.diarize_num_speakers = diarize_num_speakers
+    run.diarize_min_duration_off = diarize_min_duration_off
+    run.diarize_method = diarize_method
+    run.enable_streaming = enable_streaming
+    run.enable_noise_reduce = enable_noise_reduce
+    run.enable_enhance = enable_enhance
+    if enable_punctuation is not None:
+        run.enable_punctuation = enable_punctuation
+    if enable_llm_enhance is not None:
+        run.enable_llm_enhance = enable_llm_enhance
+    if backend:
+        run.backend = backend
 
     if prompt_template_id is not None:
         tpl = session.get(PromptTemplate, prompt_template_id)
         if tpl is None or tpl.user_id != uid:
             raise HTTPException(status_code=403, detail="template not found or not yours")
-        rec.prompt_template_id = prompt_template_id
+        run.prompt_template_id = prompt_template_id
     if delivery_target_id is not None:
         tgt = session.get(DeliveryTarget, delivery_target_id)
         if tgt is None or tgt.user_id != uid:
             raise HTTPException(status_code=403, detail="target not found or not yours")
-        rec.delivery_target_id = delivery_target_id
+        run.delivery_target_id = delivery_target_id
         rec.delivery_status = "pending"
     if llm_endpoint_id is not None:
         ep = session.get(UserLlmEndpoint, llm_endpoint_id)
         if ep is None or ep.user_id != uid:
             raise HTTPException(status_code=403, detail="endpoint not found or not yours")
-        rec.llm_endpoint_id = llm_endpoint_id
+        run.llm_endpoint_id = llm_endpoint_id
+    session.add(run)
+    session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
     session.add(rec)
+    if rec.current_run_id is None:
+        rec.current_run_id = run.id  # Change 099: Zeiger auf den aktiven Run
     session.commit()
 
     backend = backend or settings.POLYSCHNACK_DEFAULT_BACKEND
@@ -1707,37 +1770,47 @@ def retranscribe(
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
 
-    rec.enable_vad = params.enable_vad
-    rec.enable_diarize = params.enable_diarize
-    rec.diarize_num_speakers = params.diarize_num_speakers
-    rec.diarize_min_duration_off = params.diarize_min_duration_off
-    rec.diarize_method = params.diarize_method  # Bugfix 2026-08-15: Methode wurde nie persistiert
-    rec.enable_streaming = params.enable_streaming
-    rec.enable_noise_reduce = params.enable_noise_reduce
-    rec.enable_enhance = params.enable_enhance
-    if params.enable_punctuation is not None:
-        rec.enable_punctuation = params.enable_punctuation
-    if params.enable_llm_enhance is not None:
-        rec.enable_llm_enhance = params.enable_llm_enhance
+    # Change 099: retranscribe legt IMMER einen neuen Run an (versionierte
+    # Settings + Historie) — das Recording trägt keine Settings-Spalten.
+    from ..models import (DeliveryTarget, PromptTemplate, TranscriptionRun,
+                          UserLlmEndpoint)
 
-    from ..models import DeliveryTarget, PromptTemplate, UserLlmEndpoint
+    run = TranscriptionRun(
+        rec_id=rec.id, status="queued", created_by_user_id=uid)
+    run.enable_vad = params.enable_vad
+    run.enable_diarize = params.enable_diarize
+    run.diarize_num_speakers = params.diarize_num_speakers
+    run.diarize_min_duration_off = params.diarize_min_duration_off
+    run.diarize_method = params.diarize_method  # Bugfix 2026-08-15: Methode wurde nie persistiert
+    run.enable_streaming = params.enable_streaming
+    run.enable_noise_reduce = params.enable_noise_reduce
+    run.enable_enhance = params.enable_enhance
+    if params.enable_punctuation is not None:
+        run.enable_punctuation = params.enable_punctuation
+    if params.enable_llm_enhance is not None:
+        run.enable_llm_enhance = params.enable_llm_enhance
+    if params.backend:
+        run.backend = params.backend
 
     if params.prompt_template_id is not None:
         tpl = session.get(PromptTemplate, params.prompt_template_id)
         if tpl is None or tpl.user_id != uid:
             raise HTTPException(status_code=403, detail="template not found or not yours")
-        rec.prompt_template_id = params.prompt_template_id
+        run.prompt_template_id = params.prompt_template_id
     if params.delivery_target_id is not None:
         tgt = session.get(DeliveryTarget, params.delivery_target_id)
         if tgt is None or tgt.user_id != uid:
             raise HTTPException(status_code=403, detail="target not found or not yours")
-        rec.delivery_target_id = params.delivery_target_id
+        run.delivery_target_id = params.delivery_target_id
         rec.delivery_status = "pending"
     if params.llm_endpoint_id is not None:
         ep = session.get(UserLlmEndpoint, params.llm_endpoint_id)
         if ep is None or ep.user_id != uid:
             raise HTTPException(status_code=403, detail="endpoint not found or not yours")
-        rec.llm_endpoint_id = params.llm_endpoint_id
+        run.llm_endpoint_id = params.llm_endpoint_id
+    session.add(run)
+    session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
+    rec.current_run_id = run.id  # Change 099: neuer Run = aktiver Run
     session.add(rec)
     session.commit()
 
@@ -1946,6 +2019,8 @@ def transcribe_range(
     crop_path = storage_path_for(uid, ".wav", anon=_is_anon_user(session, uid))
     crop_path.write_bytes(trimmed)
 
+    from ..service import _current_run
+    src_run = _current_run(session, rec)  # Change 099: Settings aus dem Run
     new_rec = create_recording(
         session,
         original_name=f"crop_{start_sec:.0f}s-{end_sec:.0f}s_{rec.original_name}",
@@ -1953,10 +2028,21 @@ def transcribe_range(
         mime="audio/wav",
         size_bytes=len(trimmed),
         batch_id=rec.batch_id,
-        enable_vad=rec.enable_vad,
-        enable_diarize=rec.enable_diarize,
         user_id=uid,
     )
+    # Change 099: Settings des Quell-Recordings in den queued-Run des Crops.
+    run = create_queued_run(
+        session, new_rec.id,
+        backend=src_run.backend if src_run else "ps-pk-onnx",
+        enable_vad=bool(src_run and src_run.enable_vad),
+        enable_diarize=bool(src_run and src_run.enable_diarize),
+        enable_noise_reduce=True if src_run is None else bool(src_run.enable_noise_reduce),
+        enable_enhance="off" if src_run is None else (src_run.enable_enhance or "off"),
+        user_id=uid,
+    )
+    new_rec.current_run_id = run.id
+    session.add(new_rec)
+    session.commit()
     return _recording_to_dict(new_rec)
 
 

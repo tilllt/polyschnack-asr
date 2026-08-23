@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
 from app import service
-from app.models import DeliveryTarget, PromptTemplate, Recording, User
+from app.models import DeliveryTarget, PromptTemplate, Recording, TranscriptionRun, User
 from app.routers import recordings
 from app.versions import list_versions
 
@@ -67,7 +67,9 @@ def test_transcribe_with_own_template_sets_flag(db, qm):
             enable_punctuation=None, enable_llm_enhance=None,
             prompt_template_id=1, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         rec = s.get(Recording, 1)
-        assert rec.prompt_template_id == 1
+        # Change 099: Template-Wahl liegt im Run
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.prompt_template_id == 1
 
 
 def test_transcribe_foreign_template_403(db, qm):
@@ -107,7 +109,9 @@ def test_transcribe_with_target_sets_pending(db, qm):
             enable_punctuation=None, enable_llm_enhance=None,
             prompt_template_id=None, delivery_target_id=1, llm_endpoint_id=None, backend="", session=s)
         rec = s.get(Recording, 1)
-        assert rec.delivery_target_id == 1
+        # Change 099: Ziel-Wahl liegt im Run; Status bleibt am Recording
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.delivery_target_id == 1
         assert rec.delivery_status == "pending"
 
 
@@ -170,11 +174,15 @@ def test_service_runs_template_and_delivers(db, monkeypatch):
     monkeypatch.setattr(deliver_mod, "deliver",
                         lambda rec, target: delivered.append(rec.id))
 
-    # Recording mit Template + Target
+    # Recording mit Template + Target (Change 099: Settings im queued-Run)
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.prompt_template_id = 1
-        rec.delivery_target_id = 1
+        run = TranscriptionRun(
+            rec_id=rec.id, status="queued",
+            prompt_template_id=1, delivery_target_id=1)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         rec.delivery_status = "pending"
         s.add(rec)
         s.commit()
@@ -259,7 +267,11 @@ def test_service_delivery_failure_marks_failed(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.delivery_target_id = 1
+        # Change 099: Ziel-Wahl im queued-Run
+        run = TranscriptionRun(rec_id=rec.id, status="queued", delivery_target_id=1)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         rec.delivery_status = "pending"
         s.add(rec)
         s.commit()
@@ -301,7 +313,11 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.enable_diarize = True
+        # Change 099: Diarize-Setting im queued-Run
+        run = TranscriptionRun(rec_id=rec.id, status="queued", enable_diarize=True)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         s.add(rec)
         s.commit()
 
@@ -493,7 +509,11 @@ def test_native_punctuation_backend_skips_llm_punct(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.enable_punctuation = True
+        # Change 099: Punctuation-Setting im queued-Run
+        run = TranscriptionRun(rec_id=rec.id, status="queued", enable_punctuation=True)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         s.add(rec)
         s.commit()
 
@@ -527,7 +547,11 @@ def test_non_native_backend_still_uses_llm_punct(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.enable_punctuation = True
+        # Change 099: Punctuation-Setting im queued-Run
+        run = TranscriptionRun(rec_id=rec.id, status="queued", enable_punctuation=True)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         s.add(rec)
         s.commit()
 

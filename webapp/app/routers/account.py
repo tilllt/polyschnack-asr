@@ -49,8 +49,15 @@ def _sanitize(name: str) -> str:
     return cleaned or "recording"
 
 
-def _recording_json(rec: Recording) -> Dict[str, Any]:
+def _recording_json(rec: Recording, run: Optional[Any] = None) -> Dict[str, Any]:
     """PolySchnack-JSON-Format v1 für EINE Transkription."""
+    if run is None:
+        from ..db import engine as _engine
+        from sqlmodel import Session as _S
+        from ..crud import current_run_for
+
+        with _S(_engine) as _s:
+            run = current_run_for(_s, rec)  # Change 099: Settings aus dem Run
     return {
         "schema": _EXPORT_SCHEMA,
         "original_name": rec.original_name,
@@ -60,8 +67,8 @@ def _recording_json(rec: Recording) -> Dict[str, Any]:
         "duration_s": rec.duration_s,
         "status": rec.status,
         "backend": rec.backend,
-        "enable_vad": rec.enable_vad,
-        "enable_diarize": rec.enable_diarize,
+        "enable_vad": bool(run and run.enable_vad),
+        "enable_diarize": bool(run and run.enable_diarize),
         "text": rec.text,
         "segments": rec.segments or [],
     }

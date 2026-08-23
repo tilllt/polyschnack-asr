@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import settings
-from app.models import Recording, User
+from app.models import Recording, TranscriptionRun, User
 from app.routers import recordings
 from app.service import run_llm_enhance, run_punctuation
 
@@ -179,7 +179,9 @@ def test_oidc_llm_enhance_ok(db, qm):
             prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert r["status"] == "queued"
         rec = s.get(Recording, 1)
-        assert rec.enable_llm_enhance is True
+        # Change 099: Settings liegen im Run (versionierte Wahrheit)
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.enable_llm_enhance is True
     assert len(qm) == 1
 
 
@@ -189,12 +191,14 @@ def test_retranscribe_sets_toggle_flags(db, qm):
             enable_punctuation=True, enable_llm_enhance=False)
         recordings.retranscribe("r1", params, _req(1), s)
         rec = s.get(Recording, 1)
-        assert rec.enable_punctuation is True
-        assert rec.enable_llm_enhance is False
+        # Change 099: retranscribe legt einen NEUEN Run an
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.enable_punctuation is True
+        assert run.enable_llm_enhance is False
 
 
 def test_retranscribe_speichert_diarize_params(db, qm):
-    """Diarization-Tuning (Punkte 1+2) wird am Recording gespeichert."""
+    """Diarization-Tuning (Punkte 1+2) wird im Run gespeichert (Change 099)."""
     with Session(db) as s:
         params = recordings.RetranscribeParams(
             enable_diarize=True,
@@ -204,12 +208,13 @@ def test_retranscribe_speichert_diarize_params(db, qm):
         )
         recordings.retranscribe("r1", params, _req(1), s)
         rec = s.get(Recording, 1)
-        assert rec.enable_diarize is True
-        assert rec.diarize_num_speakers == 2
-        assert rec.diarize_min_duration_off == 0.4
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.enable_diarize is True
+        assert run.diarize_num_speakers == 2
+        assert run.diarize_min_duration_off == 0.4
         # Bugfix 2026-08-15: Methode wurde vorher nie persistiert (stiller
         # Fallback auf Server-Default) — Regressionstest.
-        assert rec.diarize_method == "foxnose"
+        assert run.diarize_method == "foxnose"
 
 
 def test_retranscribe_diarize_params_default_none(db, qm):
@@ -217,8 +222,9 @@ def test_retranscribe_diarize_params_default_none(db, qm):
     with Session(db) as s:
         recordings.retranscribe("r1", recordings.RetranscribeParams(enable_diarize=True), _req(1), s)
         rec = s.get(Recording, 1)
-        assert rec.diarize_num_speakers is None
-        assert rec.diarize_min_duration_off is None
+        run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.diarize_num_speakers is None
+        assert run.diarize_min_duration_off is None
 
 
 def test_defaults_are_off():

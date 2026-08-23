@@ -106,24 +106,12 @@ class Recording(SQLModel, table=True):
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
 
-    # --- post-processing flags ---
-    #: Deprecation (Change 094, Etappe 1→2): diese Settings sind Read-Mirror.
-    #: Die versionierte Wahrheit liegt im TranscriptionRun-Snapshot (siehe
-    #: current_run_id); Etappe 2 entfernt die Spalten per Migration.
-    #: User opted into VAD silence trimming for this recording.
-    enable_vad: bool = False
-    #: User opted into speaker diarization for this recording.
-    enable_diarize: bool = False
-    #: Diarization-Tuning: bekannte Sprecherzahl (min=max), None = auto.
-    diarize_num_speakers: Optional[int] = Field(default=None)
-    #: Diarization-Tuning: min. Pause zwischen Sprecherwechseln (Sek.),
-    #: None = Pipeline-Default. Höher = weniger Wechsel.
-    diarize_min_duration_off: Optional[float] = Field(default=None)
-    #: Diarization-Methode pro Recording (pyannote|foxnose|energy|xcorr|vad-turns),
-    #: None = Server-Default aus DIARIZE_METHOD.
-    diarize_method: Optional[str] = Field(default=None)
-    #: User opted into live streaming preview (SSE per-chunk results).
-    enable_streaming: bool = False
+    # --- Settings (Change 099): leben NICHT mehr hier ---
+    #: Die Transkriptions-Einstellungen (VAD, Diarize, Streaming, Enhance,
+    #: Punctuation, LLM, Template/Endpoint/Delivery-Ziel) liegen versioniert
+    #: im TranscriptionRun-Snapshot (siehe current_run_id). Die alten
+    #: Spalten wurden per Migration entfernt (Change 099); Leser nutzen den
+    #: aktuellen Run als Quelle der Wahrheit.
 
     # --- waveform peaks (cached for fast WaveSurfer render) ---
     waveform_peaks: Optional[List[float]] = Field(default=None, sa_column=Column(JSON))
@@ -146,24 +134,12 @@ class Recording(SQLModel, table=True):
     # (write-Zugriff). Sortierung/Filterung der Liste nutzt die Spalte.
     tags: List[str] = Field(default_factory=list, sa_column=Column(JSON))
 
-    # --- preprocessing flags ---
-    enable_noise_reduce: bool = True
-    #: ffmpeg pre-processing level — "off", "light", "medium", "aggressive".
-    enable_enhance: str = "off"
-
-    # --- opt-in processing (Task A12/A13): nichts läuft automatisch ---
-    #: Interpunktion nach der Transkription (Modus via POLYSCHNACK_PUNCTUATION_MODE).
-    enable_punctuation: bool = False
-    #: LLM-Optimierung nach der Transkription (kostenpflichtig → nur OIDC).
-    enable_llm_enhance: bool = False
-
     # --- Post-Processing & Delivery (Teil D) ---
-    prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
-    delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
+    #: Ziel-/Template-/Endpoint-Wahl (delivery_target_id, prompt_template_id,
+    #: llm_endpoint_id) liegt versioniert im TranscriptionRun (Change 099);
+    #: hier steht nur der Zustell-Status des aktuellen Ergebnisses.
     delivery_status: Optional[str] = None          # pending | done | failed
     delivery_error: Optional[str] = None
-    # --- BYOK (Teil E): eigener LLM-Endpunkt des Users ---
-    llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
 
     # --- content hash (for duplicate detection) ---
     content_hash: Optional[str] = Field(default=None, index=True)
@@ -190,10 +166,10 @@ class Recording(SQLModel, table=True):
     #: "whatsapp" if the filename matched the WhatsApp pattern, else None.
     source: Optional[str] = None
 
-    # --- Change 094 (runs → results, Etappe 1): Zeiger auf den aktuellen
-    # Transkriptionslauf + sein Ergebnis. Settings-/Ergebnis-Spalten oben
-    # sind ab sofort Read-Mirror (Deprecation; Etappe 2: DROP + Lesepfad
-    # komplett auf Runs/Results).
+    # --- Change 094/099 (runs → results): Zeiger auf den aktuellen
+    # Transkriptionslauf + sein Ergebnis. Die Settings-/Ergebnis-Spalten
+    # sind seit Change 099 per Migration entfernt — Quelle der Wahrheit
+    # für Settings ist der Run (siehe _run_settings-Helfer).
     current_run_id: Optional[int] = Field(default=None, foreign_key="transcriptionrun.id")
     current_result_id: Optional[int] = Field(default=None, foreign_key="transcriptionresult.id")
 
@@ -224,6 +200,7 @@ class TranscriptionRun(SQLModel, table=True):
     enable_llm_enhance: bool = False
     llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
     prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
+    delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
 
     # --- Betrieb ---
     status: str = "queued"  # queued | processing | done | failed

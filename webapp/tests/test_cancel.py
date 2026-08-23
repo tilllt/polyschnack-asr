@@ -46,13 +46,23 @@ def test_cancel_processing_admin_darf_fremde():
     assert qm.cancel(7, user_id=2, is_admin=True) is True
 
 
-def test_cancel_queued_entfernt_und_reset():
+def test_cancel_queued_entfernt_und_reset(tmp_path, monkeypatch):
     qm = QueueManager(max_queue_len=5)
     # Ohne DB-Zugriff: nur Registry-Verhalten prüfen
     job = Job(rec_id=7, user_id=1, backend="ps-pk-onnx", status="queued")
     qm._jobs[7] = job
+    from sqlmodel import create_engine
+
+    # Change 099-Review: Der DB-Reset hängt an der app-Engine — im
+    # Einzellauf zeigt sie auf eine echte DB (der Reset klappt). Für den
+    # Unit-Test: Engine auf einen nicht existierenden Pfad, damit der
+    # Reset deterministisch scheitert (Flag-Entfernen passiert davor).
+    monkeypatch.setattr(
+        "app.queue.engine",
+        create_engine("sqlite:////nonexistent-yjs/queue.db"),
+    )
     with pytest.raises(Exception):
-        # DB-Session fehlt im Unit-Test — der Reset schlägt fehl, aber das
+        # DB-Session fehlt (Engine ungültig) — der Reset schlägt fehl, aber das
         # Flag-Entfernen passiert VOR dem DB-Zugriff.
         qm.cancel(7, user_id=1)
     # Der Job wurde aus der Registry entfernt (vor dem DB-Reset)

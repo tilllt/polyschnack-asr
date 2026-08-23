@@ -149,17 +149,9 @@ def test_sync_asr_heartbeat_during_blocking_transcribe(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, rec_id)
+        # Change 099: ohne queued-Run gelten Defaults — identisch zu den
+        # früheren expliziten False-Sets (Settings leben im Run).
         rec.stored_path = str(audio)
-        rec.enable_vad = False
-        rec.enable_diarize = False
-        rec.enable_streaming = False
-        rec.enable_noise_reduce = False
-        rec.enable_enhance = "off"
-        rec.enable_punctuation = False
-        rec.enable_llm_enhance = False
-        rec.prompt_template_id = None
-        rec.delivery_target_id = None
-        rec.llm_endpoint_id = None
         s.add(rec)
         s.commit()
 
@@ -221,17 +213,9 @@ def test_heartbeat_ticks_trotz_async_jobs_true(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, rec_id)
+        # Change 099: ohne queued-Run gelten Defaults — identisch zu den
+        # früheren expliziten False-Sets (Settings leben im Run).
         rec.stored_path = str(audio)
-        rec.enable_vad = False
-        rec.enable_diarize = False
-        rec.enable_streaming = False
-        rec.enable_noise_reduce = False
-        rec.enable_enhance = "off"
-        rec.enable_punctuation = False
-        rec.enable_llm_enhance = False
-        rec.prompt_template_id = None
-        rec.delivery_target_id = None
-        rec.llm_endpoint_id = None
         s.add(rec)
         s.commit()
 

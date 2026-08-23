@@ -1013,6 +1013,19 @@ def _json_deepcopy(obj):
     return _json.loads(_json.dumps(obj))
 
 
+def _current_run(session, rec):
+    """Change 099: aktueller Run eines Recordings (current_run_id; Fallback
+    jüngster Run). None wenn keiner existiert — Aufrufer nutzen Defaults."""
+    from .models import TranscriptionRun as _Run
+
+    if rec.current_run_id:
+        run = session.get(_Run, rec.current_run_id)
+        if run is not None:
+            return run
+    return session.exec(select(_Run).where(
+        _Run.rec_id == rec.id).order_by(_Run.id.desc())).first()
+
+
 def _schedule_realign(rec_id: int) -> bool:
     """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
 
@@ -1049,14 +1062,15 @@ def _schedule_realign(rec_id: int) -> bool:
             log.warning("realign: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
             return False
         trim_offset_s = 0.0
-        if _VAD_TRIM and rec.enable_vad:
+        run = _current_run(session, rec)  # Change 099: Settings aus dem Run
+        if _VAD_TRIM and run is not None and run.enable_vad:
             try:
                 audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
             except Exception:
                 trim_offset_s = 0.0
-        if rec.enable_enhance and rec.enable_enhance != "off":
+        if run is not None and run.enable_enhance and run.enable_enhance != "off":
             try:
-                audio_bytes = enhance_audio(audio_bytes, level=rec.enable_enhance)
+                audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
             except Exception as exc:
                 log.warning("realign: enhance failed rec_id=%s: %s", rec_id, exc)
         rec.alignment = "pending"
@@ -1110,14 +1124,15 @@ def _schedule_rediarize(rec_id: int) -> bool:
             log.warning("rediarize: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
             return False
         trim_offset_s = 0.0
-        if _VAD_TRIM and rec.enable_vad:
+        run = _current_run(session, rec)  # Change 099: Settings aus dem Run
+        if _VAD_TRIM and run is not None and run.enable_vad:
             try:
                 audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
             except Exception:
                 trim_offset_s = 0.0
-        if rec.enable_enhance and rec.enable_enhance != "off":
+        if run is not None and run.enable_enhance and run.enable_enhance != "off":
             try:
-                audio_bytes = enhance_audio(audio_bytes, level=rec.enable_enhance)
+                audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
             except Exception as exc:
                 log.warning("rediarize: enhance failed rec_id=%s: %s", rec_id, exc)
         rec.diar_status = "pending"
@@ -1158,9 +1173,10 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
         segments_before = _json_deepcopy(rec.segments or [])
         text = rec.text or ""
         duration = rec.duration_s or 0.0
-        num_speakers = rec.diarize_num_speakers
-        min_duration_off = rec.diarize_min_duration_off
-        method = rec.diarize_method
+        run = _current_run(session, rec)  # Change 099: Optionen aus dem Run
+        num_speakers = run.diarize_num_speakers if run else None
+        min_duration_off = run.diarize_min_duration_off if run else None
+        method = run.diarize_method if run else None
         rec.diar_status = "running"
         # Ehrlicher Status-Hinweis (kein Fake-Progress); wird am Ende
         # (done/skipped/failed) wieder geräumt.
@@ -1393,16 +1409,19 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         audio_path = Path(rec.stored_path)
         filename = rec.original_name
         mime = rec.mime or "application/octet-stream"
-        enable_vad = rec.enable_vad
-        enable_diarize = rec.enable_diarize
-        enable_streaming = rec.enable_streaming
-        enable_noise_reduce = rec.enable_noise_reduce
-        enable_enhance = rec.enable_enhance
-        enable_punctuation = rec.enable_punctuation
-        enable_llm_enhance = rec.enable_llm_enhance
-        prompt_template_id = rec.prompt_template_id
-        delivery_target_id = rec.delivery_target_id
-        llm_endpoint_id = rec.llm_endpoint_id
+        enable_vad = False  # ersetzt durch Run-Settings (Change 099, unten)
+        enable_diarize = False
+        enable_streaming = False
+        enable_noise_reduce = True
+        enable_enhance = "off"
+        enable_punctuation = False
+        enable_llm_enhance = False
+        prompt_template_id = None
+        delivery_target_id = None
+        llm_endpoint_id = None
+        run_diarize_num_speakers = None  # Change 099: Defaults (Run-Settings unten)
+        run_diarize_min_duration_off = None
+        run_diarize_method = None
         owner_id = rec.user_id
         if backend is None:
             backend = rec.backend or "ps-pk-onnx"
@@ -1416,36 +1435,38 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         s2.add(r2)
                         s2.commit()
 
-    # Change 094 (runs → results): Run-Snapshot beim Job-Start — die
-    # Settings DIESES Laufs, versioniert. „Welche Version entstand mit
-    # welchen Einstellungen?" lebt ab hier im Run; das Recording bleibt
-    # Spiegel (Deprecation der enable_*-Spalten, Etappe 2).
+    # Change 094/099 (runs → results): Der Run ist die versionierte Quelle
+    # der Settings. Upload/transcribe/retranscribe legen den Run an
+    # (status=queued); hier wird der älteste queued-Run übernommen und auf
+    # processing gestellt. Fallback (direkter Worker-Aufruf ohne Route):
+    # neuer Run mit Defaults.
     run_id: Optional[int] = None
+    run = None
     try:
         from .models import TranscriptionRun as _Run, Recording as _Rec
+        from sqlmodel import select as _select
         with Session(engine) as session:
-            run = _Run(
-                rec_id=rec_id,
-                backend=backend or "",
-                language=rec.language,
-                enable_vad=enable_vad,
-                enable_diarize=enable_diarize,
-                diarize_num_speakers=rec.diarize_num_speakers,
-                diarize_min_duration_off=rec.diarize_min_duration_off,
-                diarize_method=rec.diarize_method,
-                enable_streaming=enable_streaming,
-                enable_noise_reduce=enable_noise_reduce,
-                enable_enhance=enable_enhance,
-                enable_punctuation=enable_punctuation,
-                enable_llm_enhance=enable_llm_enhance,
-                llm_endpoint_id=llm_endpoint_id,
-                prompt_template_id=prompt_template_id,
-                status="processing",
-                progress_pct=rec.progress_pct,
-                phase=rec.progress_note,
-                started_at=datetime.now(timezone.utc),
-                created_by_user_id=owner_id,
-            )
+            run = session.exec(_select(_Run).where(
+                _Run.rec_id == rec_id, _Run.status == "queued"
+            ).order_by(_Run.id.asc())).first()
+            if run is None:
+                r2 = session.get(_Rec, rec_id)
+                if r2 is not None and r2.current_run_id:
+                    run = session.get(_Run, r2.current_run_id)
+            if run is None:
+                run = _Run(
+                    rec_id=rec_id,
+                    backend=backend or "ps-pk-onnx",
+                    status="queued",
+                    created_by_user_id=owner_id,
+                )
+                session.add(run)
+            run.status = "processing"
+            run.started_at = datetime.now(timezone.utc)
+            run.progress_pct = rec.progress_pct
+            run.phase = rec.progress_note
+            if backend and not run.backend:
+                run.backend = backend
             session.add(run)
             session.commit()
             session.refresh(run)
@@ -1455,8 +1476,23 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 r2.current_run_id = run_id
                 session.add(r2)
                 session.commit()
+            # Change 099: Settings INNERHALB der Session lesen — der Run
+            # wäre nach Session-Ende detached (Expire-on-commit).
+            enable_vad = bool(run.enable_vad)
+            enable_diarize = bool(run.enable_diarize)
+            enable_streaming = bool(run.enable_streaming)
+            enable_noise_reduce = bool(run.enable_noise_reduce)
+            enable_enhance = run.enable_enhance or "off"
+            enable_punctuation = bool(run.enable_punctuation)
+            enable_llm_enhance = bool(run.enable_llm_enhance)
+            prompt_template_id = run.prompt_template_id
+            delivery_target_id = run.delivery_target_id
+            llm_endpoint_id = run.llm_endpoint_id
+            run_diarize_num_speakers = run.diarize_num_speakers
+            run_diarize_min_duration_off = run.diarize_min_duration_off
+            run_diarize_method = run.diarize_method
     except Exception:
-        log.exception("Change 094: Run-Anlage fehlgeschlagen (rec_id=%s)", rec_id)
+        log.exception("Change 099: Run-Übernahme fehlgeschlagen (rec_id=%s)", rec_id)
 
     log.info("process_recording rec_id=%s: vad=%s diarize=%s streaming=%s noise=%s",
              rec_id, enable_vad, enable_diarize, enable_streaming, enable_noise_reduce)
@@ -1625,9 +1661,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     diar_path = _tmp_wav.name
                 diar = _run_diarization(
                     diar_path,
-                    num_speakers=rec.diarize_num_speakers,
-                    min_duration_off=rec.diarize_min_duration_off,
-                    method=rec.diarize_method,
+                    num_speakers=run_diarize_num_speakers,
+                    min_duration_off=run_diarize_min_duration_off,
+                    method=run_diarize_method,
                 )
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
             except DiarizationError as exc_d:
@@ -1665,7 +1701,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         else:
             diar = None
         if enable_diarize:
-            phase_times[f"diar:{rec.diarize_method or 'pyannote'}"] = (
+            phase_times[f"diar:{run_diarize_method or 'pyannote'}"] = (
                 time.perf_counter() - _t_diar0
             ) * 1000
         if diar:
@@ -1854,11 +1890,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 )
                 if prompt_template_id and rec.text is not None:
                     snapshot(session, rec, "postprocess", user_id=owner_id)
-                if rec.delivery_target_id:
+                if delivery_target_id:  # Change 099: aus dem Run
                     from .deliver import deliver
                     from .models import DeliveryTarget
 
-                    target = session.get(DeliveryTarget, rec.delivery_target_id)
+                    target = session.get(DeliveryTarget, delivery_target_id)
                     if target is None:
                         rec.delivery_status, rec.delivery_error = "failed", "target not found"
                     else:

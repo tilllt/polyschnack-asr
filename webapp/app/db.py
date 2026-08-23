@@ -14,6 +14,7 @@ For destructive changes (renames, type changes) the database must be re-created.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from collections.abc import Generator
 from pathlib import Path
@@ -165,7 +166,130 @@ def _auto_migrate() -> None:
         )  # type: ignore[arg-type]
     log.info("Auto-migrate: Backend-IDs auf Container-Schema umbenannt")
 
+    # Change 099 (Etappe 2): Settings-Spalten aus `recording` entfernen —
+    # die versionierte Wahrheit liegt im TranscriptionRun. Inkl. Backfill
+    # (Recordings ohne Run → Baseline-Run aus den Alt-Spalten).
+    _drop_legacy_settings_columns(session)
+
     session.commit()
+
+
+_LEGACY_SETTINGS_COLUMNS = {
+    "enable_vad", "enable_diarize", "diarize_num_speakers",
+    "diarize_min_duration_off", "diarize_method", "enable_streaming",
+    "enable_noise_reduce", "enable_enhance", "enable_punctuation",
+    "enable_llm_enhance", "prompt_template_id", "delivery_target_id",
+    "llm_endpoint_id",
+}
+
+
+def _backfill_baseline_runs(session: Session) -> None:
+    """Change 099: Recordings ohne Run bekommen einen Baseline-Run aus den
+    Alt-Spalten (Settings) — status 'done' bei vorhandenem Text (das Ergebnis
+    des Laufs wird als Result archiviert), sonst 'queued' (Upload-Plan)."""
+    session.exec(sa_text(
+        """
+        INSERT INTO transcriptionrun
+          (rec_id, backend, language, enable_vad, enable_diarize,
+           diarize_num_speakers, diarize_min_duration_off, diarize_method,
+           enable_streaming, enable_noise_reduce, enable_enhance,
+           enable_punctuation, enable_llm_enhance, prompt_template_id,
+           delivery_target_id, llm_endpoint_id, status, created_by_user_id,
+           created_at)
+        SELECT id, COALESCE(backend, 'ps-pk-onnx'), language, enable_vad,
+           enable_diarize, diarize_num_speakers, diarize_min_duration_off,
+           diarize_method, enable_streaming, enable_noise_reduce,
+           enable_enhance, enable_punctuation, enable_llm_enhance,
+           prompt_template_id, delivery_target_id, llm_endpoint_id,
+           CASE WHEN text IS NOT NULL THEN 'done' ELSE 'queued' END,
+           user_id, created_at
+        FROM recording WHERE current_run_id IS NULL
+        """
+    ))  # type: ignore[arg-type]
+    session.exec(sa_text(
+        """
+        UPDATE recording SET current_run_id = (
+          SELECT id FROM transcriptionrun r WHERE r.rec_id = recording.id
+          ORDER BY r.id DESC LIMIT 1)
+        WHERE current_run_id IS NULL
+        """
+    ))  # type: ignore[arg-type]
+    session.exec(sa_text(
+        """
+        INSERT INTO transcriptionresult
+          (run_id, text, segments, created_by_user_id, created_at)
+        SELECT r.id, rec.text, rec.segments, rec.user_id, rec.created_at
+        FROM recording rec JOIN transcriptionrun r ON r.rec_id = rec.id
+        WHERE rec.current_result_id IS NULL AND rec.text IS NOT NULL
+          AND r.status = 'done'
+        """
+    ))  # type: ignore[arg-type]
+    session.exec(sa_text(
+        """
+        UPDATE recording SET current_result_id = (
+          SELECT res.id FROM transcriptionresult res
+          JOIN transcriptionrun r ON res.run_id = r.id
+          WHERE r.rec_id = recording.id ORDER BY res.id DESC LIMIT 1)
+        WHERE current_result_id IS NULL AND text IS NOT NULL
+        """
+    ))  # type: ignore[arg-type]
+    session.commit()
+
+
+def _drop_legacy_settings_columns(session: Session) -> None:
+    """Change 099: Settings-Spalten aus `recording` entfernen.
+
+    SQLite verweigert DROP COLUMN bei FK-beteiligten Spalten
+    (prompt_template_id/delivery_target_id/llm_endpoint_id) → Table-Rebuild
+    aus der sqlite_master-DDL (bereinigt), Daten-Kopie, RENAME. Indizes
+    werden gesichert und neu angelegt. Idempotent: läuft nur, wenn noch
+    Alt-Spalten existieren.
+    """
+    cols = [r[1] for r in session.exec(
+        sa_text("PRAGMA table_info(recording)")).all()]
+    drop = [c for c in cols if c in _LEGACY_SETTINGS_COLUMNS]
+    if not drop:
+        return
+    drop_set = set(drop)
+    log.info("Change 099: Backfill + Entfernung der Settings-Spalten %s",
+             ", ".join(sorted(drop)))
+    _backfill_baseline_runs(session)
+
+    session.exec(sa_text("PRAGMA foreign_keys=OFF"))  # type: ignore[arg-type]
+    idx_sql = [r[0] for r in session.exec(sa_text(
+        "SELECT sql FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='recording' AND sql IS NOT NULL")).all()]
+    ddl = session.exec(sa_text(
+        "SELECT sql FROM sqlite_master WHERE type='table' "
+        "AND name='recording'")).first()
+    inner = ddl[0][ddl[0].index("(") + 1: ddl[0].rindex(")")]
+    lines = inner.splitlines()
+    out = []
+    for ln in lines:
+        s = ln.strip()
+        # Spaltenzeilen: `"enable_vad" BOOLEAN NOT NULL,` ODER `enable_vad BOOLEAN NOT NULL,`
+        m = re.match(r'^"?([^"\s,]+)"?', s)
+        if m and m.group(1) in drop_set:
+            continue
+        if re.match(r"^(CONSTRAINT .*)?FOREIGN KEY", s, re.IGNORECASE):
+            fks = re.findall(r"FOREIGN KEY\(([^)]+)\)", s, re.IGNORECASE)
+            if fks and any(
+                    x.strip().strip('"') in drop_set
+                    for x in fks[0].split(",")):
+                continue
+        out.append(ln)
+    session.exec(sa_text(
+        "CREATE TABLE recording_099 (\n" + "\n".join(out) + "\n)"))  # type: ignore[arg-type]
+    keep = [c for c in cols if c not in drop_set]
+    collist = ", ".join(f'"{c}"' for c in keep)
+    session.exec(sa_text(
+        f"INSERT INTO recording_099 ({collist}) SELECT {collist} FROM recording"))
+    session.exec(sa_text("DROP TABLE recording"))
+    session.exec(sa_text("ALTER TABLE recording_099 RENAME TO recording"))
+    for s_ in idx_sql:
+        session.exec(sa_text(s_))
+    session.commit()
+    log.info("Change 099: recording-Tabelle neu aufgebaut ohne Settings-Spalten")
 
 
 def init_db() -> None:

@@ -45,25 +45,28 @@ def _iso(dt) -> Optional[str]:
 
 def _export_settings(session, rec: Recording) -> Dict[str, Any]:
     """Recording-Toggles als JSON-freundliches Dict (FKs als Namen)."""
+    from .service import _current_run  # Change 099: Settings aus dem Run
+
+    run = _current_run(session, rec)
     prompt_name = None
-    if rec.prompt_template_id:
-        pt = session.get(PromptTemplate, rec.prompt_template_id)
+    if run is not None and run.prompt_template_id:
+        pt = session.get(PromptTemplate, run.prompt_template_id)
         prompt_name = pt.name if pt else None
     delivery_name = None
-    if rec.delivery_target_id:
-        dtg = session.get(DeliveryTarget, rec.delivery_target_id)
+    if run is not None and run.delivery_target_id:
+        dtg = session.get(DeliveryTarget, run.delivery_target_id)
         delivery_name = dtg.name if dtg else None
     return {
-        "enable_vad": rec.enable_vad,
-        "enable_diarize": rec.enable_diarize,
-        "diarize_method": rec.diarize_method,
-        "diarize_num_speakers": rec.diarize_num_speakers,
-        "diarize_min_duration_off": rec.diarize_min_duration_off,
-        "enable_streaming": rec.enable_streaming,
-        "enable_noise_reduce": rec.enable_noise_reduce,
-        "enable_enhance": rec.enable_enhance,
-        "enable_punctuation": rec.enable_punctuation,
-        "enable_llm_enhance": rec.enable_llm_enhance,
+        "enable_vad": bool(run and run.enable_vad),
+        "enable_diarize": bool(run and run.enable_diarize),
+        "diarize_method": run.diarize_method if run else None,
+        "diarize_num_speakers": run.diarize_num_speakers if run else None,
+        "diarize_min_duration_off": run.diarize_min_duration_off if run else None,
+        "enable_streaming": bool(run and run.enable_streaming),
+        "enable_noise_reduce": True if run is None else bool(run.enable_noise_reduce),
+        "enable_enhance": "off" if run is None else (run.enable_enhance or "off"),
+        "enable_punctuation": bool(run and run.enable_punctuation),
+        "enable_llm_enhance": bool(run and run.enable_llm_enhance),
         "prompt_template_name": prompt_name,
         "delivery_target_name": delivery_name,
     }
@@ -289,7 +292,7 @@ def import_backup_zip(
     - Wirft BackupError bei Validierungsproblemen (→ 400 durch die Route).
     """
     from .audio_utils import probe_duration_path, storage_path_for
-    from .crud import create_recording
+    from .crud import create_queued_run, create_recording
     from .models import TranscriptVersion
 
     transcript, contents = validate_backup_zip(zip_bytes)
@@ -353,6 +356,16 @@ def import_backup_zip(
         }.get(ext, "audio/mpeg"),
         size_bytes=len(audio_bytes),
         duration_s=duration_s,
+        content_hash=content_hash,
+        user_id=user_id,
+        owner_user_id=user_id,
+    )
+    # Change 099: Settings aus dem Backup-Manifest in den queued-Run
+    # (Recording = Stamm ohne Settings-Spalten).
+    run = create_queued_run(
+        session, rec.id,
+        backend=str(rec_data.get("backend") or "ps-pk-onnx"),
+        language=rec_data.get("language"),
         enable_vad=bool(settings_data.get("enable_vad", False)),
         enable_diarize=bool(settings_data.get("enable_diarize", False)),
         diarize_num_speakers=settings_data.get("diarize_num_speakers"),
@@ -361,10 +374,11 @@ def import_backup_zip(
         enable_streaming=bool(settings_data.get("enable_streaming", False)),
         enable_noise_reduce=bool(settings_data.get("enable_noise_reduce", True)),
         enable_enhance=str(settings_data.get("enable_enhance") or "off"),
-        content_hash=content_hash,
+        prompt_template_id=prompt_id,
+        delivery_target_id=delivery_id,
         user_id=user_id,
-        owner_user_id=user_id,
     )
+    rec.current_run_id = run.id
     # Titel (Change 014) direkt setzen — create_recording hat kein title-Feld.
     rec.title = rec_data.get("title")
     rec.status = "done"
@@ -373,8 +387,6 @@ def import_backup_zip(
     rec.segments_manual = bool(rec_data.get("segments_manual", False))
     rec.language = rec_data.get("language")
     rec.backend = rec_data.get("backend") or rec.backend
-    rec.prompt_template_id = prompt_id
-    rec.delivery_target_id = delivery_id
     if rec_data.get("created_at"):
         try:
             rec.created_at = datetime.fromisoformat(rec_data["created_at"])

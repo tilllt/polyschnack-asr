@@ -213,7 +213,11 @@ def test_transcribe_persistiert_diarize_method(db, qm):
         )
         assert r["status"] in ("queued", "processing") or r is not None
         rec = s.get(Recording, 1)
-        assert rec.diarize_method == "foxnose"
+        # Change 099: Settings im Run
+        from app.models import TranscriptionRun as _Run
+
+        run = s.get(_Run, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.diarize_method == "foxnose"
 
 
 def test_transcribe_ohne_methode_null(db, qm):
@@ -229,4 +233,8 @@ def test_transcribe_ohne_methode_null(db, qm):
             backend="", session=s,
         )
         rec = s.get(Recording, 1)
-        assert rec.diarize_method is None
+        # Change 099: Settings im Run
+        from app.models import TranscriptionRun as _Run
+
+        run = s.get(_Run, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.diarize_method is None

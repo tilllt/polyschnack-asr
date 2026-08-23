@@ -88,22 +88,27 @@ def _mk_client(text="Hallo", duration=1.0, language="de", segments=None,
 
 
 def test_transcribe_erzeugt_run_mit_settings_und_result(db, monkeypatch):
-    """Job → Run (Settings-Snapshot, done) + Result + Zeiger auf Recording."""
+    """Job → Run (Settings aus dem queued-Run, done) + Result + Zeiger."""
     monkeypatch.setattr(service_mod, "engine", db)
     monkeypatch.setattr(service_mod, "get_client", lambda backend: _mk_client())
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.enable_vad = True
-        rec.enable_diarize = True
-        rec.diarize_num_speakers = 2
-        rec.diarize_min_duration_off = 0.5
-        rec.diarize_method = "pyannote"
-        rec.enable_noise_reduce = True
-        rec.enable_enhance = "light"
-        rec.enable_punctuation = True
-        rec.enable_llm_enhance = False
+        # Change 099: Settings leben im queued-Run — process_recording
+        # übernimmt den ältesten queued-Run (Recording trägt keine Settings).
+        run = TranscriptionRun(
+            rec_id=1, status="queued",
+            backend="ps-pk-onnx", language="de",
+            enable_vad=True, enable_diarize=True,
+            diarize_num_speakers=2, diarize_min_duration_off=0.5,
+            diarize_method="pyannote",
+            enable_noise_reduce=True, enable_enhance="light",
+            enable_punctuation=True, enable_llm_enhance=False,
+        )
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         rec.backend = "ps-pk-onnx"
         rec.language = "de"
         s.add(rec)
@@ -120,7 +125,7 @@ def test_transcribe_erzeugt_run_mit_settings_und_result(db, monkeypatch):
         assert run.finished_at is not None
         assert run.started_at is not None
         assert run.backend == "ps-pk-onnx"
-        # Settings-Snapshot == Recording-Settings bei Job-Start
+        # Settings == queued-Run-Settings (versionierte Wahrheit)
         assert run.enable_vad is True
         assert run.enable_diarize is True
         assert run.diarize_num_speakers == 2

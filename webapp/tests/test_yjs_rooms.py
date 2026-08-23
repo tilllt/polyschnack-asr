@@ -86,14 +86,21 @@ def test_on_connect_access_control(monkeypatch, tmp_path):
     """Change 053-Review: WS-Zugriff = Session + write-Freigabe (Owner/Share),
     konsistent zur Segment-Edit-Route."""
     monkeypatch.setattr("app.yjs.rooms.DATA_DIR", tmp_path)
-    from app.db import engine, init_db
+    # Change 099-Review: vorher schrieb der Test in die ECHTE app-DB
+    # (perf-DB) — beim 2. Lauf UNIQUE-Kollision. Eigene tmp-Engine:
+    # make_on_connect importiert `from ..db import engine` lazy → wirkt.
+    from sqlmodel import create_engine
+
+    test_eng = create_engine(f"sqlite:///{tmp_path}/yjs.db")
+    monkeypatch.setattr("app.db.engine", test_eng)
+    from app.db import init_db
     from sqlmodel import Session as _DbSession
     from app.models import Recording, RecordingShare, User
 
     init_db()
     audio = tmp_path / "a.mp3"
     audio.write_bytes(b"MP3DATA")
-    with _DbSession(engine) as db:
+    with _DbSession(test_eng) as db:
         db.add(User(id=101, sub="yjs-owner", preferred_username="alice"))
         db.add(User(id=102, sub="yjs-other", preferred_username="bob"))
         db.add(Recording(id=101, uid="yjs-own", original_name="a.mp3",

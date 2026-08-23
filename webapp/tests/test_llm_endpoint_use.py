@@ -70,8 +70,11 @@ def test_transcribe_sets_endpoint_flag(db, qm):
     with Session(db) as s:
         _transcribe(s, 1, llm_endpoint_id=1)
         rec = s.get(Recording, 1)
-        assert rec.llm_endpoint_id == 1
+        # Change 099: Endpoint-Wahl liegt im Run
+        from app.models import TranscriptionRun as _Run
 
+        run = s.get(_Run, rec.current_run_id) if rec.current_run_id else None
+        assert run is not None and run.llm_endpoint_id == 1
 
 def test_foreign_endpoint_403(db, qm):
     with Session(db) as s:
@@ -158,9 +161,14 @@ def test_service_passes_user_credentials(db, monkeypatch):
     audio.write_bytes(b"MP3")
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        rec.prompt_template_id = None
-        rec.llm_endpoint_id = 1
-        rec.enable_llm_enhance = True
+        # Change 099: Settings im queued-Run
+        from app.models import TranscriptionRun as _Run
+
+        run = _Run(rec_id=rec.id, status="queued",
+                   llm_endpoint_id=1, enable_llm_enhance=True)
+        s.add(run)
+        s.commit()
+        rec.current_run_id = run.id
         rec.stored_path = str(audio)
         s.add(rec)
         s.commit()

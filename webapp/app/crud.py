@@ -31,14 +31,6 @@ def create_recording(
     batch_id: Optional[str] = None,
     recorded_at: Optional[dt.datetime] = None,
     source: Optional[str] = None,
-    enable_vad: bool = False,
-    enable_diarize: bool = False,
-    diarize_num_speakers: Optional[int] = None,
-    diarize_min_duration_off: Optional[float] = None,
-    diarize_method: Optional[str] = None,
-    enable_streaming: bool = False,
-    enable_noise_reduce: bool = True,
-    enable_enhance: str = "off",
     content_hash: Optional[str] = None,
     duration_s: Optional[float] = None,
     user_id: Optional[int] = None,
@@ -55,14 +47,6 @@ def create_recording(
         batch_id=batch_id,
         recorded_at=recorded_at,
         source=source,
-        enable_vad=enable_vad,
-        enable_diarize=enable_diarize,
-        diarize_num_speakers=diarize_num_speakers,
-        diarize_min_duration_off=diarize_min_duration_off,
-        diarize_method=diarize_method,
-        enable_streaming=enable_streaming,
-        enable_noise_reduce=enable_noise_reduce,
-        enable_enhance=enable_enhance,
         content_hash=content_hash,
         user_id=user_id,
         owner_user_id=owner_user_id,
@@ -71,6 +55,61 @@ def create_recording(
     session.commit()
     session.refresh(rec)
     return rec
+
+
+def create_queued_run(
+    session: Session,
+    rec_id: int,
+    *,
+    backend: str = "ps-pk-onnx",
+    language: Optional[str] = None,
+    enable_vad: bool = False,
+    enable_diarize: bool = False,
+    diarize_num_speakers: Optional[int] = None,
+    diarize_min_duration_off: Optional[float] = None,
+    diarize_method: Optional[str] = None,
+    enable_streaming: bool = False,
+    enable_noise_reduce: bool = True,
+    enable_enhance: str = "off",
+    enable_punctuation: bool = False,
+    enable_llm_enhance: bool = False,
+    prompt_template_id: Optional[int] = None,
+    delivery_target_id: Optional[int] = None,
+    llm_endpoint_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+) -> "TranscriptionRun":
+    """Change 099: queued-Run mit den Settings eines Uploads/Imports.
+
+    Das Recording trägt keine Settings-Spalten mehr — die versionierte
+    Wahrheit lebt im Run. process_recording übernimmt den ältesten
+    queued-Run und stellt ihn auf processing.
+    """
+    from .models import TranscriptionRun
+
+    run = TranscriptionRun(
+        rec_id=rec_id,
+        backend=backend,
+        language=language,
+        enable_vad=enable_vad,
+        enable_diarize=enable_diarize,
+        diarize_num_speakers=diarize_num_speakers,
+        diarize_min_duration_off=diarize_min_duration_off,
+        diarize_method=diarize_method,
+        enable_streaming=enable_streaming,
+        enable_noise_reduce=enable_noise_reduce,
+        enable_enhance=enable_enhance,
+        enable_punctuation=enable_punctuation,
+        enable_llm_enhance=enable_llm_enhance,
+        prompt_template_id=prompt_template_id,
+        delivery_target_id=delivery_target_id,
+        llm_endpoint_id=llm_endpoint_id,
+        status="queued",
+        created_by_user_id=user_id,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    return run
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +231,19 @@ def list_recordings_missing_peaks(session: Session, limit: int = 3) -> list[Reco
 # ---------------------------------------------------------------------------
 
 
+def current_run_for(session: Session, rec) -> Optional["TranscriptionRun"]:
+    """Change 099: aktueller Run eines Recordings (current_run_id; Fallback
+    jüngster Run). None wenn keiner existiert — Aufrufer nutzen Defaults."""
+    from .models import TranscriptionRun as _Run
+
+    if rec.current_run_id:
+        run = session.get(_Run, rec.current_run_id)
+        if run is not None:
+            return run
+    return session.exec(select(_Run).where(
+        _Run.rec_id == rec.id).order_by(_Run.id.desc())).first()
+
+
 def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
     """Reset a recording to processing state, clearing previous results.
 
@@ -225,13 +277,14 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
         from .pricing import backend_cost_per_minute, reserve_cents
 
         learner = load_learner()
+        run = current_run_for(session, rec)  # Change 099: Settings aus dem Run
         core = _estimate_eta_s(
             rec.duration_s, rec.backend,
-            enable_vad=rec.enable_vad,
-            enable_diarize=rec.enable_diarize,
-            diarize_method=rec.diarize_method,
-            enable_noise_reduce=rec.enable_noise_reduce,
-            enable_enhance=rec.enable_enhance,
+            enable_vad=bool(run and run.enable_vad),
+            enable_diarize=bool(run and run.enable_diarize),
+            diarize_method=run.diarize_method if run else None,
+            enable_noise_reduce=True if run is None else bool(run.enable_noise_reduce),
+            enable_enhance="off" if run is None else (run.enable_enhance or "off"),
             learner=learner,
         )
         factor_high = core[2] if core else None
