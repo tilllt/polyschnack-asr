@@ -28,6 +28,18 @@
 - [ ] 90-min-Performance: GPU vs CPU-only messen (CPU: melband scalar sehr langsam — Befund)
 
 ## Phase 4 — Deploy
-- [ ] Deploy-Runde auf der Box (`selfupdate && update`), compose `crispr-sep` aktiv
-- [ ] Live-Test: saisoncouplet-Re-Align mit htdemucs und mel-band-roformer
-- [ ] Tabs/PWA vor Tests komplett schließen (bekannte 404-Polling-Quelle)
+- [x] Deploy-Runde auf der Box (`selfupdate && update`), compose `crispr-sep` aktiv
+- [x] Live-Test: saisoncouplet-Re-Align mit htdemucs (User, 23.08.)
+
+## BUGFIX (23.08., Produktions-Befund)
+**Routen ignorieren `separate_backend`:** Frontend sendet das Feld (api.ts),
+`TranscriptionRun.separate_backend` + `crud.create_queued_run` existieren —
+aber KEINE Backend-Route liest es aus dem Request (grep routers/ = 0 Treffer).
+→ Jeder Upload/Re-Transcribe erzeugt den Run mit Default `"none"` → Separation
+lief nie (User-Befund: „retranskribiert mit Remover, keine Änderung im
+Alignment"; API-Beweis: alle Runs separate_backend=None, Test-Upload mit
+`-F separate_backend=htdemucs` → Run 84 None).
+- [ ] Fix: Form-Param + Durchreichung in upload_recording, transcribe_ep,
+      retranscribe (params), duplicate/crop (Kopie aus src_run), url_import
+- [ ] Backend-Tests: Upload/Retranscribe mit separate_backend → Run-Settings
+- [ ] Re-Deploy nötig (Fix ist nicht auf der Box)

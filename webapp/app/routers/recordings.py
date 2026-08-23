@@ -719,11 +719,15 @@ async def upload_recording(
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    separate_backend: str = Form("none"),  # Change 106: none|htdemucs|mel-band-roformer
     session: Session = Depends(get_session),
 ) -> Any:
     """Accept a multipart audio upload, persist it."""
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="no file provided")
+    # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
+    if not isinstance(separate_backend, str):
+        separate_backend = "none"
 
     # Limit upload size
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -860,6 +864,7 @@ async def upload_recording(
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
+        separate_backend=separate_backend,  # Change 106 (Fix 23.08.: Feld wurde ignoriert)
         user_id=uid,
     )
     rec.current_run_id = run.id
@@ -934,6 +939,7 @@ def duplicate_recording(
         enable_streaming=bool(src_run and src_run.enable_streaming),
         enable_noise_reduce=True if src_run is None else bool(src_run.enable_noise_reduce),
         enable_enhance="off" if src_run is None else (src_run.enable_enhance or "off"),
+        separate_backend="none" if src_run is None else (src_run.separate_backend or "none"),  # Change 106
         prompt_template_id=src_run.prompt_template_id if src_run else None,
         delivery_target_id=src_run.delivery_target_id if src_run else None,
         llm_endpoint_id=src_run.llm_endpoint_id if src_run else None,
@@ -1611,6 +1617,7 @@ def transcribe_ep(
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    separate_backend: str = Form("none"),  # Change 106
     enable_punctuation: Optional[bool] = Form(None),
     enable_llm_enhance: Optional[bool] = Form(None),
     prompt_template_id: Optional[int] = Form(None),
@@ -1647,6 +1654,9 @@ def transcribe_ep(
     # Change 099: Settings in den queued-Run (versionierte Wahrheit) — das
     # Recording trägt keine Settings-Spalten mehr. Existiert ein queued-Run
     # (vom Upload), werden DESSEN Settings aktualisiert; sonst neuer Run.
+    # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
+    if not isinstance(separate_backend, str):
+        separate_backend = "none"
     from ..models import (DeliveryTarget, PromptTemplate, TranscriptionRun,
                           UserLlmEndpoint)
     from sqlmodel import select as _select
@@ -1667,6 +1677,7 @@ def transcribe_ep(
     run.enable_streaming = enable_streaming
     run.enable_noise_reduce = enable_noise_reduce
     run.enable_enhance = enable_enhance
+    run.separate_backend = separate_backend  # Change 106 (Fix 23.08.)
     if enable_punctuation is not None:
         run.enable_punctuation = enable_punctuation
     if enable_llm_enhance is not None:
@@ -1729,6 +1740,7 @@ class RetranscribeParams(BaseModel):
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"
+    separate_backend: str = "none"  # Change 106
     enable_punctuation: Optional[bool] = None
     enable_llm_enhance: Optional[bool] = None
     prompt_template_id: Optional[int] = None
@@ -1782,6 +1794,7 @@ def retranscribe(
     run.enable_streaming = params.enable_streaming
     run.enable_noise_reduce = params.enable_noise_reduce
     run.enable_enhance = params.enable_enhance
+    run.separate_backend = params.separate_backend  # Change 106 (Fix 23.08.)
     if params.enable_punctuation is not None:
         run.enable_punctuation = params.enable_punctuation
     if params.enable_llm_enhance is not None:
@@ -2035,6 +2048,7 @@ def transcribe_range(
         enable_diarize=bool(src_run and src_run.enable_diarize),
         enable_noise_reduce=True if src_run is None else bool(src_run.enable_noise_reduce),
         enable_enhance="off" if src_run is None else (src_run.enable_enhance or "off"),
+        separate_backend="none" if src_run is None else (src_run.separate_backend or "none"),  # Change 106
         user_id=uid,
     )
     new_rec.current_run_id = run.id

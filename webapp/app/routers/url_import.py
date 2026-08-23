@@ -339,6 +339,7 @@ async def import_from_url(
     enable_streaming: bool = Form(False),
     enable_noise_reduce: bool = Form(True),
     enable_enhance: str = Form("off"),
+    separate_backend: str = Form("none"),  # Change 106
     # Change 080: optionale Anmeldedaten (whitelist, s. design.md).
     username: Optional[str] = Form(None),
     password: Optional[str] = Form(None),
@@ -356,6 +357,9 @@ async def import_from_url(
     """
     if not url or not url.strip():
         raise HTTPException(status_code=400, detail="no URL provided")
+    # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
+    if not isinstance(separate_backend, str):
+        separate_backend = "none"
 
     # ── SSRF-Schutz (Review 2026-08-15, P0.1) ──
     # yt-dlp läuft IM CONTAINER-NETZWERK: ohne Validierung könnte die URL
@@ -573,6 +577,7 @@ async def import_from_url(
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
+        separate_backend=separate_backend,  # Change 106 (Fix 23.08.)
         user_id=current_user_id,
     )
     rec.current_run_id = run.id

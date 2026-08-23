@@ -374,6 +374,7 @@ def import_backup_zip(
         enable_streaming=bool(settings_data.get("enable_streaming", False)),
         enable_noise_reduce=bool(settings_data.get("enable_noise_reduce", True)),
         enable_enhance=str(settings_data.get("enable_enhance") or "off"),
+        separate_backend=str(settings_data.get("separate_backend") or "none"),  # Change 106 (Fix 23.08.)
         prompt_template_id=prompt_id,
         delivery_target_id=delivery_id,
         user_id=user_id,
