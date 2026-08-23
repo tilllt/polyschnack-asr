@@ -1305,6 +1305,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 </div>
                 <SegmentList
                   segments={displaySegments}
+                  // Change 102: Der Yjs-Autosave persistiert NIE die
+                  // abgeleitete Anzeige (resegmentByDuration-Vorschau),
+                  // sondern die DB-Segmente als Struktur-Base.
+                  persistBase={segments}
                   activeIdx={activeSegIdx}
                   onActiveChange={setActiveSegIdx}
                   onSeekTo={(sec) => wsRef.current?.seekTo(sec)}

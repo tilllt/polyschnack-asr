@@ -123,6 +123,13 @@ export function resegmentByDuration(
       out.push(seg as ResegSegment);
       continue;
     }
+    // Change 102: Bucket vor jedem neuen Segment schließen — die Bucket-
+    // Logik darf NIE über Segmentgrenzen hinweg sammeln. Vorher wurden
+    // kurze benachbarte unmarkierte Segmente zu EINEM verschmolzen
+    // (14 Wörter/1 Segment statt 2), wodurch Anzeige ≠ DB-Zustand war und
+    // Struktur-Ops (Split/Delete) + der Yjs-Autosave die Verschmelzung
+    // zurückspeicherten (PUT mit leerem text → 400, Datenverlust-Risiko).
+    flush();
     for (const w of segWords) {
       const item: _W = { ...w, _speaker: speaker };
       const ws = typeof w.start === "number" ? w.start : 0;

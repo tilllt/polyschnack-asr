@@ -14,6 +14,9 @@ import { useToast } from "./Toasts";
 
 interface Props {
   segments: Segment[];
+  /** Change 102: DB-Segmente als Persist-Base für den Yjs-Autosave —
+   *  NIE die abgeleitete Anzeige (resegmentByDuration-Vorschau). */
+  persistBase?: readonly Segment[];
   onSeekTo?: (seconds: number) => void;
   /** Seek OHNE Autoplay (2026-08-16: Cursor-Wort-Navigation). */
   onSeekPaused?: (seconds: number) => void;
@@ -131,7 +134,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -145,7 +148,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     setSegmentText,
     saving: yjsSaving,
     setEditingActive,
-  } = useYjsTranscription(recordingId, segmentsProp, (texts) => {
+  } = useYjsTranscription(
+    recordingId,
+    // Change 102: Als Persist-Base dienen die DB-Segmente (Struktur),
+    // NIE die abgeleitete Anzeige — sonst speichert der Autosave die
+    // resegmentByDuration-Vorschau (Verschmelzung/Teilung) zurück.
+    (persistBase ?? segmentsProp) as unknown as { text: string }[],
+    (texts) => {
     if (!onEdited) return;
     onEdited(
       texts.map((text, i) => ({ ...(segmentsProp[i] ?? {}), text })),

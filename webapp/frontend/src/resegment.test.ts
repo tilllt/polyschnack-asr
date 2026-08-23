@@ -655,3 +655,37 @@ describe("wordRangeToCharRange (Change 013: Wort-Range → Char-Range)", () => {
     expect(wordRangeToCharRange(null as unknown as { word: string }[], 0, 0)).toBeNull();
   });
 });
+
+describe("Change 102: kurze unmarkierte Segmente werden NICHT verschmolzen", () => {
+  // Exakter Backend-Zustand aus der Split-Repro (Recording 100):
+  // 2 kurze Segmente ohne _manual, ohne speaker — zusammen < Ziel-Länge.
+  const backendSegs = [
+    seg(1, 5, [["Das", 1, 1.4], ["ist", 1.4, 1.8], ["das", 1.8, 2.2], ["erste", 2.2, 2.6], ["Segment", 2.6, 3], ["mit", 3, 3.4], ["mehreren", 3.4, 3.8], ["Wörtern", 3.8, 4.2]]),
+    seg(6, 9, [["Und", 6, 6.4], ["hier", 6.4, 6.8], ["kommt", 6.8, 7.2], ["das", 7.2, 7.6], ["zweite", 7.6, 8], ["Segment", 8, 8.4]]),
+  ] as unknown as Parameters<typeof resegmentByDuration>[0];
+
+  it("resegmentByDuration lässt 2 kurze Segmente als 2 Buckets (keine Verschmelzung)", () => {
+    const out = resegmentByDuration(backendSegs, 25);
+    expect(out.length).toBe(2); // vor Change 102: 1 verschmolzenes Segment mit 14 Wörtern
+    expect((out[0] as { text?: unknown }).text).toBe("Das ist das erste Segment mit mehreren Wörtern");
+    expect((out[1] as { text?: unknown }).text).toBe("Und hier kommt das zweite Segment");
+  });
+
+  it("deriveSegments mit Länge: Anzeige = DB-Zustand (2 Segmente)", () => {
+    const out = deriveSegments(backendSegs, 25);
+    expect(out.length).toBe(2);
+  });
+
+  it("Split auf Segment 0 (Wörter 0-3) → 3 Segmente mit korrekten Texten", () => {
+    const r = wordRangeToCharRange(
+      (backendSegs[0] as { words: { word: string; start: number; end: number }[] }).words,
+      0, 3,
+    )!;
+    const out = splitSegmentAtRange(backendSegs, 0, r.start, r.end, "SPEAKER_00");
+    expect(out.length).toBe(3);
+    expect(out[0].text).toBe("Das ist das erste");
+    expect(out[1].text).toBe("Segment mit mehreren Wörtern");
+    expect(out[2].text).toBe("Und hier kommt das zweite Segment");
+    expect(out[0].speaker).toBe("SPEAKER_00");
+  });
+});
