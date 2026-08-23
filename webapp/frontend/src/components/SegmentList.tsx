@@ -367,14 +367,28 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     // Nur den Transkriptions-Container scrollen (nicht scrollIntoView —
     // das zöge die SEITE mit; siehe Auto-Scroll-Kommentar 2026-08-16).
     const container = containerRef.current;
-    const el = rowRefs.current[searchJump.idx];
-    if (!container || !el) return;
-    const tRect = el.getBoundingClientRect();
-    const cRect = container.getBoundingClientRect();
-    const relTop = tRect.top - cRect.top + container.scrollTop;
-    const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
-    container.scrollTo({ top: targetTop, behavior: "smooth" });
-  }, [searchJump, editingIdx]);
+    if (!container) return;
+    // Change 093 (Virtualisierung 087): Ziel-Zeile ggf. nicht im DOM —
+    // erst per Virtualizer rendern + zentrieren, dann exakt zentrieren.
+    const inDom = rowRefs.current[searchJump.idx] != null;
+    if (!renderAll && !inDom) {
+      virtualizer.scrollToIndex(searchJump.idx, { align: "center" });
+    }
+    const jump = () => {
+      const el = rowRefs.current[searchJump.idx];
+      if (!container || !el) return;
+      const tRect = el.getBoundingClientRect();
+      const cRect = container.getBoundingClientRect();
+      const relTop = tRect.top - cRect.top + container.scrollTop;
+      const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
+      container.scrollTo({ top: targetTop, behavior: "smooth" });
+    };
+    if (!renderAll && !inDom) {
+      const raf = requestAnimationFrame(() => requestAnimationFrame(jump));
+      return () => cancelAnimationFrame(raf);
+    }
+    jump();
+  }, [searchJump, editingIdx, renderAll, virtualizer]);
 
   // Auto-Scroll: das AKTIVE WORT ungefähr in die Mitte des Viewports der
   // Transkription zentrieren (User 2026-08-16: „Scroll soll immer so sein,
@@ -393,15 +407,33 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     if (editingIdx !== null) return;
     const container = containerRef.current;
     if (!container || activeIdx < 0) return;
-    const activeWord = container.querySelector<HTMLElement>("[data-active-word=\"true\"]");
-    const target = activeWord ?? rowRefs.current[activeIdx];
-    if (!target) return;
-    const tRect = target.getBoundingClientRect();
-    const cRect = container.getBoundingClientRect();
-    const relTop = tRect.top - cRect.top + container.scrollTop;
-    const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
-    container.scrollTo({ top: targetTop, behavior: "smooth" });
-  }, [activeIdx, activeW, editingIdx]);
+    // Change 093 (Virtualisierung 087): Bei großen Sprüngen (Klick in die
+    // Waveform oder auf ein weit entferntes Wort) ist das Ziel-Segment
+    // NICHT im DOM — rowRefs wäre leer und der Scroll bliebe aus (der
+    // Befund „Transkription folgt dem Waveform-Klick nicht"). Erst per
+    // Virtualizer rendern + zentrieren, dann das WORT nachzentrieren.
+    const inDom = rowRefs.current[activeIdx] != null;
+    if (!renderAll && !inDom) {
+      virtualizer.scrollToIndex(activeIdx, { align: "center" });
+    }
+    const centerWord = () => {
+      const activeWord = container.querySelector<HTMLElement>("[data-active-word=\"true\"]");
+      const target = activeWord ?? rowRefs.current[activeIdx];
+      if (!target) return;
+      const tRect = target.getBoundingClientRect();
+      const cRect = container.getBoundingClientRect();
+      const relTop = tRect.top - cRect.top + container.scrollTop;
+      const targetTop = relTop - (container.clientHeight - tRect.height) / 2;
+      container.scrollTo({ top: targetTop, behavior: "smooth" });
+    };
+    if (!renderAll && !inDom) {
+      // Nach dem Virtualizer-Scroll + Render (zwei Frames) ist die
+      // Wort-Position gültig → dann exakt zentrieren.
+      const raf = requestAnimationFrame(() => requestAnimationFrame(centerWord));
+      return () => cancelAnimationFrame(raf);
+    }
+    centerWord();
+  }, [activeIdx, activeW, editingIdx, renderAll, virtualizer]);
 
   // Change 077 (Annotation-Scope): Klick auf Annotation (Waveform-Marker
   // oder Text-Markierung) → Transkription scrollt zum Segment der
@@ -1434,7 +1466,7 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
                             ? "karaoke-active"
                             : annForWord
                               ? (annForWord.id === activeAnnotationId ? "annot-active" : "annot-mark")
-                              : `${confidenceClass(w.confidence)} hover:text-accent/70`;
+                              : `${confidenceClass(w.confidence)} hoverable:text-accent/70`;
                       return (
                         <Fragment key={wi}>
                         <span

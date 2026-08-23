@@ -531,6 +531,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           dur,
         );
         ws.setTime(t);
+        // Change 093 (User 2026-08-22): Seek SOFORT an die Karte melden —
+        // vorher hing das Transkript-Scroll/Karaoke-Highlight am nächsten
+        // timeupdate/rAF-Tick, der nur feuert, wenn ws.play() wirklich
+        // startet (WebAudio-Kontext/Puffer). Startet es nicht sofort
+        // (z. B. Android-Kontext), blieb die Transkription an der alten
+        // Stelle, obwohl der Cursor gesprungen war.
+        setCurrentTime(t);
+        onTimeUpdateRef.current?.(t);
         ws.play();
       };
       containerRef.current.addEventListener("click", onContainerClick);

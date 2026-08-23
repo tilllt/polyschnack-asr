@@ -42,5 +42,13 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // Change 093 (User 2026-08-22): hover-Effekte NUR auf Geräten mit
+    // echter Hover-Fähigkeit (Maus/Trackpad). Auf Touch (Android/iOS)
+    // bleibt der erste Tap sonst „sticky hover" — das angetippte Wort
+    // blieb blau markiert, obwohl das Playback weiterlief.
+    function ({ addVariant }) {
+      addVariant("hoverable", "@media (hover: hover) { &:hover }");
+    },
+  ],
 };
