@@ -407,6 +407,13 @@ export function SegmentList({ segments: segmentsProp, onSeekTo, onSeekPaused, ac
     if (editingIdx !== null) return;
     const container = containerRef.current;
     if (!container || activeIdx < 0) return;
+    // User 2026-08-23: Zwischen zwei Segmenten (Karaoke-Lücke — kein Wort
+    // aktiv, activeW < 0) bleibt der Autoscroller bei der letzten bekannten
+    // Position stehen und gibt die Kontrolle über das Scrolling kurz auf.
+    // Ohne diesen Guard zentrierte er in der Lücke die ZEILE (Fallback
+    // rowRefs[activeIdx]) und riss die Ansicht beim Segment-Übergang hin
+    // und her. Sobald wieder ein Wort aktiv ist, übernimmt er erneut.
+    if (activeW < 0) return;
     // Change 093 (Virtualisierung 087): Bei großen Sprüngen (Klick in die
     // Waveform oder auf ein weit entferntes Wort) ist das Ziel-Segment
     // NICHT im DOM — rowRefs wäre leer und der Scroll bliebe aus (der
