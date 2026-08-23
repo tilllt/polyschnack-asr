@@ -303,3 +303,68 @@ describe("WaveformPlayer Change 100 — Zoom bleibt bei späten Annotationen sta
     expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
   });
 });
+
+describe("WaveformPlayer Poll-Referenz-Drehung (Change 112)", () => {
+  it("neue peaks-Referenz mit GLEICHEM Inhalt startet KEINEN neuen Load", () => {
+    // Produktions-Befund 23.08. (Android-Chrome): Die Karten-Polls liefern
+    // bei jedem Fetch ein NEUES peaks-Array mit identischem Inhalt. Vor dem
+    // Fix triggert die peaks-Dependency des Load-Effekts bei jeder
+    // Referenz-Drehung einen Abbruch + Neu-Fetch/Neu-Decode: Kurve leer
+    // 1–3 s („verschwindet/erscheint periodisch") + ~180 MB PCM-Allokation
+    // pro Reload bei 95-min-Audios → kumuliert OOM „Aw, Snap".
+    const { rerender } = render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={12} />
+      </LocaleProvider>,
+    );
+    const obs = FakeIntersectionObserver.instances[0];
+    act(() => obs.fire(true));
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(loadMock).toHaveBeenCalledTimes(1);
+
+    // Poll #1: neue Referenz, identischer Inhalt
+    act(() => {
+      rerender(
+        <LocaleProvider>
+          <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={12} />
+        </LocaleProvider>,
+      );
+    });
+    // Poll #2
+    act(() => {
+      rerender(
+        <LocaleProvider>
+          <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={12} />
+        </LocaleProvider>,
+      );
+    });
+
+    // Kein Re-Init, kein Reload — Player bleibt stabil
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(loadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("echter Inhalt-Wechsel re-initialisiert weiterhin (Change 059 bleibt)", () => {
+    // Kontrollfall: Die Signatur darf NUR bei echten Peaks-Änderungen
+    // feuern (async Nachlieferung) — nicht bei Referenz-Drehungen.
+    const { rerender } = render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={12} />
+      </LocaleProvider>,
+    );
+    const obs = FakeIntersectionObserver.instances[0];
+    act(() => obs.fire(true));
+    expect(createMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      rerender(
+        <LocaleProvider>
+          <WaveformPlayer audioUrl="/a.mp3" peaks={[9, 8, 7]} durationHint={12} />
+        </LocaleProvider>,
+      );
+    });
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(loadMock).toHaveBeenCalledTimes(2);
+    expect(loadMock.mock.calls[1][1]).toEqual([[9, 8, 7]]);
+  });
+});

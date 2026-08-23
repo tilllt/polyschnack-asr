@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle, forwardRef } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
@@ -30,7 +30,12 @@ export interface WaveSurferHandle {
 // Range-Request (Server liefert 206) — Playback startet nach wenigen
 // Sekunden Pufferung, kein Voll-Download, kein Voll-Dekode, RAM ~0.
 // Seek (Wort-Klick) via ws.setTime() — identische Handle-API.
-export const LARGE_FILE_THRESHOLD_S = 7200; // 2 h
+// Change 112 (2026-08-23): Schwelle 2 h → 30 min. Produktions-Befund
+// Android-Chrome: 95-min-Aufnahme (5710 s, 16-MB-Preview) → WebAudio-
+// Voll-Dekode = ~180 MB PCM pro Karte; mehrerer Karten + Poll-Reloads
+// (peaks-Referenz-Drehung, s. u.) → OOM „Aw, Snap". MediaElement ab
+// 30 min eliminiert den Voll-Dekode für alle längeren Aufnahmen.
+export const LARGE_FILE_THRESHOLD_S = 1800; // 30 min
 
 export type PlayerBackend = "WebAudio" | "MediaElement";
 
@@ -366,6 +371,20 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       obs.observe(el);
       return () => obs.disconnect();
     }, []);
+
+    // Change 112 (2026-08-23, Android-Oszillations-Befund): Die Karten-Polls
+    // (Status/ETA) liefern bei jedem Fetch ein NEUES `peaks`-Array mit
+    // identischem Inhalt → der Load-Effekt (Dependency `peaks`) brach den
+    // laufenden Fetch/Decode ab und startete ihn neu: Kurve leer 1–3 s
+    // („verschwindet/erscheint periodisch"), ~180 MB PCM-Allokation pro
+    // Reload bei 95-min-Audios → kumuliert OOM „Aw, Snap" auf Android.
+    // Signatur statt Referenz: triggert nur bei echten Inhalt-Wechseln
+    // (async nachgelieferte Peaks, Change 059) — nicht bei Referenz-
+    // Drehungen durch Polls.
+    const peaksSignature = useMemo(() => {
+      if (!peaks || peaks.length === 0) return "";
+      return `${peaks.length}:${peaks[0]}:${peaks[peaks.length - 1]}`;
+    }, [peaks]);
 
     useEffect(() => {
       if (!containerRef.current) return;
@@ -788,7 +807,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Player mit peaks=null (Browser-Decode der ganzen Datei) und wird
       // nie neu initialisiert, wenn die Server-Peaks eintreffen
       // („Loading waveform…" hängt für immer auf langsamen Verbindungen).
-    }, [audioUrl, backend, inView, peaks, durationHint]);
+      // Change 112: statt `peaks` die Inhalts-Signatur verwenden — Polls
+      // drehen die Referenz bei gleichem Inhalt (siehe oben), echte
+      // Nachlieferungen ändern die Signatur.
+    }, [audioUrl, backend, inView, peaksSignature, durationHint]);
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
