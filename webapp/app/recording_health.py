@@ -334,6 +334,39 @@ def mark_broken(session: Session, broken: List[Tuple[Recording, str]]) -> int:
     return updated
 
 
+def _sweep_legacy_mp3_previews(session: Session, audio_dir: Path) -> int:
+    """Altbestand der 64-kbps-MP3-Ära aufräumen (Change 098).
+
+    Sobald die neue `.opus`-Preview (Change 096) existiert, wird die alte
+    `<stem>_preview.mp3`-Sidecar gelöscht und ein evtl. veralteter
+    `preview_path`-DB-Zeiger auf die `.opus`-Konvention umgestellt —
+    sonst liefert der Preview-Endpoint nach dem Löschen 404.
+    Dateien ohne `.opus`-Gegenstück bleiben liegen (der reguläre Scan
+    stellt die neue Preview vorher sicher). Kein Recording referenziert
+    die `.mp3`-Datei mehr (peaks.py erzeugt nur noch `.opus`).
+
+    Returns number of removed legacy files.
+    """
+    removed = 0
+    for mp3 in audio_dir.glob("**/*_preview.mp3"):
+        opus = mp3.with_suffix(".opus")
+        if not (opus.exists() and opus.stat().st_size > 0):
+            continue
+        try:
+            mp3.unlink()
+            removed += 1
+        except OSError:
+            continue
+        for rec in session.exec(select(Recording).where(
+                Recording.preview_path == str(mp3))).all():
+            rec.preview_path = str(opus)
+    if removed:
+        session.commit()
+        log.info("recording health: %d verwaiste MP3-Preview(s) entfernt, "
+                 "DB-Zeiger auf Opus umgestellt", removed)
+    return removed
+
+
 def run_health_scan(session: Session, audio_dir: Path) -> int:
     """Kurzschluss: Scan + Markieren. Returns number of updated rows."""
     broken = scan_broken_recordings(session, audio_dir)
@@ -342,4 +375,5 @@ def run_health_scan(session: Session, audio_dir: Path) -> int:
         names = ", ".join((b[0].uid or "?")[:8] for b in broken[:5])
         log.info("recording health: %d kaputt (%s%s)", len(broken), names,
                  "…" if len(broken) > 5 else "")
+    _sweep_legacy_mp3_previews(session, audio_dir)
     return mark_broken(session, broken)

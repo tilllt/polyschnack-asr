@@ -714,3 +714,46 @@ def test_health_scan_stellt_preview_sidecar_sicher(client, tmp_path):
         ok, _reason = is_valid_audio_file(preview)
         assert ok, f"Preview ungültig: {_reason}"
         assert preview.stat().st_size > 256
+
+
+def test_health_scan_raeumt_legacy_mp3_preview_auf(client, tmp_path):
+    """Change 098: Altbestand-`_preview.mp3` (64-kbps-Ära) wird gelöscht,
+    sobald die neue `.opus`-Preview existiert; DB-Zeiger wird umgestellt."""
+    from app.db import engine
+    from app.models import Recording
+    from app.recording_health import run_health_scan
+    from app.config import settings
+    from sqlmodel import Session
+
+    rec = _upload(client)
+    import subprocess as _sp
+
+    wav = tmp_path / "sine.wav"
+    _sp.run(
+        ["ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         str(wav)],
+        check=True, capture_output=True)
+
+    with Session(engine) as s:
+        r = s.get(Recording, rec["id"])
+        stored = Path(r.stored_path)
+        stored.write_bytes(wav.read_bytes())  # echte Datei für ffmpeg
+        mp3 = stored.with_name(stored.stem + "_preview.mp3")
+        opus = stored.with_name(stored.stem + "_preview.opus")
+        mp3.write_bytes(b"legacy-preview")  # Altbestand (> 0 Bytes)
+        opus.write_bytes(b"kaputt")  # wird vom Scan neu erzeugt
+        r.preview_path = str(mp3)  # veralteter DB-Zeiger
+        import datetime as dt
+
+        r.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        s.add(r)
+        s.commit()
+
+    with Session(engine) as s:
+        run_health_scan(s, settings.AUDIO_DIR)
+        r = s.get(Recording, rec["id"])
+        assert not mp3.exists(), "Alt-MP3-Preview wurde nicht entfernt"
+        assert r.preview_path == str(opus), \
+            "DB-Zeiger nicht auf Opus-Konvention umgestellt"
+        assert opus.exists() and opus.stat().st_size > 0
