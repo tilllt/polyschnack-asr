@@ -147,6 +147,28 @@ export function decidePlayPause(playing: boolean, atEnd: boolean, canPlay: boole
   return "play";
 }
 
+/** Change 105: WS7 7.12 resumt den WebAudio-Context NIE (Autoplay-Policy:
+ *  `new AudioContext()` startet auf Chrome/Android im Zustand „suspended“ —
+ *  `bufferNode.start()` läuft dann stumm, obwohl der Play-State gesetzt ist.
+ *  User-Befund 2026-08-23 (Android/Mobile): „Play drückbar, spielt nicht“.
+ *  Vor jedem ws.play() explizit resumen (der Klick ist die User-Geste, die
+ *  resume() erlaubt). */
+export function ensureAudioContext(ws: WaveSurfer): void {
+  try {
+    const el = (ws as unknown as {
+      getMediaElement?: () => {
+        audioContext?: { state?: string; resume?: () => Promise<unknown> };
+      };
+    }).getMediaElement?.();
+    const ac = el?.audioContext;
+    if (ac && ac.state === "suspended") {
+      ac.resume?.();
+    }
+  } catch {
+    /* AudioContext nicht verfügbar — play versucht es trotzdem */
+  }
+}
+
 /** Registriert `me` als aktiven Player und pausiert den vorherigen. */
 export function claimExclusivePlayback(me: Playable): void {
   if (activePlayer && activePlayer !== me && activePlayer.isPlaying()) {
@@ -535,14 +557,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Audio-Exklusivität: Start dieses Players pausiert jeden anderen.
       const me: Playable = {
         pause: () => ws.pause(),
-        play: () => { if (canPlayRef.current) ws.play(); },
+        play: () => { if (canPlayRef.current) { ensureAudioContext(ws); ws.play(); } },
         playPause: () => {
           const playing = ws.isPlaying();
           const atEnd = ws.getDuration() > 0 && ws.getCurrentTime() >= ws.getDuration() - 0.02;
           const action = decidePlayPause(playing, atEnd, canPlayRef.current);
           if (action === "pause") ws.pause();
           else if (action === "stay") ws.setTime(ws.getDuration());
-          else if (action === "play") ws.play();
+          else if (action === "play") { ensureAudioContext(ws); ws.play(); }
           // "noop": Audio noch nicht abspielbar → nichts
         },
         isPlaying: () => ws.isPlaying(),
@@ -661,11 +683,23 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // Stelle, obwohl der Cursor gesprungen war.
         setCurrentTime(t);
         onTimeUpdateRef.current?.(t);
+        // Change 105: setTime darf den Seek/Scroll nicht blockieren — bei
+        // nicht korrekt initialisiertem WS7 (z. B. Container-0-Breite vor
+        // Change 105) wirft WS7 „No audio loaded“ und der Handler bräche
+        // VOR dem Transkript-Scroll ab (User: „Klick scrollt nicht“).
+        try {
+          ws.setTime(t);
+        } catch {
+          /* WS7 noch ohne geladenes Audio — Seek überspringen */
+        }
         // Change 104: KEIN ws.play() ohne abspielbares Audio — während der
         // Decode noch läuft (canPlay=false, Play-Button grau) würde der
         // Klick den Play-State setzen (Flicker zum Pause-Symbol), aber kein
         // Ton startet (User-Befund 2026-08-23). Nur Seek + Transkript-Scroll.
-        if (canPlayRef.current) ws.play();
+        if (canPlayRef.current) {
+          ensureAudioContext(ws);
+          ws.play();
+        }
       };
       containerRef.current.addEventListener("click", onContainerClick);
 
@@ -759,6 +793,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
         if (!canPlayRef.current) return;
+        ensureAudioContext(wsRef.current!);
         wsRef.current?.setTime(s); wsRef.current?.play();
       },
       seekToPaused: (s: number) => { wsRef.current?.setTime(s); },
@@ -816,7 +851,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             <span className="text-err">Waveform data corrupted</span>
           </div>
         )}
-        <div ref={containerRef} className={`w-full ${ready && !error ? "" : "hidden"}`} style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD }} />
+        {/* Change 105: NICHT display:none (hidden) bis ready — WaveSurfer
+            misst den Container beim create; bei Breite 0 initialisiert es
+            ohne Canvas (leerer Wrapper, keine Welle, Playback tot; User-
+            Befund 2026-08-23 Android/Mobile: „Loading fertig, Play drückbar,
+            spielt nicht“). visibility:hidden behält das Layout — WS7
+            erstellt das Canvas mit echter Breite, sichtbar wird es bei
+            ready. */}
+        <div ref={containerRef} className="w-full" style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD, visibility: ready && !error ? "visible" : "hidden" }} />
         {/* Timeline ruler (Change 056: relative → 💬-Marker als Overlay) */}
         <div ref={timelineRef} className={`w-full relative ${ready && !error ? "mt-0" : "hidden"}`} />
         {ready && !error && (
