@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, act, fireEvent, screen } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
 import { WaveformPlayer } from "./WaveformPlayer";
 
@@ -213,5 +213,93 @@ describe("WaveformPlayer Change 072 — Deadlock (Observer auf hidden Container)
     expect(createMock).toHaveBeenCalledTimes(1);
     expect(loadMock).toHaveBeenCalledTimes(1);
     expect(loadMock.mock.calls[0][1]).toEqual([[1, 2, 3]]);
+  });
+});
+
+describe("WaveformPlayer Change 100 — Zoom bleibt bei späten Annotationen stabil", () => {
+  it("resettet den User-Zoom NICHT, wenn annotations asynchron nachkommen", () => {
+    // Change 059: Peaks/Annotations kommen über den Detail-Fetch NACH dem
+    // Player-ready. Vor Change 100: updateMarkers (abhängig von
+    // annotations) gab doZoom eine neue Referenz → der ready-Effekt lief
+    // erneut → doZoom(0) → User-Zoom sprang sofort auf „fit" zurück.
+    const { rerender } = render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={10} annotations={[]} />
+      </LocaleProvider>,
+    );
+    const obs = FakeIntersectionObserver.instances[0];
+    act(() => obs.fire(true));
+
+    // ready feuern → Initial-Zoom (fit) läuft genau einmal
+    const readyHandler = onMock.mock.calls.find((c) => c[0] === "ready")?.[1];
+    expect(readyHandler).toBeTypeOf("function");
+    act(() => readyHandler());
+    expect(zoomMock).toHaveBeenCalledTimes(1); // Initial-Fit
+
+    // User zoomt rein → 2. zoom()-Aufruf, Zoom-Label „1×"
+    fireEvent.click(screen.getByTitle("Zoom in"));
+    expect(zoomMock).toHaveBeenCalledTimes(2);
+    // Zoom-Label (min-w-[36px]) — NICHT der Speed-Button „1×"
+    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
+
+    // Annotationen treffen asynchron ein (Detail-Fetch) → Re-Render
+    act(() => {
+      rerender(
+        <LocaleProvider>
+          <WaveformPlayer
+            audioUrl="/a.mp3"
+            peaks={[1, 2, 3]}
+            durationHint={10}
+            annotations={[{ id: 1, start_s: 5 }]}
+          />
+        </LocaleProvider>,
+      );
+    });
+
+    // Change 100: KEIN erneuter doZoom(0) — der User-Zoom bleibt erhalten
+    expect(zoomMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
+  });
+
+  it("ruft ws.zoom NICHT auf, solange der neue ws nach Re-Init noch lädt (kein „No audio loaded“)", () => {
+    // Firefox-Konsolenbefund 2026-08-23: ws.zoom() warf „Error: No audio
+    // loaded“. Change 059 re-initialisiert den Player, wenn Peaks asynchron
+    // nachkommen — der ready-STATE bleibt vom alten ws true, aber
+    // wsRef.current ist der NEUE, noch ladende ws. doZoom muss in diesem
+    // Fenster abbrechen (wsReadyRef-Gate), statt ws.zoom() zu werfen.
+    const { rerender } = render(
+      <LocaleProvider>
+        <WaveformPlayer audioUrl="/a.mp3" />
+      </LocaleProvider>,
+    );
+    const obs = FakeIntersectionObserver.instances[0];
+    act(() => obs.fire(true));
+
+    // Erstes ready → Initial-Fit läuft
+    const ready1 = onMock.mock.calls.find((c) => c[0] === "ready")?.[1];
+    act(() => ready1());
+    expect(zoomMock).toHaveBeenCalledTimes(1);
+
+    // Change 059: Peaks kommen asynchron nach → Re-Init (neuer ws lädt noch)
+    act(() => {
+      rerender(
+        <LocaleProvider>
+          <WaveformPlayer audioUrl="/a.mp3" peaks={[1, 2, 3]} durationHint={10} />
+        </LocaleProvider>,
+      );
+    });
+    expect(createMock).toHaveBeenCalledTimes(2);
+
+    // Zoom-Klick im Re-Init-Fenster: neuer ws hat noch kein Audio →
+    // doZoom bricht ab, KEIN ws.zoom()-Aufruf (vorher: Exception im Effekt)
+    fireEvent.click(screen.getByTitle("Zoom in"));
+    expect(zoomMock).toHaveBeenCalledTimes(1);
+
+    // Neues ready → Zoom-Gate öffnet → Klick zoomt wieder
+    const ready2 = onMock.mock.calls.filter((c) => c[0] === "ready").pop()?.[1];
+    act(() => ready2());
+    fireEvent.click(screen.getByTitle("Zoom in"));
+    expect(zoomMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
   });
 });

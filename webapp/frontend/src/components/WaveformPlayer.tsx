@@ -215,6 +215,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [zoomIdx, setZoomIdx] = useState(0);
     // Spiegelt zoomIdx für Handler außerhalb von React-Render (Klick-Seek).
     const zoomIdxRef = useRef(0);
+    // Change 100: true erst, wenn der AKTUELLE ws echtes Audio geladen hat
+    // (ready-Event). doZoom bricht ab, wenn nicht — sonst wirft WS7
+    // „Error: No audio loaded“ (Re-Init-Fenster nach Change-059-Re-Init,
+    // Firefox-Konsolenbefund 2026-08-23).
+    const wsReadyRef = useRef(false);
     const [playing, setPlaying] = useState(false);
     // Change 2026-08-17: Playback-Rate (x0.5/x1/x2) — State für die UI,
     // Ref für getPlaybackRate aus dem Handle (stale-closure-sicher).
@@ -270,7 +275,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     }, [updateMarkers]);
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
-      // Change 083: Index 0 = „fit" (ganze Audiolänge sichtbar, exakter
+      // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst
+      // „Error: No audio loaded“ (z. B. im Re-Init-Fenster nach asynchron
+      // nachgelieferten Peaks, Change 059).
+      if (!wsReadyRef.current) return;
+      // Change 083: Index 0 = „fit“ (ganze Audiolänge sichtbar, exakter
       // px/s-Wert statt Runden auf die kleinste Zoomstufe); danach die
       // festen Stufen ZOOM_STEPS.
       const pps =
@@ -290,8 +299,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // (hidden bis ready → clientWidth 0) → fitPps fiel auf MIN_PPS:
     // Welle nur 285 px statt Container-Breite und der Klick-Seek um
     // Faktor ~3,4 verzerrt („Klick bei 9 min → Playback bei 31 min“).
+    // Change 100 (Zoom-Reset 2026-08-23): Der Effekt darf NUR EINMAL
+    // feuern. doZoom hängt an updateMarkers ← [annotations, ready,
+    // duration] — späte asynchrone Detail-Daten (Peaks/Annotations,
+    // Change 059) ändern die doZoom-Referenz erneut → der Effekt rief
+    // doZoom(0) und verwarf jeden User-Zoom (Repro: Zoom-in → nach
+    // ~300 ms wieder „fit“). initialZoomRef sperrt den Initial-Fit.
+    const initialZoomRef = useRef(false);
     useEffect(() => {
-      if (ready && !error && wsRef.current) {
+      if (ready && !error && wsRef.current && !initialZoomRef.current) {
+        initialZoomRef.current = true;
         doZoom(wsRef.current, 0);
       }
     }, [ready, error, doZoom]);
@@ -471,6 +488,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         if (timerRef.current) clearTimeout(timerRef.current);
         setError(false); // Change 097: heilt einen Timeout-Fehlerzustand
         setReady(true);
+        wsReadyRef.current = true; // Change 100: echtes Audio geladen
         setLoadPct(100); // geladen — der Progress-Background ist voll
         const dur = ws.getDuration();
         setDuration(dur);
@@ -706,6 +724,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       };
       document.addEventListener("visibilitychange", onVisibility);
 
+      // Change 100: neuer ws hat noch kein Audio geladen — Zoom-Gate zu,
+      // bis sein ready-Event kommt (sonst „Error: No audio loaded“).
+      wsReadyRef.current = false;
       wsRef.current = ws;
       regionsRef.current = regions;
       return () => {
