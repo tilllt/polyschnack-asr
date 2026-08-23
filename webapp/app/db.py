@@ -236,6 +236,44 @@ def _backfill_baseline_runs(session: Session) -> None:
     session.commit()
 
 
+def _ensure_run_settings_columns(session: Session) -> None:
+    """Change 103: transcriptionrun aus einem 094-Stand (ohne Settings-
+    Spalten) auf den 099-Modell-Stand heben.
+
+    create_all fügt existierenden Tabellen KEINE Spalten hinzu — eine
+    Produktions-DB, die mit Change 094 erstellt wurde, hat die Runs-
+    Tabelle ohne enable_*/diarize_*/…-Spalten. Der 099-Backfill-INSERT
+    referenziert diese Spalten → „no such column: enable_vad“ beim
+    App-Start (Produktions-Befund 2026-08-23, Startup-Fail). Idempotent:
+    prüft PRAGMA table_info und ergänzt nur fehlende Spalten.
+    """
+    cols = [r[1] for r in session.exec(
+        sa_text("PRAGMA table_info(transcriptionrun)")).all()]
+    add = {
+        "enable_vad": "BOOLEAN NOT NULL DEFAULT 0",
+        "enable_diarize": "BOOLEAN NOT NULL DEFAULT 0",
+        "diarize_num_speakers": "INTEGER",
+        "diarize_min_duration_off": "FLOAT",
+        "diarize_method": "VARCHAR",
+        "enable_streaming": "BOOLEAN NOT NULL DEFAULT 0",
+        "enable_noise_reduce": "BOOLEAN NOT NULL DEFAULT 1",
+        "enable_enhance": "VARCHAR NOT NULL DEFAULT 'off'",
+        "enable_punctuation": "BOOLEAN NOT NULL DEFAULT 0",
+        "enable_llm_enhance": "BOOLEAN NOT NULL DEFAULT 0",
+        "llm_endpoint_id": "INTEGER",
+        "prompt_template_id": "INTEGER",
+        "delivery_target_id": "INTEGER",
+    }
+    missing = [n for n in add if n not in cols]
+    for name in missing:
+        session.exec(sa_text(
+            f"ALTER TABLE transcriptionrun ADD COLUMN {name} {add[name]}"))
+    if missing:
+        session.commit()
+        log.info("Change 103: transcriptionrun um Settings-Spalten ergänzt (%s)",
+                 ", ".join(missing))
+
+
 def _drop_legacy_settings_columns(session: Session) -> None:
     """Change 099: Settings-Spalten aus `recording` entfernen.
 
@@ -253,6 +291,9 @@ def _drop_legacy_settings_columns(session: Session) -> None:
     drop_set = set(drop)
     log.info("Change 099: Backfill + Entfernung der Settings-Spalten %s",
              ", ".join(sorted(drop)))
+    # Change 103: 094-DBs haben transcriptionrun ohne Settings-Spalten —
+    # der Backfill-INSERT würde sonst beim App-Start crashen.
+    _ensure_run_settings_columns(session)
     _backfill_baseline_runs(session)
 
     session.exec(sa_text("PRAGMA foreign_keys=OFF"))  # type: ignore[arg-type]
@@ -267,19 +308,40 @@ def _drop_legacy_settings_columns(session: Session) -> None:
     out = []
     for ln in lines:
         s = ln.strip()
-        # Spaltenzeilen: `"enable_vad" BOOLEAN NOT NULL,` ODER `enable_vad BOOLEAN NOT NULL,`
-        m = re.match(r'^"?([^"\s,]+)"?', s)
-        if m and m.group(1) in drop_set:
+        if not s:
             continue
+        # FK-/CONSTRAINT-Zeilen: entfernen, wenn eine referenzierte Spalte
+        # in drop_set liegt (sonst komplett behalten — nie aufteilen).
         if re.match(r"^(CONSTRAINT .*)?FOREIGN KEY", s, re.IGNORECASE):
             fks = re.findall(r"FOREIGN KEY\(([^)]+)\)", s, re.IGNORECASE)
-            if fks and any(
-                    x.strip().strip('"') in drop_set
-                    for x in fks[0].split(",")):
+            if any(
+                any(x.strip().strip('"') in drop_set for x in fk.split(","))
+                for fk in fks
+            ):
                 continue
-        out.append(ln)
+            out.append(ln)
+            continue
+        # Spaltenzeilen: in Definitionen zerlegen und nur die drop-Spalten
+        # entfernen. Change 103: SQLite hängt per ALTER hinzugefügte Spalten
+        # in EINER Zeile an die letzte Modell-Spaltenzeile („…current_result_id
+        # INTEGER, enable_vad BOOLEAN NOT NULL DEFAULT 0, …“) — die Zeile
+        # komplett zu verwerfen würde die Nicht-drop-Spalten (z. B.
+        # current_result_id) mit entfernen und der CREATE schlägt fehl
+        # („unknown column in foreign key definition“).
+        parts = s.split(",")
+        kept = []
+        for part in parts:
+            m = re.match(r'^\s*"?([^"\s,]+)"?', part)
+            if m and m.group(1) in drop_set:
+                continue
+            kept.append(part)
+        if kept:
+            out.append(",".join(kept))
+    body = "\n".join(out).rstrip()
+    if body.endswith(","):
+        body = body[:-1]
     session.exec(sa_text(
-        "CREATE TABLE recording_099 (\n" + "\n".join(out) + "\n)"))  # type: ignore[arg-type]
+        "CREATE TABLE recording_099 (\n" + body + "\n)"))  # type: ignore[arg-type]
     keep = [c for c in cols if c not in drop_set]
     collist = ", ".join(f'"{c}"' for c in keep)
     session.exec(sa_text(
