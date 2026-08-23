@@ -38,6 +38,8 @@
 #   key         Zeigt die Benchmark-Key-Sichtbarkeit maskiert (.env vs.
 #               Webapp-Container) — Diagnose bei 503/401 beim Submit.
 #   update      git pull + pull + models + start  (kompletter Deploy-Workflow).
+#   sync-compose Interaktiver Abgleich der compose-Dateien (Change 107):
+#               Diff zeigen + bestaetigen lassen, nie blind ueberschreiben.
 #   selfupdate  Aktualisiert DIESES Skript aus dem Repo (GitLab-API, Token
 #               aus POLYSCHNACK_GITLAB_TOKEN oder .env daneben).
 #   help        Diese Hilfe.
@@ -365,8 +367,8 @@ benchmark_key_status() {
     if [ -f compose.yml ] && ! grep -q 'BENCHMARK_API_KEYS' compose.yml; then
         echo "    Ursache:     ⚠ compose.yml verdrahtet BENCHMARK_API_KEYS nicht (Stand alt)"
         echo "                 Aktualisieren: ./polyschnack-manage.sh update (git pull)"
-        echo "                 ohne Git-Repo hier manuell holen:"
-        echo "                 curl -fsSL -o compose.yml https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/compose.yml"
+        echo "                 ohne Git-Repo: ./polyschnack-manage.sh sync-compose"
+        echo "                 (interaktiver Abgleich — ueberschreibt NIE blind)"
         echo "                 Danach: ./polyschnack-manage.sh start (Container neu erstellen)"
         return 0
     fi
@@ -386,6 +388,76 @@ benchmark_key_status() {
         echo "    Container:   (Stack läuft nicht — ./polyschnack-manage.sh start)"
         echo "    Status:      ⚠ kein Container-Check möglich"
     fi
+}
+
+# ── Compose-Schutz (Change 107) ───────────────────────────────────────
+# compose-Dateien NIE blind ueberschreiben (User-Regel 2026-08-23): lokale
+# manuelle Anpassungen (Ports, Envs, Overlays) waeren sonst unbemerkt weg.
+# Ablauf: Remote-Stand laden -> bei Abweichung Diff zeigen -> Backup ->
+# interaktiv bestaetigen lassen. Default: NICHT uebernehmen. Ohne TTY wird
+# nichts angefasst (--force nur fuer explizite Bestaetigung).
+_compose_files() {
+    echo compose.yml
+    echo compose.backends.yml
+    echo compose.benchmark.yml
+}
+_repo_url() {
+    if [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ]; then
+        echo "${POLYSCHNACK_GITLAB_BASE}/api/v4/projects/tilllt%2Fpolyschnack-asr/repository/files/${1//\//%2F}/raw?ref=main"
+    else
+        echo "https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/$1"
+    fi
+}
+sync_compose() {
+    local force=0
+    [ "${1:-}" = "--force" ] && force=1
+    local token="${POLYSCHNACK_GITLAB_TOKEN:-}"
+    if [ -z "$token" ] && [ -n "${POLYSCHNACK_GITLAB_BASE:-}" ] && [ -f .env ]; then
+        token="$(grep -E '^POLYSCHNACK_GITLAB_TOKEN=' .env | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    fi
+    local curl_args=(-fsSL --max-time 30)
+    [ -n "$token" ] && curl_args+=(-H "PRIVATE-TOKEN: $token")
+    local changed=0 f tmp bak
+    for f in $(_compose_files); do
+        [ -f "$f" ] || continue
+        tmp="$(mktemp)"
+        if ! curl "${curl_args[@]}" -o "$tmp" "$(_repo_url "$f")" 2>/dev/null; then
+            rm -f "$tmp"
+            echo "! $f: Remote nicht erreichbar - uebersprungen" >&2
+            continue
+        fi
+        if cmp -s "$f" "$tmp"; then
+            rm -f "$tmp"
+            echo "OK  $f: bereits aktuell"
+            continue
+        fi
+        changed=1
+        bak="${f}.bak-$(date +%Y%m%d-%H%M%S)"
+        echo ""
+        echo "-> $f weicht vom Repo-Stand ab (manuell angepasst oder alt)."
+        echo "   Diff (lokal <- remote):"
+        # diff exit 1 bei Abweichung — ohne || true killt set -e die Funktion
+        # VOR Backup/Bestaetigung (Bug gefunden im Change-107-Funktionstest).
+        diff -u "$f" "$tmp" | head -80 | sed 's/^/     /' || true
+        echo "   Backup: $bak"
+        local ans=""
+        if [ "$force" = "1" ]; then
+            ans="j"
+        elif [ ! -t 0 ]; then
+            echo "   (kein Terminal -> NICHT ueberschrieben; --force fuer erzwungene Uebernahme)"
+        else
+            read -r -p "   Anwenden? [j/N] " ans
+        fi
+        if [ "$ans" = "j" ] || [ "$ans" = "J" ]; then
+            cp "$f" "$bak"
+            cp "$tmp" "$f"
+            echo "   OK  $f uebernommen (Backup: $bak)"
+        else
+            echo "   -   lokale $f behalten (manuelle Aenderungen geschuetzt)"
+        fi
+        rm -f "$tmp"
+    done
+    [ "$changed" = "0" ] && echo "-> Alle compose-Dateien aktuell."
 }
 
 case "$CMD" in
@@ -508,8 +580,8 @@ case "$CMD" in
             echo "  Der Benchmark-Einmal-Container (Change 036) kam mit dieser Compose-Datei." >&2
             echo "" >&2
             echo "  Aktualisieren:  ./polyschnack-manage.sh update" >&2
-            echo "  (macht git pull; ohne Git-Repo hier die Datei manuell holen:)" >&2
-            echo "  curl -fsSL -o compose.benchmark.yml https://raw.githubusercontent.com/tilllt/polyschnack-asr/main/compose.benchmark.yml" >&2
+            echo "  (macht git pull; ohne Git-Repo: ./polyschnack-manage.sh sync-compose"
+            echo "  — interaktiver Abgleich, ueberschreibt nie blind)"
             echo "" >&2
             exit 1
         fi
@@ -530,16 +602,29 @@ case "$CMD" in
     update)
         echo "-> git pull ..."
         if [ -d .git ]; then
+            # Change 107: lokale Aenderungen an compose-Dateien respektieren —
+            # git pull bricht bei Konflikten ab (nichts geht verloren), aber
+            # der User soll es vorher wissen statt vor einem Konflikt zu stehen.
+            if git status --porcelain -- compose.yml compose.backends.yml compose.benchmark.yml | grep -q .; then
+                echo "! compose-Dateien sind lokal modifiziert — git pull kann bei"
+                echo "  Konflikten abbrechen (Dateien gehen nicht verloren)."
+                echo "  Alternativ: ./polyschnack-manage.sh sync-compose (interaktiver Abgleich)"
+            fi
             git pull
         else
-            echo "! Kein Git-Repository hier (.git fehlt) — git pull übersprungen."
-            echo "  Achtung: compose-Dateien/Skripte manuell aktualisieren,"
-            echo "  sonst fehlen neue Services (z.B. crispr-align)."
+            echo "! Kein Git-Repository hier (.git fehlt) — compose-Dateien"
+            echo "  interaktiv abgleichen (Change 107, nie blind ueberschreiben):"
+            sync_compose
         fi
         echo "-> Ziehe ALLE Images (Kern + Backends) ..."
         "${COMPOSE[@]}" "${PROFILES[@]}" pull
         cmd_models
         cmd_start
+        ;;
+    sync-compose)
+        # Change 107: interaktiver compose-Abgleich (Box ohne .git).
+        # --force: auch ohne TTY uebernehmen (explizite Bestaetigung).
+        sync_compose "${2:-}"
         ;;
     selfupdate)
         # Quelle: public GitHub-Mirror (raw.githubusercontent.com, kein Token
