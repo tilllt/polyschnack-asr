@@ -183,6 +183,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [canPlay, setCanPlay] = useState(false);
     const canPlayRef = useRef(false);
     canPlayRef.current = canPlay;
+    // Change 095: Ladefortschritt (0–100) aus dem WS-"loading"-Event —
+    // füllt den Background des "Loading…"-Textes als temporären Progress-Bar.
+    const [loadPct, setLoadPct] = useState(0);
 
     // Change 056: Annotation-Marker als Overlay im Timeline-Container.
     // wavesurfer 7.x hat KEIN Markers-Plugin (erst 8.x) — ein 8er-Upgrade
@@ -386,6 +389,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         if (cancelled) return;
         if (timerRef.current) clearTimeout(timerRef.current);
         setReady(true);
+        setLoadPct(100); // geladen — der Progress-Background ist voll
         const dur = ws.getDuration();
         setDuration(dur);
         // Initial-Zoom läuft in einem useEffect auf `ready` (NACH dem
@@ -401,6 +405,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           drag: true,
           resize: true,
         });
+      });
+
+      // Change 095: Ladefortschritt des Audio-Fetches (0–100) — füllt den
+      // Hintergrund des "Loading…"-Textes als temporären Progress-Bar.
+      ws.on("loading", (pct: number) => {
+        if (cancelled) return;
+        setLoadPct(pct);
       });
 
       ws.on("timeupdate", (t) => {
@@ -442,28 +453,35 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // „Play drücken, nichts passiert“). Echte Abspielbarkeit:
       // WebAudio: der decodeAudioData-Puffer des Media-Elements (.buffer)
       // MediaElement: readyState >= 3 (HAVE_FUTURE_DATA, wie gehabt).
-      const decodePoll = window.setInterval(() => {
-        if (cancelled) return;
-        try {
-          let playable: boolean;
-          if (backend === "MediaElement") {
+      // Change 095 (Regression 2026-08-23): canPlay NUR mit ECHTEM
+      // Decode-Beweis. Der reine buffer-Poll ist nicht zuverlässig:
+      // WS 7.12 erzeugt im Peaks-Pfad decodedData SOFORT per
+      // createBuffer(peaks, duration) — getMediaElement().buffer kann
+      // also ein stummer Fake sein (User-Befund: „man kann wieder in die
+      // Waveform klicken bevor das Audio geladen ist" — die UI reagierte,
+      // aber kein Ton). Echter Beweis: das WS-"decode"-Event (feuert nach
+      // decodeAudioData) bzw. readyState>=3 beim MediaElement-Backend.
+      let decodePoll: number | undefined;
+      if (backend === "MediaElement") {
+        decodePoll = window.setInterval(() => {
+          if (cancelled) return;
+          try {
             const el = (ws as unknown as { getMediaElement?: () => HTMLMediaElement | null })
               .getMediaElement?.();
-            playable = !!el && el.readyState >= 3;
-          } else {
-            const el = (ws as unknown as {
-              getMediaElement?: () => { buffer?: unknown } | null;
-            }).getMediaElement?.();
-            playable = !!el && !!el.buffer; // echter decodeAudioData-Puffer
-          }
-          if (playable) {
+            if (el && el.readyState >= 3) {
+              window.clearInterval(decodePoll);
+              setCanPlay(true);
+            }
+          } catch {
             window.clearInterval(decodePoll);
-            setCanPlay(true);
           }
-        } catch {
-          window.clearInterval(decodePoll);
-        }
-      }, 300);
+        }, 300);
+      } else {
+        ws.on("decode", () => {
+          if (cancelled) return;
+          setCanPlay(true);
+        });
+      }
       // Timeout-Netz: wird canPlay nie true (Netz hängt, Datei fehlt,
       // Decode schlägt fehl), kommt ein SICHTBARER Fehler statt eines
       // Endlos-Spinners („stille Fehler inakzeptabel“, 2026-08-18).
@@ -653,14 +671,32 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       getPlaybackRate: () => playRateRef.current,
     }), []);
 
+    // Change 095: Spinner als SVG — der alte CSS-Ring (border-2 mit
+    // border-t-transparent) sah auf Mobile wie ein „drehendes U" aus.
+    const spinnerSvg = (size: number) => (
+      <svg className="animate-spin" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
+        <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+
     return (
       // Change 072: outerRef auf dem ÄUSSEREN Wrapper — der ist nie hidden
       // (der Canvas-Container darunter bleibt bis ready display:none).
       <div ref={outerRef} className="w-full">
         {!ready && (
-          <div className="flex items-center justify-center h-[80px] text-muted2 text-[13px] gap-2">
-            <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
-            Loading waveform…
+          // Change 095: Spinner + "Loading…" mit dem Ladefortschritt als
+          // temporärem Progress-Bar im Text-Hintergrund (100 % = komplett
+          // gefüllter Background; User-Design 2026-08-23).
+          <div className="relative flex items-center justify-center h-[80px] overflow-hidden rounded-sm bg-panel2 text-muted2 text-[13px] gap-2">
+            <div
+              className="absolute inset-y-0 left-0 bg-proc/20 transition-[width] duration-200"
+              style={{ width: `${Math.min(100, Math.max(0, loadPct))}%` }}
+            />
+            <span className="relative flex items-center gap-2">
+              {spinnerSvg(16)}
+              {t("loading_audio")}
+            </span>
           </div>
         )}
         {error && (
@@ -685,9 +721,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             {!canPlay && (
               // Audio dekodiert noch (Waveform kann via Peaks schon stehen) —
               // sichtbare Status-Meldung statt stiller Disabled-Button.
-              <span className="text-[12px] text-muted2 flex items-center gap-1.5">
-                <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
-                {t("loading_audio")}
+              // Change 095: Spinner-SVG + Fortschritts-Background im Text.
+              <span className="relative inline-flex items-center gap-1.5 text-[12px] text-muted2 rounded-sm overflow-hidden px-1.5 py-0.5">
+                <span
+                  className="absolute inset-y-0 left-0 bg-proc/20 transition-[width] duration-200"
+                  style={{ width: `${Math.min(100, Math.max(0, loadPct))}%` }}
+                />
+                <span className="relative">{spinnerSvg(12)}</span>
+                <span className="relative">{t("loading_audio")}</span>
               </span>
             )}
             <span className="text-[12px] text-muted2 tabular-nums">
