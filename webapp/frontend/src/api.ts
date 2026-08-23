@@ -63,6 +63,7 @@ export interface Recording {
   enable_streaming: boolean;
   enable_noise_reduce: boolean;
   enable_enhance: string;
+  separate_backend?: string;
   enable_punctuation?: boolean;
   enable_llm_enhance?: boolean;
   prompt_template_id?: number | null;
@@ -386,6 +387,7 @@ export async function startTranscription(
   diarizeNumSpeakers?: number,
   diarizeMinDurationOff?: number,
   diarizeMethod?: string,
+  separateBackend = "none",
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
@@ -393,6 +395,7 @@ export async function startTranscription(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  fd.append("separate_backend", separateBackend);
   fd.append("backend", backend);
   fd.append("enable_punctuation", String(enablePunctuation));
   fd.append("enable_llm_enhance", String(enableLlmEnhance));
@@ -516,6 +519,7 @@ export async function uploadRecording(
   diarizeNumSpeakers?: number,
   diarizeMinDurationOff?: number,
   diarizeMethod?: string,
+  separateBackend = "none",
 ): Promise<Recording | { duplicate: true; existing_id: string; recording: Recording }> {
   const fd = new FormData();
   fd.append("file", file);
@@ -525,6 +529,7 @@ export async function uploadRecording(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  fd.append("separate_backend", separateBackend);
   // Diarization-Tuning (Import-Toggles, 2026-08-14): Backend-Endpoint
   // akzeptiert die Felder, das Frontend schickte sie vorher nie.
   if (diarizeNumSpeakers != null) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
@@ -596,6 +601,7 @@ export async function importFromUrl(
   // Account-Login.
   videoPassword?: string,
   cookiesFile?: File | null,
+  separateBackend = "none",
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
@@ -604,6 +610,7 @@ export async function importFromUrl(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  fd.append("separate_backend", separateBackend);
   if (diarizeNumSpeakers != null) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
   if (diarizeMinDurationOff != null) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
   if (diarizeMethod) fd.append("diarize_method", diarizeMethod);
@@ -645,6 +652,7 @@ export async function recordFromMic(
   enableNoiseReduce = true,
   enableEnhance = "off",
   onProgress?: (pct: number) => void,
+  separateBackend = "none",
 ): Promise<Recording> {
   const ext = blob.type.includes("mp4") ? ".mp4" : ".webm";
   const fd = new FormData();
@@ -656,6 +664,7 @@ export async function recordFromMic(
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
   fd.append("enable_enhance", enableEnhance);
+  fd.append("separate_backend", separateBackend);
   const url = "/api/recordings";
   if (!onProgress) {
     const res = await fetch(url, { method: "POST", body: fd }).then(checkOk);
@@ -692,6 +701,7 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_streaming?: boolean;
   enable_noise_reduce?: boolean;
   enable_enhance?: string;
+  separate_backend?: string;
   backend?: string;
   enable_punctuation?: boolean;
   enable_llm_enhance?: boolean;

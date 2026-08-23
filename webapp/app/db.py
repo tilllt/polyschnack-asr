@@ -177,7 +177,7 @@ def _auto_migrate() -> None:
 _LEGACY_SETTINGS_COLUMNS = {
     "enable_vad", "enable_diarize", "diarize_num_speakers",
     "diarize_min_duration_off", "diarize_method", "enable_streaming",
-    "enable_noise_reduce", "enable_enhance", "enable_punctuation",
+    "enable_noise_reduce", "enable_enhance", "separate_backend", "enable_punctuation",
     "enable_llm_enhance", "prompt_template_id", "delivery_target_id",
     "llm_endpoint_id",
 }
@@ -204,7 +204,7 @@ def _backfill_baseline_runs(session: Session) -> None:
     want = ["backend", "language", "enable_vad", "enable_diarize",
             "diarize_num_speakers", "diarize_min_duration_off", "diarize_method",
             "enable_streaming", "enable_noise_reduce", "enable_enhance",
-            "enable_punctuation", "enable_llm_enhance", "prompt_template_id",
+            "separate_backend", "enable_punctuation", "enable_llm_enhance", "prompt_template_id",
             "delivery_target_id", "llm_endpoint_id"]
     # Modell-Defaults (SQL-Literale) für Spalten, die recording (noch) nicht hat
     defaults = {
@@ -218,6 +218,7 @@ def _backfill_baseline_runs(session: Session) -> None:
         "enable_streaming": "0",
         "enable_noise_reduce": "1",
         "enable_enhance": "'off'",
+        "separate_backend": "'none'",
         "enable_punctuation": "0",
         "enable_llm_enhance": "0",
         "llm_endpoint_id": "NULL",
@@ -295,6 +296,7 @@ def _ensure_run_settings_columns(session: Session) -> None:
         "enable_streaming": "BOOLEAN NOT NULL DEFAULT 0",
         "enable_noise_reduce": "BOOLEAN NOT NULL DEFAULT 1",
         "enable_enhance": "VARCHAR NOT NULL DEFAULT 'off'",
+        "separate_backend": "VARCHAR NOT NULL DEFAULT 'none'",
         "enable_punctuation": "BOOLEAN NOT NULL DEFAULT 0",
         "enable_llm_enhance": "BOOLEAN NOT NULL DEFAULT 0",
         "llm_endpoint_id": "INTEGER",

@@ -1430,6 +1430,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         enable_streaming = False
         enable_noise_reduce = True
         enable_enhance = "off"
+        separate_backend = "none"
         enable_punctuation = False
         enable_llm_enhance = False
         prompt_template_id = None
@@ -1499,6 +1500,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             enable_streaming = bool(run.enable_streaming)
             enable_noise_reduce = bool(run.enable_noise_reduce)
             enable_enhance = run.enable_enhance or "off"
+            separate_backend = run.separate_backend or "none"
             enable_punctuation = bool(run.enable_punctuation)
             enable_llm_enhance = bool(run.enable_llm_enhance)
             prompt_template_id = run.prompt_template_id
@@ -1560,6 +1562,30 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 log.info("Enhance: rec_id=%s %d→%d bytes", rec_id, len(audio_bytes), len(enhanced))
             audio_bytes = enhanced
             phase_times[f"enhance:{enable_enhance}"] = (time.perf_counter() - _t_enh0) * 1000
+
+        # Optional: Source Separation (Change 106) — vocals als ASR-Eingabe.
+        # Ehrlicher Fehlerpfad: crispr-sep down / liefert nichts / Fehler →
+        # weiter mit Original-Audio (Log-Warnung, kein Fake-Status).
+        if separate_backend and separate_backend != "none":
+            _t_sep0 = time.perf_counter()
+            with Session(engine) as session:
+                set_progress(session, rec_id, 18, note="separate")
+            try:
+                from .separate_client import SeparateClient
+                sc = SeparateClient()
+                if sc.health():
+                    vocals = sc.separate(audio_bytes, backend=separate_backend)
+                    if vocals:
+                        log.info("separate: rec_id=%s backend=%s → vocals als ASR-Eingabe (%d→%d B)",
+                                 rec_id, separate_backend, len(audio_bytes), len(vocals))
+                        audio_bytes = vocals
+                    else:
+                        log.warning("separate: rec_id=%s lieferte keine vocals — weiter mit Original", rec_id)
+                else:
+                    log.warning("separate: crispr-sep nicht erreichbar — weiter mit Original (rec_id=%s)", rec_id)
+            except Exception as exc:
+                log.warning("separate: Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
+            phase_times[f"separate:{separate_backend}"] = (time.perf_counter() - _t_sep0) * 1000
 
         with Session(engine) as session:
             set_progress(session, rec_id, 20, note="asr")

@@ -196,6 +196,7 @@ class TranscriptionRun(SQLModel, table=True):
     enable_streaming: bool = False
     enable_noise_reduce: bool = True
     enable_enhance: str = "off"
+    separate_backend: str = "none"  # Change 106: none|htdemucs|mel-band-roformer (Source Separation als ASR-Vorstufe)
     enable_punctuation: bool = False
     enable_llm_enhance: bool = False
     llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")

@@ -71,6 +71,7 @@ def create_queued_run(
     enable_streaming: bool = False,
     enable_noise_reduce: bool = True,
     enable_enhance: str = "off",
+    separate_backend: str = "none",
     enable_punctuation: bool = False,
     enable_llm_enhance: bool = False,
     prompt_template_id: Optional[int] = None,
@@ -98,6 +99,7 @@ def create_queued_run(
         enable_streaming=enable_streaming,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
+        separate_backend=separate_backend,
         enable_punctuation=enable_punctuation,
         enable_llm_enhance=enable_llm_enhance,
         prompt_template_id=prompt_template_id,
@@ -285,6 +287,7 @@ def set_processing(session: Session, rec_id: int) -> Optional[Recording]:
             diarize_method=run.diarize_method if run else None,
             enable_noise_reduce=True if run is None else bool(run.enable_noise_reduce),
             enable_enhance="off" if run is None else (run.enable_enhance or "off"),
+            separate_backend="none" if run is None else (run.separate_backend or "none"),
             learner=learner,
         )
         factor_high = core[2] if core else None

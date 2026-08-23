@@ -363,6 +363,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     streaming: r.enable_streaming,
     noise: r.enable_noise_reduce,
     enhance: r.enable_enhance,
+    separate: r.separate_backend ?? "none",
     backend: r.backend ?? "",
     punctuation: r.enable_punctuation ?? false,
     llmEnhance: r.enable_llm_enhance ?? false,
@@ -441,6 +442,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
         diarSensToMinDurationOff(feat.diarSens),
         feat.diarMethod || undefined,
+        feat.separate,
       );
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -762,6 +764,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         enable_streaming: feat.streaming,
         enable_noise_reduce: feat.noise,
         enable_enhance: feat.enhance,
+        separate_backend: feat.separate,
         backend: feat.backend,
       },
     }, {

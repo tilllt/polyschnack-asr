@@ -11,6 +11,7 @@ export interface FeatureValues {
   streaming: boolean;
   noise: boolean;
   enhance: string;
+  separate: string;
   backend: string;
   punctuation: boolean;
   llmEnhance: boolean;
@@ -145,6 +146,16 @@ export function FeatureToggles({ values, backends, streamingSupported, streaming
         <option value="off">Enhance: off</option>
         <option value="light">Enhance: light</option>
         <option value="strong">Enhance: strong</option>
+      </select>
+      <select
+        value={values.separate}
+        onChange={(e) => onChange({ separate: e.target.value })}
+        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+        title="Separate (Music Removal, Change 106)"
+      >
+        <option value="none">Sep: aus</option>
+        <option value="htdemucs">Sep: htdemucs</option>
+        <option value="mel-band-roformer">Sep: melband</option>
       </select>
       {backends.length > 0 && (
         <select

@@ -788,6 +788,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       vad: vadOn,
       diarize: diarizeOn,
       streaming: livePreview,
+      separate: "none",
       noiseReduce,
       enhance: enhanceLevel,
     };
@@ -865,6 +866,9 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         streaming: livePreview,
         noiseReduce,
         enhance: enhanceLevel,
+        // Change 106 v1: Upload-Pfad ohne Separate — die Wahl liegt beim
+        // Re-Transcribe auf der Karte (FeatureToggles).
+        separate: "none",
       };
       await savePendingRecording(pending);
       void refreshPending();

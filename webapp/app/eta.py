@@ -40,6 +40,9 @@ DIAR_RTF: dict[str, float] = {
 VAD_OVERHEAD = 0.03
 ENHANCE_OVERHEAD = 0.10
 NOISE_REDUCE_OVERHEAD = 0.05
+# Change 106: Source Separation (crispr-sep) — GPU RTF ~0.1-0.2, CPU deutlich
+# höher; konservativer Zuschlag, Messwerte folgen mit dem Live-Betrieb.
+SEP_OVERHEAD = 0.25
 #: LLM-Post-Processing (Punctuation/Truecase) — konservativ, wird gelernt.
 PUNCT_OVERHEAD = 0.04
 
@@ -73,6 +76,7 @@ def _estimate_eta_s(
     diarize_method: Optional[str] = None,
     enable_noise_reduce: bool = False,
     enable_enhance: str = "off",
+    separate_backend: str = "none",
     enable_punctuation: bool = False,
     elapsed_s: float = 0.0,
     learner=None,
@@ -96,6 +100,8 @@ def _estimate_eta_s(
         phases.append(("vad", VAD_OVERHEAD))
     if enable_enhance and enable_enhance != "off":
         phases.append(("enhance:" + enable_enhance, ENHANCE_OVERHEAD))
+    if separate_backend and separate_backend != "none":
+        phases.append(("separate:" + separate_backend, SEP_OVERHEAD))
     if enable_punctuation:
         phases.append(("punc_truecase", PUNCT_OVERHEAD))
     if include_align:
@@ -112,6 +118,8 @@ def _estimate_eta_s(
             factor += NOISE_REDUCE_OVERHEAD
         if enable_enhance and enable_enhance != "off":
             factor += ENHANCE_OVERHEAD
+        if separate_backend and separate_backend != "none":
+            factor += SEP_OVERHEAD
         if enable_punctuation:
             factor += PUNCT_OVERHEAD
         if include_align:
@@ -135,6 +143,10 @@ def _estimate_eta_s(
         factor += NOISE_REDUCE_OVERHEAD
         low += NOISE_REDUCE_OVERHEAD
         high += NOISE_REDUCE_OVERHEAD
+    if separate_backend and separate_backend != "none":
+        factor += SEP_OVERHEAD
+        low += SEP_OVERHEAD
+        high += SEP_OVERHEAD
 
     rest = max(0.0, duration_s * factor - max(0.0, elapsed_s))
     if rest < 1.0:
@@ -161,6 +173,7 @@ def estimate_eta_s(
     diarize_method: Optional[str] = None,
     enable_noise_reduce: bool = False,
     enable_enhance: str = "off",
+    separate_backend: str = "none",
     enable_punctuation: bool = False,
     elapsed_s: float = 0.0,
     learner=None,
@@ -178,6 +191,7 @@ def estimate_eta_s(
         diarize_method=diarize_method,
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
+        separate_backend=separate_backend,
         enable_punctuation=enable_punctuation,
         elapsed_s=elapsed_s,
         learner=learner,

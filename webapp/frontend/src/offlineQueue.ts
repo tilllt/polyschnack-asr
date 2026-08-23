@@ -21,6 +21,7 @@ export interface PendingRecording {
   streaming: boolean;
   noiseReduce: boolean;
   enhance: string;
+  separate: string;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -96,5 +97,6 @@ export function pendingToFormData(rec: PendingRecording): FormData {
   fd.append("enable_streaming", String(rec.streaming));
   fd.append("enable_noise_reduce", String(rec.noiseReduce));
   fd.append("enable_enhance", rec.enhance);
+  fd.append("separate_backend", rec.separate);
   return fd;
 }

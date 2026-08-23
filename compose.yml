@@ -98,6 +98,31 @@ services:
       # großzügig: Erststart lädt ggf. das Modell (~1,8 GB)
       start_period: 300s
 
+  crispr-sep:
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-sep:latest
+    environment:
+      # Source-Separation-Modelle (Change 106): htdemucs (F16 81 MB /
+      # Q8 53 MB) + mel-band-roformer (F16 ~436 MB, kein Q8 verfügbar).
+      # Fehlen die Dateien, lädt der Entrypoint sie automatisch von
+      # HuggingFace nach (Volume muss ':rw' sein).
+      SEP_HTDEMUCS_MODEL: /models/htdemucs-f16.gguf
+      SEP_MELBAND_MODEL: /models/mel-band-roformer-vocals-f16.gguf
+    volumes:
+      - ./DATA/models:/models
+    # Kein expose/ports: nur intern erreichbar (crispr-sep:5100). Die
+    # Webapp schickt Audio + Backend-Wahl und bekommt vocals.wav zurück
+    # (Pre-Processing für ASR/Aligner bei Gesang + Musik).
+    restart: unless-stopped
+    # GPU-Zugriff: NUR über compose.gpu.yml (runtime: nvidia) — siehe dort.
+    # Ohne Overlay läuft der Container CPU-only (ggml CPU-Backend).
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # großzügig: Erststart lädt ggf. beide Modelle (81 MB + 436 MB)
+      start_period: 300s
+
   ps-webapp:
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-webapp:latest
     # Speicher-Limit ueber deploy.limits (nicht mem_limit/memswap_limit):
