@@ -414,7 +414,7 @@ export function OptionsPanel({ values, backends, streamingSupported, streamingBy
     const alt = tabs.find((t) => !tabDis(t.id));
     if (alt) setTab(alt.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action, oidc, vadOk, diarOk]);
+  }, [action, oidc, vadOk, diarOk, backends.length, streamingSupported]);
 
   return (
     <div className="border border-border rounded-sm bg-panel2/60 p-2">

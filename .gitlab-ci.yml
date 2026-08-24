@@ -18,7 +18,7 @@ pages:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - docs/**
+        - docs/**/*
 
 test-core:
   stage: test
@@ -32,7 +32,7 @@ test-core:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - approach-a/**
+        - approach-a/**/*
 
 test-webapp:
   stage: test
@@ -48,7 +48,7 @@ test-webapp:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - webapp/**
+        - webapp/**/*
 
 test-frontend:
   stage: test
@@ -62,7 +62,7 @@ test-frontend:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - webapp/frontend/**
+        - webapp/frontend/**/*
 
 build-qwen3:
   timeout: 60 minutes
@@ -77,7 +77,7 @@ build-qwen3:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - qwen3-asr-cpp/**
+        - qwen3-asr-cpp/**/*
   tags:
     - shared
   needs:
@@ -96,7 +96,7 @@ build-ark:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - ark-asr-cpp/**
+        - ark-asr-cpp/**/*
   tags:
     - shared
   needs:
@@ -113,7 +113,7 @@ build-diar:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - diar-service/**
+        - diar-service/**/*
   tags:
     - shared
   needs:
@@ -134,7 +134,7 @@ build-aligner:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - aligner-service/**
+        - aligner-service/**/*
   tags:
     - shared
   needs:
@@ -155,7 +155,7 @@ build-sep:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - sep-service/**
+        - sep-service/**/*
   tags:
     - shared
   needs:
@@ -176,7 +176,7 @@ build-cpp:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - pk-asr-cpp/**
+        - pk-asr-cpp/**/*
   tags:
     - shared
   needs:
@@ -196,7 +196,7 @@ build-moonshine-de:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - moonshine-de-cpp/**
+        - moonshine-de-cpp/**/*
   tags:
     - shared
   needs:
@@ -215,7 +215,7 @@ build-canary:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - canary-asr-cpp/**
+        - canary-asr-cpp/**/*
   tags:
     - shared
   needs:
@@ -237,7 +237,7 @@ build-voxtral:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - voxtral-crisp/**
+        - voxtral-crisp/**/*
   tags:
     - shared
   needs:
@@ -258,7 +258,7 @@ build-whisper-crisp:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - whisper-crisp/**
+        - whisper-crisp/**/*
   tags:
     - shared
   needs:
@@ -278,7 +278,7 @@ build-whisper:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - whisper-service/**
+        - whisper-service/**/*
   tags:
     - shared
   needs:
@@ -298,7 +298,7 @@ build-asr:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - approach-a/**
+        - approach-a/**/*
   tags:
     - shared
   needs:
@@ -317,7 +317,7 @@ build-webapp:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
-        - webapp/**
+        - webapp/**/*
   tags:
     - shared
   needs:
@@ -432,8 +432,15 @@ mirror-ghcr:
       docker pull "${src}:latest"
       docker tag "${src}:latest" "${dst}:latest"
       docker push "${dst}:latest"
-      docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
-      docker push "${dst}:${CI_COMMIT_SHORT_SHA}"
+      # SHA-Tag nur spiegeln, wenn das Image in dieser Pipeline (oder fuer
+      # diesen SHA) gebaut wurde — seit Change 117 bauen nicht mehr alle
+      # Images bei jedem Push (changes-Filter).
+      if docker manifest inspect "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
+        docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
+        docker push "${dst}:${CI_COMMIT_SHORT_SHA}"
+      else
+        echo "[mirror-ghcr] kein SHA-Tag ${CI_COMMIT_SHORT_SHA} fuer ${src} — uebersprungen"
+      fi
     done
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
