@@ -23,7 +23,7 @@ export function StatsBar({ stats, device }: Props) {
           className={[
             "inline-flex items-center self-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
             device === "cuda"
-              ? "bg-[rgba(59,130,246,.12)] text-accent"
+              ? "bg-[rgba(46,160,67,.15)] text-accent"
               : device === "cpu"
               ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
               : "bg-[rgba(248,81,73,.1)] text-err",

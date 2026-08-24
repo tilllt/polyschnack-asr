@@ -1294,7 +1294,7 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _schedule_rediarize(rec_id: int) -> bool:
+def _schedule_rediarize(rec_id: int, opts: Optional[Dict[str, Any]] = None) -> bool:
     """Change 057: Diarization auf dem aktuellen Audio neu berechnen.
 
     Analog ``_schedule_realign``: lädt die gespeicherte Audiodatei,
@@ -1302,6 +1302,10 @@ def _schedule_rediarize(rec_id: int) -> bool:
     startet den Hintergrund-Worker ``_run_background_rediarize``. Ersetzt
     NUR die ``speaker``-Felder der Segmente — Text, Wörter, Timestamps,
     manuelle Aufteilung und Alignment bleiben unangetastet.
+
+    Change 116: optionale Diar-Optionen (``num_speakers``,
+    ``min_duration_off``, ``method``) — übersteuern die gespeicherten
+    Run-Einstellungen (Change 099), wenn sie gesetzt sind.
 
     Returns False wenn Audio fehlt/nicht lesbar oder status != done — der
     Aufrufer antwortet dann mit verständlichem Fehler.
@@ -1344,7 +1348,7 @@ def _schedule_rediarize(rec_id: int) -> bool:
 
     threading.Thread(
         target=_run_background_rediarize,
-        args=(rec_id, audio_bytes, vad_meta),
+        args=(rec_id, audio_bytes, vad_meta, opts),
         daemon=True,
         name=f"rediarize-{rec_id}",
     ).start()
@@ -1353,7 +1357,8 @@ def _schedule_rediarize(rec_id: int) -> bool:
 
 
 def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
-                              vad_meta: Optional[Dict[str, Any]] = None) -> None:
+                              vad_meta: Optional[Dict[str, Any]] = None,
+                              opts: Optional[Dict[str, Any]] = None) -> None:
     """Change 057: Hintergrund-Worker für Re-Diarize.
 
     - Führt die Diarization auf den verarbeiteten Bytes aus (Zeitbasis wie
@@ -1381,6 +1386,14 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
         num_speakers = run.diarize_num_speakers if run else None
         min_duration_off = run.diarize_min_duration_off if run else None
         method = run.diarize_method if run else None
+        # Change 116: explizite Optionen übersteuern die Run-Werte.
+        if opts:
+            if opts.get("num_speakers") is not None:
+                num_speakers = opts["num_speakers"]
+            if opts.get("min_duration_off") is not None:
+                min_duration_off = opts["min_duration_off"]
+            if opts.get("method"):
+                method = opts["method"]
         rec.diar_status = "running"
         # Ehrlicher Status-Hinweis (kein Fake-Progress); wird am Ende
         # (done/skipped/failed) wieder geräumt.

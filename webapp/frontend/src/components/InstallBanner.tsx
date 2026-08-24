@@ -77,7 +77,7 @@ export function InstallBanner() {
   };
 
   return (
-    <div className="w-full bg-[rgba(91,140,255,.12)] border-b border-accent/25 px-3 sm:px-6 py-2 flex items-center gap-2">
+    <div className="w-full bg-[rgba(46,160,67,.15)] border-b border-accent/25 px-3 sm:px-6 py-2 flex items-center gap-2">
       <span className="text-[13px]">📱</span>
       <span className="text-[12px] text-txt flex-1">
         {isIOS ? t("pwa_install_ios") : t("pwa_install_hint")}

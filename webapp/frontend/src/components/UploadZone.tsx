@@ -566,8 +566,8 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
         bg-panel
         ${
           active
-            ? "border-accent bg-[rgba(91,140,255,0.06)] text-txt"
-            : "border-border2 text-muted hover:border-accent hover:bg-[rgba(91,140,255,0.06)] hover:text-txt"
+            ? "border-accent bg-[rgba(46,160,67,0.08)] text-txt"
+            : "border-border2 text-muted hover:border-accent hover:bg-[rgba(46,160,67,0.08)] hover:text-txt"
         }
       `}
     >

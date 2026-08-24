@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, RotateCcw, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail } from "../hooks";
@@ -16,7 +16,8 @@ import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
 import { deriveSegments, deleteSegment, splitSegmentAtRange } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
-import { FeatureToggles, diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
+import { diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
+import { OptionsPanel, type ActionId } from "./OptionsPanel";
 import { VersionDiff } from "./VersionDiff";
 import { TagEditor } from "./TagEditor";
 import { useDismiss } from "../useDismiss";
@@ -371,7 +372,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     targetId: r.delivery_target_id ?? undefined,
     endpointId: undefined,
   });
-  const [reArmed, setReArmed] = useState(false);
+  // Change 116: Aktions-Tabs (Transkribieren · Sprecher suchen · Neue
+  // Wortzeiten) + ausklappbares Options-Panel.
+  const [action, setAction] = useState<ActionId>("tr");
+  const [optsOpen, setOptsOpen] = useState(false);
   const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
   const [flags, setFlags] = useState<{ vad: boolean; diarize: boolean }>({ vad: true, diarize: true });
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
@@ -413,11 +417,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       fetchLlmEndpoints().then(setEndpoints).catch(() => {});
     }
   }, [isOidc]);
-  // Re-arm-Status zurücksetzen, wenn die Aufnahme transkribiert wird.
-  // Bei "failed" bleibt das Panel offen, damit der User Backend/Parameter
+  // Change 116: die Aktionsleiste (Tabs) ersetzt den alten Re-arm-Status;
+  // bei "failed" bleibt die Leiste sichtbar, damit der User Backend/Parameter
   // korrigieren und erneut transkribieren kann.
   useEffect(() => {
-    if (r.status !== "done" && r.status !== "failed") setReArmed(false);
+    if (r.status === "processing" || r.status === "queued") setAction("tr");
   }, [r.status]);
 
   // Anon: nur laufende Backends anbieten; Admin: alle (Auto-Start im Backend).
@@ -585,8 +589,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
   const realignMut = useRealign();
-  // Change 113: BGM-Removal-Auswahl für Re-Align (analog Re-Transcribe).
-  const [realignSep, setRealignSep] = useState<string>("none");
   const rediarizeMut = useRediarize();
   const cancelMut = useCancelRecording();
 
@@ -749,12 +751,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     });
   }
 
-  function handleRetranscribe() {
-    // Task 9: kein confirm()-Dialog — klappt die Feature-Auswahl an die Zeile
-    // und ersetzt den Button durch „▶ Transcribe".
-    setReArmed((v) => !v);
-  }
-
   function handleArmedTranscribe() {
     retranscribeMut.mutate({
       id: r.uid,
@@ -778,16 +774,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       // kippte auf failed).
       onError: (e) => toast(`${t("retranscribe_error")}: ${e.message}`, "err"),
     });
-    setReArmed(false);
   }
 
   // Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) — der
   // Forced-Aligner verifiziert die Word-Timestamps erneut. Läuft im
   // Hintergrund (alignment-Feld), Transkription bleibt sichtbar.
-  // Change 113: gewähltes BGM-Removal (realignSep) wird mitgesendet.
+  // Change 113/116: gewähltes Music-Removal (Option „Musik entfernen“ im
+  // Options-Panel) wird mitgesendet.
   function handleRealign() {
     realignMut.mutate(
-      { id: r.uid, opts: { separate_backend: realignSep } },
+      { id: r.uid, opts: { separate_backend: feat.separate } },
       {
         onSuccess: () => toast(t("realign_started"), "ok"),
         onError: (e) => toast(`${t("realign_error")}: ${e.message}`, "err"),
@@ -798,11 +794,37 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR
   // speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet). Läuft im
   // Hintergrund (diar_status-Feld).
+  // Change 116: gewählte Diar-Optionen (Anzahl/Empfindlichkeit/Verfahren)
+  // werden mitgesendet und übersteuern die gespeicherten Run-Settings.
   function handleRediarize() {
-    rediarizeMut.mutate(r.uid, {
-      onSuccess: () => toast(t("rediarize_started"), "ok"),
-      onError: (e) => toast(`${t("rediarize_error")}: ${e.message}`, "err"),
-    });
+    const minOff = diarSensToMinDurationOff(feat.diarSens);
+    rediarizeMut.mutate(
+      {
+        id: r.uid,
+        opts: {
+          numSpeakers: feat.numSpeakers || undefined,
+          minDurationOff: minOff !== undefined ? String(minOff) : undefined,
+          method: feat.diarMethod || undefined,
+        },
+      },
+      {
+        onSuccess: () => toast(t("rediarize_started"), "ok"),
+        onError: (e) => toast(`${t("rediarize_error")}: ${e.message}`, "err"),
+      },
+    );
+  }
+
+  // Change 116: Start-Button — startet die oben gewählte Aktion mit den
+  // mittig ausgewählten Optionen.
+  function handleStartAction() {
+    if (action === "tr") {
+      if (r.status === "uploaded") void handleStartTranscription(r.uid);
+      else handleArmedTranscribe();
+    } else if (action === "alg") {
+      handleRealign();
+    } else {
+      handleRediarize();
+    }
   }
 
   // Reset waveform error when audio URL changes
@@ -818,6 +840,32 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   const hasText = (recText ?? "").trim().length > 0;
   const note = r.progress_note ?? "";
+
+  // Change 116: Verfügbarkeit der Aktions-Tabs (Sprecher suchen / Neue
+  // Wortzeiten) + Start-Button — nur bei fertiger Transkription mit Text
+  // und Schreibzugriff, nicht während ein Lauf aktiv ist.
+  const canSpk =
+    r.status === "done" &&
+    hasText &&
+    canEdit &&
+    !(rediarizeMut.isPending || r.diar_status === "running" || r.diar_status === "pending");
+  const canAlg =
+    r.status === "done" &&
+    hasText &&
+    canEdit &&
+    !(realignMut.isPending || r.alignment === "running");
+  const startDisabled =
+    (action === "spk" && !canSpk) ||
+    (action === "alg" && !canAlg) ||
+    (action === "tr" && r.status !== "uploaded" && retranscribeMut.isPending);
+  const actionLabel =
+    action === "tr"
+      ? r.status === "done"
+        ? t("act_tr_new")
+        : t("act_tr")
+      : action === "spk"
+        ? t("act_spk")
+        : t("act_alg");
 
   // ──── Change 056: Annotationen (zeitgebundene Kommentare) ────
   const annQuery = useQuery<Annotation[], Error>({
@@ -1170,21 +1218,93 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             </span>
           </button>
         )}
-        {r.status === "uploaded" && (
-          <div className="mt-2 flex flex-col items-center gap-2">
-            <FeatureToggles
-              values={feat}
-              backends={availableBackends}
-              flags={flags}
-              pp={{ templates, targets, endpoints, isOidc }}
-              onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
-            />
-            <button
-              onClick={() => handleStartTranscription(r.uid)}
-              className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
-            >
-              ▶ {t("transcribe")}
-            </button>
+        {(r.status === "uploaded" || r.status === "done" || r.status === "failed") &&
+          (r.status === "uploaded" || canEdit) && (
+          <div className="mt-2 px-1">
+            {/* Change 116: Aktions-Tabs — Transkribieren · Sprecher suchen ·
+                Neue Wortzeiten; rechts „Optionen ▾“ klappt das Panel auf. */}
+            <div className="flex items-center gap-[6px] border-b border-border">
+              <button
+                type="button"
+                data-testid="act-tr"
+                onClick={() => setAction("tr")}
+                className={`flex-1 inline-flex items-center justify-center gap-[6px] text-[12px] font-semibold py-[8px] cursor-pointer border-b-2 -mb-px transition-colors ${
+                  action === "tr" ? "text-accent border-b-accent" : "text-muted border-b-transparent hover:text-txt"
+                }`}
+              >
+                <Play size={12} />
+                {r.status === "done" ? t("act_tr_new") : t("act_tr")}
+              </button>
+              <button
+                type="button"
+                data-testid="act-spk"
+                onClick={() => setAction("spk")}
+                disabled={!canSpk}
+                title={canSpk ? t("act_spk_title") : t("act_disabled_hint")}
+                className={`flex-1 inline-flex items-center justify-center gap-[6px] text-[12px] font-semibold py-[8px] cursor-pointer border-b-2 -mb-px transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  action === "spk" ? "text-accent border-b-accent" : "text-muted border-b-transparent hover:text-txt"
+                }`}
+              >
+                <Users size={12} />
+                {t("act_spk")}
+              </button>
+              <button
+                type="button"
+                data-testid="act-alg"
+                onClick={() => setAction("alg")}
+                disabled={!canAlg}
+                title={canAlg ? t("act_alg_title") : t("act_disabled_hint")}
+                className={`flex-1 inline-flex items-center justify-center gap-[6px] text-[12px] font-semibold py-[8px] cursor-pointer border-b-2 -mb-px transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  action === "alg" ? "text-accent border-b-accent" : "text-muted border-b-transparent hover:text-txt"
+                }`}
+              >
+                <Clock size={12} />
+                {t("act_alg")}
+              </button>
+              <span className="w-px self-stretch bg-border mx-[2px]" />
+              <button
+                type="button"
+                onClick={() => setOptsOpen((o) => !o)}
+                aria-expanded={optsOpen}
+                className="inline-flex items-center gap-[5px] bg-panel2 border border-border2 text-muted text-[11px] font-semibold px-[9px] py-[5px] rounded-sm cursor-pointer hover:border-muted hover:text-txt flex-shrink-0"
+              >
+                {t("opts_toggle")}
+                <ChevronDown size={11} className={`transition-transform ${optsOpen ? "rotate-180" : ""}`} />
+              </button>
+            </div>
+
+            {/* Options-Panel (ausklappbar): 3 Tabs, „?“-Hilfen, Ausgrauen
+                nicht verfügbarer Optionen je gewählter Aktion. */}
+            {optsOpen && (
+              <div className="mt-2">
+                <OptionsPanel
+                  values={feat}
+                  backends={availableBackends}
+                  streamingSupported={streamingSupported}
+                  streamingByBackend={streamingByBackend}
+                  flags={flags}
+                  pp={{ templates, targets, endpoints, isOidc }}
+                  action={action}
+                  onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
+                />
+              </div>
+            )}
+
+            {/* Start: oben gewählte Aktion + mittig gewählte Optionen */}
+            <div className="mt-2 flex items-center gap-[10px]">
+              <button
+                type="button"
+                onClick={handleStartAction}
+                disabled={startDisabled}
+                className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-[6px]"
+              >
+                <Play size={13} />
+                {t("start_btn")}
+              </button>
+              <span className="text-[10.5px] text-muted leading-[1.4]">
+                {t("start_cap").replace("{a}", actionLabel)}
+              </span>
+            </div>
           </div>
         )}
         {r.status === "queued" && (
@@ -1205,26 +1325,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             )}
           </div>
         )}
-        {(r.status === "done" || r.status === "failed") && reArmed && (
-          <div className="mt-2 flex flex-col items-center gap-2 border border-border rounded-sm p-2 bg-panel2/50">
-            <FeatureToggles
-              values={feat}
-              backends={availableBackends}
-              streamingSupported={streamingSupported}
-              streamingByBackend={streamingByBackend}
-              flags={flags}
-              pp={{ templates, targets, endpoints, isOidc }}
-              onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
-            />
-            <button
-              onClick={handleArmedTranscribe}
-              disabled={retranscribeMut.isPending}
-              className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity"
-            >
-              ▶ {t("transcribe")}
-            </button>
-          </div>
-        )}
+        {/* Change 116: die Aktions-Tabs oben ersetzen den alten
+            „Re-Transcribe“-Block (reArmed) — siehe Aktionsleiste. */}
         {/* Change 045/115: Hintergrund-Alignment — Live-Details statt
             statischem Text: Heartbeat-Ampel + Worker-note („Gruppe 3/12 —
             aktiv seit 42s — CLI 45%", enthält die Align-RTF-Ausgabe). */}
@@ -1543,7 +1645,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               className="btn-ghost-sm flex items-center gap-1"
             >
               <Download size={12} />
-              Download
+              {t("export")}
               <ChevronDown size={11} className={`transition-transform ${dlOpen ? "rotate-180" : ""}`} />
             </button>
             {dlOpen && (
@@ -1611,55 +1713,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           </div>
         )}
 
-        {/* Change 046: Re-Align-Button — nach User-Korrekturen (Ground
-            Truth) die Word-Timestamps akustisch verifizieren. Nur bei
-            done + Schreibzugriff; während des Laufs deaktiviert (der
-            Hinweis "Präzises Alignment läuft…" erscheint oben).
-            Change 113: BGM-Removal-Auswahl wie beim Re-Transcribe — bei
-            Musik-Aufnahmen alignt der Forced-Aligner auf den Vocals. */}
-        {r.status === "done" && hasText && canEdit && (
-          <span className="flex items-center gap-1">
-            <select
-              value={realignSep}
-              onChange={(e) => setRealignSep(e.target.value)}
-              disabled={realignMut.isPending || r.alignment === "running"}
-              className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
-              title="Music Removal vor dem Re-Align (Change 113)"
-            >
-              <option value="none">Sep: aus</option>
-              <option value="htdemucs">Sep: htdemucs</option>
-              <option value="mel-band-roformer">Sep: melband</option>
-            </select>
-            <button
-              onClick={handleRealign}
-              disabled={realignMut.isPending || r.alignment === "running"}
-              title={t("realign_title")}
-              className="btn-ghost-sm"
-            >
-              <RotateCcw size={12} />
-              {t("realign")}
-            </button>
-          </span>
-        )}
-
-        {/* Change 057: Re-Diarize-Button — Sprecher-Zuordnung neu berechnen
-            (NUR speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet).
-            Nur bei done + Schreibzugriff; während des Laufs deaktiviert. */}
-        {r.status === "done" && hasText && canEdit && (
-          <button
-            onClick={handleRediarize}
-            disabled={
-              rediarizeMut.isPending ||
-              r.diar_status === "running" ||
-              r.diar_status === "pending"
-            }
-            title={t("rediarize_title")}
-            className="btn-ghost-sm"
-          >
-            <Users size={12} />
-            {t("rediarize")}
-          </button>
-        )}
+        {/* Change 116: Re-Align/Re-Diarize sind jetzt die Aktions-Tabs
+            oben („Neue Wortzeiten“ / „Sprecher suchen“) mit Start-Button —
+            die eigenen Buttons + Music-Removal-Select hier sind entfernt. */}
 
         {/* Share dropdown (nur Owner — Backend liefert access_level "full") */}
         {r.status === "done" && (r.access_level === "full" || r.access_level === "owner") && (
@@ -1839,9 +1895,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           </div>
         )}
 
-        {/* Re-Transcribe — während processing/queued wird der Button zum
-            „Abbrechen" (Job-Cancel, 2026-08-15): läuft der Aligner/ASR
-            hängt, kann der User den Job stoppen statt ewig zu warten. */}
+        {/* Abbrechen während processing/queued (Job-Cancel, 2026-08-15);
+            „Neu transkribieren“ läuft jetzt über den ersten Aktions-Tab. */}
         {r.status === "processing" || r.status === "queued" ? (
           <button
             onClick={handleCancelJob}
@@ -1852,16 +1907,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <XCircle size={12} className={cancelMut.isPending ? "animate-pulse" : ""} />
             {cancelMut.isPending ? t("cancel_pending") : t("cancel")}
           </button>
-        ) : (
-          <button
-            onClick={handleRetranscribe}
-            disabled={retranscribeMut.isPending}
-            className={`btn-ghost-sm flex items-center gap-1 ${reArmed ? "text-accent" : ""}`}
-          >
-            <RotateCcw size={12} className={retranscribeMut.isPending ? "animate-spin" : ""} />
-            {t("retranscribe")}
-          </button>
-        )}
+        ) : null}
 
         <button
           onClick={handleDelete}

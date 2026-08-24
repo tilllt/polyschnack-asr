@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ============================================================
-   BASE
+   BASE — Change 116: CRT-Grün-Theme (User 2026-08-24)
    ============================================================ */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -11,12 +11,46 @@
 
 body {
   margin: 0;
-  background-color: #0c0e14;
-  color: #dde3f0;
+  /* Sehr dezenter Röhrenmonitor-Hauch: grüner Schein oben + feine
+     Scanline-Struktur im Hintergrund. Bewusst kaum sichtbar, damit
+     Text/UI lesbar bleiben. */
+  background:
+    radial-gradient(1100px 420px at 50% -8%, rgba(46, 160, 67, 0.07), transparent 65%),
+    repeating-linear-gradient(0deg, rgba(46, 160, 67, 0.028) 0 1px, transparent 1px 3px),
+    #070b08;
+  color: #d2e8cd;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 14px;
   line-height: 1.55;
   min-height: 100vh;
+}
+
+/* Basis-Styling für native Formularelemente (Sicherheitsnetz für Stellen,
+   die keine Tailwind-Klassen setzen). Tailwind-Utilities gewinnen, wenn
+   Komponenten eigene Klassen setzen. */
+select,
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+textarea {
+  background-color: #121a14;
+  color: #d2e8cd;
+  border: 1px solid #2c3d2d;
+  border-radius: 7px;
+  padding: 4px 7px;
+}
+select:focus,
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: #2ea043;
+  box-shadow: 0 0 0 1px rgba(46, 160, 67, 0.35);
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #2ea043;
 }
 
 /* ============================================================
@@ -25,7 +59,7 @@ body {
 audio {
   width: 100%;
   height: 36px;
-  accent-color: #5b8cff;
+  accent-color: #2ea043;
   border-radius: 7px;
 }
 
@@ -39,15 +73,15 @@ audio {
   background: transparent;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #2e3447;
+  background: #2c3d2d;
   border-radius: 2px;
 }
 
 /* ============================================================
-   GRADIENT BRAND TEXT
+   GRADIENT BRAND TEXT — grün (CRT-Theme)
    ============================================================ */
 .brand-gradient {
-  background: linear-gradient(90deg, #7aa7ff 0%, #a78bff 100%);
+  background: linear-gradient(90deg, #4ade80 0%, #2ea043 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -57,8 +91,8 @@ audio {
    SEGMENT ACTIVE HIGHLIGHT
    ============================================================ */
 .seg-active {
-  background-color: #2a3558 !important;
-  border-left-color: #5b8cff !important;
+  background-color: #1c3323 !important;
+  border-left-color: #2ea043 !important;
 }
 
 /* Aktives Karaoke-Wort: Textmarker statt Fettdruck.
@@ -88,11 +122,11 @@ audio {
 /* ============================================================
    TOUCH-SEL (Tablet-Split-Markierung, Change 013)
    Eigene Markierung statt nativer Android-Selektion (die öffnet
-   sonst den Google-Suchassistenten). Blau wie die native Auswahl,
-   layout-neutral wie karaoke-active/search-hit. (2026-08-17)
+   sonst den Google-Suchassistenten). Grün wie die Markierung im
+   CRT-Theme, layout-neutral wie karaoke-active/search-hit. (2026-08-17)
    ============================================================ */
 .touch-sel {
-  background-color: rgba(91, 140, 255, 0.55) !important;
+  background-color: rgba(46, 160, 67, 0.55) !important;
   color: #ffffff !important;
   border-radius: 2px;
 }
@@ -101,7 +135,7 @@ audio {
    ANNOTATION-MARK (Change 077)
    Text-Markierung annotierter Passagen — eigene Farbe (lila),
    bewusst getrennt von search-hit (grün) / karaoke-active (gelb) /
-   touch-sel (blau). Layout-neutral wie die anderen Marker: nur
+   touch-sel. Layout-neutral wie die anderen Marker: nur
    background-color + color, kein padding/underline (kein Reflow).
    .annot-active = die aktuell im Scope liegende Annotation
    (Playback-Fenster oder Klick) — kräftigere Variante.
@@ -140,8 +174,8 @@ audio {
 
 .spinner {
   width: 11px; height: 11px;
-  border: 2px solid rgba(88,166,255,.3);
-  border-top-color: #58a6ff;
+  border: 2px solid rgba(74, 222, 128, 0.3);
+  border-top-color: #4ade80;
   border-radius: 50%;
   animation: spin 0.75s linear infinite;
   display: inline-block;

@@ -178,12 +178,18 @@ export function useRealign() {
 }
 
 /** Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR speaker-
- *  Felder; Text/Wörter/Zeiten bleiben unangetastet). */
+ *  Felder; Text/Wörter/Zeiten bleiben unangetastet).
+ *  Change 116: optionale Diar-Optionen (numSpeakers, minDurationOff, method)
+ *  werden mitgesendet und übersteuern die Run-Settings. */
 export function useRediarize() {
   const qc = useQueryClient();
 
-  return useMutation<{ id: string; diar_status: string }, Error, string>({
-    mutationFn: (id) => rediarizeRecording(id),
+  return useMutation<
+    { id: string; diar_status: string },
+    Error,
+    { id: string; opts?: { numSpeakers?: string; minDurationOff?: string; method?: string } }
+  >({
+    mutationFn: ({ id, opts }) => rediarizeRecording(id, opts),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
     },

@@ -408,9 +408,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           // aus; der eigene Click-Handler unten sucht + spielt NUR bei
           // canPlay (echter Decode-Buffer vorhanden).
           interact: false,
-          waveColor: "rgba(91,140,255,0.3)",
-          progressColor: "rgba(91,140,255,0.8)",
-          cursorColor: "#3b82f6",
+          waveColor: "rgba(46,160,67,0.35)",
+          progressColor: "rgba(46,160,67,0.85)",
+          cursorColor: "#2ea043",
           cursorWidth: 1,
           barWidth: 2,
           barGap: 1,
@@ -542,7 +542,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         regions.addRegion({
           start: 0,
           end: dur,
-          color: "rgba(91,140,255,0.08)",
+          color: "rgba(46,160,67,0.1)",
           drag: true,
           resize: true,
         });

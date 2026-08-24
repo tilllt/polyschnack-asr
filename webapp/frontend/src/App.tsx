@@ -141,7 +141,7 @@ function AppContent() {
       <header
         className="
           sticky top-0 z-[100]
-          bg-[rgba(12,14,20,.92)] backdrop-blur-[12px]
+          bg-[rgba(7,11,8,.92)] backdrop-blur-[12px]
           border-b border-border
           px-3 sm:px-6 py-3 sm:py-[14px]
         "

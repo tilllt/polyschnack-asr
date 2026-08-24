@@ -70,7 +70,7 @@ function MiniToggle({ label, on, disabled, onChange }: {
         checked={on}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="accent-[#5b8cff]"
+        className="accent-[#2ea043]"
       />
       {label}
     </label>

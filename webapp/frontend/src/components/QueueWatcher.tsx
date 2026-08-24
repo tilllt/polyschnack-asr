@@ -44,7 +44,7 @@ export function QueueWatcher() {
         {status.jobs.map((j) => (
           <li key={j.job_id} className="flex items-center gap-2 text-muted flex-wrap">
             <span className="text-txt font-semibold tabular-nums">#{j.job_id}</span>
-            <span className="bg-[rgba(91,140,255,.12)] text-accent px-[6px] py-[1px] rounded-full text-[10px] font-semibold">
+            <span className="bg-[rgba(46,160,67,.15)] text-accent px-[6px] py-[1px] rounded-full text-[10px] font-semibold">
               {j.backend}
             </span>
             {j.status === "queued" ? (

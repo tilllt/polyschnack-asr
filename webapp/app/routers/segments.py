@@ -333,6 +333,9 @@ def realign_recording(
 def re_diarize_recording(
     rid: str,
     request: Request = None,
+    num_speakers: str = Form(""),
+    min_duration_off: str = Form(""),
+    method: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Change 057: Sprecher-Zuordnung (Diarization) neu berechnen.
@@ -342,6 +345,9 @@ def re_diarize_recording(
     sichtbar/bearbeitbar. Es werden NUR die ``speaker``-Felder der
     Segmente ersetzt — Text, Wörter, Timestamps, manuelle Aufteilung und
     Alignment bleiben unangetastet.
+
+    Change 116: optionale Diar-Optionen (num_speakers, min_duration_off,
+    method) übersteuern die gespeicherten Run-Einstellungen.
     """
     rec = get_recording_by_uid(session, rid)
     if rec is None:
@@ -368,7 +374,21 @@ def re_diarize_recording(
 
     from ..service import _schedule_rediarize
 
-    if rec.id is None or not _schedule_rediarize(rec.id):
+    opts: Dict[str, Any] = {}
+    if num_speakers not in ("", None):
+        try:
+            opts["num_speakers"] = int(num_speakers)
+        except (TypeError, ValueError):
+            pass
+    if min_duration_off not in ("", None):
+        try:
+            opts["min_duration_off"] = float(min_duration_off)
+        except (TypeError, ValueError):
+            pass
+    if method not in ("", None):
+        opts["method"] = method
+
+    if rec.id is None or not _schedule_rediarize(rec.id, opts or None):
         raise HTTPException(
             status_code=503,
             detail="Re-Diarize nicht möglich (Audio fehlt oder nicht lesbar)",

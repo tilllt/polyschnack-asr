@@ -751,10 +751,20 @@ export async function realignRecording(
 
 /** Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR die
  *  speaker-Felder; Text/Wörter/Zeiten bleiben unangetastet). Läuft im
- *  Hintergrund, Antwort {id, diar_status: "pending"}. */
-export async function rediarizeRecording(id: string): Promise<{ id: string; diar_status: string }> {
+ *  Hintergrund, Antwort {id, diar_status: "pending"}.
+ *  Change 116: optionale Diar-Optionen (numSpeakers, minDurationOff,
+ *  method) als Form-Felder — übersteuern die gespeicherten Run-Settings. */
+export async function rediarizeRecording(
+  id: string,
+  opts?: { numSpeakers?: string; minDurationOff?: string; method?: string },
+): Promise<{ id: string; diar_status: string }> {
+  const fd = new FormData();
+  if (opts?.numSpeakers) fd.append("num_speakers", opts.numSpeakers);
+  if (opts?.minDurationOff) fd.append("min_duration_off", opts.minDurationOff);
+  if (opts?.method) fd.append("method", opts.method);
   const res = await fetch(`/api/recordings/${id}/rediarize`, {
     method: "POST",
+    body: fd,
   }).then(checkOk);
   return res.json() as Promise<{ id: string; diar_status: string }>;
 }

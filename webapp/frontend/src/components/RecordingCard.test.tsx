@@ -237,18 +237,21 @@ describe("RecordingCard — Change 014 Defekt-Badge", () => {
   });
 });
 
-describe("RecordingCard — Change 046 Re-Align-Button", () => {
-  test("Re-Align-Button sichtbar bei done + Schreibzugriff", () => {
-    renderCard(makeRec(), false); // expandiert → Actions sichtbar
-    expect(screen.getByText("Re-align")).toBeTruthy();
+describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () => {
+  test("Aktions-Tab 'New word timestamps' aktiv bei done + Schreibzugriff", () => {
+    renderCard(makeRec(), false); // expandiert → Aktionsleiste sichtbar
+    const tab = screen.getByTestId("act-alg") as HTMLButtonElement;
+    expect(tab).toBeTruthy();
+    expect(tab.disabled).toBe(false);
   });
 
-  test("Re-Align-Button fehlt bei Read-Only-Share", () => {
+  test("Aktions-Tab 'New word timestamps' fehlt bei Read-Only-Share", () => {
     renderCard(makeRec({ access_level: "read" }), false);
-    expect(screen.queryByText("Re-align")).toBeNull();
+    // Read-Only: keine Aktionsleiste (kein Schreibzugriff → nichts startbar).
+    expect(screen.queryByTestId("act-alg")).toBeNull();
   });
 
-  test("Re-Align-Klick startet Mutation", () => {
+  test("Start mit Aktion 'New word timestamps' startet die Re-Align-Mutation", async () => {
     const hooks = vi.hoisted(() => ({ realignMutate: vi.fn() }));
     hooks.realignMutate.mockImplementation((_id: string, opts: unknown) => {
       if (opts && typeof opts === "object" && "onSuccess" in opts) {
@@ -256,23 +259,30 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
       }
     });
     vi.mocked(useRealign).mockReturnValue({ mutate: hooks.realignMutate as never, isPending: false } as never);
-    renderCard(makeRec(), false); // expandiert → Re-Align-Button sichtbar
-    screen.getByText("Re-align").click();
-    expect(hooks.realignMutate).toHaveBeenCalled();
+    renderCard(makeRec(), false); // expandiert → Aktionsleiste sichtbar
+    screen.getByTestId("act-alg").click();
+    // Auf den Re-Render warten (Tab aktiv), sonst greift der Start-Klick
+    // den alten Handler mit action="tr".
+    await waitFor(() => expect(screen.getByTestId("act-alg").className).toContain("border-b-accent"));
+    screen.getByText("Start").click();
+    await waitFor(() => expect(hooks.realignMutate).toHaveBeenCalled());
   });
 
-  test("Change 113: BGM-Removal-Select vorhanden bei done + Schreibzugriff", () => {
+  test("Change 113/116: Music-Removal-Option 'Musik entfernen' im Options-Panel", async () => {
     renderCard(makeRec(), false);
-    const select = screen.getByTitle("Music Removal vor dem Re-Align (Change 113)") as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    expect(Array.from(select.options).map((o) => o.value)).toEqual([
-      "none",
-      "htdemucs",
-      "mel-band-roformer",
-    ]);
+    screen.getByText("Options").click(); // Options-Panel aufklappen
+    await waitFor(() => {
+      const select = document.querySelector('[data-opt="separate"] select') as HTMLSelectElement | null;
+      expect(select).toBeTruthy();
+      expect(Array.from(select!.options).map((o) => o.value)).toEqual([
+        "none",
+        "htdemucs",
+        "mel-band-roformer",
+      ]);
+    });
   });
 
-  test("Change 113: Re-Align-Klick sendet gewähltes separate_backend", () => {
+  test("Change 113/116: Re-Align sendet gewähltes separate_backend", async () => {
     const hooks113 = vi.hoisted(() => ({ realignMutate113: vi.fn() }));
     hooks113.realignMutate113.mockImplementation((_id: string, opts: unknown) => {
       if (opts && typeof opts === "object" && "onSuccess" in opts) {
@@ -281,17 +291,25 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
     });
     vi.mocked(useRealign).mockReturnValue({ mutate: hooks113.realignMutate113 as never, isPending: false } as never);
     renderCard(makeRec(), false);
-    fireEvent.change(screen.getByTitle("Music Removal vor dem Re-Align (Change 113)"), {
+    screen.getByText("Options").click();
+    await waitFor(() => {
+      expect(document.querySelector('[data-opt="separate"] select')).toBeTruthy();
+    });
+    fireEvent.change(document.querySelector('[data-opt="separate"] select') as HTMLSelectElement, {
       target: { value: "htdemucs" },
     });
-    screen.getByText("Re-align").click();
-    expect(hooks113.realignMutate113).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "r1",
-        opts: { separate_backend: "htdemucs" },
-      }),
-      expect.anything(),
-    );
+    screen.getByTestId("act-alg").click();
+    await waitFor(() => expect(screen.getByTestId("act-alg").className).toContain("border-b-accent"));
+    screen.getByText("Start").click();
+    await waitFor(() => {
+      expect(hooks113.realignMutate113).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "r1",
+          opts: { separate_backend: "htdemucs" },
+        }),
+        expect.anything(),
+      );
+    });
   });
 
   test("Change 101: alignment=skipped zeigt sichtbaren Hinweis (keine stille done-Lüge)", () => {
