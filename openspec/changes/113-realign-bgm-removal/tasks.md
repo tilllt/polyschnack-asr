@@ -24,9 +24,9 @@
 
 ## Phase 3 — Verifikation
 
-- [ ] Backend-Gesamtsuite grün (läuft)
+- [x] Backend-Gesamtsuite grün (965: 958 + 2 reparierte test_realign-Mocks + 5 neue)
 - [x] Frontend-Suite grün (307/307), tsc 0
-- [ ] Commit + Push, CI prüfen
+- [x] Commit + Push (`0aaf4b9`), CI läuft (Watchdog)
 
 ## Befund (24.08.)
 
