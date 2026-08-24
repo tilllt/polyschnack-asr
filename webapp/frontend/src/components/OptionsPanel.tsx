@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../useLocale";
 import { useDismiss } from "../useDismiss";
@@ -61,6 +61,11 @@ const TXT: Record<string, S> = {
     de: "Nachbearbeitung ist nur für angemeldete Nutzer verfügbar.",
     en: "Post-processing is only available for signed-in users.",
     pt: "O pós-processamento está disponível apenas para usuários conectados.",
+  },
+  opt_cat_hint: {
+    de: "Für diese Aktion nicht verfügbar.",
+    en: "Not available for this action.",
+    pt: "Não disponível para esta ação.",
   },
 };
 
@@ -289,7 +294,7 @@ function Row({ id, label, help, dis, control }: {
 }) {
   return (
     <div
-      className={`flex items-center gap-2 min-h-[28px] py-[3px] ${dis ? "opacity-40" : ""}`}
+      className={`flex items-center gap-2 min-h-[28px] py-[3px] ${dis ? "opacity-25" : ""}`}
       data-opt={id}
     >
       <span className="text-[12px] font-semibold flex-1 min-w-0">{label}</span>
@@ -366,11 +371,50 @@ export function OptionsPanel({ values, backends, streamingSupported, streamingBy
     return false;
   };
 
+  // Change 118: Kategorie-Tab disabled, wenn ALLE seine Optionen bei der
+  // gewählten Aktion nicht verfügbar sind (rowDis + Flags/Backend-Zustand).
+  const tabRows: Record<"pre" | "spk" | "post", { id: string; extra: boolean }[]> = {
+    pre: [
+      { id: "vad", extra: !vadOk },
+      { id: "noise", extra: false },
+      { id: "enhance", extra: false },
+      { id: "separate", extra: false },
+      { id: "model", extra: backends.length === 0 },
+      // live wird nur gerendert, wenn Streaming unterstützt wird
+      { id: "live", extra: streamingSupported === false },
+    ],
+    spk: [
+      { id: "diarize", extra: !diarOk },
+      { id: "num", extra: false },
+      { id: "sens", extra: false },
+      { id: "method", extra: false },
+    ],
+    post: [
+      { id: "punct", extra: !oidc },
+      { id: "llmfix", extra: !oidc },
+      { id: "template", extra: !oidc },
+      { id: "endpoint", extra: !oidc },
+      { id: "target", extra: !oidc },
+    ],
+  };
+  const tabDis = (tid: "pre" | "spk" | "post"): boolean =>
+    tabRows[tid].every((r) => rowDis(tid, r.id) || r.extra);
+
   const tabs: { id: "pre" | "spk" | "post"; label: string }[] = [
     { id: "pre", label: L(TXT.tab_pre, lang) },
     { id: "spk", label: L(TXT.tab_spk, lang) },
     { id: "post", label: L(TXT.tab_post, lang) },
   ];
+
+  // Change 118: Wird der aktive Tab durch einen Aktion-Wechsel nicht mehr
+  // verfügbar, springt das Panel zum ersten verfügbaren Tab (z. B.
+  // Nachbearbeitung → Vorbereitung bei „Neue Wortzeiten“).
+  useEffect(() => {
+    if (!tabDis(tab)) return;
+    const alt = tabs.find((t) => !tabDis(t.id));
+    if (alt) setTab(alt.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action, oidc, vadOk, diarOk]);
 
   return (
     <div className="border border-border rounded-sm bg-panel2/60 p-2">
@@ -380,11 +424,16 @@ export function OptionsPanel({ values, backends, streamingSupported, streamingBy
           <button
             key={tb.id}
             type="button"
+            data-testid={`opt-tab-${tb.id}`}
+            disabled={tabDis(tb.id)}
             onClick={() => setTab(tb.id)}
+            title={tabDis(tb.id) ? L(TXT.opt_cat_hint, lang) : undefined}
             className={`flex-1 text-center text-[11.5px] font-semibold py-[6px] cursor-pointer border-b-2 -mb-px transition-colors ${
-              tab === tb.id
-                ? "text-accent border-b-accent"
-                : "text-muted border-b-transparent hover:text-txt"
+              tabDis(tb.id)
+                ? "text-muted2 opacity-30 cursor-not-allowed border-b-transparent"
+                : tab === tb.id
+                  ? "text-accent border-b-accent"
+                  : "text-muted border-b-transparent hover:text-txt"
             }`}
           >
             {tb.label}

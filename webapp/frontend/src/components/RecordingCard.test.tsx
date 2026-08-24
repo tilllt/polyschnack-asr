@@ -312,6 +312,49 @@ describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () =
     });
   });
 
+describe("RecordingCard — Change 118 Options-Kategorie-Disabled", () => {
+  test("Nicht verfügbare Option schwächer ausgegraut (opacity-25)", async () => {
+    renderCard(makeRec(), false);
+    screen.getByText("Options").click();
+    await waitFor(() => {
+      const model = document.querySelector('[data-opt="model"]') as HTMLElement;
+      expect(model.className).toContain("opacity-25"); // kein Backend im Test → nicht verfügbar
+      const vad = document.querySelector('[data-opt="vad"]') as HTMLElement;
+      expect(vad.className).not.toContain("opacity-25"); // verfügbar
+    });
+  });
+
+  test("Kategorie-Tabs disabled, wenn keine Option verfügbar (Aktion 'Neue Wortzeiten')", async () => {
+    vi.mocked(useRealign).mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+    renderCard(makeRec(), false);
+    screen.getByText("Options").click();
+    await waitFor(() => expect(document.querySelector('[data-opt="separate"]')).toBeTruthy());
+    // anon (kein OIDC): Nachbearbeitung ist nie verfügbar → Tab disabled
+    expect((screen.getByTestId("opt-tab-post") as HTMLButtonElement).disabled).toBe(true);
+    // Aktion „Neue Wortzeiten“: nur Vorbereitung (Musik entfernen) verfügbar
+    screen.getByTestId("act-alg").click();
+    await waitFor(() => {
+      expect((screen.getByTestId("opt-tab-spk") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("opt-tab-post") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("opt-tab-pre") as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  test("Auto-Switch: aktiver Tab springt auf verfügbaren bei Aktion-Wechsel", async () => {
+    vi.mocked(useRealign).mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+    renderCard(makeRec(), false);
+    screen.getByText("Options").click();
+    await waitFor(() => expect(document.querySelector('[data-opt="separate"]')).toBeTruthy());
+    // Sprechererkennung-Tab aktivieren (bei Aktion „Re-transcribe“ verfügbar)
+    screen.getByTestId("opt-tab-spk").click();
+    await waitFor(() => expect(document.querySelector('[data-opt="num"]')).toBeTruthy());
+    // Aktion wechseln auf „Neue Wortzeiten“ → spk-Tab wird disabled,
+    // Panel springt automatisch zurück auf Vorbereitung.
+    screen.getByTestId("act-alg").click();
+    await waitFor(() => expect(screen.getByTestId("opt-tab-pre").className).toContain("border-b-accent"));
+  });
+});
+
   test("Change 101: alignment=skipped zeigt sichtbaren Hinweis (keine stille done-Lüge)", () => {
     renderCard(
       makeRec({
