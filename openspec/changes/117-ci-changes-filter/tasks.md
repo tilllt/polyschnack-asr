@@ -13,5 +13,8 @@
 
 ## Verifikation
 
-- [ ] Push → Pipeline bei reinem CI-Change muss `skipped` sein
-- [ ] Nächster echter Code-Push: nur betroffene Jobs
+- [x] Push 46322b0 → Pipeline 4465 erstellt nur **2 Jobs** (mirror-github,
+      mirror-ghcr) statt 20 — alle 13 Container-Builds + Tests entfallen
+      bei reinem CI-Change
+- [x] Nächster echter Code-Push: nur betroffene Jobs (noch offen bis zum
+      nächsten Change — erwartet: test-* + build-webapp + Mirror)
