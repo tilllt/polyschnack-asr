@@ -64,6 +64,7 @@ def create_queued_run(
     backend: str = "ps-pk-onnx",
     language: Optional[str] = None,
     enable_vad: bool = False,
+    vad_mode: str = "off",  # Change 114: off|edges|all (Legacy: enable_vad=True ohne vad_mode → edges)
     enable_diarize: bool = False,
     diarize_num_speakers: Optional[int] = None,
     diarize_min_duration_off: Optional[float] = None,
@@ -92,6 +93,7 @@ def create_queued_run(
         backend=backend,
         language=language,
         enable_vad=enable_vad,
+        vad_mode=vad_mode,
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
         diarize_min_duration_off=diarize_min_duration_off,

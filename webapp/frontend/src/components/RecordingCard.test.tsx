@@ -307,6 +307,35 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
     expect(hint).toBeTruthy();
     expect(hint.getAttribute("title")).toContain("Aligner nicht erreichbar");
   });
+
+  test("Change 115: bg-align zeigt Live-Details (Gruppe + RTF statt statischem Text)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        alignment: "running",
+        progress_note: "alignment Gruppe 3/12 — aktiv seit 42s — CLI 45%",
+        last_heartbeat_at: new Date(Date.now() - 42_000).toISOString(),
+      }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-align-r1");
+    expect(hint.textContent).toContain("Gruppe 3/12");
+    expect(hint.textContent).toContain("CLI 45%");
+    expect(hint.textContent).not.toContain("läuft im Hintergrund");
+  });
+
+  test("Change 115: bg-diar zeigt Heartbeat-Zeit (läuft seit)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        diar_status: "running",
+        last_heartbeat_at: new Date(Date.now() - 42_000).toISOString(),
+      }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-diar-r1");
+    expect(hint.textContent).toContain("42s"); // „läuft seit 42s" (sprachunabhängig)
+  });
 });
 
 describe("RecordingCard — Change 058 Popover/Dropdown-Konsistenz", () => {

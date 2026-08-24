@@ -201,7 +201,7 @@ def _backfill_baseline_runs(session: Session) -> None:
         sa_text("PRAGMA table_info(transcriptionrun)")).all()]
     rec_cols = [r[1] for r in session.exec(
         sa_text("PRAGMA table_info(recording)")).all()]
-    want = ["backend", "language", "enable_vad", "enable_diarize",
+    want = ["backend", "language", "enable_vad", "vad_mode", "enable_diarize",
             "diarize_num_speakers", "diarize_min_duration_off", "diarize_method",
             "enable_streaming", "enable_noise_reduce", "enable_enhance",
             "separate_backend", "enable_punctuation", "enable_llm_enhance", "prompt_template_id",
@@ -211,6 +211,7 @@ def _backfill_baseline_runs(session: Session) -> None:
         "backend": "'ps-pk-onnx'",
         "language": "NULL",
         "enable_vad": "0",
+        "vad_mode": "'off'",  # Change 114: Legacy-Recordings ohne VAD
         "enable_diarize": "0",
         "diarize_num_speakers": "NULL",
         "diarize_min_duration_off": "NULL",

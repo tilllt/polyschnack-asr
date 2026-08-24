@@ -332,6 +332,7 @@ async def import_from_url(
     request: Request,
     url: str = Form(...),
     enable_vad: bool = Form(False),
+    vad_mode: str = Form("off"),  # Change 114: off|edges|all
     enable_diarize: bool = Form(False),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
@@ -567,9 +568,15 @@ async def import_from_url(
     )
     # Change 099: Settings landen im queued-Run (Recording = Stamm ohne
     # Settings-Spalten).
+    if not isinstance(vad_mode, str) or vad_mode not in ("off", "edges", "all"):
+        vad_mode = "edges" if enable_vad else "off"  # Change 114: Legacy
+    elif enable_vad and vad_mode == "off":
+        vad_mode = "edges"  # Change 114: alter Client sendet nur enable_vad=true
+    enable_vad = vad_mode != "off"  # Change 114: konsistente Ableitung
     run = create_queued_run(
         session, rec.id,
         enable_vad=enable_vad,
+        vad_mode=vad_mode,  # Change 114
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
         diarize_min_duration_off=diarize_min_duration_off,

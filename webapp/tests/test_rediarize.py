@@ -9,6 +9,7 @@ Deckt ab:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,11 @@ def env(tmp_path, monkeypatch):
             self.target(*self.args, **self.kwargs)
 
     monkeypatch.setattr("threading.Thread", _SyncThread)
+    # Change 115: Der Re-Diarize-Worker startet einen Job-Heartbeat-Thread
+    # („aktiv seit Xs"). Im SyncThread-Fake liefe der inline und blockierte
+    # endlos in stop.wait() — für die Worker-Logik irrelevant, also No-op.
+    monkeypatch.setattr(service_mod, "_start_job_heartbeat",
+                        lambda rec_id, interval_s=5.0: threading.Event())
     return eng
 
 

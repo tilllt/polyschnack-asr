@@ -706,12 +706,28 @@ def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, st
 # ---------------------------------------------------------------------------
 
 
+def _effective_vad_mode(run) -> str:
+    """Change 114: effektiver VAD-Modus aus dem Run (Legacy-Fallback).
+
+    Alte Runs haben nur enable_vad (bool) → True wird zu "edges". Neue Runs
+    tragen vad_mode ("off"|"edges"|"all"). None/"" (fehlende Spalte in alten
+    DBs) fällt auf den bool zurück.
+    """
+    if run is None:
+        return "off"
+    mode = getattr(run, "vad_mode", None) or ""
+    if mode in ("off", "edges", "all"):
+        return mode
+    return "edges" if run.enable_vad else "off"
+
+
 @router.post("/recordings", status_code=201)
 async def upload_recording(
     request: Request,
     file: UploadFile = File(...),
     batch_id: Optional[str] = Form(None),
     enable_vad: bool = Form(False),
+    vad_mode: str = Form("off"),  # Change 114: off|edges|all
     enable_diarize: bool = Form(False),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
@@ -728,6 +744,11 @@ async def upload_recording(
     # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
     if not isinstance(separate_backend, str):
         separate_backend = "none"
+    if not isinstance(vad_mode, str) or vad_mode not in ("off", "edges", "all"):
+        vad_mode = "edges" if enable_vad else "off"  # Change 114: Legacy-Ableitung
+    elif enable_vad and vad_mode == "off":
+        vad_mode = "edges"  # Change 114: alter Client sendet nur enable_vad=true
+    enable_vad = vad_mode != "off"  # Change 114: konsistente Ableitung (Legacy-Leser)
 
     # Limit upload size
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -857,6 +878,7 @@ async def upload_recording(
     run = create_queued_run(
         session, rec.id,
         enable_vad=enable_vad,
+        vad_mode=vad_mode,  # Change 114
         enable_diarize=enable_diarize,
         diarize_num_speakers=diarize_num_speakers,
         diarize_min_duration_off=diarize_min_duration_off,
@@ -932,6 +954,7 @@ def duplicate_recording(
         session, new_rec.id,
         backend=src_run.backend if src_run else "ps-pk-onnx",
         enable_vad=bool(src_run and src_run.enable_vad),
+        vad_mode=_effective_vad_mode(src_run),  # Change 114
         enable_diarize=bool(src_run and src_run.enable_diarize),
         diarize_num_speakers=src_run.diarize_num_speakers if src_run else None,
         diarize_min_duration_off=src_run.diarize_min_duration_off if src_run else None,
@@ -1610,6 +1633,7 @@ def transcribe_ep(
     rid: str,
     request: Request,
     enable_vad: bool = Form(False),
+    vad_mode: str = Form("off"),  # Change 114: off|edges|all
     enable_diarize: bool = Form(False),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
@@ -1670,6 +1694,11 @@ def transcribe_ep(
             rec_id=rec.id, status="queued", created_by_user_id=uid)
         session.add(run)
     run.enable_vad = enable_vad
+    run.vad_mode = (vad_mode if isinstance(vad_mode, str) and vad_mode in ("off", "edges", "all")
+                    else ("edges" if enable_vad else "off"))  # Change 114
+    if run.vad_mode == "off" and enable_vad:
+        run.vad_mode = "edges"  # Change 114: alter Client sendet nur enable_vad=true
+    run.enable_vad = run.vad_mode != "off"  # Change 114: konsistente Ableitung
     run.enable_diarize = enable_diarize
     run.diarize_num_speakers = diarize_num_speakers
     run.diarize_min_duration_off = diarize_min_duration_off
@@ -1733,6 +1762,7 @@ def transcribe_ep(
 
 class RetranscribeParams(BaseModel):
     enable_vad: bool = False
+    vad_mode: str = "off"  # Change 114: off|edges|all
     enable_diarize: bool = False
     diarize_num_speakers: Optional[int] = None
     diarize_min_duration_off: Optional[float] = None
@@ -1787,6 +1817,11 @@ def retranscribe(
     run = TranscriptionRun(
         rec_id=rec.id, status="queued", created_by_user_id=uid)
     run.enable_vad = params.enable_vad
+    run.vad_mode = (params.vad_mode if params.vad_mode in ("off", "edges", "all")
+                    else ("edges" if params.enable_vad else "off"))  # Change 114
+    if run.vad_mode == "off" and params.enable_vad:
+        run.vad_mode = "edges"  # Change 114: alter Client sendet nur enable_vad=true
+    run.enable_vad = run.vad_mode != "off"  # Change 114: konsistente Ableitung
     run.enable_diarize = params.enable_diarize
     run.diarize_num_speakers = params.diarize_num_speakers
     run.diarize_min_duration_off = params.diarize_min_duration_off
@@ -2045,6 +2080,7 @@ def transcribe_range(
         session, new_rec.id,
         backend=src_run.backend if src_run else "ps-pk-onnx",
         enable_vad=bool(src_run and src_run.enable_vad),
+        vad_mode=_effective_vad_mode(src_run),  # Change 114
         enable_diarize=bool(src_run and src_run.enable_diarize),
         enable_noise_reduce=True if src_run is None else bool(src_run.enable_noise_reduce),
         enable_enhance="off" if src_run is None else (src_run.enable_enhance or "off"),

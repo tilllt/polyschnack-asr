@@ -280,12 +280,20 @@ def test_alignment_cache_roundtrip(tmp_path, monkeypatch):
     from app.service import _AlignmentCache
 
     monkeypatch.setattr(_AlignmentCache, "_DIR", tmp_path / "cache")
-    _AlignmentCache.write(7, b"audio-bytes", trim_offset_s=1.5)
+    # Neues Format (Change 114): vad_meta-dict
+    _AlignmentCache.write(7, b"audio-bytes",
+                          vad_meta={"type": "shift", "offset_s": 1.5})
     assert _AlignmentCache.read(7) == b"audio-bytes"
-    assert _AlignmentCache.read_meta(7) == 1.5
+    assert _AlignmentCache.read_vad_meta(7) == {"type": "shift", "offset_s": 1.5}
     _AlignmentCache.delete(7)
     assert _AlignmentCache.read(7) is None
+    assert _AlignmentCache.read_vad_meta(7) is None
     assert _AlignmentCache.read_meta(7) == 0.0
+
+    # Alt-Format (float trim_offset_s) bleibt kompatibel lesbar
+    _AlignmentCache.write(8, b"alt", 1.5)
+    assert _AlignmentCache.read_vad_meta(8) == {"type": "shift", "offset_s": 1.5}
+    assert _AlignmentCache.read_meta(8) == 1.5
 
 
 def test_background_align_cache_fehlt_skipped(tmp_path, monkeypatch):
@@ -313,7 +321,7 @@ def test_background_align_ersetzt_words(aligner_server, wav_bytes, tmp_path, mon
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
 
     # Cache wie der Job-Fluss schreiben (verarbeitete Bytes, kein Trim).
-    svc._AlignmentCache.write(7, wav_bytes, trim_offset_s=0.0)
+    svc._AlignmentCache.write(7, wav_bytes)
 
     svc._run_background_align(7)
     assert rec.alignment == "done"
@@ -352,7 +360,7 @@ def test_background_align_versionsguard_verwirft(tmp_path, monkeypatch):
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _MutableFakeSession(rec))
-    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+    svc._AlignmentCache.write(7, b"x")
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
@@ -374,7 +382,7 @@ def test_background_align_ohne_effekt_ist_skipped_nicht_done(tmp_path, monkeypat
         "words": [{"word": "Hallo", "start": 0.0, "end": 0.5}],
     }])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
-    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+    svc._AlignmentCache.write(7, b"x")
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
@@ -402,7 +410,7 @@ def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch)
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
-    svc._AlignmentCache.write(7, b"x", trim_offset_s=0.0)
+    svc._AlignmentCache.write(7, b"x")
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"

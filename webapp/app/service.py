@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sqlmodel import Session, select
 
@@ -41,6 +41,137 @@ def _trim_silence(audio_bytes: bytes) -> Tuple[bytes, float]:
     """
     from .vad import trim_silence_with_offset
     return trim_silence_with_offset(audio_bytes)
+
+
+def _run_vad_mode(run) -> str:
+    """Change 114: effektiver VAD-Modus eines Runs (Legacy-Fallback).
+
+    enable_vad=True ohne vad_mode (alte Runs) → "edges". Fehlende
+    Spalte (None/"") fällt auf den bool zurück. None-Run → "off".
+    """
+    if run is None:
+        return "off"
+    mode = getattr(run, "vad_mode", None) or ""
+    if mode in ("off", "edges", "all"):
+        return mode
+    return "edges" if run.enable_vad else "off"
+
+
+def _apply_vad(audio_bytes: bytes, mode: str) -> Tuple[bytes, Optional[Dict[str, Any]]]:
+    """Change 114: VAD-Preprocessing nach Modus (off|edges|all).
+
+    Rückgabe (audio_bytes, vad_meta):
+      "off"    → (unverändert, None)
+      "edges"  → (getrimmt, {"type": "shift", "offset_s": x})
+      "all"    → (gesquasht, {"type": "map", "mapping": [[alt_start, alt_end, new_start], …]})
+    Ehrlicher Fallback: Modell fehlt/kein Speech/Fehler → unverändert +
+    None (nie ein Abbruch, wie bisher beim Trim).
+    """
+    if mode == "edges":
+        try:
+            trimmed, offset = _trim_silence(audio_bytes)
+            if offset > 0:
+                return trimmed, {"type": "shift", "offset_s": offset}
+            return audio_bytes, None
+        except Exception as exc:
+            log.warning("vad: edges fehlgeschlagen — weiter mit Original: %s", exc)
+            return audio_bytes, None
+    if mode == "all":
+        try:
+            from .vad import squash_silence_with_mapping
+            squashed, mapping = squash_silence_with_mapping(audio_bytes)
+            if mapping:
+                return squashed, {"type": "map",
+                                  "mapping": [[a, b, c] for a, b, c in mapping]}
+            return audio_bytes, None
+        except Exception as exc:
+            log.warning("vad: all fehlgeschlagen — weiter mit Original: %s", exc)
+            return audio_bytes, None
+    return audio_bytes, None
+
+
+def _map_time(t: float, mapping: List[List[float]]) -> float:
+    """Original-Zeit → Zeit auf der gesquashten Achse (Change 114).
+
+    Zeitpunkte in entfernten Lücken existieren im squashten Audio nicht
+    mehr → deterministisches Clamping: vor der ersten Region → 0.0, in
+    einer Lücke → Ende der VORHERIGEN Region, nach der letzten Region →
+    Ende der letzten Region.
+    """
+    for i, (alt_start, alt_end, new_start) in enumerate(mapping):
+        if alt_start <= t <= alt_end:
+            return new_start + (t - alt_start)
+        if i < len(mapping) - 1 and alt_end < t < mapping[i + 1][0]:
+            # Lücke zwischen Region i und i+1 → Ende von Region i
+            return new_start + (alt_end - alt_start)
+    if t < mapping[0][0]:
+        return 0.0
+    return mapping[-1][2] + (mapping[-1][1] - mapping[-1][0])
+
+
+def _unmap_time(t: float, mapping: List[List[float]]) -> float:
+    """Zeit auf der gesquashten Achse → Original-Zeit (Change 114).
+
+    Fugen (zwischen konkatenierten Regionen) haben kein Original-Pendant
+    → deterministisches Clamping auf das Ende der VORHERIGEN Region
+    (konsistent mit dem Lücken-Clamping von _map_time).
+    """
+    for i, (alt_start, alt_end, new_start) in enumerate(mapping):
+        dur = alt_end - alt_start
+        if new_start <= t <= new_start + dur:
+            return alt_start + (t - new_start)
+        if i < len(mapping) - 1 and new_start + dur < t < mapping[i + 1][2]:
+            return alt_end  # Fuge zwischen Region i und i+1
+    if not mapping:
+        return t
+    if t < mapping[0][2]:
+        return mapping[0][0]
+    return mapping[-1][1]
+
+
+def _remap_segments(segments: list, mapping: List[List[float]], inverse: bool = False) -> None:
+    """Schiebt alle Timestamps durch das Squash-Mapping (in-place).
+
+    inverse=False (forward): Original → gesquashte Achse.
+    inverse=True: gesquashte → Original-Achse. Behandelt start/end UND
+    start_ms/end_ms, Segment- und Wort-Ebene. (Change 114)
+    """
+    fn = _unmap_time if inverse else _map_time
+
+    def _one(d: dict) -> None:
+        if d.get("start") is not None:
+            d["start"] = fn(float(d["start"]), mapping)
+        elif d.get("start_ms") is not None:
+            d["start_ms"] = fn(float(d["start_ms"]) / 1000.0, mapping) * 1000.0
+        if d.get("end") is not None:
+            d["end"] = fn(float(d["end"]), mapping)
+        elif d.get("end_ms") is not None:
+            d["end_ms"] = fn(float(d["end_ms"]) / 1000.0, mapping) * 1000.0
+
+    for seg in segments:
+        _one(seg)
+        for w in seg.get("words") or []:
+            _one(w)
+
+
+def _shift_or_remap(segments: list, vad_meta: Optional[Dict[str, Any]]) -> None:
+    """Timestamps von verarbeiteter Achse zurück auf Original (nach Job/Align)."""
+    if not vad_meta:
+        return
+    if vad_meta.get("type") == "shift":
+        _shift_segments(segments, float(vad_meta.get("offset_s", 0.0)))
+    elif vad_meta.get("type") == "map":
+        _remap_segments(segments, vad_meta.get("mapping", []), inverse=False)
+
+
+def _unshift_or_unmap(segments: list, vad_meta: Optional[Dict[str, Any]]) -> None:
+    """Timestamps von Original auf die verarbeitete Achse (vor Align/Diar)."""
+    if not vad_meta:
+        return
+    if vad_meta.get("type") == "shift":
+        _shift_segments(segments, -float(vad_meta.get("offset_s", 0.0)))
+    elif vad_meta.get("type") == "map":
+        _remap_segments(segments, vad_meta.get("mapping", []), inverse=True)
 
 
 def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
@@ -294,7 +425,9 @@ def _compute_peaks_path(path) -> list:
     from .peaks import compute_peaks_path
     return compute_peaks_path(path)
 
-_VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false").lower() in ("true", "1", "yes")
+# Change 114: VAD ist User-Option (vad_mode im Run) — kein Env-Gate mehr.
+# Früher: _VAD_TRIM = os.getenv("VAD_TRIM_SILENCE", "false") blockierte VAD
+# ohne Env-Variable; die Bedingungen hießen `if _VAD_TRIM and …`.
 _ENHANCE_LEVEL = os.getenv("ENHANCE_LEVEL", "off")  # off, light, medium, aggressive
 
 log = logging.getLogger(__name__)
@@ -830,15 +963,21 @@ class _AlignmentCache:
         return cls._DIR / f"{rec_id}.json"
 
     @classmethod
-    def write(cls, rec_id: int, audio_bytes: bytes, trim_offset_s: float = 0.0) -> None:
+    def write(cls, rec_id: int, audio_bytes: bytes,
+              vad_meta: Optional[Union[Dict[str, Any], float]] = None) -> None:
+        """vad_meta (Change 114): dict {"type": "shift"|"map", …} ODER float
+        (Alt-Format trim_offset_s). meta.json trägt beides kompatibel."""
         try:
             import json as _json
 
             cls._ensure_dir()
             cls.path(rec_id).write_bytes(audio_bytes)
-            cls.meta_path(rec_id).write_text(
-                _json.dumps({"trim_offset_s": trim_offset_s})
-            )
+            meta: Dict[str, Any] = {}
+            if isinstance(vad_meta, dict):
+                meta["vad"] = vad_meta
+            elif vad_meta:  # Alt-Aufrufer: float trim_offset_s
+                meta["trim_offset_s"] = float(vad_meta)
+            cls.meta_path(rec_id).write_text(_json.dumps(meta))
         except Exception as exc:
             log.warning("align-cache: write failed rec_id=%s: %s", rec_id, exc)
 
@@ -854,7 +993,7 @@ class _AlignmentCache:
 
     @classmethod
     def read_meta(cls, rec_id: int) -> float:
-        """trim_offset_s des Jobs (0.0 wenn unbekannt/fehlt)."""
+        """trim_offset_s des Jobs (0.0 wenn unbekannt/fehlt) — Alt-Format."""
         try:
             import json as _json
 
@@ -864,6 +1003,26 @@ class _AlignmentCache:
         except Exception:
             pass
         return 0.0
+
+    @classmethod
+    def read_vad_meta(cls, rec_id: int) -> Optional[Dict[str, Any]]:
+        """Change 114: vad_meta des Jobs (shift/map) — None wenn Alt-Format."""
+        try:
+            import json as _json
+
+            p = cls.meta_path(rec_id)
+            if p.is_file():
+                meta = _json.loads(p.read_text())
+                vad = meta.get("vad")
+                if isinstance(vad, dict):
+                    return vad
+                # Alt-Format: trim_offset_s float → shift-Äquivalent
+                off = meta.get("trim_offset_s", 0.0)
+                if off:
+                    return {"type": "shift", "offset_s": float(off)}
+        except Exception:
+            pass
+        return None
 
     @classmethod
     def delete(cls, rec_id: int) -> None:
@@ -917,11 +1076,12 @@ def _run_background_align(rec_id: int) -> None:
             language = rec.language
             # Cache-Bytes sind die VERARBEITETE Audio (nach Trim/Enhance) — der
             # Aligner bekommt sie direkt. Nur die Segment-Zeiten sind im Job um
-            # trim_offset_s kompensiert → vor dem Align abziehen, danach wieder
-            # aufschlagen (identische Zeitbasis wie der synchrone Lauf).
-            trim_offset_s = _AlignmentCache.read_meta(rec_id)
-            if trim_offset_s > 0:
-                _shift_segments(segments, -trim_offset_s)
+            # vad_meta (shift/map, Change 114) kompensiert → vor dem Align
+            # zurückrechnen, danach wieder aufschlagen (identische Zeitbasis
+            # wie der synchrone Lauf).
+            vad_meta = _AlignmentCache.read_vad_meta(rec_id)
+            if vad_meta:
+                _unshift_or_unmap(segments, vad_meta)
             rec.alignment = "running"
             session.add(rec)
             session.commit()
@@ -938,8 +1098,8 @@ def _run_background_align(rec_id: int) -> None:
             rec_id, segments, audio_bytes,
             f"{rec_id}.wav", language, job=None, background=True,
         )
-        if trim_offset_s > 0:
-            _shift_segments(new_segments, trim_offset_s)
+        if vad_meta:
+            _shift_or_remap(new_segments, vad_meta)
     except Exception as exc:
         log.warning("bg-align: rec_id=%s failed: %s", rec_id, exc)
         new_segments = None
@@ -1083,13 +1243,15 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
         except Exception as exc:
             log.warning("realign: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
             return False
-        trim_offset_s = 0.0
+        vad_meta: Optional[Dict[str, Any]] = None  # Change 114
         run = _current_run(session, rec)  # Change 099: Settings aus dem Run
-        if _VAD_TRIM and run is not None and run.enable_vad:
+        vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
+        if vad_mode != "off":
             try:
-                audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
-            except Exception:
-                trim_offset_s = 0.0
+                audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
+            except Exception as exc:
+                log.warning("vad fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+                vad_meta = None
         if run is not None and run.enable_enhance and run.enable_enhance != "off":
             try:
                 audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
@@ -1116,7 +1278,7 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
         session.add(rec)
         session.commit()
 
-    _AlignmentCache.write(rec_id, audio_bytes, trim_offset_s)
+    _AlignmentCache.write(rec_id, audio_bytes, vad_meta)
     threading.Thread(
         target=_run_background_align,
         args=(rec_id,),
@@ -1162,13 +1324,15 @@ def _schedule_rediarize(rec_id: int) -> bool:
         except Exception as exc:
             log.warning("rediarize: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
             return False
-        trim_offset_s = 0.0
+        vad_meta: Optional[Dict[str, Any]] = None  # Change 114
         run = _current_run(session, rec)  # Change 099: Settings aus dem Run
-        if _VAD_TRIM and run is not None and run.enable_vad:
+        vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
+        if vad_mode != "off":
             try:
-                audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
-            except Exception:
-                trim_offset_s = 0.0
+                audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
+            except Exception as exc:
+                log.warning("vad fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+                vad_meta = None
         if run is not None and run.enable_enhance and run.enable_enhance != "off":
             try:
                 audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
@@ -1180,7 +1344,7 @@ def _schedule_rediarize(rec_id: int) -> bool:
 
     threading.Thread(
         target=_run_background_rediarize,
-        args=(rec_id, audio_bytes, trim_offset_s),
+        args=(rec_id, audio_bytes, vad_meta),
         daemon=True,
         name=f"rediarize-{rec_id}",
     ).start()
@@ -1188,7 +1352,8 @@ def _schedule_rediarize(rec_id: int) -> bool:
     return True
 
 
-def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: float) -> None:
+def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
+                              vad_meta: Optional[Dict[str, Any]] = None) -> None:
     """Change 057: Hintergrund-Worker für Re-Diarize.
 
     - Führt die Diarization auf den verarbeiteten Bytes aus (Zeitbasis wie
@@ -1223,20 +1388,27 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
         session.add(rec)
         session.commit()
 
+    # Change 115: Job-Heartbeat für die UI („aktiv seit Xs") — tickt
+    # last_heartbeat_at via set_progress(note=None); die Note bleibt stehen.
+    hb_job = _start_job_heartbeat(rec_id)
+
     try:
         _tmp_wav = None
         diar_path = None
+        diar_ms = 0.0
         try:
             _tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             _tmp_wav.write(audio_bytes)
             _tmp_wav.close()
             diar_path = _tmp_wav.name
+            _t_diar0 = time.perf_counter()
             diar = _run_diarization(
                 diar_path,
                 num_speakers=num_speakers,
                 min_duration_off=min_duration_off,
                 method=method,
             )
+            diar_ms = (time.perf_counter() - _t_diar0) * 1000
         finally:
             if _tmp_wav is not None and diar_path:
                 try:
@@ -1245,20 +1417,42 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
                     pass
         if not diar:
             raise DiarizationError("empty", "Diarization lieferte keine Sprecher-Segmente")
-        # Trim-Offset kompensieren: Segment-Zeiten liegen auf Original-Basis.
-        diar_comp = [
-            {
-                **{k: v for k, v in d.items() if k not in ("start", "end")},
-                "start": float(d["start"]) + trim_offset_s,
-                "end": float(d["end"]) + trim_offset_s,
-            }
-            for d in diar
-        ]
+        # VAD kompensieren (Change 114): Diar-Zeiten von der verarbeiteten auf
+        # die Original-Achse bringen — Segment-Zeiten liegen auf Original-Basis.
+        if vad_meta and vad_meta.get("type") == "shift":
+            off = float(vad_meta["offset_s"])
+            diar_comp = [
+                {
+                    **{k: v for k, v in d.items() if k not in ("start", "end")},
+                    "start": float(d["start"]) + off,
+                    "end": float(d["end"]) + off,
+                }
+                for d in diar
+            ]
+        elif vad_meta and vad_meta.get("type") == "map":
+            mapping = vad_meta.get("mapping", [])
+            diar_comp = [
+                {
+                    **{k: v for k, v in d.items() if k not in ("start", "end")},
+                    "start": _map_time(float(d["start"]), mapping),
+                    "end": _map_time(float(d["end"]), mapping),
+                }
+                for d in diar
+            ]
+        else:
+            diar_comp = diar
         word_stream = _build_word_stream(segments_before, duration)
         merged = _merge_diarization(segments_before, diar_comp, word_stream,
                                     duration, full_text=text)
         if not merged:
             raise DiarizationError("empty", "Keine text-zugeordneten Sprecher-Segmente")
+        # Change 115: RTF-Stichprobe wie im Haupt-Job (diar:<method>).
+        try:
+            from . import learner_store
+            learner_store.ingest_job_sample(
+                rec_id, {f"diar:{method or 'pyannote'}": diar_ms}, duration)
+        except Exception as exc:
+            log.warning("rediarize: rtf sample ingest failed for rec_id=%s: %s", rec_id, exc)
     except Exception as exc:
         log.exception("rediarize: rec_id=%s fehlgeschlagen: %s", rec_id, exc)
         with Session(engine) as session:
@@ -1268,11 +1462,13 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
                 rec2.progress_note = None
                 session.add(rec2)
                 session.commit()
+        hb_job.set()  # Change 115: Heartbeat stoppen
         return
 
     with Session(engine) as session:
         rec2 = session.get(_Rec, rec_id)
         if rec2 is None:
+            hb_job.set()  # Change 115
             return
         # Versions-Guard: Segmente seit Job-Start geändert → verwerfen.
         if not _same_segments(rec2.segments or [], segments_before):
@@ -1281,6 +1477,7 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
             rec2.progress_note = None
             session.add(rec2)
             session.commit()
+            hb_job.set()  # Change 115
             return
         rec2.segments = merged
         rec2.diar_status = "done"
@@ -1290,6 +1487,7 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes, trim_offset_s: fl
         session.commit()
         log.info("rediarize: rec_id=%s Sprecher-Zuordnung aktualisiert (%d Segmente)",
                  rec_id, len(merged))
+    hb_job.set()  # Change 115
 
 
 def _same_segments(a, b) -> bool:
@@ -1449,6 +1647,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         filename = rec.original_name
         mime = rec.mime or "application/octet-stream"
         enable_vad = False  # ersetzt durch Run-Settings (Change 099, unten)
+        vad_mode = "off"  # Change 114: off|edges|all
         enable_diarize = False
         enable_streaming = False
         enable_noise_reduce = True
@@ -1519,6 +1718,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             # Change 099: Settings INNERHALB der Session lesen — der Run
             # wäre nach Session-Ende detached (Expire-on-commit).
             enable_vad = bool(run.enable_vad)
+            vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
             enable_diarize = bool(run.enable_diarize)
             enable_streaming = bool(run.enable_streaming)
             enable_noise_reduce = bool(run.enable_noise_reduce)
@@ -1553,7 +1753,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 
     try:
         audio_bytes = audio_path.read_bytes()
-        trim_offset_s = 0.0
+        vad_meta: Optional[Dict[str, Any]] = None  # Change 114: statt trim_offset_s
 
         # Change 047: Job-weiter Heartbeat — tickt last_heartbeat_at über
         # ALLE Phasen (auch preparing/vad/enhance/Konvertierung/Streaming),
@@ -1564,15 +1764,18 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         with Session(engine) as session:
             set_progress(session, rec_id, 10, note="preparing")
 
-        # Optional VAD silence trimming
-        if _VAD_TRIM and enable_vad:
+        # Optional VAD silence trimming (Change 114: vad_mode off|edges|all,
+        # User-konfigurierbar, kein Env-Gate mehr)
+        if vad_mode and vad_mode != "off":
             _t_vad0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 12, note="vad")
-            audio_bytes, trim_offset_s = _trim_silence(audio_bytes)
+            audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
+            if vad_meta:
+                log.info("vad: rec_id=%s mode=%s", rec_id, vad_meta["type"])
             phase_times["vad"] = (time.perf_counter() - _t_vad0) * 1000
-            if trim_offset_s > 0:
-                log.info("VAD trim: rec_id=%s offset=%.2fs", rec_id, trim_offset_s)
+            if vad_meta and vad_meta.get("type") == "shift":
+                log.info("VAD trim: rec_id=%s offset=%.2fs", rec_id, vad_meta["offset_s"])
 
         # Optional audio enhancement (ffmpeg filters before ASR)
         if enable_enhance and enable_enhance != "off":
@@ -1712,14 +1915,14 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             # Diarization (kein Fortschritts-Reporting vom Dienst) — die UI
             # zeigt „diarizing · aktiv seit Xs" statt eingefrorenem 96%.
             hb_stop_d = _start_heartbeat(rec_id, 96, "diarization")
-            # Zeitbasis: Bei VAD-Trim arbeiten ASR/Aligner auf dem getrimmten
-            # Audio — die Diarization muss DASSELBE Audio bekommen, sonst sind
-            # die Speaker-Zeiten um trim_offset_s versetzt und die Zuordnung
-            # über Wort-Überlappung wird falsch. (2026-08-14)
+            # Zeitbasis: Bei VAD-Verarbeitung (trim/squash, Change 114) arbeiten
+            # ASR/Aligner auf dem verarbeiteten Audio — die Diarization muss
+            # DASSELBE Audio bekommen, sonst sind die Speaker-Zeiten versetzt
+            # und die Zuordnung über Wort-Überlappung wird falsch.
             diar_path = str(audio_path)
             _tmp_wav = None
             try:
-                if trim_offset_s > 0:
+                if vad_meta:
                     _tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                     _tmp_wav.write(audio_bytes)
                     _tmp_wav.close()
@@ -1789,24 +1992,32 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 
         if ALIGN_WORDS_ENABLED and segments:
             # Cache-Bytes = verarbeitete Audio (nach Trim/Enhance/Konvertierung)
-            # — exakt die Zeitbasis des synchronen Align-Laufs. trim_offset_s
-            # als Sidecar, damit der Worker die kompensierten Segment-Zeiten
-            # vor dem Align zurückrechnen kann.
-            _AlignmentCache.write(rec_id, audio_bytes, trim_offset_s)
+            # — exakt die Zeitbasis des synchronen Align-Laufs. vad_meta
+            # (shift/map, Change 114) als Sidecar, damit der Worker die
+            # kompensierten Segment-Zeiten vor dem Align zurückrechnen kann.
+            _AlignmentCache.write(rec_id, audio_bytes, vad_meta)
             alignment_pending = True
         else:
             alignment_pending = False
 
-        # VAD-Trim-Offset kompensieren: ASR/Aligner liefen auf dem getrimmten
-        # Audio, das Playback nutzt die Originaldatei → alle Timestamps um die
-        # entfernten Anfangs-Sekunden nach hinten schieben (Wort-Klick spielt
-        # sonst den Ton einer früheren Stelle). (2026-08-14)
-        if trim_offset_s > 0:
-            _shift_segments(segments, trim_offset_s)
+        # VAD-Trim kompensieren: ASR/Aligner liefen auf dem verarbeiteten
+        # Audio, das Playback nutzt die Originaldatei → alle Timestamps auf
+        # die Original-Zeitbasis schieben/remappen (Wort-Klick spielt sonst
+        # den Ton einer früheren Stelle). (2026-08-14 / Change 114)
+        if vad_meta and vad_meta.get("type") == "shift":
+            _shift_segments(segments, float(vad_meta["offset_s"]))
             if duration is not None:
-                duration = duration + trim_offset_s
+                duration = duration + float(vad_meta["offset_s"])
             log.info("Trim-Offset kompensiert: rec_id=%s +%.2fs auf %d Segmente",
-                     rec_id, trim_offset_s, len(segments))
+                     rec_id, vad_meta["offset_s"], len(segments))
+        elif vad_meta and vad_meta.get("type") == "map":
+            _shift_or_remap(segments, vad_meta)
+            if duration is not None:
+                mapping = vad_meta.get("mapping", [])
+                if mapping:
+                    duration = max(duration, float(mapping[-1][1]))
+            log.info("Squash-Offset kompensiert: rec_id=%s (%d Regionen)",
+                     rec_id, len(vad_meta.get("mapping", [])))
 
         # Waveform-Peaks: bewusst NICHT hier — der synchrone Voll-Decode
         # (bis zu 600 s bei langen Dateien) haengte den Job nach der

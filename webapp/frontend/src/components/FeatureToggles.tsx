@@ -6,7 +6,8 @@ import { TuningPopover } from "./TuningPopover";
    ============================================================ */
 
 export interface FeatureValues {
-  vad: boolean;
+  /** Change 114: VAD-Modus "off" | "edges" | "all" (aus/Ränder/überall) */
+  vad: string;
   diarize: boolean;
   streaming: boolean;
   noise: boolean;
@@ -86,7 +87,18 @@ export function FeatureToggles({ values, backends, streamingSupported, streaming
   const endpoints = pp?.endpoints ?? [];
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-2">
-      <MiniToggle label="VAD" on={values.vad} disabled={!vadOk} onChange={(v) => onChange({ vad: v })} />
+      {/* Change 114: VAD als 3-Stufen-Select (aus/Ränder/überall) statt bool */}
+      <select
+        value={values.vad}
+        onChange={(e) => onChange({ vad: e.target.value })}
+        disabled={!vadOk}
+        className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+        title="VAD (Silence-TriMMING, Change 114)"
+      >
+        <option value="off">VAD: aus</option>
+        <option value="edges">VAD: Ränder</option>
+        <option value="all">VAD: überall</option>
+      </select>
       <MiniToggle label="🎙 Speaker" on={values.diarize} disabled={!diarOk} onChange={(v) => onChange({ diarize: v })} />
       {values.diarize && (
         <TuningPopover label={t("diarize_tuning")}>

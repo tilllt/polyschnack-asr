@@ -237,6 +237,64 @@ def trim_silence(
     )[0]
 
 
+def squash_silence_with_mapping(
+    audio_bytes: bytes,
+    threshold: float = 0.5,
+    min_silence_ms: int = 400,
+    speech_pad_ms: int = 120,
+) -> Tuple[bytes, List[Tuple[float, float, float]]]:
+    """Change 114: entfernt ALLE Stille (auch zwischen Speech-Regionen).
+
+    Schneidet jede Speech-Region (mit Pad) aus dem Original und
+    konkateniert sie. Rückgabe: (squashed_wav, mapping) mit
+    mapping = [(alt_start_s, alt_end_s, new_start_s), ...] — ein
+    Eintrag pro Region. Damit lassen sich Timestamps von der neuen
+    (kürzeren) Zeitachse auf die Original-Zeitachse abbilden und
+    umgekehrt.
+
+    Fallback: keine Speech-Region oder VAD nicht verfügbar →
+    (Original-Bytes unverändert, []) — nie ein Abbruch.
+    """
+    regions = detect_speech_regions(audio_bytes, threshold, min_silence_ms, speech_pad_ms)
+    if not regions:
+        return audio_bytes, []
+
+    wav = _decode_to_wav(audio_bytes)
+    total = wav.size
+    # Nichts zu tun, wenn eine einzige Region das ganze Audio abdeckt.
+    if len(regions) == 1:
+        first = int(regions[0]["start"] * TARGET_SR)
+        last = int(regions[0]["end"] * TARGET_SR)
+        if first <= 0 and last >= total:
+            return audio_bytes, []
+
+    chunks: List[np.ndarray] = []
+    mapping: List[Tuple[float, float, float]] = []
+    new_cursor = 0.0
+    for r in regions:
+        start = max(0, int(r["start"] * TARGET_SR))
+        end = min(total, int(r["end"] * TARGET_SR))
+        if end <= start:
+            continue
+        chunk = wav[start:end]
+        chunks.append(chunk)
+        mapping.append((start / TARGET_SR, end / TARGET_SR, new_cursor))
+        new_cursor += chunk.size / TARGET_SR
+
+    if not chunks:
+        return audio_bytes, []
+
+    squashed = np.concatenate(chunks)
+    s16 = (squashed * 32767).astype("<i2").tobytes()
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(TARGET_SR)
+        w.writeframes(s16)
+    return buf.getvalue(), mapping
+
+
 def trim_silence_with_offset(
     audio_bytes: bytes,
     threshold: float = 0.5,

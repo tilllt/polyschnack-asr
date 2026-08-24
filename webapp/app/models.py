@@ -189,6 +189,7 @@ class TranscriptionRun(SQLModel, table=True):
     backend: str = ""
     language: Optional[str] = None
     enable_vad: bool = False
+    vad_mode: str = "off"  # Change 114: off|edges|all (User-konfigurierbar, ohne Env); enable_vad bleibt Legacy
     enable_diarize: bool = False
     diarize_num_speakers: Optional[int] = Field(default=None)
     diarize_min_duration_off: Optional[float] = Field(default=None)

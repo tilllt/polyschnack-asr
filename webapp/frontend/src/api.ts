@@ -56,6 +56,7 @@ export interface Recording {
   recorded_at: string | null;
   source: string | null;
   enable_vad: boolean;
+  vad_mode?: string;  // Change 114: off|edges|all
   enable_diarize: boolean;
   diarize_num_speakers?: number | null;
   diarize_min_duration_off?: number | null;
@@ -388,9 +389,11 @@ export async function startTranscription(
   diarizeMinDurationOff?: number,
   diarizeMethod?: string,
   separateBackend = "none",
+  vadMode = "off",  // Change 114: off|edges|all
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
+  fd.append("vad_mode", vadMode);  // Change 114
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
@@ -602,10 +605,12 @@ export async function importFromUrl(
   videoPassword?: string,
   cookiesFile?: File | null,
   separateBackend = "none",
+  vadMode = "off",  // Change 114: off|edges|all
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
   fd.append("enable_vad", String(enableVad));
+  fd.append("vad_mode", vadMode);  // Change 114
   fd.append("enable_diarize", String(enableDiarize));
   fd.append("enable_streaming", String(enableStreaming));
   fd.append("enable_noise_reduce", String(enableNoiseReduce));
@@ -702,6 +707,7 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_noise_reduce?: boolean;
   enable_enhance?: string;
   separate_backend?: string;
+  vad_mode?: string;  // Change 114: off|edges|all
   backend?: string;
   enable_punctuation?: boolean;
   enable_llm_enhance?: boolean;

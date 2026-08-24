@@ -166,9 +166,9 @@ def test_schedule_realign_separiert_audio(db, monkeypatch, tmp_path):
 
     class _FakeCache:
         @staticmethod
-        def write(rec_id, audio_bytes, trim_offset_s):
+        def write(rec_id, audio_bytes, vad_meta=None):
             written["bytes"] = audio_bytes
-            written["offset"] = trim_offset_s
+            written["vad_meta"] = vad_meta
 
     monkeypatch.setattr(service, "_AlignmentCache", _FakeCache)
     monkeypatch.setattr(service, "_run_background_align", lambda rec_id: None)
@@ -177,7 +177,7 @@ def test_schedule_realign_separiert_audio(db, monkeypatch, tmp_path):
     assert ok is True
     assert fake_sep.backend == "htdemucs"
     assert written["bytes"] == b"VOCALS-VOCALS"
-    assert written["offset"] == 0.0
+    assert written["vad_meta"] is None  # Change 114: vad_mode off → kein Trim
     with Session(db) as s:
         assert s.get(Recording, 1).alignment == "pending"
 

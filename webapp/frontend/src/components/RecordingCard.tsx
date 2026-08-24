@@ -353,7 +353,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   // ──── Task 9: inline feature toggles + backend, armed re-transcribe ────
   const [feat, setFeat] = useState<FeatureValues>({
-    vad: r.enable_vad,
+    vad: r.vad_mode ?? (r.enable_vad ? "edges" : "off"),  // Change 114
     diarize: r.enable_diarize,
     numSpeakers: r.diarize_num_speakers != null ? String(r.diarize_num_speakers) : "",
     diarSens: r.diarize_min_duration_off != null
@@ -437,12 +437,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   async function handleStartTranscription(id: string) {
     try {
       await startTranscription(
-        id, feat.vad, feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend,
+        id, feat.vad !== "off", feat.diarize, feat.streaming, feat.noise, feat.enhance, feat.backend,
         feat.punctuation, feat.llmEnhance, feat.templateId, feat.targetId, feat.endpointId,
         feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
         diarSensToMinDurationOff(feat.diarSens),
         feat.diarMethod || undefined,
         feat.separate,
+        feat.vad,  // Change 114: vad_mode
       );
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -758,7 +759,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     retranscribeMut.mutate({
       id: r.uid,
       opts: {
-        enable_vad: feat.vad,
+        enable_vad: feat.vad !== "off",
+        vad_mode: feat.vad,  // Change 114
         enable_diarize: feat.diarize,
         diarize_num_speakers: feat.numSpeakers ? Number(feat.numSpeakers) : undefined,
         diarize_min_duration_off: diarSensToMinDurationOff(feat.diarSens),
@@ -1223,16 +1225,39 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             </button>
           </div>
         )}
-        {/* Change 045: Hintergrund-Alignment — Transkription ist sichtbar,
-            das präzise Forced-Alignment läuft noch. Dezenter Hinweis, kein
-            Fake-Progress; verschwindet beim nächsten Polling (done/skipped). */}
+        {/* Change 045/115: Hintergrund-Alignment — Live-Details statt
+            statischem Text: Heartbeat-Ampel + Worker-note („Gruppe 3/12 —
+            aktiv seit 42s — CLI 45%", enthält die Align-RTF-Ausgabe). */}
         {r.status === "done" && r.alignment === "running" && (
           <div
             className="mt-2 flex items-center gap-1.5 text-[11px] text-accent/90"
             data-testid={`bg-align-${r.uid}`}
           >
-            <span className="animate-pulse" aria-hidden>⟳</span>
-            <span>Präzises Alignment läuft im Hintergrund …</span>
+            <span
+              title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                hb.level === "fresh"
+                  ? "bg-ok animate-pulse"
+                  : hb.level === "warn"
+                    ? "bg-warn"
+                    : "bg-red-500"
+              }`}
+            />
+            <span className="truncate">
+              {phaseDetail ? (
+                <>⚙ {phaseDetail}</>
+              ) : (
+                <>
+                  <span className="animate-pulse" aria-hidden>⟳</span>{" "}
+                  Präzises Alignment läuft im Hintergrund …
+                  {hb.sinceBeat > 0 && (
+                    <span className="text-muted2 tabular-nums">
+                      {" "}· {t("phase_running_since")} {fmtSince(hb.sinceBeat)}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
           </div>
         )}
         {/* Change 101: Re-Align ohne Effekt — der Aligner hat keine Wörter
@@ -1248,15 +1273,31 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <span>{t("align_skipped")}</span>
           </div>
         )}
-        {/* Change 057: Re-Diarize läuft — ehrlicher Hintergrund-Hinweis,
-            kein Fake-Progress; verschwindet beim nächsten Polling. */}
+        {/* Change 057/115: Re-Diarize läuft — Live-Heartbeat („läuft seit
+            Xs") statt statischem Hinweis; verschwindet beim nächsten
+            Polling. */}
         {(r.status === "done" && (r.diar_status === "running" || r.diar_status === "pending")) && (
           <div
             className="mt-2 flex items-center gap-1.5 text-[11px] text-accent/90"
             data-testid={`bg-diar-${r.uid}`}
           >
+            <span
+              title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                hb.level === "fresh"
+                  ? "bg-ok animate-pulse"
+                  : hb.level === "warn"
+                    ? "bg-warn"
+                    : "bg-red-500"
+              }`}
+            />
             <span className="animate-pulse" aria-hidden>⟳</span>
             <span>{t("rediarize_running")}</span>
+            {hb.sinceBeat > 0 && (
+              <span className="text-muted2 tabular-nums">
+                · {t("phase_running_since")} {fmtSince(hb.sinceBeat)}
+              </span>
+            )}
           </div>
         )}
       </div>
