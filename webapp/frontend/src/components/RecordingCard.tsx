@@ -584,6 +584,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const deleteMut = useDelete();
   const retranscribeMut = useRetranscribe();
   const realignMut = useRealign();
+  // Change 113: BGM-Removal-Auswahl für Re-Align (analog Re-Transcribe).
+  const [realignSep, setRealignSep] = useState<string>("none");
   const rediarizeMut = useRediarize();
   const cancelMut = useCancelRecording();
 
@@ -780,11 +782,15 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) — der
   // Forced-Aligner verifiziert die Word-Timestamps erneut. Läuft im
   // Hintergrund (alignment-Feld), Transkription bleibt sichtbar.
+  // Change 113: gewähltes BGM-Removal (realignSep) wird mitgesendet.
   function handleRealign() {
-    realignMut.mutate(r.uid, {
-      onSuccess: () => toast(t("realign_started"), "ok"),
-      onError: (e) => toast(`${t("realign_error")}: ${e.message}`, "err"),
-    });
+    realignMut.mutate(
+      { id: r.uid, opts: { separate_backend: realignSep } },
+      {
+        onSuccess: () => toast(t("realign_started"), "ok"),
+        onError: (e) => toast(`${t("realign_error")}: ${e.message}`, "err"),
+      },
+    );
   }
 
   // Change 057: Re-Diarize — Sprecher-Zuordnung neu berechnen (NUR
@@ -1567,17 +1573,32 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         {/* Change 046: Re-Align-Button — nach User-Korrekturen (Ground
             Truth) die Word-Timestamps akustisch verifizieren. Nur bei
             done + Schreibzugriff; während des Laufs deaktiviert (der
-            Hinweis "Präzises Alignment läuft…" erscheint oben). */}
+            Hinweis "Präzises Alignment läuft…" erscheint oben).
+            Change 113: BGM-Removal-Auswahl wie beim Re-Transcribe — bei
+            Musik-Aufnahmen alignt der Forced-Aligner auf den Vocals. */}
         {r.status === "done" && hasText && canEdit && (
-          <button
-            onClick={handleRealign}
-            disabled={realignMut.isPending || r.alignment === "running"}
-            title={t("realign_title")}
-            className="btn-ghost-sm"
-          >
-            <RotateCcw size={12} />
-            {t("realign")}
-          </button>
+          <span className="flex items-center gap-1">
+            <select
+              value={realignSep}
+              onChange={(e) => setRealignSep(e.target.value)}
+              disabled={realignMut.isPending || r.alignment === "running"}
+              className="bg-panel2 border border-border rounded-sm text-[11px] px-1 py-[2px] text-muted"
+              title="Music Removal vor dem Re-Align (Change 113)"
+            >
+              <option value="none">Sep: aus</option>
+              <option value="htdemucs">Sep: htdemucs</option>
+              <option value="mel-band-roformer">Sep: melband</option>
+            </select>
+            <button
+              onClick={handleRealign}
+              disabled={realignMut.isPending || r.alignment === "running"}
+              title={t("realign_title")}
+              className="btn-ghost-sm"
+            >
+              <RotateCcw size={12} />
+              {t("realign")}
+            </button>
+          </span>
         )}
 
         {/* Change 057: Re-Diarize-Button — Sprecher-Zuordnung neu berechnen

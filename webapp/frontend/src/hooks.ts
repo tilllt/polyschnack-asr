@@ -160,12 +160,17 @@ export function useRetranscribe() {
   });
 }
 
-/** Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) starten. */
+/** Change 046: Re-Alignment auf korrigiertem Text (Ground Truth) starten.
+ *  Change 113: optionale BGM-Removal-Auswahl (separate_backend). */
 export function useRealign() {
   const qc = useQueryClient();
 
-  return useMutation<{ id: string; alignment: string }, Error, string>({
-    mutationFn: (id) => realignRecording(id),
+  return useMutation<
+    { id: string; alignment: string },
+    Error,
+    { id: string; opts?: { separate_backend?: string } }
+  >({
+    mutationFn: ({ id, opts }) => realignRecording(id, opts),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["recordings"] });
     },

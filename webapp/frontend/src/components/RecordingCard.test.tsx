@@ -261,6 +261,39 @@ describe("RecordingCard — Change 046 Re-Align-Button", () => {
     expect(hooks.realignMutate).toHaveBeenCalled();
   });
 
+  test("Change 113: BGM-Removal-Select vorhanden bei done + Schreibzugriff", () => {
+    renderCard(makeRec(), false);
+    const select = screen.getByTitle("Music Removal vor dem Re-Align (Change 113)") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      "none",
+      "htdemucs",
+      "mel-band-roformer",
+    ]);
+  });
+
+  test("Change 113: Re-Align-Klick sendet gewähltes separate_backend", () => {
+    const hooks113 = vi.hoisted(() => ({ realignMutate113: vi.fn() }));
+    hooks113.realignMutate113.mockImplementation((_id: string, opts: unknown) => {
+      if (opts && typeof opts === "object" && "onSuccess" in opts) {
+        (opts as { onSuccess?: () => void }).onSuccess?.();
+      }
+    });
+    vi.mocked(useRealign).mockReturnValue({ mutate: hooks113.realignMutate113 as never, isPending: false } as never);
+    renderCard(makeRec(), false);
+    fireEvent.change(screen.getByTitle("Music Removal vor dem Re-Align (Change 113)"), {
+      target: { value: "htdemucs" },
+    });
+    screen.getByText("Re-align").click();
+    expect(hooks113.realignMutate113).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "r1",
+        opts: { separate_backend: "htdemucs" },
+      }),
+      expect.anything(),
+    );
+  });
+
   test("Change 101: alignment=skipped zeigt sichtbaren Hinweis (keine stille done-Lüge)", () => {
     renderCard(
       makeRec({

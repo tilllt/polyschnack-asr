@@ -73,7 +73,7 @@ def client(tmp_path, monkeypatch):
     # Worker nicht wirklich starten — nur den Scheduler prüfen.
     from app import service as svc
 
-    monkeypatch.setattr(svc, "_schedule_realign", lambda rec_id: True)
+    monkeypatch.setattr(svc, "_schedule_realign", lambda rec_id, separate_backend="none": True)
 
     with TestClient(app) as c:
         yield c
@@ -101,7 +101,7 @@ def test_realign_404(client):
 def test_realign_503_wenn_scheduler_ablehnt(client, monkeypatch):
     from app import service as svc
 
-    monkeypatch.setattr(svc, "_schedule_realign", lambda rec_id: False)
+    monkeypatch.setattr(svc, "_schedule_realign", lambda rec_id, separate_backend="none": False)
     r = client.post("/api/recordings/rec-realign-1/realign")
     assert r.status_code == 503
     assert "Re-Alignment nicht möglich" in r.json()["detail"]

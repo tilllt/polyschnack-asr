@@ -1042,7 +1042,7 @@ def _current_run(session, rec):
         _Run.rec_id == rec.id).order_by(_Run.id.desc())).first()
 
 
-def _schedule_realign(rec_id: int) -> bool:
+def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
     """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
 
     Lädt die gespeicherte Audiodatei, reproduziert VAD-Trim/Enhance wie im
@@ -1050,6 +1050,12 @@ def _schedule_realign(rec_id: int) -> bool:
     Hintergrund-Worker (_run_background_align). Der User kann die
     Transkription weiter sehen/bearbeiten; die Word-Timestamps werden
     akustisch verifiziert, sobald der Worker fertig ist.
+
+    Change 113: optionales Music-Removal (separate_backend) — gleiche
+    Reihenfolge/Logik wie die Transkriptions-Pipeline (trim → enhance →
+    separate → Cache). Bei Musik-Aufnahmen alignt der Forced-Aligner auf
+    den Vocals; ehrlicher Fallback „weiter mit Original" wenn crispr-sep
+    nicht erreichbar ist, nichts liefert oder ein Fehler auftritt.
 
     Returns False wenn Aligner deaktiviert, Datei fehlt oder Audio nicht
     lesbar — der Aufrufer antwortet dann mit verständlichem Fehler.
@@ -1089,6 +1095,23 @@ def _schedule_realign(rec_id: int) -> bool:
                 audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
             except Exception as exc:
                 log.warning("realign: enhance failed rec_id=%s: %s", rec_id, exc)
+        # Change 113: Music-Removal — vocals als Align-Eingabe (wie ASR-Pipeline).
+        if separate_backend and separate_backend != "none":
+            try:
+                from .separate_client import SeparateClient
+                sc = SeparateClient()
+                if sc.health():
+                    vocals = sc.separate(audio_bytes, backend=separate_backend)
+                    if vocals:
+                        log.info("realign: separate rec_id=%s backend=%s → vocals als Align-Eingabe (%d→%d B)",
+                                 rec_id, separate_backend, len(audio_bytes), len(vocals))
+                        audio_bytes = vocals
+                    else:
+                        log.warning("realign: separate rec_id=%s lieferte keine vocals — weiter mit Original", rec_id)
+                else:
+                    log.warning("realign: separate crispr-sep nicht erreichbar — weiter mit Original (rec_id=%s)", rec_id)
+            except Exception as exc:
+                log.warning("realign: separate Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
         rec.alignment = "pending"
         session.add(rec)
         session.commit()

@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -283,6 +283,7 @@ def rename_speaker(
 def realign_recording(
     rid: str,
     request: Request = None,
+    separate_backend: str = Form("none"),  # Change 113: BGM-Removal wie Re-Transcribe
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
     """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
@@ -293,7 +294,13 @@ def realign_recording(
     (Timestamps) werden ersetzt. Läuft im Hintergrund (alignment-Feld
     zeigt pending→running→done|skipped); die Transkription bleibt
     sichtbar/bearbeitbar.
+
+    Change 113: optionales Music-Removal (separate_backend) — bei
+    Musik-Aufnahmen alignt der Forced-Aligner auf den Vocals statt auf
+    dem Original (sonst alignment=skipped, „kein Aligner-Ergebnis").
     """
+    if not isinstance(separate_backend, str):
+        separate_backend = "none"  # direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -314,7 +321,7 @@ def realign_recording(
 
     from ..service import _schedule_realign
 
-    if rec.id is None or not _schedule_realign(rec.id):
+    if rec.id is None or not _schedule_realign(rec.id, separate_backend):
         raise HTTPException(
             status_code=503,
             detail="Re-Alignment nicht möglich (Aligner deaktiviert, Audio fehlt oder nicht lesbar)",

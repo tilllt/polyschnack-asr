@@ -728,10 +728,17 @@ export async function cancelRecording(id: string): Promise<{ cancelled: boolean 
 
 /** Change 046: Re-Alignment auf dem aktuellen (korrigierten) Text.
  *  POST /api/recordings/{rid}/realign — startet den Hintergrund-Worker,
- *  Antwort {id, alignment: "pending"}. */
-export async function realignRecording(id: string): Promise<{ id: string; alignment: string }> {
+ *  Antwort {id, alignment: "pending"}. Change 113: separates
+ *  Music-Removal (separate_backend) wird als Form-Feld mitgesendet. */
+export async function realignRecording(
+  id: string,
+  opts?: { separate_backend?: string },
+): Promise<{ id: string; alignment: string }> {
+  const fd = new FormData();
+  fd.append("separate_backend", opts?.separate_backend ?? "none");
   const res = await fetch(`/api/recordings/${id}/realign`, {
     method: "POST",
+    body: fd,
   }).then(checkOk);
   return res.json() as Promise<{ id: string; alignment: string }>;
 }
