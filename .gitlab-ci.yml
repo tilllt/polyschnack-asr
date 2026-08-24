@@ -15,8 +15,10 @@ pages:
     paths:
       - public
     expire_in: 1 day
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - docs/**
 
 test-core:
   stage: test
@@ -27,8 +29,10 @@ test-core:
     - apt-get update -qq && apt-get install -y -qq ffmpeg > /dev/null 2>&1
     - pip install -q numpy pytest 2>/dev/null
     - cd approach-a && POLYSCHNACK_DEFAULT_MODEL=parakeet-tdt-0.6b-v3 python -m pytest tests/ -v --tb=short
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - approach-a/**
 
 test-webapp:
   stage: test
@@ -41,8 +45,10 @@ test-webapp:
     - apt-get update -qq && apt-get install -y -qq ffmpeg git > /dev/null 2>&1
     - pip install -q pytest httpx fastapi "sqlmodel>=0.0.16" "pydantic>=2" python-multipart numpy cryptography authlib itsdangerous pyyaml pycrdt pycrdt-websocket 2>/dev/null
     - cd webapp && python -m pytest tests/ -v --tb=short
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - webapp/**
 
 test-frontend:
   stage: test
@@ -53,8 +59,10 @@ test-frontend:
     - cd webapp/frontend
     - npm install --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
     - npm test
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - webapp/frontend/**
 
 build-qwen3:
   timeout: 60 minutes
@@ -66,12 +74,15 @@ build-qwen3:
     # Hybrid-Image (Weg 1): CUDA-Build mit CPU-Fallback — läuft auf GPU
     # (compose.gpu.yml-Overlay) UND CPU (Default), kein :cpu-Tag mehr.
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-qwen3" "qwen3-asr-cpp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - qwen3-asr-cpp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 build-ark:
   stage: build
@@ -82,12 +93,15 @@ build-ark:
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-ark" "ark-asr-cpp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - ark-asr-cpp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 build-diar:
   stage: build
@@ -96,12 +110,15 @@ build-diar:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-diar" "diar-service/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - diar-service/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # Forced-Aligner-Service (Karaoke-Word-Sync): qwen3-asr.cpp-Build (CUDA mit
 # CPU-Fallback) + qwen3-forced-aligner GGUF + stdlib-HTTP-Wrapper. Kompiliert
@@ -114,12 +131,15 @@ build-aligner:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-aligner" "aligner-service/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - aligner-service/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # Source-Separation (Change 106): CrispASR-Fork mit htdemucs +
 # mel-band-roformer. Baut den kompletten Fork (ggml + CUDA) im Image —
@@ -132,12 +152,15 @@ build-sep:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-sep" "sep-service/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - sep-service/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # pk-cpp (Weg 1): eigenes hybrides CrispASR-Image mit parakeet-Backend
 # statt externem mudler/parakeet.cpp-server. Gleiche GGUF wie diar-Service.
@@ -150,12 +173,15 @@ build-cpp:
     # Hybrid-Image (Weg 1): CrispASR-CUDA-Binary mit CPU-Fallback
     # (ggml_backend_init_best) — kein :cpu-Tag mehr nötig.
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-cpp" "pk-asr-cpp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - pk-asr-cpp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # moonshine-de (Weg 1): hybrides CrispASR-Image mit deutschem Spezialmodell
 # (fidoriel Fine-Tune, 61.5M, 6.9% WER CV22-de, ~39 MB GGUF).
@@ -167,12 +193,15 @@ build-moonshine-de:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-moonshine-de" "moonshine-de-cpp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - moonshine-de-cpp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # canary-asr (Weg 1): hybrides CrispASR-Image mit NVIDIA canary-1b-v2
 # (multilingual EN/DE/FR/ES, ~600 MB GGUF).
@@ -183,12 +212,15 @@ build-canary:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-canary" "canary-asr-cpp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - canary-asr-cpp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # voxtral (CrispASR voxtral4b, Change 029): hybrides CrispASR-Image mit
 # Mistral Voxtral-Mini-4B-Realtime-2602 (Q8_0-GGUF, cstr/voxtral-mini-4b-realtime-GGUF).
@@ -202,12 +234,15 @@ build-voxtral:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-voxtral" "voxtral-crisp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - voxtral-crisp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # whisper-crisp (CrispASR whisper, Change 029): OpenAI Whisper large-v3-turbo
 # via CrispASR-whisper-Backend (ggml-*.bin aus ggerganov/whisper.cpp).
@@ -220,12 +255,15 @@ build-whisper-crisp:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-whisper-crisp" "whisper-crisp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - whisper-crisp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # whisper (faster-whisper large-v3, OpenAI-kompatible API) — Change 027:
 # Benchmark-Backend + PolySchnack-Container-Einbindung.
@@ -237,12 +275,15 @@ build-whisper:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-whisper" "whisper-service/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - whisper-service/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # ASR-GPU-Image (approach-a, ONNX + CUDA) — das Kern-Backend pk-python.
 # Eigener Job, damit der Webapp-Build nicht hinter dem 60-min-CUDA-Build wartet.
@@ -254,12 +295,15 @@ build-asr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}" "approach-a/" "approach-a/Dockerfile"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - approach-a/**
   tags:
     - shared
   needs:
-    - test-core
+    - job: test-core
+      optional: true
 
 # Webapp-Image — seit Option B CPU-only (kein CUDA-torch/pyannote mehr),
 # baut deshalb parallel zum ASR-GPU-Image statt dahinter zu warten.
@@ -270,12 +314,15 @@ build-webapp:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-webapp" "webapp/"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - webapp/**
   tags:
     - shared
   needs:
-    - test-webapp
+    - job: test-webapp
+      optional: true
 
 # CPU-Varianten entfallen seit Weg 1: alle Backend-Images sind hybrid
 # (CUDA-Binary mit CPU-Fallback via ggml_backend_init_best). Kein
@@ -296,8 +343,10 @@ compose-validate:
         yaml.safe_load(open(f))
         print(f, "OK")
     EOF
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - compose*.yml
 
 # ---------------------------------------------------------------------------
 # GitHub-Sync: erst NACH erfolgreicher GitLab-CI (alle Test- + Build-Jobs
@@ -323,28 +372,45 @@ mirror-github:
     git remote add github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git" 2>/dev/null \
       || git remote set-url github "https://tilllt:${GH_MIRROR_TOKEN}@github.com/tilllt/polyschnack-asr.git"
     git push --force github HEAD:main
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
   tags:
     - shared
   needs:
-    - test-core
-    - test-webapp
-    - test-frontend
-    - compose-validate
-    - build-asr
-    - build-webapp
-    - build-qwen3
-    - build-ark
-    - build-diar
-    - build-aligner
-    - build-sep
-    - build-cpp
-    - build-moonshine-de
-    - build-canary
-    - build-whisper
-    - build-voxtral
-    - build-whisper-crisp
+    - job: test-core
+      optional: true
+    - job: test-webapp
+      optional: true
+    - job: test-frontend
+      optional: true
+    - job: compose-validate
+      optional: true
+    - job: build-asr
+      optional: true
+    - job: build-webapp
+      optional: true
+    - job: build-qwen3
+      optional: true
+    - job: build-ark
+      optional: true
+    - job: build-diar
+      optional: true
+    - job: build-aligner
+      optional: true
+    - job: build-sep
+      optional: true
+    - job: build-cpp
+      optional: true
+    - job: build-moonshine-de
+      optional: true
+    - job: build-canary
+      optional: true
+    - job: build-whisper
+      optional: true
+    - job: build-voxtral
+      optional: true
+    - job: build-whisper-crisp
+      optional: true
 
 # GHCR-Mirror: spiegelt alle 12 Images von Harbor nach ghcr.io/tilllt/…
 # (public) — externe Nutzer des GitHub-Repos ziehen ihre Images von dort,
@@ -369,25 +435,42 @@ mirror-ghcr:
       docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
       docker push "${dst}:${CI_COMMIT_SHORT_SHA}"
     done
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
   tags:
     - shared
   needs:
-    - test-core
-    - test-webapp
-    - test-frontend
-    - compose-validate
-    - build-asr
-    - build-webapp
-    - build-qwen3
-    - build-ark
-    - build-diar
-    - build-aligner
-    - build-sep
-    - build-cpp
-    - build-moonshine-de
-    - build-canary
-    - build-whisper
-    - build-voxtral
-    - build-whisper-crisp
+    - job: test-core
+      optional: true
+    - job: test-webapp
+      optional: true
+    - job: test-frontend
+      optional: true
+    - job: compose-validate
+      optional: true
+    - job: build-asr
+      optional: true
+    - job: build-webapp
+      optional: true
+    - job: build-qwen3
+      optional: true
+    - job: build-ark
+      optional: true
+    - job: build-diar
+      optional: true
+    - job: build-aligner
+      optional: true
+    - job: build-sep
+      optional: true
+    - job: build-cpp
+      optional: true
+    - job: build-moonshine-de
+      optional: true
+    - job: build-canary
+      optional: true
+    - job: build-whisper
+      optional: true
+    - job: build-voxtral
+      optional: true
+    - job: build-whisper-crisp
+      optional: true
