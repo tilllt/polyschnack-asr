@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Segment } from "../api";
-import { updateSegment, renameSpeaker } from "../api";
+import { updateSegment, renameSpeaker, replaceSegments } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
@@ -231,9 +231,13 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   }, [shown, onDisplayChange]);
 
   // Change 124: Suchen/Ersetzen gegen `shown` — Schreibpfad identisch zu
-  // manuellen Edits (Yjs setSegmentText / REST updateSegment), damit die
-  // Änderung in der Anzeige ankommt (vorher schrieb REST an der
-  // Yjs-Anzeige vorbei → „Ersetzen passiert nichts").
+  // manuellen Edits (Yjs setSegmentText / REST), damit die Änderung in der
+  // Anzeige ankommt (vorher schrieb REST an der Yjs-Anzeige vorbei →
+  // „Ersetzen passiert nichts").
+  // Change 125: Im Solo-Modus EIN PUT mit der vollen Anzeige-Liste statt
+  // PATCH je Segment — der PATCH adressierte den Anzeige-Index gegen das
+  // ORIGINAL-Array (rec.segments) und lief bei Re-Segmentierung (Default
+  // 25 s, Anzeige ≫ DB) ins Leere (404, „ersetzt ihn nicht").
   useEffect(() => {
     if (!replaceRequest || !replaceRequest.query || !recordingId) return;
     const { query, replace, one } = replaceRequest;
@@ -246,7 +250,6 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
         if (re.test(oldText)) {
           changed[i].text = oldText.replace(re, replace);
           hit = true;
-          commitSegmentText(i, changed[i].text);
           break;
         }
       } else {
@@ -254,31 +257,28 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
         if (replaced !== oldText) {
           changed[i].text = replaced;
           hit = true;
-          commitSegmentText(i, replaced);
         }
       }
     }
-    if (hit) onEdited?.(changed, changed.map((s) => s.text).join(" "));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replaceRequest]);
-
-  // Change 124: Einzelner Text-Commit für Suchen/Ersetzen — identischer
-  // Pfad wie handleSave (Yjs-Doc → Autosave bzw. REST → Antwort).
-  function commitSegmentText(idx: number, text: string) {
-    if (!recordingId) return;
-    const next = shown.map((s, i) => (i === idx ? { ...s, text } : s));
-    setLocalTexts(next);
-    localPendingRef.current = true;
+    if (!hit) return;
     if (hasCollab) {
-      setSegmentText(idx, text);
+      // Kollaboration: je geändertes Segment in den Yjs-Doc schreiben
+      // (Index-Semantik = Anzeige; Autosave persistiert) — Change 124.
+      for (let i = 0; i < changed.length; i++) {
+        if (changed[i].text !== shown[i].text) setSegmentText(i, changed[i].text);
+      }
     } else {
-      void updateSegment(recordingId, idx, text).then((result) => {
-        if (result && result.segments) {
-          onEdited?.(result.segments, result.text);
-        }
+      // Solo: ein PUT persistiert die Anzeige-Aufteilung inkl. neuer
+      // Texte (segments_manual=True) — Server-Index-Problem entfällt.
+      setLocalTexts(changed);
+      localPendingRef.current = true;
+      void replaceSegments(recordingId, changed, false).then((result) => {
+        if (result && result.segments) onEdited?.(result.segments, result.text);
       });
     }
-  }
+    onEdited?.(changed, changed.map((s) => s.text).join(" "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replaceRequest]);
   // Change 087 (Frontend-Perf): Virtualisierung — nur sichtbare Zeilen +
   // Overscan im DOM. Riesen-Segmente (95-min-Aufnahmen, bis 287 Wörter/
   // Zeile) erzeugten sonst tausende Wort-Spans (2,2 FPS auf Mobile).
