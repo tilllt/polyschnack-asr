@@ -16,7 +16,9 @@
 | `ASR_BACKEND` | `ps-pk-onnx` | Welcher Adapter |
 | `VAD_TRIM_SILENCE` | `false` | Stille-Trimmung aktivieren |
 | `DIAR_URL` | `http://crispr-diar:5098` | Diarization-Service (CrispASR-diar-Container) |
-| `DIARIZE_METHOD` | `pyannote` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
+| `DIARIZE_METHOD` | `foxnose` | Diarization-Methode (`pyannote`\|`foxnose`\|`energy`\|…) — per GUI überschreibbar |
+| `DIARIZE_EMBEDDER` | `auto` | Speaker-Embedder für globales Clustering (pyannote: `auto`=TitaNet) |
+| `DIARIZE_FOXNOSE_EMBEDDER` | `wespeaker` | WeSpeaker-Embedder für `foxnose` (Registry-Alias, Auto-Download) |
 | `PUBLIC_RETENTION_MINUTES` | `60` | Auto-Löschung öffentl. Aufnahmen |
 | `OIDC_CLIENT_ID` | `""` | OIDC-Client-ID (leer = kein Auth) |
 | `OIDC_ISSUER` | `""` | OIDC-Issuer-URL |

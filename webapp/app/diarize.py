@@ -37,15 +37,25 @@ def _detect_device() -> str:
 
 
 def _normalise_speaker(label: str) -> str:
-    """CrispASR liefert A, B, C … — auf SPEAKER_00/01/… normalisieren.
+    """CrispASR-Label auf SPEAKER_xx normalisieren.
 
-    Bereits normalisierte Labels (SPEAKER_xx) und leere Werte bleiben
-    stabil; unbekannte Zeichen fallen auf SPEAKER_00 zurück.
+    Versteht Buchstaben (A→SPEAKER_00, Z→SPEAKER_25), bereits
+    normalisierte SPEAKER_xx und die rohen CrispASR-Formate
+    „(speaker 0)"/„speaker 3"/„12" (Change 126: fielen vorher still auf
+    SPEAKER_00 zurück). Leere/unbekannte Werte → SPEAKER_00.
     """
     if not label:
         return "SPEAKER_00"
-    if label.startswith("SPEAKER_"):
-        return label
+    s = str(label).strip()
+    if s.startswith("SPEAKER_"):
+        return s
+    # Rohe CrispASR-Formate mit Zahl: „(speaker 0)", „speaker 3", „12"
+    import re as _re
+
+    m = _re.search(r"(\d{1,2})", s)
+    if m:
+        n = int(m.group(1))
+        return f"SPEAKER_{n:02d}"
     code = ord(label[0].upper())
     if ord("A") <= code <= ord("Z"):
         return f"SPEAKER_{code - ord('A'):02d}"
@@ -100,6 +110,16 @@ def _post_diarize(
         "response_format": "diarized_json",
         "diarize": "true",
         "diarize_method": method or settings.DIARIZE_METHOD,
+        # Change 126: diarize_embedder erzwingt serverseitig das GLOBALE
+        # Speaker-Clustering. Ohne diesen Wert lädt der Server nie einen
+        # Embedder (Re-Clustering-Pfad verlangt nicht-leeren Wert) und die
+        # Labels bleiben chunk-lokal → alles fällt auf ein Label
+        # (Live-Befund 2026-08-25: 26/26 SPEAKER_00 bei 75-min-Meeting).
+        "diarize_embedder": (
+            settings.DIARIZE_FOXNOSE_EMBEDDER
+            if (method or settings.DIARIZE_METHOD) == "foxnose"
+            else settings.DIARIZE_EMBEDDER
+        ),
         # Fix 2026-08-15: parakeet (Full-Attention-FastConformer) bekommt ohne
         # chunk_seconds den ganzen Clip — bei langem Audio greift das
         # Server-Memory-Cap und die Transkription bricht nach ~165 s ab

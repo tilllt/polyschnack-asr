@@ -109,7 +109,21 @@ class _Settings:
     DIAR_URL: str = os.getenv("CRISPR_DIAR_URL", "http://crispr-diar:5098").rstrip("/")
 
     #: Diarization-Methode im CrispASR-Server (pyannote|foxnose|energy|…).
-    DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "pyannote")
+    #: Change 126: Default foxnose — beste Testergebnisse im Real-World-
+    #: Vergleich (4 Speaker, feinste Turns, ausgewogenste Verteilung;
+    #: pyannote fand 5 Cluster mit einer dominanten Stimme).
+    DIARIZE_METHOD: str = os.getenv("DIARIZE_METHOD", "foxnose")
+
+    #: Speaker-Embedder für das serverseitige GLOBALE Clustering
+    #: (CrispASR-Feld diarize_embedder). Ohne gesendeten Wert lädt der
+    #: Server nie einen Embedder und die Labels bleiben chunk-lokal →
+    #: alles fällt auf ein Label (Live-Befund 2026-08-25, Change 126).
+    #: „auto" = TitaNet (pyannote), wird serverseitig via Cache/HF geladen.
+    DIARIZE_EMBEDDER: str = os.getenv("DIARIZE_EMBEDDER", "auto")
+
+    #: WeSpeaker-Embedder für die foxnose-Methode (Registry-Alias
+    #: „wespeaker" → Auto-Download von huggingface.co/cstr/…).
+    DIARIZE_FOXNOSE_EMBEDDER: str = os.getenv("DIARIZE_FOXNOSE_EMBEDDER", "wespeaker")
 
     #: Chunk-Sekunden für den diar-Server (parakeet Longform-Fix 2026-08-15):
     #: Ohne explizites Chunking bricht CrispASR lange Audios nach ~165 s ab

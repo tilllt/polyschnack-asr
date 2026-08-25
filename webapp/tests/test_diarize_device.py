@@ -111,3 +111,43 @@ def test_normalise_speaker():
     assert d._normalise_speaker("C") == "SPEAKER_02"
     assert d._normalise_speaker("SPEAKER_07") == "SPEAKER_07"
     assert d._normalise_speaker("") == "SPEAKER_00"
+    # Change 126: CrispASR-Rohformate, die vorher still auf SPEAKER_00 fielen
+    assert d._normalise_speaker("(speaker 0)") == "SPEAKER_00"
+    assert d._normalise_speaker("(speaker 12)") == "SPEAKER_12"
+    assert d._normalise_speaker("speaker 3") == "SPEAKER_03"
+    assert d._normalise_speaker("3") == "SPEAKER_03"
+    assert d._normalise_speaker("(Speaker 5)") == "SPEAKER_05"
+
+
+def test_diarize_sendet_embedder_folgt_methode(monkeypatch, tmp_path):
+    """Change 126: diarize_embedder erzwingt serverseitig das globale
+    Speaker-Clustering — ohne gesendeten Wert lädt der Server nie einen
+    Embedder und alle Labels bleiben chunk-lokal (Live-Befund: alles
+    SPEAKER_00 bei 75-min-Meeting). Default-Methode ist foxnose → der
+    WeSpeaker-Embedder wird gesendet."""
+    fc = _patch(monkeypatch, 200, {"segments": []})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    d.diarize(str(p))
+    data = fc.last_kwargs["data"]
+    assert data["diarize_embedder"] == settings.DIARIZE_FOXNOSE_EMBEDDER
+    assert data["diarize_embedder"]  # nicht leer
+
+
+def test_diarize_pyannote_sendet_titanet_auto(monkeypatch, tmp_path):
+    """pyannote → DIARIZE_EMBEDDER (Default 'auto' = TitaNet)."""
+    fc = _patch(monkeypatch, 200, {"segments": []})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    d.diarize(str(p), method="pyannote")
+    assert fc.last_kwargs["data"]["diarize_embedder"] == settings.DIARIZE_EMBEDDER
+
+
+def test_diarize_foxnose_sendet_wespeaker(monkeypatch, tmp_path):
+    """Change 126: foxnose braucht den WeSpeaker-Embedder (Registry-Alias
+    'wespeaker', Auto-Download serverseitig) — nicht den TitaNet-Default."""
+    fc = _patch(monkeypatch, 200, {"segments": []})
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF....")
+    d.diarize(str(p), method="foxnose")
+    assert fc.last_kwargs["data"]["diarize_embedder"] == "wespeaker"

@@ -209,8 +209,26 @@ def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
                      min_duration_off: Optional[float] = None,
                      method: Optional[str] = None) -> list:
     from .diarize import diarize
-    return diarize(audio_path, num_speakers=num_speakers,
+    segs = diarize(audio_path, num_speakers=num_speakers,
                    min_duration_off=min_duration_off, method=method)
+    # Change 126: Qualitäts-Warnung — bei langem Audio (> 10 min) und nur
+    # EINEM erkannten Speaker ist fast sicher das serverseitige Clustering
+    # ausgefallen (Embedder fehlt → chunk-lokale Labels, alles fällt auf ein
+    # Label). Kein stiller Fail: die Warnung macht den Zustand sichtbar.
+    if segs:
+        try:
+            max_end = max(float(s.get("end") or 0.0) for s in segs)
+        except (TypeError, ValueError):
+            max_end = 0.0
+        speakers = {s.get("speaker") for s in segs}
+        if max_end > 600 and len(speakers) <= 1:
+            log.warning(
+                "Diarization lieferte nur 1 Speaker bei %.0f min Audio "
+                "(%d Segmente) — Embedder/globales Clustering serverseitig "
+                "prüfen (diarize_embedder)",
+                max_end / 60, len(segs),
+            )
+    return segs
 
 
 def _word_overlap(w: Dict[str, Any], d_start: float, d_end: float) -> float:

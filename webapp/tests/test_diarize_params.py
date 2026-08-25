@@ -69,12 +69,14 @@ def test_diarize_min_duration_off_wird_nicht_uebertragen(monkeypatch, tmp_path):
 
 
 def test_diarize_default_method_aus_settings(monkeypatch, tmp_path):
-    """Ohne explizite Methode greift settings.DIARIZE_METHOD (Default pyannote)."""
+    """Ohne explizite Methode greift settings.DIARIZE_METHOD (Change 126:
+    Default foxnose — beste Testergebnisse, 4 Speaker vs. pyannote 5)."""
     fc = _patch(monkeypatch)
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF....")
     diarize(str(p))
-    assert fc.last_kwargs["data"]["diarize_method"] == "pyannote"
+    assert fc.last_kwargs["data"]["diarize_method"] == settings.DIARIZE_METHOD
+    assert fc.last_kwargs["data"]["diarize_method"] == "foxnose"
 
 
 def test_diarize_reicht_explizite_methode_durch(monkeypatch, tmp_path):
