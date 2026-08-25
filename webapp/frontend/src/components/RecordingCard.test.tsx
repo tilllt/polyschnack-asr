@@ -397,6 +397,58 @@ describe("RecordingCard — Change 118 Options-Kategorie-Disabled", () => {
     const hint = screen.getByTestId("bg-diar-r1");
     expect(hint.textContent).toContain("42s"); // „läuft seit 42s" (sprachunabhängig)
   });
+
+  test("Change 128: Cancel-Button bei laufender Rediarize (im bg-diar-Hinweis)", () => {
+    renderCard(
+      makeRec({ status: "done", diar_status: "running" }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-diar-r1");
+    expect(hint.querySelector("button")).toBeTruthy();
+  });
+
+  test("Change 128: Cancel-Button bei laufendem Background-Align (im bg-align-Hinweis)", () => {
+    renderCard(
+      makeRec({ status: "done", alignment: "running" }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-align-r1");
+    expect(hint.querySelector("button")).toBeTruthy();
+  });
+
+  test("Change 128: kein Cancel-Button bei done ohne laufende Hintergrund-Jobs", () => {
+    renderCard(makeRec({ status: "done", diar_status: "done", alignment: "done" }), false);
+    expect(screen.queryByTestId("bg-diar-r1")).toBeNull();
+    expect(screen.queryByTestId("bg-align-r1")).toBeNull();
+  });
+
+  test("Change 127: bg-diar-Hinweis zeigt ETA (eta_low/high_s)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        diar_status: "running",
+        eta_low_s: 300,
+        eta_high_s: 600,
+      }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-diar-r1");
+    expect(hint.textContent).toContain("5–10m"); // fmtEtaRange(300, 600)
+  });
+
+  test("Change 127: bg-align-Hinweis zeigt ETA (eta_low/high_s)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        alignment: "running",
+        eta_low_s: 300,
+        eta_high_s: 600,
+      }),
+      false,
+    );
+    const hint = screen.getByTestId("bg-align-r1");
+    expect(hint.textContent).toContain("5–10m"); // fmtEtaRange(300, 600)
+  });
 });
 
 describe("RecordingCard — Change 058 Popover/Dropdown-Konsistenz", () => {

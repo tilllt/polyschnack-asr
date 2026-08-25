@@ -1,7 +1,7 @@
 """Change 082: ETA aus Audio-Dauer × RTF (app/eta)."""
 from datetime import datetime, timedelta, timezone
 
-from app.eta import elapsed_since, estimate_eta_s
+from app.eta import elapsed_since, estimate_align_eta_s, estimate_diar_eta_s, estimate_eta_s
 from app.rtf_learner import RtfLearner
 
 
@@ -127,3 +127,70 @@ def test_punctuation_verlaengert_eta():
     mit = estimate_eta_s(600.0, "ps-pk-onnx", enable_punctuation=True)
     assert ohne is not None and mit is not None
     assert mit[0] > ohne[0]
+
+
+# ── Change 127: Rediarize-ETA (nur Diar-Phase, methoden-getrennt) ────────
+
+def test_diar_eta_fallback_pyannote():
+    """600 s Audio × DIAR_RTF-Fallback → Rest = Dauer × RTF; Spanne breit."""
+    from app.eta import DIAR_RTF
+
+    rtf = DIAR_RTF["pyannote"]
+    eta = estimate_diar_eta_s(600.0, "pyannote")
+    assert eta is not None
+    rest, low, high = eta
+    assert rest == round(600.0 * rtf)
+    assert low < rest < high
+
+
+def test_diar_eta_elapsed_wird_abgezogen():
+    from app.eta import DIAR_RTF
+
+    rtf = DIAR_RTF["pyannote"]
+    rest = estimate_diar_eta_s(600.0, "pyannote", elapsed_s=120.0)
+    assert rest is not None and rest[0] == round(600.0 * rtf) - 120
+
+
+def test_diar_eta_none_ohne_dauer():
+    assert estimate_diar_eta_s(None, "pyannote") is None
+    assert estimate_diar_eta_s(0.0, "pyannote") is None
+
+
+def test_diar_eta_lernt_methoden_getrennt():
+    """Change 127: foxnose/pyannote werden getrennt gelernt — die ETA
+    muss den gelernten Wert der jeweils aktiven Methode nutzen."""
+    learner = RtfLearner(n_min=1)
+    for _ in range(10):
+        learner.ingest("diar:foxnose", 0.5)
+        learner.ingest("diar:pyannote", 2.0)
+    rest_f = estimate_diar_eta_s(600.0, "foxnose", learner=learner)
+    rest_p = estimate_diar_eta_s(600.0, "pyannote", learner=learner)
+    assert rest_f is not None and rest_f[0] == 300   # 600 × 0.5
+    assert rest_p is not None and rest_p[0] == 1200  # 600 × 2.0
+
+
+# ── Change 127: Align-ETA (Background-Alignment, gleiches Muster) ───────
+
+def test_align_eta_fallback():
+    """600 s Audio → 5 Gruppen à 120 s; Fallback 250 ms/Gruppe →
+    Faktor 1.25 → Rest 750 s; Spanne breit."""
+    from app.eta import ALIGN_MS_PER_GROUP_FALLBACK
+
+    eta = estimate_align_eta_s(600.0)
+    assert eta is not None
+    rest, low, high = eta
+    assert rest == round(600.0 * (ALIGN_MS_PER_GROUP_FALLBACK / 1000.0) * 5)
+    assert low < rest < high
+
+
+def test_align_eta_elapsed_wird_abgezogen():
+    from app.eta import ALIGN_MS_PER_GROUP_FALLBACK
+
+    f = (ALIGN_MS_PER_GROUP_FALLBACK / 1000.0) * 5  # 600 s → 5 Gruppen
+    rest = estimate_align_eta_s(600.0, elapsed_s=100.0)
+    assert rest is not None and rest[0] == round(600.0 * f) - 100
+
+
+def test_align_eta_none_ohne_dauer():
+    assert estimate_align_eta_s(None) is None
+    assert estimate_align_eta_s(0.0) is None

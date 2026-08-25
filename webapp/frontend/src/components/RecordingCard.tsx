@@ -1362,9 +1362,27 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                       {" "}· {t("phase_running_since")} {fmtSince(hb.sinceBeat)}
                     </span>
                   )}
+                  {/* Change 127: ETA für das laufende Background-Alignment
+                      (Backend liefert eta_low/high_s bei done + alignment
+                      running/pending). */}
+                  {etaRange && (
+                    <span className="text-muted2 tabular-nums">
+                      {" "}· {t("eta_estimated")} {etaRange}
+                    </span>
+                  )}
                 </>
               )}
             </span>
+            {/* Change 128: Cancel direkt im sichtbaren Hinweis — auf Mobile
+                war der Button im Desktop-Bereich nicht auffindbar. */}
+            <button
+              onClick={handleCancelJob}
+              disabled={cancelMut.isPending}
+              className="ml-auto shrink-0 underline hover:text-txt"
+              title={t("cancel_title")}
+            >
+              {cancelMut.isPending ? t("cancel_pending") : t("cancel")}
+            </button>
           </div>
         )}
         {/* Change 101: Re-Align ohne Effekt — der Aligner hat keine Wörter
@@ -1405,6 +1423,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 · {t("phase_running_since")} {fmtSince(hb.sinceBeat)}
               </span>
             )}
+            {/* Change 127: ETA für die laufende Rediarize (Backend liefert
+                eta_low/high_s jetzt auch bei done + diar_status running). */}
+            {etaRange && (
+              <span className="text-muted2 tabular-nums">
+                · {t("eta_estimated")} {etaRange}
+              </span>
+            )}
+            {/* Change 128: Cancel direkt im Hinweis (mobile-sichtbar). */}
+            <button
+              onClick={handleCancelJob}
+              disabled={cancelMut.isPending}
+              className="ml-auto shrink-0 underline hover:text-txt"
+              title={t("cancel_title")}
+            >
+              {cancelMut.isPending ? t("cancel_pending") : t("cancel")}
+            </button>
           </div>
         )}
       </div>

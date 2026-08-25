@@ -61,7 +61,7 @@ from ..versions import list_versions
 from ..service import _current_run, resegment_by_duration, trim_audio
 from ..whatsapp import parse_whatsapp
 from ..timeutil import iso_utc
-from ..eta import elapsed_since, estimate_eta_s
+from ..eta import elapsed_since, estimate_align_eta_s, estimate_diar_eta_s, estimate_eta_s
 
 router = APIRouter(prefix="/api")
 
@@ -560,8 +560,10 @@ def _recording_to_dict(
     _s_enhance = "off" if run is None else (run.enable_enhance or "off")
     _s_punct = bool(run and run.enable_punctuation)
     # Change 082: ETA-Rest aus Audio-Dauer × RTF (nur während processing).
-    eta = (
-        estimate_eta_s(
+    # Change 127: auch bei done + laufender Rediarize (nur Diar-Phase,
+    # Basis phase_started_at = Beginn der Rediarize-Note).
+    if rec.status == "processing":
+        eta = estimate_eta_s(
             rec.duration_s,
             rec.backend,
             enable_vad=_s_vad,
@@ -574,9 +576,22 @@ def _recording_to_dict(
             # Change 085: selbstlernende Faktoren (gelernt > Fallback > None).
             learner=_eta_learner(),
         )
-        if rec.status == "processing"
-        else None
-    )
+    elif rec.status == "done" and rec.diar_status in ("running", "pending"):
+        eta = estimate_diar_eta_s(
+            rec.duration_s,
+            diarize_method=_s_diarize_method,
+            elapsed_s=elapsed_since(rec.phase_started_at),
+            learner=_eta_learner(),
+        )
+    elif rec.status == "done" and rec.alignment in ("running", "pending"):
+        # Change 127: Align-ETA analog (Background-Alignment).
+        eta = estimate_align_eta_s(
+            rec.duration_s,
+            elapsed_s=elapsed_since(rec.phase_started_at),
+            learner=_eta_learner(),
+        )
+    else:
+        eta = None
     return {
         "id": rec.id,
         "uid": uid,

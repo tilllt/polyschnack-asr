@@ -186,9 +186,9 @@ const HELP: Record<string, { t: S; m: S }> = {
       pt: "O método de cálculo por trás da detecção de falantes. Automático: o sistema escolhe conforme a gravação.",
     },
     m: {
-      de: "Methode A = pyannote (neuronales Netz, sehr genau); Methode B = foxnose (KI, auf Schnelligkeit ausgelegt); Methode C = Energie (Lautstärke-Vergleich, schnell, bei ähnlichen Stimmen ungenauer).",
-      en: "Method A = pyannote (neural network, very accurate); Method B = foxnose (AI, speed-oriented); Method C = energy (loudness comparison, fast, less accurate with similar voices).",
-      pt: "Método A = pyannote (rede neural, muito preciso); Método B = foxnose (IA, focado em velocidade); Método C = energia (comparação de volume, rápido, menos preciso com vozes parecidas).",
+      de: "Methode A = pyannote (neuronales Netz, sehr genau); Methode B = foxnose (KI, sehr gut bei Sprecherwechseln, Standard); Methode C = Energie (Lautstärke-Vergleich, schnell, bei ähnlichen Stimmen ungenauer).",
+      en: "Method A = pyannote (neural network, very accurate); Method B = foxnose (AI, excellent at speaker turns, default); Method C = energy (loudness comparison, fast, less accurate with similar voices).",
+      pt: "Método A = pyannote (rede neural, muito preciso); Método B = foxnose (IA, ótima em trocas de falante, padrão); Método C = energia (comparação de volume, rápido, menos preciso com vozes parecidas).",
     },
   },
   punct: {

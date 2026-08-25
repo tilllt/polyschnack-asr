@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from math import ceil
 from typing import Optional
 
+from .rtf_learner import FALLBACK_SPREAD
+
 #: Gemessene ASR-RTF (Real-Time-Factor) je Backend (Benchmark 22.08.).
 ASR_RTF: dict[str, float] = {
     "ps-pk-onnx": 0.071,
@@ -29,11 +31,16 @@ ASR_RTF: dict[str, float] = {
     # Eintrag: unbekanntes Backend ⇒ keine ETA (Anti-Fake-Regel).
 }
 
-#: Diarization-RTF je Methode — konservativ geschätzt (Phase 2 kalibriert).
+#: Diarization-RTF je Methode — Change 127 (2026-08-25) an gemessenen
+#: Läufen kalibriert (scripts/diarize_local.sh, 220-s-Ausschnitt, CPU-CLI:
+#: pyannote 143 s / foxnose 144 s → je 0.65). Prod-Server/CUDA ohne
+#: Modell-Load-Overhead ist effektiv schneller — der ETA-Learner lernt
+#: die echten Prod-Zeiten ab n ≥ 10 Stichproben; die Fallback-Spanne
+#: (±50 %) deckt die Unsicherheit des Kaltstarts ab.
 DIAR_RTF: dict[str, float] = {
     "energy": 0.02,
-    "foxnose": 0.2,
-    "pyannote": 0.4,
+    "foxnose": 0.65,
+    "pyannote": 0.65,
 }
 
 #: Pauschale Overheads (Anteil an der Audio-Dauer), nur wenn aktiviert.
@@ -162,6 +169,85 @@ def _estimate_eta_s(
 def _align_groups(duration_s: float) -> int:
     """Erwartete Align-Gruppenzahl: ceil(Dauer / 120 s-Gruppe)."""
     return max(1, ceil(float(duration_s) / ALIGN_GROUP_S))
+
+
+def _estimate_phase_eta_s(
+    duration_s: Optional[float],
+    key: str,
+    fallback: Optional[float],
+    elapsed_s: float,
+    learner=None,
+) -> Optional[tuple[int, int, int]]:
+    """Change 127: gemeinsamer Kern für Background-Phasen-ETAs (Diar/Align).
+
+    Erwartete Gesamtdauer = Dauer × Faktor(key) — gelernt (Learner) oder
+    *fallback* (±50 % Spanne, konsistent zum RtfLearner). None bei
+    fehlender Dauer oder unbekannter Rate (nie raten).
+    """
+    if not duration_s or duration_s <= 0:
+        return None
+    if learner is None:
+        if fallback is None or fallback <= 0:
+            return None
+        factor = low = high = float(fallback)
+        low *= 1.0 - FALLBACK_SPREAD
+        high *= 1.0 + FALLBACK_SPREAD
+    else:
+        est = learner.estimate(key, fallback=fallback)
+        if est is None:
+            return None
+        factor, low, high = est.factor, est.low, est.high
+    rest = max(0.0, duration_s * factor - max(0.0, elapsed_s))
+    if rest < 1.0:
+        return None
+    rel_low = (low / factor) if factor > 0 else (1.0 - FALLBACK_SPREAD)
+    rel_high = (high / factor) if factor > 0 else (1.0 + FALLBACK_SPREAD)
+    rest_low = max(MIN_SPREAD_S, rest * rel_low)
+    rest_high = max(rest, rest * rel_high)
+    return int(rest), int(rest_low), int(rest_high)
+
+
+def estimate_diar_eta_s(
+    duration_s: Optional[float],
+    diarize_method: Optional[str] = None,
+    *,
+    elapsed_s: float = 0.0,
+    learner=None,
+) -> Optional[tuple[int, int, int]]:
+    """Change 127: Rest-ETA für eine laufende Rediarize (nur Diar-Phase).
+
+    Dauer × RTF(diar:<methode>) — gelernt (getrennt pro Methode) oder
+    DIAR_RTF-Fallback.
+    """
+    method = diarize_method or "pyannote"
+    return _estimate_phase_eta_s(
+        duration_s,
+        "diar:" + method,
+        DIAR_RTF.get(method),
+        elapsed_s,
+        learner,
+    )
+
+
+def estimate_align_eta_s(
+    duration_s: Optional[float],
+    *,
+    elapsed_s: float = 0.0,
+    learner=None,
+) -> Optional[tuple[int, int, int]]:
+    """Change 127: Rest-ETA für ein laufendes Background-Alignment.
+
+    Dauer × Faktor(align); Faktor = ms/Gruppe × Gruppenanzahl
+    (Fallback ALIGN_MS_PER_GROUP_FALLBACK), konsistent zum
+    include_align-Pfad der Transcribe-ETA.
+    """
+    return _estimate_phase_eta_s(
+        duration_s,
+        "align",
+        ALIGN_MS_PER_GROUP_FALLBACK / 1000.0 * _align_groups(duration_s or 0.0),
+        elapsed_s,
+        learner,
+    )
 
 
 def estimate_eta_s(

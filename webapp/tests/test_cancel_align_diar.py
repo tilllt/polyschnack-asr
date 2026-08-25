@@ -69,6 +69,78 @@ def _clean_bg_cancel_set():
         service._BG_ALIGN_CANCEL.clear()
 
 
+def test_response_enthaelt_diar_status():
+    """Change 128: Recording-Response liefert diar_status (für den
+    Cancel-Button bei laufender Rediarize)."""
+    from app.models import Recording
+    from app.routers.recordings import _recording_to_dict
+
+    rec = Recording(
+        uid="x", original_name="a.mp3", title="a",
+        duration_s=10.0, size_bytes=100, diar_status="running",
+    )
+    d = _recording_to_dict(rec)
+    assert d["diar_status"] == "running"
+
+    rec2 = Recording(uid="y", original_name="b.mp3", title="b",
+                     duration_s=1.0, size_bytes=1)
+    assert _recording_to_dict(rec2)["diar_status"] == "done"
+
+
+def test_response_eta_bei_laufender_rediarize():
+    """Change 127: done + diar_status running → ETA wird geliefert
+    (Rediarize-ETA, Basis phase_started_at) statt immer None."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.models import Recording
+    from app.routers.recordings import _recording_to_dict
+
+    rec = Recording(
+        uid="x", original_name="a.mp3", title="a",
+        duration_s=600.0, size_bytes=100,
+        status="done", diar_status="running",
+        phase_started_at=datetime.now(timezone.utc) - timedelta(seconds=60),
+    )
+    run = SimpleNamespace(
+        diarize_num_speakers=None, diarize_min_duration_off=None,
+        diarize_method="pyannote", enable_streaming=False,
+        enable_noise_reduce=False, enable_enhance="off",
+        enable_punctuation=False, enable_vad=False, enable_diarize=True,
+    )
+    d = _recording_to_dict(rec, run=run)
+    assert d["eta_low_s"] is not None and d["eta_high_s"] is not None
+    # 600 s × 0.65 = 390 s erwartet, 60 s elapsed → Rest ~330 s (Fallback ±50 %)
+    assert d["eta_high_s"] >= d["eta_low_s"] > 0
+
+
+def test_response_eta_bei_laufendem_background_align():
+    """Change 127: done + alignment running → Align-ETA (Basis
+    phase_started_at), analog zur Rediarize-ETA."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.models import Recording
+    from app.routers.recordings import _recording_to_dict
+
+    rec = Recording(
+        uid="x", original_name="a.mp3", title="a",
+        duration_s=600.0, size_bytes=100,
+        status="done", alignment="running",
+        phase_started_at=datetime.now(timezone.utc) - timedelta(seconds=60),
+    )
+    run = SimpleNamespace(
+        diarize_num_speakers=None, diarize_min_duration_off=None,
+        diarize_method="pyannote", enable_streaming=False,
+        enable_noise_reduce=False, enable_enhance="off",
+        enable_punctuation=False, enable_vad=False, enable_diarize=True,
+    )
+    d = _recording_to_dict(rec, run=run)
+    assert d["eta_low_s"] is not None and d["eta_high_s"] is not None
+    assert d["eta_high_s"] >= d["eta_low_s"] > 0
+
+
+
 def test_cancel_endpoint_erkennt_background_alignment(tmp_path, monkeypatch):
     """Cancel bei alignment=running → cancelled=true + rec_id im Cancel-Set."""
     eng = _setup(tmp_path, monkeypatch)
