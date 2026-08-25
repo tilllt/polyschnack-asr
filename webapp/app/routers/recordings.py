@@ -1632,16 +1632,16 @@ def export_templates_ep(session: Session = Depends(get_session)) -> dict:
 def transcribe_ep(
     rid: str,
     request: Request,
-    enable_vad: bool = Form(False),
-    vad_mode: str = Form("off"),  # Change 114: off|edges|all
-    enable_diarize: bool = Form(False),
+    enable_vad: Optional[bool] = Form(None),
+    vad_mode: Optional[str] = Form(None),  # Change 114: off|edges|all
+    enable_diarize: Optional[bool] = Form(None),
     diarize_num_speakers: Optional[int] = Form(None),
     diarize_min_duration_off: Optional[float] = Form(None),
     diarize_method: Optional[str] = Form(None),
-    enable_streaming: bool = Form(False),
-    enable_noise_reduce: bool = Form(True),
-    enable_enhance: str = Form("off"),
-    separate_backend: str = Form("none"),  # Change 106
+    enable_streaming: Optional[bool] = Form(None),
+    enable_noise_reduce: Optional[bool] = Form(None),
+    enable_enhance: Optional[str] = Form(None),
+    separate_backend: Optional[str] = Form(None),  # Change 106
     enable_punctuation: Optional[bool] = Form(None),
     enable_llm_enhance: Optional[bool] = Form(None),
     prompt_template_id: Optional[int] = Form(None),
@@ -1678,9 +1678,27 @@ def transcribe_ep(
     # Change 099: Settings in den queued-Run (versionierte Wahrheit) — das
     # Recording trägt keine Settings-Spalten mehr. Existiert ein queued-Run
     # (vom Upload), werden DESSEN Settings aktualisiert; sonst neuer Run.
-    # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
-    if not isinstance(separate_backend, str):
-        separate_backend = "none"
+    # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Werten.
+    if not isinstance(separate_backend, (str, type(None))):
+        separate_backend = None
+    # Change 121: Nur EXPLIZIT gesendete Felder überschreiben — None = „nicht
+    # gesendet" → bestehenden Run-Wert behalten (bzw. Modell-Default für neue
+    # Runs). Vorher wurden fehlende Felder still auf Form-Defaults gesetzt
+    # (stiller Fail für API-Clients, die nach dem Upload nur transcribe
+    # aufrufen und ihre Upload-Auswahl verloren). Das Frontend sendet immer
+    # alle Felder → Browser-Verhalten unverändert.
+    if not isinstance(enable_vad, (bool, type(None))):
+        enable_vad = None
+    if not isinstance(enable_diarize, (bool, type(None))):
+        enable_diarize = None
+    if not isinstance(enable_streaming, (bool, type(None))):
+        enable_streaming = None
+    if not isinstance(enable_noise_reduce, (bool, type(None))):
+        enable_noise_reduce = None
+    if not isinstance(vad_mode, (str, type(None))):
+        vad_mode = None
+    if not isinstance(enable_enhance, (str, type(None))):
+        enable_enhance = None
     from ..models import (DeliveryTarget, PromptTemplate, TranscriptionRun,
                           UserLlmEndpoint)
     from sqlmodel import select as _select
@@ -1693,20 +1711,52 @@ def transcribe_ep(
         run = TranscriptionRun(
             rec_id=rec.id, status="queued", created_by_user_id=uid)
         session.add(run)
-    run.enable_vad = enable_vad
-    run.vad_mode = (vad_mode if isinstance(vad_mode, str) and vad_mode in ("off", "edges", "all")
-                    else ("edges" if enable_vad else "off"))  # Change 114
-    if run.vad_mode == "off" and enable_vad:
+        # Modell-Defaults für neue Runs (bisherige Form-Defaults)
+        if enable_vad is None:
+            enable_vad = False
+        if vad_mode is None:
+            vad_mode = "off"
+        if enable_diarize is None:
+            enable_diarize = False
+        if enable_streaming is None:
+            enable_streaming = False
+        if enable_noise_reduce is None:
+            enable_noise_reduce = True
+        if enable_enhance is None:
+            enable_enhance = "off"
+        if separate_backend is None:
+            separate_backend = "none"
+    # VAD: explizit gesendetes vad_mode gewinnt; nur enable_vad → Ableitung
+    if vad_mode is not None and vad_mode in ("off", "edges", "all"):
+        run.vad_mode = vad_mode
+    elif enable_vad is not None:
+        if enable_vad:
+            run.vad_mode = run.vad_mode if run.vad_mode in ("edges", "all") else "edges"
+        else:
+            run.vad_mode = "off"
+    if enable_vad is not None:
+        run.enable_vad = enable_vad
+    if vad_mode is not None and vad_mode in ("off", "edges", "all") and enable_vad is None:
+        run.enable_vad = vad_mode != "off"  # Change 114: konsistente Ableitung
+    if run.vad_mode == "off" and run.enable_vad:
         run.vad_mode = "edges"  # Change 114: alter Client sendet nur enable_vad=true
-    run.enable_vad = run.vad_mode != "off"  # Change 114: konsistente Ableitung
-    run.enable_diarize = enable_diarize
-    run.diarize_num_speakers = diarize_num_speakers
-    run.diarize_min_duration_off = diarize_min_duration_off
-    run.diarize_method = diarize_method
-    run.enable_streaming = enable_streaming
-    run.enable_noise_reduce = enable_noise_reduce
-    run.enable_enhance = enable_enhance
-    run.separate_backend = separate_backend  # Change 106 (Fix 23.08.)
+        run.enable_vad = True
+    if enable_diarize is not None:
+        run.enable_diarize = enable_diarize
+    if diarize_num_speakers is not None:
+        run.diarize_num_speakers = diarize_num_speakers
+    if diarize_min_duration_off is not None:
+        run.diarize_min_duration_off = diarize_min_duration_off
+    if diarize_method is not None:
+        run.diarize_method = diarize_method
+    if enable_streaming is not None:
+        run.enable_streaming = enable_streaming
+    if enable_noise_reduce is not None:
+        run.enable_noise_reduce = enable_noise_reduce
+    if enable_enhance is not None:
+        run.enable_enhance = enable_enhance
+    if separate_backend is not None:
+        run.separate_backend = separate_backend  # Change 106 (Fix 23.08.)
     if enable_punctuation is not None:
         run.enable_punctuation = enable_punctuation
     if enable_llm_enhance is not None:
