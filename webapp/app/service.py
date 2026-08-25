@@ -30,6 +30,37 @@ import os
 # Heavy optional deps (onnxruntime/pyannote/torch) are imported lazily inside
 # the functions so the module imports fast and the CI test job stays light.
 
+# Change 124: Cancel-Registry für den Background-Alignment-Worker (Change 045).
+# Der Worker läuft NACH „done" ohne Queue-Job (job=None) → _cancelled() ist
+# dort wirkungslos. Cancel setzt die rec_id in dieses Set; der Worker prüft es
+# vor jeder Align-Gruppe und bricht mit alignment="skipped" ab.
+_BG_ALIGN_CANCEL: set[int] = set()
+_align_lock = threading.Lock()
+
+
+def _align_cancelled(rec_id: int) -> bool:
+    with _align_lock:
+        return rec_id in _BG_ALIGN_CANCEL
+
+
+def cancel_background_align(rec_id: int) -> None:
+    """Change 124: laufendes/pendendes Background-Alignment abbrechen."""
+    with _align_lock:
+        _BG_ALIGN_CANCEL.add(rec_id)
+    try:
+        _AlignmentCache.delete(rec_id)
+    except Exception:
+        pass
+
+
+def _abort_if_cancelled(job, rec_id: int) -> bool:
+    """Change 124: Cancel/Timeout NACH einer blockierenden Phase prüfen
+    (z.B. Diarization-Call). True, wenn abgebrochen wurde (failed gesetzt)."""
+    if _cancelled(job, rec_id):
+        _abort_recording(rec_id, "Abgebrochen (User-Cancel)")
+        return True
+    return False
+
 
 def _trim_silence(audio_bytes: bytes) -> Tuple[bytes, float]:
     """VAD-Trim: entfernt führende/trailing Stille.
@@ -778,6 +809,12 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
         _t_align0 = time.perf_counter()
         groups = build_align_groups(segments)
         for gi, (g_start, g_end, g_text) in enumerate(groups):
+            # Change 124: BG-Align (job=None) ist gegen _cancelled immun —
+            # zusätzlich die Cancel-Registry prüfen. Kein _abort_recording:
+            # der Job ist längst done, nur die Align-Ergebnisse entfallen.
+            if background and _align_cancelled(rec_id):
+                log.info("bg-align: Cancel für rec_id=%s — Ergebnis verworfen", rec_id)
+                return segments
             # Cancel/Timeout zwischen den Gruppen prüfen — nicht erst nach
             # dem letzten align()-Call (der bis zu 15 min blockieren kann).
             if _cancelled(job, rec_id):
@@ -1103,6 +1140,24 @@ def _run_background_align(rec_id: int) -> None:
     except Exception as exc:
         log.warning("bg-align: rec_id=%s failed: %s", rec_id, exc)
         new_segments = None
+
+    # Change 124: User-Cancel während des Laufs → Ergebnis verwerfen,
+    # alignment=skipped (die Transkription selbst bleibt done).
+    if _align_cancelled(rec_id):
+        with _align_lock:
+            _BG_ALIGN_CANCEL.discard(rec_id)
+        try:
+            with Session(engine) as session:
+                rec_c = session.get(_Rec, rec_id)
+                if rec_c is not None:
+                    rec_c.alignment = "skipped"
+                    session.add(rec_c)
+                    session.commit()
+        except Exception as exc:
+            log.warning("bg-align: Cancel-Status-Update fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+        _AlignmentCache.delete(rec_id)
+        log.info("bg-align: rec_id=%s abgebrochen (User-Cancel, alignment=skipped)", rec_id)
+        return
 
     try:
         with Session(engine) as session:
@@ -1981,6 +2036,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         session.commit()
         else:
             diar = None
+        # Change 124: Cancel/Timeout NACH der blockierenden Diar-Phase prüfen
+        # — vorher wurde erst nach dem Call (Minuten!) weitergearbeitet und
+        # der Job lief trotz Cancel bis zum Save durch.
+        if _abort_if_cancelled(job, rec_id):
+            return
         if enable_diarize:
             phase_times[f"diar:{run_diarize_method or 'pyannote'}"] = (
                 time.perf_counter() - _t_diar0

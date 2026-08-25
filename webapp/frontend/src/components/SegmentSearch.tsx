@@ -1,20 +1,24 @@
 import { useState, useMemo } from "react";
 import type { Segment } from "../api";
-import { updateSegment } from "../api";
 import { fmtTimecode } from "../format";
 
 interface Props {
   segments: Segment[];
-  recordingId: string;
-  onEdited: (segs: Segment[], text: string) => void;
   /** Review-Fix 2026-08-15: Such-Query + Navigation an die SegmentList
    *  durchreichen, damit Treffer hervorgehoben UND angesprungen werden. */
   query: string;
   onQueryChange: (q: string) => void;
   onNavigateHit: (segIdx: number) => void;
+  /** Change 124: Ersetzen läuft über die SegmentList (kennt die Anzeige +
+   *  den Yjs-Schreibpfad) — hier nur das Request weiterreichen. */
+  onReplaceRequest?: (req: {
+    one: boolean;
+    query: string;
+    replace: string;
+  }) => void;
 }
 
-export function SegmentSearch({ segments, recordingId, onEdited, query, onQueryChange, onNavigateHit }: Props) {
+export function SegmentSearch({ segments, query, onQueryChange, onNavigateHit, onReplaceRequest }: Props) {
   const [replace, setReplace] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -29,33 +33,14 @@ export function SegmentSearch({ segments, recordingId, onEdited, query, onQueryC
     return { perSeg: out, total };
   }, [query, segments]);
 
-  async function doReplace(one: boolean) {
-    if (!query || saving) return;
+  function doReplace(one: boolean) {
+    if (!query || saving || !onReplaceRequest) return;
     setSaving(true);
+    // Change 124: kein direktes updateSegment mehr — die SegmentList
+    // schreibt über den kollaborationsfähigen Pfad (Yjs setSegmentText /
+    // REST), damit die Anzeige die Änderung wirklich übernimmt.
     try {
-      const changed: Segment[] = segments.map((s) => ({ ...s }));
-      for (let i = 0; i < changed.length; i++) {
-        const oldText = changed[i].text;
-        if (one) {
-          const re = new RegExp(query, "i");
-          const idx = oldText.search(re);
-          if (idx !== -1) {
-            changed[i].text = oldText.replace(re, replace);
-            await updateSegment(recordingId, i, changed[i].text);
-            break;
-          }
-        } else {
-          const replaced = oldText.replace(new RegExp(query, "gi"), replace);
-          if (replaced !== oldText) {
-            changed[i] = { ...changed[i], text: replaced };
-            await updateSegment(recordingId, i, replaced);
-          }
-        }
-      }
-      const totalText = changed.map((s) => s.text).join(" ");
-      onEdited(changed, totalText);
-    } catch {
-      // keep state on error
+      onReplaceRequest({ one, query, replace });
     } finally {
       setSaving(false);
     }

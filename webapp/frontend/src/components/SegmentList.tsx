@@ -33,6 +33,20 @@ interface Props {
    *  (bewusst ANDERS als der gelbe Karaoke-Marker) + Sprung-Ziel. */
   searchQuery?: string;
   searchJump?: { idx: number; nonce: number } | null;
+  /** Change 124: meldet die tatsächlich ANGEZEIGTEN Segmente nach oben
+   *  (dragPreview ?? localTexts ?? prop) — die Suche arbeitet damit gegen
+   *  denselben Stand, den der User sieht (Yjs-Edits inklusive). */
+  onDisplayChange?: (shown: Segment[]) => void;
+  /** Change 124: Suchen/Ersetzen-Auftrag vom Parent (SegmentSearch-UI).
+   *  Ausführung gegen `shown` über den kollaborationsfähigen Pfad
+   *  (Yjs setSegmentText / REST updateSegment) — nonce erlaubt
+   *  Wiederholungen desselben Auftrags. */
+  replaceRequest?: {
+    query: string;
+    replace: string;
+    one: boolean;
+    nonce: number;
+  } | null;
   /** Feature 2026-08-15: draggable Timecode-Marker zwischen den Segmenten.
    *  Wird dieser Callback gesetzt, sind die Grenzen ziehbar: nach oben =
    *  Grenze in der Zeit zurück (Segment N verliert am Ende Wörter, N+1
@@ -134,7 +148,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -208,6 +222,63 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   // Hin-und-Her erscheinen die Änderungen").
   const [localTexts, setLocalTexts] = useState<Segment[] | null>(null);
   const shown = dragPreview ?? localTexts ?? segmentsProp;
+
+  // Change 124: Anzeige-Segmente nach oben melden (Such-Basis = das, was
+  // der User wirklich sieht — Yjs/localTexts inklusive).
+  useEffect(() => {
+    if (onDisplayChange) onDisplayChange(shown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, onDisplayChange]);
+
+  // Change 124: Suchen/Ersetzen gegen `shown` — Schreibpfad identisch zu
+  // manuellen Edits (Yjs setSegmentText / REST updateSegment), damit die
+  // Änderung in der Anzeige ankommt (vorher schrieb REST an der
+  // Yjs-Anzeige vorbei → „Ersetzen passiert nichts").
+  useEffect(() => {
+    if (!replaceRequest || !replaceRequest.query || !recordingId) return;
+    const { query, replace, one } = replaceRequest;
+    const changed = shown.map((s) => ({ ...s }));
+    let hit = false;
+    for (let i = 0; i < changed.length; i++) {
+      const oldText = changed[i].text ?? "";
+      if (one) {
+        const re = new RegExp(query, "i");
+        if (re.test(oldText)) {
+          changed[i].text = oldText.replace(re, replace);
+          hit = true;
+          commitSegmentText(i, changed[i].text);
+          break;
+        }
+      } else {
+        const replaced = oldText.replace(new RegExp(query, "gi"), replace);
+        if (replaced !== oldText) {
+          changed[i].text = replaced;
+          hit = true;
+          commitSegmentText(i, replaced);
+        }
+      }
+    }
+    if (hit) onEdited?.(changed, changed.map((s) => s.text).join(" "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replaceRequest]);
+
+  // Change 124: Einzelner Text-Commit für Suchen/Ersetzen — identischer
+  // Pfad wie handleSave (Yjs-Doc → Autosave bzw. REST → Antwort).
+  function commitSegmentText(idx: number, text: string) {
+    if (!recordingId) return;
+    const next = shown.map((s, i) => (i === idx ? { ...s, text } : s));
+    setLocalTexts(next);
+    localPendingRef.current = true;
+    if (hasCollab) {
+      setSegmentText(idx, text);
+    } else {
+      void updateSegment(recordingId, idx, text).then((result) => {
+        if (result && result.segments) {
+          onEdited?.(result.segments, result.text);
+        }
+      });
+    }
+  }
   // Change 087 (Frontend-Perf): Virtualisierung — nur sichtbare Zeilen +
   // Overscan im DOM. Riesen-Segmente (95-min-Aufnahmen, bis 287 Wörter/
   // Zeile) erzeugten sonst tausende Wort-Spans (2,2 FPS auf Mobile).

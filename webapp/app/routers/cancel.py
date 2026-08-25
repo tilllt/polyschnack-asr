@@ -52,7 +52,15 @@ def cancel_recording(rid: str, request: Request,
         raise HTTPException(status_code=409, detail="recording has no id")
     ok = queue_manager.cancel(rec.id, uid, is_admin=is_admin)
     if not ok:
-        # Kein aktiver Job (weder queued noch processing) → nichts zu tun.
+        # Kein aktiver Queue-Job — aber das Background-Alignment (Change 045)
+        # läuft NACH „done" als eigener Worker ohne Job. Es ist nur über
+        # seine Registry abbrechbar (Change 124).
+        align = getattr(rec, "alignment", "done")
+        if align in ("running", "pending"):
+            from ..service import cancel_background_align
+
+            cancel_background_align(rec.id)
+            return {"cancelled": True, "status": "cancelled"}
         # Auch 'done'/'failed' sind idempotent beantwortbar: 200 mit Hinweis.
         return {"cancelled": False, "status": rec.status, "note": "no active job"}
     return {"cancelled": True, "status": "cancelled"}

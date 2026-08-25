@@ -293,6 +293,24 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // gleichen Suchzustand teilen.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchJump, setSearchJump] = useState<{ idx: number; nonce: number } | null>(null);
+  // Change 124: Die Suche arbeitet gegen die ANGEZEIGTEN Segmente (Yjs/
+  // localTexts inklusive) — SegmentList meldet sie über onDisplayChange
+  // nach oben; Fingerprint-Guard verhindert Update-Loops.
+  const [shownSegs, setShownSegs] = useState<Segment[] | null>(null);
+  const shownFp = (s: Segment[]) => s.map((x) => x.text ?? "").join("\u0000");
+  function handleDisplayChange(shown: Segment[]) {
+    setShownSegs((prev) =>
+      prev && shownFp(prev) === shownFp(shown) ? prev : shown,
+    );
+  }
+  // Change 124: Suchen/Ersetzen-Auftrag für die SegmentList (Yjs-fähiger
+  // Schreibpfad dort); nonce erlaubt Wiederholungen.
+  const [replaceRequest, setReplaceRequest] = useState<{
+    query: string;
+    replace: string;
+    one: boolean;
+    nonce: number;
+  } | null>(null);
   // Feature 2026-08-16 (Edit-Vollbild): Zoom auf NUR diese Transkription.
   // Overlay (fixed inset-0) — die SegmentList füllt die volle Höhe, Playback
   // läuft über den bestehenden Player (Space/Play-Button, kein 2. Player).
@@ -1107,19 +1125,6 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             {focusMode ? <X size={18} /> : <Maximize2 size={18} />}
           </button>
         )}
-        {r.status === "done" && (
-          <button
-            onClick={() => setSearchOpen((v) => !v)}
-            className={`flex-shrink-0 text-[12px] px-[6px] py-[3px] rounded-sm font-semibold transition-colors ${
-              searchOpen
-                ? "bg-accent/15 text-accent"
-                : "text-muted2 hover:text-txt"
-            }`}
-            title="Search transcript"
-          >
-            <Search size={13} />
-          </button>
-        )}
       </div>
 
       {!collapsed && (<>
@@ -1411,13 +1416,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             {searchOpen && hasSegments && segments && r.id && (
               <div className="mb-3">
                 <SegmentSearch
-                  segments={segments}
-                  recordingId={r.uid}
-                  onEdited={handleEdited}
+                  // Change 124: Such-Basis = die ANGEZEIGTEN Segmente
+                  // (Yjs-Edits inklusive) — nicht der DB-Stand.
+                  segments={shownSegs ?? segments}
                   query={searchQuery}
                   onQueryChange={setSearchQuery}
                   onNavigateHit={(idx) =>
                     setSearchJump((s) => ({ idx, nonce: (s?.nonce ?? 0) + 1 }))
+                  }
+                  onReplaceRequest={(req) =>
+                    setReplaceRequest((prev) => ({
+                      ...req,
+                      nonce: (prev?.nonce ?? 0) + 1,
+                    }))
                   }
                 />
               </div>
@@ -1454,6 +1465,20 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   <span className="text-[11px] text-muted2">
                     {t("boundary_drag_hint_short")}
                   </span>
+                  {/* Change 124: Lupe auf dieser Zeile am rechten Rand —
+                      dort, wo der User in der Transkription sucht. */}
+                  <button
+                    onClick={() => setSearchOpen((v) => !v)}
+                    className={`ml-auto flex-shrink-0 text-[12px] px-[6px] py-[3px] rounded-sm font-semibold transition-colors ${
+                      searchOpen
+                        ? "bg-accent/15 text-accent"
+                        : "text-muted2 hover:text-txt"
+                    }`}
+                    title="Search transcript"
+                    aria-label="Search transcript"
+                  >
+                    <Search size={13} />
+                  </button>
                 </div>
                 <SegmentList
                   segments={displaySegments}
@@ -1471,6 +1496,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   isPlaying={isPlaying}
                   searchQuery={searchQuery}
                   searchJump={searchJump}
+                  onDisplayChange={handleDisplayChange}
+                  replaceRequest={replaceRequest}
                   onBoundaryDragEnd={handleBoundaryDragEnd}
                   onSegmentDelete={handleSegmentDelete}
                   onSplitSegment={handleSplitSegment}
@@ -1896,8 +1923,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         )}
 
         {/* Abbrechen während processing/queued (Job-Cancel, 2026-08-15);
-            „Neu transkribieren“ läuft jetzt über den ersten Aktions-Tab. */}
-        {r.status === "processing" || r.status === "queued" ? (
+            Change 124: auch bei done + laufendem/pendendem Background-Alignment
+            (Change 045) — sonst ist der Worker nicht stoppbar. */}        {r.status === "processing" || r.status === "queued" || (
+          r.status === "done" && (r.alignment === "running" || r.alignment === "pending")
+        ) ? (
           <button
             onClick={handleCancelJob}
             disabled={cancelMut.isPending}
