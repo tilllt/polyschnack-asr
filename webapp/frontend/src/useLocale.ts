@@ -343,6 +343,8 @@ const dict: Record<Lang, Record<string, string>> = {
     tag_add: "Adicionar tag",
     tag_remove: "Remover tag",
     tag_save_error: "Falha ao salvar tag",
+    tag_remove_hint: "Remover filtro",
+    tag_add_hint: "Filtrar por tag",
   },
   de: {
     recordings: "Aufnahmen",
@@ -684,6 +686,8 @@ const dict: Record<Lang, Record<string, string>> = {
     tag_add: "Tag hinzufügen",
     tag_remove: "Tag entfernen",
     tag_save_error: "Tag speichern fehlgeschlagen",
+    tag_remove_hint: "Filter entfernen",
+    tag_add_hint: "Nach Tag filtern",
   },
   en: {
     recordings: "recordings",
@@ -1025,6 +1029,8 @@ const dict: Record<Lang, Record<string, string>> = {
     tag_add: "Add tag",
     tag_remove: "Remove tag",
     tag_save_error: "Failed to save tag",
+    tag_remove_hint: "Remove filter",
+    tag_add_hint: "Filter by tag",
   },
 };
 

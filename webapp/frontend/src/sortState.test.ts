@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { aggregateTags, nextSortState, sortParams } from "./sortState";
+import { aggregateTags, mergeChipTags, nextSortState, sortParams } from "./sortState";
 
 describe("nextSortState (Badge-Klick-Zyklus)", () => {
   it("1. Klick auf inaktives Badge → absteigend", () => {
@@ -61,5 +61,35 @@ describe("aggregateTags", () => {
 
   it("leere Liste → keine Tags", () => {
     expect(aggregateTags([])).toEqual([]);
+  });
+});
+
+describe("mergeChipTags (Change 122: aktive Tags bleiben abwählbar)", () => {
+  it("aktive Tags ohne Treffer werden als Chips (count 0) ergänzt", () => {
+    // 0-Treffer-Fall: tagList ist leer, aber der User hat einen Filter aktiv
+    expect(mergeChipTags([], ["arbeit"])).toEqual([{ tag: "arbeit", count: 0 }]);
+  });
+
+  it("aktive Tags mit Treffern bleiben unverändert (keine Duplikate)", () => {
+    const tagList = [
+      { tag: "arbeit", count: 4 },
+      { tag: "interview", count: 1 },
+    ];
+    expect(mergeChipTags(tagList, ["arbeit"])).toEqual(tagList);
+  });
+
+  it("mehrere aktive Tags ohne Treffer → alle sichtbar", () => {
+    expect(mergeChipTags([], ["a", "b"])).toEqual([
+      { tag: "a", count: 0 },
+      { tag: "b", count: 0 },
+    ]);
+  });
+
+  it("Mischung: Treffer-Tags + aktive ohne Treffer", () => {
+    const tagList = [{ tag: "arbeit", count: 4 }];
+    expect(mergeChipTags(tagList, ["arbeit", "gibtsnicht"])).toEqual([
+      { tag: "arbeit", count: 4 },
+      { tag: "gibtsnicht", count: 0 },
+    ]);
   });
 });

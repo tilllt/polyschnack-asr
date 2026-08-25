@@ -47,3 +47,20 @@ export function aggregateTags(
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => a.tag.localeCompare(b.tag));
 }
+
+/**
+ * Change 122: Chip-Liste für die Filterleiste. Ergänzt AKTIVE Tags, die in der
+ * aktuellen Trefferliste nicht (mehr) vorkommen (count 0), damit der Filter
+ * auch bei 0 Treffern sichtbar und abwählbar bleibt — sonst verschwindet die
+ * Filterleiste im Leer-Zustand und der User hängt im Filter fest.
+ */
+export function mergeChipTags(
+  tagList: { tag: string; count: number }[],
+  activeTags: string[],
+): { tag: string; count: number }[] {
+  const out = [...tagList];
+  for (const a of activeTags) {
+    if (!out.some((c) => c.tag === a)) out.push({ tag: a, count: 0 });
+  }
+  return out;
+}
