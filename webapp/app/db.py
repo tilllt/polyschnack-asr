@@ -394,6 +394,24 @@ def _drop_legacy_settings_columns(session: Session) -> None:
     log.info("Change 099: recording-Tabelle neu aufgebaut ohne Settings-Spalten")
 
 
+def _repair_missing_uids(session: Session) -> None:
+    """Change 123: Alt-Zeilen ohne uid (Migrations-Altlast, Crash-Waise)
+    bekommen eine eindeutige hex-uid — sonst sind sie über die API nicht
+    adressierbar (Liste zeigt uid:null → Retranscribe/Delete → 404)."""
+    from sqlalchemy import text as _text
+
+    for tbl in ("recording", "annotation"):
+        try:
+            session.exec(_text(
+                f"UPDATE {tbl} SET uid = lower(hex(randomblob(16))) "
+                f"WHERE uid IS NULL OR uid = ''"
+            ))
+        except Exception:  # Tabelle/Spalte fehlt in Alt-Zwischenständen
+            session.rollback()
+            continue
+    session.commit()
+
+
 def init_db() -> None:
     """Create tables, run auto-migrations, ensure audio dir, purge expired public recordings."""
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -404,6 +422,8 @@ def init_db() -> None:
     ensure_standard_templates(settings.DATA_DIR / "export_templates")
     SQLModel.metadata.create_all(engine)
     _auto_migrate()
+    with Session(engine) as session:
+        _repair_missing_uids(session)  # Change 123: uid-Altlasten reparieren
     _purge_expired()
 
 

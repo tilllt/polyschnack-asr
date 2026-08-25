@@ -1847,6 +1847,11 @@ def retranscribe(
         is_admin=_is_admin_session(request),
     )
 
+    # Change 123: Aufnahme ohne Audiodatei darf nicht still enqueued werden
+    # (Worker failt ohne verwertbare Meldung) — 410 mit klarer Meldung,
+    # konsistent mit transcribe/duplicate (Self-Healing).
+    _ensure_audio_present(rec)
+
     from ..pricing import ensure_free_only
 
     user = session.get(User, uid) if uid is not None else None
