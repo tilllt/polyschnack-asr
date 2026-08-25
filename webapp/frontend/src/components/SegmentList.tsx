@@ -728,6 +728,48 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     onBoundaryDragEnd?.(d.currentList);
   }
 
+  /**
+   * Change 129: Das editierte Anzeige-Stück auf das Server-Segment abbilden
+   * und dessen VOLLSTÄNDIGEN neuen Text rekonstruieren. Die Anzeige ist
+   * re-segmentiert (25-s-Default) — der Anzeige-Index ist ab dem ersten
+   * Split NICHT mehr der Server-Index; ein PATCH auf den Anzeige-Index
+   * überschrieb das falsche Server-Segment (Real-Fall 2026-08-25:
+   * 541 Zeichen verloren inkl. einer Passage im Teamtreffen).
+   */
+  function resolveServerTarget(
+    base: readonly Segment[],
+    idx: number,
+    editText: string,
+  ): { serverIdx: number; fullText: string } {
+    const shownSeg = shown[idx];
+    // Keine Server-Basis oder keine Zeitangabe → direkter Index
+    // (Anzeige == Server, altes Verhalten).
+    if (!base.length || shownSeg?.start === undefined) {
+      return { serverIdx: idx, fullText: editText };
+    }
+    // Server-Segment finden, in dem das Anzeige-Stück zeitlich liegt.
+    let serverIdx = base.length - 1;
+    for (let j = 0; j < base.length; j++) {
+      const b = base[j];
+      if ((b.start ?? -Infinity) <= shownSeg.start && shownSeg.start < (b.end ?? Infinity)) {
+        serverIdx = j;
+        break;
+      }
+    }
+    const b = base[serverIdx];
+    // Alle Anzeige-Stücke desselben Server-Segments zusammenfügen — das
+    // editierte ersetzt seinen Teil; unveränderte Teile bleiben erhalten.
+    const parts: string[] = [];
+    for (let i = 0; i < shown.length; i++) {
+      const s = shown[i];
+      if (s.start === undefined) continue;
+      const inSeg = (b.start ?? -Infinity) <= s.start && s.start < (b.end ?? Infinity);
+      if (inSeg) parts.push(i === idx ? editText : (s.text ?? ""));
+    }
+    const fullText = parts.filter((p) => p.trim() !== "").join(" ") || editText;
+    return { serverIdx, fullText };
+  }
+
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
     // Change 084 (Fix B): Sequenz markieren — kommt während des PUTs ein
@@ -754,7 +796,14 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     setLocalTexts(shown.map((s, i) => (i === idx ? { ...s, text: editText } : s)));
     localPendingRef.current = true;
     try {
-      const result = await updateSegment(recordingId, idx, editText);
+      // Change 129: Anzeige-Index → Server-Segment (Anzeige ist re-
+      // segmentiert) + vollständiger Segment-Text statt Teil-Text.
+      const { serverIdx, fullText } = resolveServerTarget(
+        persistBase ?? [],
+        idx,
+        editText,
+      );
+      const result = await updateSegment(recordingId, serverIdx, fullText);
       if (commitSeqRef.current !== seq) {
         // Change 084: ein neuerer Commit hat gewonnen — Antwort verwerfen,
         // Edit schließen (die neuere Liste ist die Wahrheit).
