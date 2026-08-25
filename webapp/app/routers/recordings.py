@@ -1089,7 +1089,7 @@ def list_recordings_endpoint(
     q: Optional[str] = None,
     sort: str = "date",
     dir: str = "desc",
-    tag: Optional[List[str]] = None,
+    tag: Optional[List[str]] = Query(None),
     # Change 059: Lite-Payload für die Liste (text/segments/peaks = None) —
     # das Frontend lädt die datenintensiven Felder pro Karte nach.
     lite: bool = Query(False),

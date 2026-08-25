@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useRecordings, useStats, useModelStatus } from "./hooks";
+import { useDebouncedValue, useRecordings, useStats, useModelStatus } from "./hooks";
 import { toggleActivePlayback } from "./components/WaveformPlayer";
 import { ToastProvider } from "./components/Toasts";
 import { useT, type Lang, LocaleProvider } from "./useLocale";
@@ -118,7 +118,12 @@ function AppContent() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
-  const recordingsQuery = useRecordings(query, { ...sortParams(sort), tags: activeTags });
+  // Change 120: Debounce für Sort/Tag — schnelle Badge-Klicks bündeln die
+  // Requests (Badge-State bleibt sofort, nur der Fetch wird gebündelt).
+  const debouncedSort = useDebouncedValue(sort, 250);
+  const debouncedTags = useDebouncedValue(activeTags, 250);
+
+  const recordingsQuery = useRecordings(query, { ...sortParams(debouncedSort), tags: debouncedTags });
   const statsQuery = useStats();
   const modelStatusQuery = useModelStatus();
 

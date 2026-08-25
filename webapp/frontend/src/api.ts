@@ -232,6 +232,10 @@ export async function fetchRecordings(
   // (text/segments/peaks = null); Transkription + Peaks lädt die Karte
   // einzeln über fetchRecording nach.
   lite = true,
+  // Change 120: AbortSignal von React Query — abgebrochene Requests
+  // (schnelles Umsortieren/Umfiltern) können den Cache nicht mehr
+  // überschreiben und belasten das Backend nicht.
+  signal?: AbortSignal,
 ): Promise<Recording[]> {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
@@ -242,7 +246,9 @@ export async function fetchRecordings(
   for (const tag of opts.tags ?? []) params.append("tag", tag);
   if (lite) params.set("lite", "1");
   const qs = params.toString();
-  const res = await fetch(qs ? `/api/recordings?${qs}` : "/api/recordings").then(checkOk);
+  const res = await fetch(qs ? `/api/recordings?${qs}` : "/api/recordings", {
+    signal,
+  }).then(checkOk);
   return res.json() as Promise<Recording[]>;
 }
 

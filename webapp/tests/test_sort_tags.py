@@ -245,3 +245,49 @@ def test_serialization_contains_tags(db):
         d = recordings._recording_to_dict(rec)
         assert d["tags"] == ["walzen", "Review"]
         assert d["updated_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Change 120 — HTTP-Ebene: ?tag= muss als Query-Parameter ankommen
+# ---------------------------------------------------------------------------
+# Regression: FastAPI erkennt `tag: Optional[List[str]] = None` NICHT als
+# Query-Parameter (fehlt in der OpenAPI; `?tag=…` wurde still ignoriert).
+# Der Unit-Test oben deckt nur crud ab — der Endpunkt-Fallstrick braucht
+# einen Test über den echten HTTP-Stack.
+
+
+def test_list_endpoint_tag_query_filter_via_http(db, monkeypatch):
+    """GET /api/recordings?tag=walzen liefert nur r1+r4 (ODER-Filter).
+
+    Identität ist gemockt (wie _patch_auth oben) — hier zählt nur, dass
+    FastAPI den ``tag``-Query-Parameter wirklich verarbeitet.
+    """
+    from fastapi.testclient import TestClient
+
+    from app import db as db_module
+    from app.config import settings
+    from app.main import app
+
+    monkeypatch.setattr(db_module, "engine", db)
+    monkeypatch.setattr(recordings, "_current_user", lambda request, session=None: 1)
+    monkeypatch.setattr(recordings, "_key_cap", lambda request, session=None: None)
+    monkeypatch.setattr(recordings, "_is_admin_session", lambda request: False)
+    # Peaks-Nachzug im Listen-Endpunkt ist für diesen Test irrelevant.
+    monkeypatch.setattr(recordings, "_schedule_peaks", lambda rid: None)
+
+    with TestClient(app) as c:
+        r = c.get("/api/recordings", params={"tag": "walzen"})
+        assert r.status_code == 200, r.text
+        uids = {x["uid"] for x in r.json()}
+        assert uids == {"r1", "r4"}, uids
+
+        # ODER-Filter über mehrere Tags (case-insensitiv)
+        r2 = c.get("/api/recordings",
+                   params=[("tag", "schellack"), ("tag", "REVIEW")])
+        assert r2.status_code == 200
+        uids2 = {x["uid"] for x in r2.json()}
+        assert uids2 == {"r1", "r2"}, uids2
+
+        # Ohne tag-Parameter: alle 4
+        r3 = c.get("/api/recordings")
+        assert {x["uid"] for x in r3.json()} == {"r1", "r2", "r3", "r4"}

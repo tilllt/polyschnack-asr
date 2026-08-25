@@ -58,7 +58,7 @@ def test_shared_records_appear_in_list(db):
 
 def test_shared_records_marked_with_level(db):
     with Session(db) as s:
-        lst = recordings.list_recordings_endpoint(q=None, request=_req(2), session=s)
+        lst = recordings.list_recordings_endpoint(q=None, tag=None, request=_req(2), session=s)
         by_uid = {d["uid"]: d for d in lst}
         assert by_uid["shared"]["access_level"] == "write"
         assert by_uid["theirs"]["access_level"] == "full"
@@ -66,7 +66,7 @@ def test_shared_records_marked_with_level(db):
 
 def test_own_records_are_full(db):
     with Session(db) as s:
-        lst = recordings.list_recordings_endpoint(q=None, request=_req(1), session=s)
+        lst = recordings.list_recordings_endpoint(q=None, tag=None, request=_req(1), session=s)
         by_uid = {d["uid"]: d for d in lst}
         assert by_uid["own"]["access_level"] == "full"
         assert by_uid["shared"]["access_level"] == "full"  # Owner bleibt Owner
@@ -88,7 +88,7 @@ def test_get_includes_access_level(db):
 def test_shared_with_me_flag_list(db):
     """Fremde Recording via Share → shared_with_me=True (visuelle Markierung)."""
     with Session(db) as s:
-        lst = recordings.list_recordings_endpoint(q=None, request=_req(2), session=s)
+        lst = recordings.list_recordings_endpoint(q=None, tag=None, request=_req(2), session=s)
         by_uid = {d["uid"]: d for d in lst}
         assert by_uid["shared"]["shared_with_me"] is True
         assert by_uid["theirs"]["shared_with_me"] is False  # eigene
@@ -114,7 +114,7 @@ def test_lite_list_strips_heavy_fields(db):
         s.commit()
     with Session(db) as s:
         lst = recordings.list_recordings_endpoint(
-            q=None, request=_req(1), session=s, lite=True)
+            q=None, tag=None, request=_req(1), session=s, lite=True)
         d = {x["uid"]: x for x in lst}["own"]
         assert d["text"] is None
         assert d["segments"] is None
@@ -128,7 +128,7 @@ def test_lite_list_strips_heavy_fields(db):
         assert "shared_with_me" in d
     with Session(db) as s:
         lst = recordings.list_recordings_endpoint(
-            q=None, request=_req(1), session=s, lite=False)
+            q=None, tag=None, request=_req(1), session=s, lite=False)
         d = {x["uid"]: x for x in lst}["own"]
         assert d["text"] == "Hallo Welt"
         assert d["segments"] == [{"start": 0, "end": 1, "text": "Hallo", "words": []}]

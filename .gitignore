@@ -12,3 +12,4 @@ public/
 # Lokale Arbeits-Artefakte (nicht versionieren)
 sketches/
 businessplan/
+.dev-data

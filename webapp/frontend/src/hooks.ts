@@ -33,7 +33,9 @@ export function useRecordings(
   const { sort = null, dir = "desc", tags = [] } = opts;
   return useQuery<Recording[], Error>({
     queryKey: ["recordings", q, sort, dir, tags] as const,
-    queryFn: () => fetchRecordings(q, { sort, dir, tags }),
+    // Change 120: React-Querys AbortSignal durchreichen — bei schnellem
+    // Umsortieren/Umfiltern werden überholte Requests abgebrochen.
+    queryFn: ({ signal }) => fetchRecordings(q, { sort, dir, tags }, true, signal),
     // Refetch every 2s while any recording is processing; otherwise stop polling
     refetchInterval: (query) => {
       const data = query.state.data as Recording[] | undefined;
@@ -41,6 +43,22 @@ export function useRecordings(
       return data.some((r) => r.status === "processing") ? 2000 : false;
     },
   });
+}
+
+/**
+ * Change 120: Wert mit Verzögerung übernehmen (Debounce).
+ *
+ * Wird für Sort-/Tag-Filter benutzt: schnelle Badge-Klicks bündeln die
+ * Requests (statt pro Klick einen neuen API-Call), ohne das sofortige
+ * UI-Feedback der Badges zu verzögern (der State bleibt unverändert).
+ */
+export function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 /** Change 059 — Voll-Datensatz EINER Aufnahme (Transkription + Peaks),
