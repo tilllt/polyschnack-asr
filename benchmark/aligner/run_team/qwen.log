@@ -1,0 +1,15 @@
+qwen3-asr-cli (Forced Alignment Mode)
+  Model: /opt/data/sep-test/models/qwen3-forced-aligner-0.6b-f16.gguf
+  Audio: /opt/data/pk-asr/benchmark/aligner/run_team/audio_16k.wav
+  Text: Um Das könnte ein latentus Hintergrund raus und erzeugen. Also Teammeeting haltet nur in Anwesenheit von Straßenreinigungsmaschine. Felix. Heute ist der25. August. Jorge was krank. Wir haben relativ viele Punkte auf der Agenda, deswegen machen wir schon mal ein Teammeeting, kann sein, dass wir das morgen wiederholen. Genau. Kannst du das mal ein zweites Fenster aufmachen, wo du die Gesamtübersicht der Karten siehst? Genau, das fehlt dann nach Meeting. Die Leute schlafsen. Die Karte nicht gerade in dem anderen Fenster auf? Ja. Ich habe nicht die Karte offen.
+  Language: de
+
+Model loaded. Running alignment...
+
+Timing:
+  Mel spectrogram: 731 ms
+  Audio encoding:  27338 ms
+  Text decoding:   34233 ms
+  Total:           62309 ms
+  Words aligned:   88
+Output written to: /opt/data/pk-asr/benchmark/aligner/run_team/qwen.json

@@ -1,0 +1,6 @@
+crispasr 0.8.29 (git 2bded419, Release) [backends: cpu]
+crispasr[align-only]: aligner=/tmp/wav2vec2-xlsr-de-q4_k.gguf
+crispasr[align-only]: audio=90.00s (1440000 samples @ 16kHz)
+crispasr[align-only]: transcript='Um Das könnte ein latentus Hintergrund raus und erzeugen. Also Teammeeting halt…'
+[wav2vec2] vocab=38  hidden=1024  layers=24  heads=16  ffn=4096
+crispasr[align-only]: 88 words → /opt/data/pk-asr/benchmark/aligner/run_team/wav2vec.json

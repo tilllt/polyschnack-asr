@@ -1,0 +1,6 @@
+crispasr 0.8.29 (git 2bded419, Release) [backends: cpu]
+crispasr[align-only]: aligner=/tmp/wav2vec2-xlsr-de-q4_k.gguf
+crispasr[align-only]: audio=19.51s (312192 samples @ 16kHz)
+crispasr[align-only]: transcript='Dies ist eine Testaufnahme für die Spracherkennung von Polyschnack. Wir messen …'
+[wav2vec2] vocab=38  hidden=1024  layers=24  heads=16  ffn=4096
+crispasr[align-only]: 36 words → /opt/data/pk-asr/benchmark/aligner/run_poc/wav2vec.json

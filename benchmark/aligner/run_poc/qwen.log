@@ -1,0 +1,15 @@
+qwen3-asr-cli (Forced Alignment Mode)
+  Model: /opt/data/sep-test/models/qwen3-forced-aligner-0.6b-f16.gguf
+  Audio: /opt/data/pk-asr/benchmark/aligner/run_poc/audio_16k.wav
+  Text: Dies ist eine Testaufnahme für die Spracherkennung von Polyschnack. Wir messen die Verarbeitungsgeschwindigkeit und den Grafikspeicherbedarf. Der schnelle braune Fuchs springt über den faulen Hund. 1, 2, 3. Test, Test. Das ist das Ende der Aufnahme.
+  Language: de
+
+Model loaded. Running alignment...
+
+Timing:
+  Mel spectrogram: 157 ms
+  Audio encoding:  6317 ms
+  Text decoding:   7883 ms
+  Total:           14357 ms
+  Words aligned:   36
+Output written to: /opt/data/pk-asr/benchmark/aligner/run_poc/qwen.json

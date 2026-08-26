@@ -1,0 +1,23 @@
+crispasr 0.8.29 (git 2bded419, Release) [backends: cpu]
+crispasr: auto-detected backend 'tada' from '/tmp/tada-tts-1b-q4_k.gguf'
+tada: 16L 2048d 32/8 heads, ff=8192, vocab=128256
+tada: acoustic=512, time=16, fm_hidden=2048, fm_latent=528
+tada: backend=CPU + CPU fallback
+tada: loaded OK, KV cache for 1024 tokens
+tada: FM B=2 batched CFG ENABLED
+tada-codec: 1024d, 6 attn layers, 8 heads, strides [4,4,5,6]
+tada-codec: backend=CPU + CPU fallback
+tada-codec: loaded OK (171 tensors)
+crispasr[tada]: codec = '/tmp/tada-codec-f16.gguf'
+crispasr[align]: encoder=/tmp/tada-encoder-f16.gguf
+crispasr[align]: aligner=/tmp/tada-aligner-en.gguf
+crispasr[align]: voice=/opt/data/pk-asr/benchmark/aligner/run_poc/audio_16k.wav text='Dies ist eine Testaufnahme für die Spracherkennung von Polyschnack. Wir messen die Verarbeitungsgeschwindigkeit und den Grafikspeicherbedarf. Der schnelle braune Fuchs springt über den faulen Hund. 1, 2, 3. Test, Test. Das ist das Ende der Aufnahme.'
+crispasr[align]: audio 19.51s @ 24kHz (468288 samples)
+[tada-encoder] hidden=1024 embed=512 attn_layers=6 heads=8 strides=[6,5,4,4] noise_std=0.50
+[tada-encoder] loading aligner from /tmp/tada-aligner-en.gguf
+[wav2vec2] vocab=128256  hidden=1024  layers=24  heads=16  ffn=4096
+[tada-encoder] loaded 280147 BPE merges from aligner
+[tada-encoder] tokenized 'Dies ist eine Testaufnahme für die Spracherkennung von Polyschnack. Wir messen die Verarbeitungsgeschwindigkeit und den Grafikspeicherbedarf. Der schnelle braune Fuchs springt über den faulen Hund. 1, 2, 3. Test, Test. Das ist das Ende der Aufnahme.' → 75 tokens
+[tada-encoder] aligned 75 tokens to 975 CTC frames
+[tada-encoder] masks: 75/977 voiced, encoder frames=977
+crispasr[align]: 75 tokens → 36 words → /opt/data/pk-asr/benchmark/aligner/run_poc/tada.json

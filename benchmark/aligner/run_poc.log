@@ -1,0 +1,8 @@
+==> Audio: /opt/data/pk-asr/businessplan/poc_test_audio_de.mp3 (19.512000s) | Referenz: 36 Wörter
+--- qwen3 ---
+  Words aligned:   36
+--- tada ---
+crispasr[align]: 75 tokens → 36 words → /opt/data/pk-asr/benchmark/aligner/run_poc/tada.json
+--- wav2vec2 ---
+crispasr[align-only]: 36 words → /opt/data/pk-asr/benchmark/aligner/run_poc/wav2vec.json
+==> fertig. JSONs in /opt/data/pk-asr/benchmark/aligner/run_poc
