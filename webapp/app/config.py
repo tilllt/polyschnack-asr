@@ -82,6 +82,20 @@ class _Settings:
         "63e3ae6a1f45f1c0b8fbe0438d7c2f8a5dc555c58b8bad3db4477d605a057068",
     )
 
+    #: Diar-Benchmark-Paket (Change 136): VoxPopuli-de-Mix-Testset (CC0).
+    #: Lokale Quelle hat Vorrang (Default: benchmarks/diar/assets/v1, gebaut
+    #: von build_diar_testset.py); falls dort nicht vorhanden, wird das
+    #: GitHub-Release-Tarball geladen.
+    DIAR_PACKAGE_LOCAL_DIR: str = os.getenv(
+        "DIAR_PACKAGE_LOCAL_DIR",
+        "/opt/data/pk-asr/benchmarks/diar/assets/v1",
+    )
+    DIAR_PACKAGE_URL: str = os.getenv(
+        "DIAR_PACKAGE_URL",
+        "https://github.com/tilllt/polyschnack-benchmark-data/releases/"
+        "download/diar-set-v1/diar-testset-v1-public.tar.gz",
+    )
+
     #: Benchmark-Set-Auto-Update (Change 075/076): die Webapp kann sich neue
     #: ASR-Testsets selbst holen (analog VAD-Paket). Change 076: git-basiert
     #: und host-agnostisch (User-Vorgabe: kein GitHub-Hardcode) — die Quelle

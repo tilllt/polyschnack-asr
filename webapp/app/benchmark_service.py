@@ -414,9 +414,12 @@ class BenchmarkService:
                 latest["vad"] = self._vad_summary(runs_dir)
                 # Change 132: Aligner-Benchmark on-the-fly anreichern
                 latest["aligner"] = self._aligner_summary(runs_dir)
+                # Change 136: Diar-Benchmark on-the-fly anreichern
+                latest["diar"] = self._diar_summary(runs_dir)
         except (FileNotFoundError, KeyError):
             latest.setdefault("vad", [])
             latest.setdefault("aligner", [])
+            latest.setdefault("diar", [])
         if latest.get("per_category") and latest.get("per_sample"):
             return latest
         try:
@@ -1006,8 +1009,14 @@ class BenchmarkService:
         version = m["version"]
         kind = payload.get("kind", "asr")
         # Change 062: VAD-Submits validieren gegen das VAD-Paket (eigener
-        # Hash), ASR-Submits gegen das ASR-Paket.
-        sha = self.vad_package_sha256(version) if kind == "vad" else self.package_sha256(version)
+        # Hash), ASR-Submits gegen das ASR-Paket. Change 136: Diar-Submits
+        # gegen das Diar-Paket.
+        if kind == "vad":
+            sha = self.vad_package_sha256(version)
+        elif kind == "diar":
+            sha = self.diar_package_sha256(version)
+        else:
+            sha = self.package_sha256(version)
         if (
             payload.get("manifest_version") != version
             or payload.get("manifest_sha256") != sha
@@ -1025,6 +1034,13 @@ class BenchmarkService:
             from .service_registry import get_vad_model
 
             if get_vad_model(backend) is None:
+                return {"ok": False, "reason": "unknown backend", "backend": backend}
+        elif kind == "diar":
+            # Change 136: Diar-Methoden aus diar_models.yaml (Container-
+            # Methoden foxnose/pyannote/vad-turns).
+            from .service_registry import get_diar_model
+
+            if get_diar_model(backend) is None:
                 return {"ok": False, "reason": "unknown backend", "backend": backend}
         elif get_service(backend) is None:
             return {"ok": False, "reason": "unknown backend", "backend": backend}
@@ -1061,8 +1077,10 @@ class BenchmarkService:
         per_sample_text: Dict[str, Dict[str, str]] = {}  # Change 135
         for rf in runs_dir.glob("*.json"):
             data = json.loads(rf.read_text(encoding="utf-8"))
-            # Change 062: VAD-Runs gehören nicht in den ASR-Pool (kein wer)
-            if data.get("kind") == "vad" or data.get("manifest_sha256") != sha:
+            # Change 062: VAD-Runs gehören nicht in den ASR-Pool (kein wer).
+            # Change 136: ebenso Diar-/Aligner-Runs — sie haben kein `wer`
+            # und würden sonst leere Pool-Einträge (Division durch 0) erzeugen.
+            if data.get("kind", "asr") != "asr" or data.get("manifest_sha256") != sha:
                 continue
             bb = by_backend.setdefault(data["backend"], [])
             for r in data["rows"]:
@@ -1123,6 +1141,7 @@ class BenchmarkService:
                 sid: backs for sid, backs in sorted(per_sample_text.items())
             },
             "vad": self._vad_summary(runs_dir),  # Change 062/065
+            "diar": self._diar_summary(runs_dir),  # Change 136
         }
         (self.data_dir / "results" / "latest.json").write_text(
             json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -1226,6 +1245,162 @@ class BenchmarkService:
         if dest.exists():
             return dest
         src = self.vad_audio_path(sample_id)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(src),
+                "-codec:a", "libmp3lame", "-b:a", PREVIEW_BITRATE, "-ac", "1",
+                str(dest),
+            ],
+            check=True, timeout=300,
+        )
+        return dest
+
+    # ── Diar-Testset (Change 136) ────────────────────────────────────────
+
+    def _diar_package_dir(self) -> Path:
+        """Aktuelles Diar-Paket: versions/v{n}/diar/."""
+        return self._version_dir(self.latest_manifest()["version"]) / "diar"
+
+    def build_diar_package(self, version: int) -> Path:
+        """Diar-Paket (Change 136): importiert das VoxPopuli-Mix-Testset.
+
+        Quelle: `DIAR_PACKAGE_LOCAL_DIR` (Default benchmarks/diar/assets/v1,
+        gebaut von build_diar_testset.py — VoxPopuli-de, CC0, deterministisch,
+        exakte GT). Gecacht unter versions/v{version}/diar/: Audio-WAVs +
+        diar-manifest.json (Calls, Sprecher, GT). Ohne lokale Quelle wird
+        das Paket über DIAR_PACKAGE_URL (GitHub-Release) geladen.
+        """
+        from app.config import settings
+
+        pkg = self.data_dir / "versions" / f"v{version}" / "diar"
+        if (pkg / "diar-manifest.json").exists():
+            return pkg
+        pkg.mkdir(parents=True, exist_ok=True)
+
+        local_src = Path(settings.DIAR_PACKAGE_LOCAL_DIR)
+        if (local_src / "diar-manifest.json").exists():
+            src_manifest = json.loads(
+                (local_src / "diar-manifest.json").read_text(encoding="utf-8"))
+            out_audio = pkg / "audio"
+            out_audio.mkdir(exist_ok=True)
+            calls_out = []
+            for call in src_manifest.get("calls", []):
+                wav = local_src / "audio" / f"{call['id']}.wav"
+                if not wav.exists():
+                    continue
+                import shutil as _sh
+                _sh.copyfile(wav, out_audio / f"{call['id']}.wav")
+                calls_out.append(call)
+            (pkg / "diar-manifest.json").write_text(
+                json.dumps({**src_manifest, "calls": calls_out},
+                           ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[benchmark] Diar-Paket aus lokalem Testset: "
+                  f"{len(calls_out)} Calls")
+            return pkg
+
+        # Fallback: GitHub-Release (analog VAD)
+        url = settings.DIAR_PACKAGE_URL.strip()
+        if not url:
+            raise RuntimeError("DIAR_PACKAGE_URL nicht konfiguriert und "
+                               "kein lokales Diar-Testset vorhanden")
+        import urllib.request
+        import tarfile as _tarfile
+        import io as _io
+
+        with urllib.request.urlopen(url, timeout=300) as r:
+            raw = r.read()
+        with _tarfile.open(fileobj=_io.BytesIO(raw), mode="r:gz") as tar:
+            tar.extractall(pkg, filter="data")
+        print(f"[benchmark] Diar-Paket von {url} geladen")
+        return pkg
+
+    def diar_package_sha256(self, version: int) -> str:
+        """Deterministischer Hash des Diar-Pakets (Manifest + je WAV, sortiert)."""
+        pkg = self.build_diar_package(version)
+        parts = [hashlib.sha256((pkg / "diar-manifest.json").read_bytes()).digest()]
+        for wav in sorted((pkg / "audio").glob("*.wav")):
+            parts.append(hashlib.sha256(wav.read_bytes()).digest())
+        return hashlib.sha256(b"".join(parts)).hexdigest()
+
+    def _diar_summary(self, runs_dir: Path) -> List[dict]:
+        """Diar-Ergebnis-Zusammenfassung (Change 136): je Methode DER/Jaccard/RTF.
+
+        Sammelt Runs mit kind=="diar" + aktuellem Diar-Paket-Hash; ASR-/VAD-/
+        Aligner-Runs werden ignoriert. Testset-Version + Release-URL aus dem
+        Diar-Manifest.
+        """
+        m = self.latest_manifest()
+        diar_sha = self.diar_package_sha256(m["version"])
+        try:
+            pkg_manifest = json.loads(
+                (self._diar_package_dir() / "diar-manifest.json")
+                .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pkg_manifest = {}
+        by_backend: Dict[str, List[dict]] = {}
+        for rf in runs_dir.glob("*.json"):
+            try:
+                data = json.loads(rf.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("kind") != "diar" or data.get("manifest_sha256") != diar_sha:
+                continue
+            rows = [r for r in data.get("rows", []) if r.get("der") is not None]
+            by_backend.setdefault(data["backend"], []).extend(rows)
+        out: List[dict] = []
+        for bname, rows in by_backend.items():
+            n = len(rows)
+            if not n:
+                continue
+            out.append({
+                "backend": bname,
+                "kind": "diar",
+                "testset_version": f"v{pkg_manifest.get('version', '?')}",
+                "testset_release_url": pkg_manifest.get("release_url", ""),
+                "n_samples": n,
+                "der_mean": round(sum(r["der"] for r in rows) / n, 4),
+                "jaccard_mean": round(sum(r.get("jaccard") or 0 for r in rows) / n, 4),
+                "speaker_count_error_mean": round(
+                    sum(r.get("speaker_count_error") or 0 for r in rows) / n, 2),
+                "rtf_mean": round(sum(r.get("rtf") or 0 for r in rows) / n, 4),
+            })
+        out.sort(key=lambda r: r["backend"])
+        return out
+
+    def diar_samples(self) -> List[dict]:
+        """Öffentliche Diar-Testset-Liste (Change 136): Calls + GT-Sprecher."""
+        manifest = self._diar_package_dir() / "diar-manifest.json"
+        if not manifest.exists():
+            raise FileNotFoundError("kein Diar-Paket vorhanden")
+        pkg = json.loads(manifest.read_text(encoding="utf-8"))
+        return [
+            {
+                "id": c["id"],
+                "speakers": c.get("speakers", []),
+                "n_segments": len(c.get("gt", [])),
+                "duration_s": c.get("duration_s", 0),
+                "has_gt": bool(c.get("gt")),
+                "preview_url": f"/api/benchmark/diarpreview/{c['id']}",
+                "audio_url": f"/api/benchmark/diaraudio/{c['id']}",
+            }
+            for c in pkg.get("calls", [])
+        ]
+
+    def diar_audio_path(self, call_id: str) -> Path:
+        """WAV-Pfad eines Diar-Calls (Change 136)."""
+        p = self._diar_package_dir() / "audio" / f"{call_id}.wav"
+        if not p.exists():
+            raise KeyError(call_id)
+        return p
+
+    def ensure_diar_preview(self, call_id: str) -> Path:
+        """Preview-MP3 (128k) eines Diar-Calls, on-demand gecacht (Change 136)."""
+        dest = self._diar_package_dir() / "preview" / f"{call_id}.mp3"
+        if dest.exists():
+            return dest
+        src = self.diar_audio_path(call_id)
         dest.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             [

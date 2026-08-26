@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LocaleProvider } from "../useLocale";
-import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, BenchmarkSetUpdater, BenchmarkVadSamples, CategoryQualityChart, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
-import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse, VadSample } from "../benchmark";
+import { AxesMatrix, BenchmarkCategory, BenchmarkPageContent, BenchmarkSetUpdater, BenchmarkVadSamples, BenchmarkDiarSamples, CategoryQualityChart, DiarResultsTable, ModelFilterChips, PriceComparison, TestSetExplanation, VadResultsTable } from "./BenchmarkPage";
+import type { BenchmarkCategory as Cat, BenchmarkMeta, BenchmarkSample, BenchmarkPricing, BenchmarkResults, BenchmarkSamplesResponse, DiarResultRow, DiarSample, VadSample } from "../benchmark";
 
 vi.mock("../benchmark", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../benchmark")>();
@@ -927,10 +927,11 @@ describe("BenchmarkPageContent — Change 135 (Tabs)", () => {
     expect(screen.queryByTestId("asr-samples-section")).toBeNull();
   });
 
-  test("Diar-Tab zeigt Platzhalter 'noch keine Daten'", () => {
+  test("Diar-Tab zeigt Empty-State 'noch keine Ergebnisse' (Change 136)", () => {
     renderPage135();
     fireEvent.click(screen.getByTestId("benchmark-tab-diar"));
-    expect(screen.getByText(/Noch keine Diarization-Benchmark-Daten/)).toBeTruthy();
+    expect(screen.getByText(/Noch keine Diarization-Ergebnisse/)).toBeTruthy();
+    expect(screen.getByText(/Kein Diar-Testset-Paket installiert/)).toBeTruthy();
   });
 
   test("Tab-Auswahl bleibt via localStorage erhalten", () => {
@@ -980,5 +981,100 @@ describe("BenchmarkPageContent — Change 135 (Tabs)", () => {
       </LocaleProvider>,
     );
     expect(screen.queryByTestId("sample-hyp-akzent_001")).toBeNull();
+  });
+});
+
+// ── Change 136: Diar-Ergebnisse + Testset-Calls ──────────────────────────
+
+const DIAR_ROWS: DiarResultRow[] = [
+  {
+    backend: "crispr-diar-foxnose",
+    kind: "diar",
+    testset_version: "v1",
+    testset_release_url: "https://example.com/diar-set-v1",
+    n_samples: 2,
+    der_mean: 0.1,
+    jaccard_mean: 0.875,
+    speaker_count_error_mean: 0.5,
+    rtf_mean: 0.475,
+  },
+  {
+    backend: "crispr-diar-vad-turns",
+    kind: "diar",
+    testset_version: "v1",
+    n_samples: 2,
+    der_mean: 0.35,
+    jaccard_mean: 0.6,
+    speaker_count_error_mean: 1.0,
+    rtf_mean: 0.01,
+  },
+];
+
+const DIAR_SAMPLES: DiarSample[] = [
+  {
+    id: "call_00",
+    speakers: ["SPK_A", "SPK_B"],
+    n_segments: 2,
+    duration_s: 4.8,
+    has_gt: true,
+    preview_url: "/api/benchmark/diarpreview/call_00",
+    audio_url: "/api/benchmark/diaraudio/call_00",
+  },
+  {
+    id: "call_01",
+    speakers: ["SPK_A", "SPK_B", "SPK_C"],
+    n_segments: 3,
+    duration_s: 7.2,
+    has_gt: true,
+    preview_url: "/api/benchmark/diarpreview/call_01",
+    audio_url: "/api/benchmark/diaraudio/call_01",
+  },
+];
+
+describe("DiarResultsTable (Change 136)", () => {
+  test("Empty-State erklärt den Benchmark (DER/Jaccard/RTF)", () => {
+    render(<DiarResultsTable diar={null} />);
+    expect(screen.getByText(/Noch keine Diarization-Ergebnisse/)).toBeTruthy();
+    expect(screen.getByText(/Diarization Error/)).toBeTruthy();
+  });
+
+  test("zeigt DER/Jaccard/Sprecherzahl/RTF je Methode + Release-Link", () => {
+    render(<DiarResultsTable diar={DIAR_ROWS} />);
+    expect(screen.getByText("crispr-diar-foxnose")).toBeTruthy();
+    expect(screen.getByText("crispr-diar-vad-turns")).toBeTruthy();
+    // DER als Prozent (0.1 → 10.0 %)
+    expect(screen.getByText("10.0 %")).toBeTruthy();
+    expect(screen.getByText("35.0 %")).toBeTruthy();
+    // Jaccard (0.875 → 0.875)
+    expect(screen.getByText("0.875")).toBeTruthy();
+    // Testset-Version + Release-Link
+    expect(screen.getByText("v1")).toBeTruthy();
+    expect(screen.getByText("Release-Artefakt + Provenienz")).toBeTruthy();
+  });
+});
+
+describe("BenchmarkDiarSamples (Change 136)", () => {
+  test("rendert Calls mit Sprecherzahl, Segmenten, Dauer + WAV-Link", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkDiarSamples samples={DIAR_SAMPLES} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("call_00")).toBeTruthy();
+    expect(screen.getByText("call_01")).toBeTruthy();
+    // "2 Sprecher · 2 Segmente · 5 s · exakte GT" (4.8 → 5 s)
+    expect(screen.getByText(/2 Sprecher · 2 Segmente · 5 s · exakte GT/)).toBeTruthy();
+    expect(screen.getByText(/3 Sprecher · 3 Segmente · 7 s · exakte GT/)).toBeTruthy();
+    // WAV-Download-Link (ein Link je Call)
+    expect(screen.getAllByText("WAV").length).toBe(2);
+  });
+
+  test("Empty-State bei keiner Liste", () => {
+    render(
+      <LocaleProvider>
+        <BenchmarkDiarSamples samples={[]} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText(/Noch keine Diar-Testset-Calls/)).toBeTruthy();
   });
 });

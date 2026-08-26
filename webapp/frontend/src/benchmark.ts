@@ -117,6 +117,19 @@ export type AlignerSummaryRow =
   | AlignerResultRow
   | { backend: string; kind: "aligner_cross"; pairs: AlignerCrossRow[] };
 
+/** Change 136: gepoolte Diar-Ergebnisse (kind="diar" aus latest.json). */
+export interface DiarResultRow {
+  backend: string;
+  kind: "diar";
+  testset_version?: string;
+  testset_release_url?: string;
+  n_samples: number;
+  der_mean: number;
+  jaccard_mean: number;
+  speaker_count_error_mean: number;
+  rtf_mean: number;
+}
+
 export interface BenchmarkResults {
   version?: number;
   run_id?: string;
@@ -131,6 +144,8 @@ export interface BenchmarkResults {
   vad?: VadResultRow[];
   /** Change 132: Forced-Aligner-Ergebnisse + Kreuz-Vergleich. */
   aligner?: AlignerSummaryRow[];
+  /** Change 136: Diarization-Ergebnisse (DER/Jaccard/Sprecherzahl/RTF). */
+  diar?: DiarResultRow[];
 }
 
 /** Change 073: VAD-Testset-Sample (öffentlich anhörbar auf der Benchmark-Seite). */
@@ -147,6 +162,22 @@ export interface VadSample {
 
 export interface VadSamplesResponse {
   samples: VadSample[];
+  count: number;
+}
+
+/** Change 136: Diar-Testset-Call (öffentlich anhörbar, exakte GT). */
+export interface DiarSample {
+  id: string;
+  speakers: string[];
+  n_segments: number;
+  duration_s: number;
+  has_gt: boolean;
+  preview_url: string;
+  audio_url: string;
+}
+
+export interface DiarSamplesResponse {
+  samples: DiarSample[];
   count: number;
 }
 
@@ -205,6 +236,13 @@ export async function fetchBenchmarkSamples(): Promise<BenchmarkSamplesResponse>
 /** Change 073: VAD-Testset-Samples (öffentliche Liste mit Audio-URLs). */
 export async function fetchVadSamples(): Promise<VadSamplesResponse | null> {
   const res = await fetch("/api/benchmark/vadsamples");
+  if (res.status === 404) return null;
+  return checkOk(res).then((r) => r.json());
+}
+
+/** Change 136: Diar-Testset-Calls (öffentliche Liste mit Audio-URLs). */
+export async function fetchDiarSamples(): Promise<DiarSamplesResponse | null> {
+  const res = await fetch("/api/benchmark/diarsamples");
   if (res.status === 404) return null;
   return checkOk(res).then((r) => r.json());
 }

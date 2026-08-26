@@ -1,0 +1,15 @@
+# Diarization-Methoden für den Container-Benchmark (Change 136).
+# productive: true = in PolySchnack einsetzbar; false = NUR Benchmark-
+# Referenz. Läuft im crispr-diar-Container (CrispASR-Server, Port 5098).
+crispr-diar-foxnose:
+  method: foxnose
+  license: MIT (WeSpeaker-Embedder GGUF) + Apache-2.0 (ggml)
+  productive: true
+crispr-diar-pyannote:
+  method: pyannote
+  license: MIT (pyannote-seg-3.0 GGUF)
+  productive: true
+crispr-diar-vad-turns:
+  method: vad-turns
+  license: "- (deterministische Baseline, kein Modell)"
+  productive: true

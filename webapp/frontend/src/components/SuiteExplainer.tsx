@@ -62,12 +62,12 @@ const CONTENT: Record<SuiteId, SuiteExplainerContent> = {
   },
   diar: {
     layman:
-      "Diarization beantwortet: Wer spricht wann? Die Aufnahme wird in Abschnitte geteilt und jedem Abschnitt ein Sprecher zugeordnet („Sprecher 1, Sprecher 2, …“). Das ist die Grundlage für Meeting-Protokolle mit Sprecher-Zuordnung. Hier ist die Diar-Test-Suite noch im Aufbau — sobald sie läuft, erscheinen die Ergebnisse an dieser Stelle.",
+      "Diarization beantwortet: Wer spricht wann? Die Aufnahme wird in Abschnitte geteilt und jedem Abschnitt ein Sprecher zugeordnet („Sprecher 1, Sprecher 2, …“). Das ist die Grundlage für Meeting-Protokolle mit Sprecher-Zuordnung. Getestet wird auf deutschen Mehrsprecher-Aufnahmen (VoxPopuli-de, CC0) mit exakter Ground Truth — wer wirklich wann gesprochen hat, ist hier bekannt.",
     readout:
-      "Noch keine Daten. Sobald die Diar-Suite läuft, zeigt dieser Tab je Methode: wie gut die Sprecher-Grenzen getroffen werden, wie viele Sprecher korrekt erkannt werden und wie viel Sprache falsch zugeordnet wurde. Die Samples werden wie in den anderen Tabs anhörbar sein.",
+      "Noch keine Daten. Sobald die Diar-Methoden gemessen haben, zeigt dieser Tab je Methode: DER (je kleiner desto besser), Jaccard-Ähnlichkeit, Sprecherzahl-Fehler und RTF. Die Test-Calls sind unten anhörbar.",
     pro: [
-      "Geplante Metriken: DER (Diarization Error Rate = Missed Speech + False Alarm + Speaker Confusion) bzw. Jaccard-Ähnlichkeit je Segment.",
-      "Geplantes Testset: Standard-Diarization-Sets (z. B. VoxConverse/AMI-artige deutsche Ausschnitte) statt synthetischer Mischungen — Abgrenzung siehe Change 136.",
+      "Metriken: DER (Diarization Error Rate = Missed Speech + False Alarm + Speaker Confusion, optimal gematcht) bzw. Jaccard-Ähnlichkeit je Segment, Sprecherzahl-Abweichung, RTF.",
+      "Testset: 20 synthetische Mehrsprecher-Calls aus VoxPopuli-de (CC0-1.0, Public Domain) — echte Parlamentsreden, deterministisch gemixt (Seed 42) mit exakter GT; frei als Release veröffentlichbar (CALLHOME verworfen: gated + CC-BY-NC-SA).",
       "Methoden im Stack: foxnose (WeSpeaker-Embedder + Clustering, mono-tauglich, Default), pyannote-seg-3.0 (GGUF), vad-turns (pausenbasierte Turns, kein Modell).",
       "Wichtig: energy/xcorr-Methoden brauchen Stereo — unser Client liefert Mono, daher nur als Vergleich gelistet.",
       "Speaker-Kennung: embedder=auto (wespeaker → SPEAKER_00/01/…), CACHE-DIR aufs Modell-Volume (Container-Neustarts überleben).",

@@ -54,6 +54,22 @@ def get_vad_model(name: str) -> Optional[Dict[str, Any]]:
     return _load_vad_models().get(name)
 
 
+# Diar-Methoden für den Container-Benchmark (Change 136) — diar_models.yaml.
+_DIAR_MODELS_FILE = Path(__file__).parent / "diar_models.yaml"
+
+
+def _load_diar_models() -> Dict[str, Dict[str, Any]]:
+    """Diar-Methoden-Registry (Change 136): name → {method, license, productive}."""
+    with open(_DIAR_MODELS_FILE, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return dict(data)
+
+
+def get_diar_model(name: str) -> Optional[Dict[str, Any]]:
+    """Diar-Methode per Name (None wenn unbekannt)."""
+    return _load_diar_models().get(name)
+
+
 SERVICES: List[Dict[str, Any]] = _load()
 
 _VALID_PROFILES = {"default", "crispr-pk-cpp", "crispr-qwen3", "crispr-ark",

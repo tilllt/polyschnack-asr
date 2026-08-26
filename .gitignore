@@ -18,3 +18,9 @@ benchmark/aligner/run_team/audio_16k.wav
 benchmark/aligner/run_*.log
 benchmark/aligner/run_team/
 benchmark/aligner/ref_teamtreffen90.txt
+
+# VAD-/Diar-Testset-Artefakte — gehören NICHT ins Repo (GitHub-Releases:
+# tilllt/vad-benchmark-data bzw. tilllt/polyschnack-benchmark-data).
+benchmarks/vad/vad-benchmark-v4-public.zip
+benchmarks/vad/vad-benchmark-v4-public.zip.sha256
+benchmarks/diar/assets/

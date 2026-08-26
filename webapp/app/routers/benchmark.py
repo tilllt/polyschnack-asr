@@ -210,6 +210,95 @@ def vad_preview(sample_id: str) -> FileResponse:
     return FileResponse(path, media_type="audio/mpeg", filename=f"{sample_id}.mp3")
 
 
+# ── Diar-Benchmark-Paket + Samples (Change 136) ──────────────────────────
+
+
+@router.get("/diarpackage", dependencies=[Depends(require_benchmark_key)])
+def diar_package() -> Response:
+    """Tarball des Diar-Pakets (VoxPopuli-Mixe + diar-manifest mit exakter GT)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    pkg = svc.build_diar_package(m["version"])
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        manifest = pkg / "diar-manifest.json"
+        ti = tar.gettarinfo(str(manifest), arcname="diar-manifest.json")
+        ti.mtime = 0
+        ti.uid = ti.gid = 0
+        ti.uname = ti.gname = ""
+        with open(manifest, "rb") as f:
+            tar.addfile(ti, f)
+        for wav in sorted((pkg / "audio").glob("*.wav")):
+            ti = tar.gettarinfo(str(wav), arcname=f"audio/{wav.name}")
+            ti.mtime = 0
+            ti.uid = ti.gid = 0
+            ti.uname = ti.gname = ""
+            with open(wav, "rb") as f:
+                tar.addfile(ti, f)
+    data = buf.getvalue()
+    sha = svc.diar_package_sha256(m["version"])
+    return Response(
+        content=data, media_type="application/gzip",
+        headers={"X-Benchmark-SHA256": f"v{m['version']}:{sha}"},
+    )
+
+
+@router.get("/diarpackage/sha256", dependencies=[Depends(require_benchmark_key)])
+def diar_package_sha256() -> Dict[str, Any]:
+    """Leichtgewichtiger Diar-Paket-Hash (Vorab-Prüfung durch Diar-Container)."""
+    svc = _require_data()
+    m = svc.latest_manifest()
+    sha = svc.diar_package_sha256(m["version"])
+    pkg = svc.build_diar_package(m["version"])
+    try:
+        pm = json.loads((pkg / "diar-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pm = {}
+    return {
+        "version": m["version"],
+        "manifest_version": m["version"],
+        "sha256": sha,
+        "testset_version": f"v{pm.get('version', '?')}",
+        "testset_release_url": pm.get("release_url", ""),
+    }
+
+
+@router.get("/diarsamples")
+def diar_samples() -> Dict[str, Any]:
+    """Öffentliche Diar-Testset-Liste (Calls, Sprecher, GT-Info)."""
+    svc = _require_data()
+    try:
+        samples = svc.diar_samples()
+    except FileNotFoundError:
+        raise HTTPException(404, "no diar package available")
+    return {
+        "samples": samples,
+        "count": len(samples),
+    }
+
+
+@router.get("/diaraudio/{call_id}")
+def diar_audio(call_id: str) -> FileResponse:
+    svc = _require_data()
+    try:
+        path = svc.diar_audio_path(call_id)
+    except KeyError:
+        raise HTTPException(404, "diar call not found")
+    return FileResponse(path, media_type="audio/wav", filename=f"{call_id}.wav")
+
+
+@router.get("/diarpreview/{call_id}")
+def diar_preview(call_id: str) -> FileResponse:
+    svc = _require_data()
+    try:
+        path = svc.ensure_diar_preview(call_id)
+    except KeyError:
+        raise HTTPException(404, "diar call not found")
+    except FileNotFoundError:
+        raise HTTPException(404, "diar preview not available")
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{call_id}.mp3")
+
+
 @router.get("/results")
 def results() -> Dict[str, Any]:
     """Gepoolte Benchmark-Ergebnisse (results/latest.json) inkl.
@@ -359,11 +448,16 @@ class SampleResultRow(BaseModel):
     boundary_start_ms: Optional[float] = None
     boundary_end_ms: Optional[float] = None
     fp_time_s: Optional[float] = None
+    # Diar-Metriken (Change 136, kind="diar")
+    der: Optional[float] = None
+    jaccard: Optional[float] = None
+    speaker_count_error: Optional[int] = None
 
 
 class BenchmarkSubmit(BaseModel):
     backend: str
-    kind: Literal["asr", "vad"] = "asr"
+    # Change 136: Diar-Submits (kind="diar") — getrennt vom ASR-Pool.
+    kind: Literal["asr", "vad", "diar"] = "asr"
     settings: str = "auto"
     manifest_version: int
     manifest_sha256: str

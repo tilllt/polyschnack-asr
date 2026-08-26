@@ -94,6 +94,37 @@ def _make_v31_fixture(tmp_path: Path) -> Path:
     return zip_path
 
 
+def _make_diar_fixture(tmp_path: Path) -> Path:
+    """Change 136: kleines Diar-Testset (2 Calls, exakte GT) — CI-fest, kein Netz."""
+    root = tmp_path / "diar_src"
+    audio = root / "audio"
+    audio.mkdir(parents=True)
+    manifest = {
+        "version": 1,
+        "source": "Test-Fixture (VoxPopuli-de-Struktur, CC0)",
+        "sample_rate": 16000,
+        "seed": 42,
+        "created_at": "2026-08-26",
+        "license": "CC0-1.0",
+        "calls": [
+            {"id": "call_00", "speakers": ["SPK_A", "SPK_B"],
+             "duration_s": 4.8, "gt": [
+                 {"start": 0.0, "end": 2.4, "speaker": "SPK_A"},
+                 {"start": 2.4, "end": 4.8, "speaker": "SPK_B"}]},
+            {"id": "call_01", "speakers": ["SPK_A", "SPK_B", "SPK_C"],
+             "duration_s": 7.2, "gt": [
+                 {"start": 0.0, "end": 2.4, "speaker": "SPK_A"},
+                 {"start": 2.4, "end": 4.8, "speaker": "SPK_B"},
+                 {"start": 4.8, "end": 7.2, "speaker": "SPK_C"}]},
+        ],
+    }
+    (root / "diar-manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False))
+    for cid in ("call_00", "call_01"):
+        (audio / f"{cid}.wav").write_bytes(_miniwav())
+    return root
+
+
 def package_hash(root: Path) -> str:
     """Deterministischer Paket-Hash (REQ-WEB-040): sha256(manifest) + je Audio-Datei."""
     vdir = root / "versions" / "v1"
@@ -129,6 +160,9 @@ def client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "VAD_PACKAGE_URL", v31.as_uri())
     monkeypatch.setattr(settings, "VAD_PACKAGE_SHA256",
                         hashlib.sha256(v31.read_bytes()).hexdigest())
+    # Change 136: Diar-Paket kommt aus einer lokalen Fixture (kein Netz, CI-fest)
+    diar_src = _make_diar_fixture(tmp_path)
+    monkeypatch.setattr(settings, "DIAR_PACKAGE_LOCAL_DIR", str(diar_src))
     monkeypatch.setattr(settings, "OIDC_ENABLED", False)
     monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
     monkeypatch.setattr(settings, "AUDIO_DIR", tmp_path / "audio")
@@ -440,4 +474,76 @@ def test_vad_submit_reference_model_allowed(client):
     """Lizenz-inkompatible Referenz-Modelle (ten-vad) sind benchmarkbar."""
     r = _post_submit(client, _vad_submit_body(backend="ten-vad"))
     assert r.status_code == 200
+
+
+# ── Change 136: Diar-Submit (kind="diar") ────────────────────────────────
+
+
+def _diar_submit_body(backend: str = "crispr-diar-foxnose",
+                      sha: str | None = None, version: int = 1) -> dict:
+    from app.benchmark_service import BenchmarkService
+
+    root = Path(settings.BENCHMARK_DATA_DIR)
+    svc = BenchmarkService(root)
+    diar_sha = sha or svc.diar_package_sha256(version)
+    return {
+        "backend": backend,
+        "kind": "diar",
+        "settings": "auto",
+        "manifest_version": version,
+        "manifest_sha256": diar_sha,
+        "run_id": "diar-run-1",
+        "generated_at": "2026-08-26T12:00:00Z",
+        "rows": [
+            {"sample_id": "call_00", "der": 0.12, "jaccard": 0.85,
+             "speaker_count_error": 0, "rtf": 0.5},
+            {"sample_id": "call_01", "der": 0.08, "jaccard": 0.90,
+             "speaker_count_error": 1, "rtf": 0.45},
+        ],
+        "meta": {"method": "foxnose"},
+    }
+
+
+def test_diar_submit_ok_pools_separately(client):
+    r = _post_submit(client, _diar_submit_body())
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    latest = json.loads((Path(settings.BENCHMARK_DATA_DIR) / "results" / "latest.json").read_text())
+    # Diar-Run erscheint NICHT im ASR-Pool (kein wer)
+    assert latest["rows"] == []
+    # … aber in der neuen diar-Sektion
+    diar = latest["diar"]
+    assert len(diar) == 1
+    assert diar[0]["backend"] == "crispr-diar-foxnose"
+    assert diar[0]["n_samples"] == 2
+    assert diar[0]["der_mean"] == pytest.approx(0.10, abs=0.001)
+    assert diar[0]["jaccard_mean"] == pytest.approx(0.875, abs=0.001)
+    assert diar[0]["speaker_count_error_mean"] == pytest.approx(0.5)
+    assert diar[0]["rtf_mean"] == pytest.approx(0.475, abs=0.001)
+    assert diar[0]["testset_version"] == "v1"
+    # Run-Datei trägt kind="diar"
+    runs = list((Path(settings.BENCHMARK_DATA_DIR) / "results" / "runs").glob("crispr-diar-foxnose_*.json"))
+    assert len(runs) == 1
+    assert json.loads(runs[0].read_text())["kind"] == "diar"
+
+
+def test_diarpackage_sha256_endpoint(client):
+    """Change 136: /diarpackage/sha256 verrät Testset-Version + SHA."""
+    r = client.get("/api/benchmark/diarpackage/sha256", headers=_auth_headers())
+    assert r.status_code == 200
+    d = r.json()
+    assert d["testset_version"] == "v1"
+    assert len(d["sha256"]) == 64
+
+
+def test_diar_submit_unknown_method_rejected(client):
+    r = _post_submit(client, _diar_submit_body(backend="does-not-exist-diar"))
+    assert r.status_code == 422
+    assert r.json()["reason"] == "unknown backend"
+
+
+def test_diar_submit_pyannote_and_vadturns_allowed(client):
+    for backend in ("crispr-diar-pyannote", "crispr-diar-vad-turns"):
+        r = _post_submit(client, _diar_submit_body(backend=backend))
+        assert r.status_code == 200, backend
     assert r.json()["ok"] is True

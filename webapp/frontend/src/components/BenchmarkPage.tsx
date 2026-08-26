@@ -15,6 +15,9 @@ import type {
   AlignerResultRow,
   AlignerCrossRow,
   AlignerSummaryRow,
+  DiarResultRow,
+  DiarSample,
+  DiarSamplesResponse,
 } from "../benchmark";
 import { fetchBenchmarkSetStatus, installBenchmarkSet } from "../benchmark";
 
@@ -756,6 +759,134 @@ export function AlignerResultsTable({ aligner }: { aligner?: AlignerSummaryRow[]
   );
 }
 
+// ── Diar-Ergebnisse (Change 136) ────────────────────────────────────────
+
+export function DiarResultsTable({ diar }: { diar?: DiarResultRow[] | null }) {
+  if (!diar || !diar.length) {
+    return (
+      <div className="text-sm text-dim space-y-2">
+        <p>
+          Noch keine Diarization-Ergebnisse. Der Diar-Benchmark misst die{" "}
+          <strong className="text-txt">Sprecher-Zuordnung</strong> („wer spricht
+          wann“) auf einem deutschen Testset (20 synthetische Mehrsprecher-Calls
+          aus VoxPopuli-de, CC0, mit exakter Ground Truth).
+        </p>
+        <p>
+          Metriken: <strong className="text-txt">DER</strong> (Diarization Error
+          Rate — je kleiner desto besser), <strong className="text-txt">Jaccard</strong>{" "}
+          (Segment-Ähnlichkeit je Call), <strong className="text-txt">Sprecherzahl-Fehler</strong>{" "}
+          und <strong className="text-txt">RTF</strong>. Läuft über{" "}
+          <code className="mx-1 font-mono text-xs">benchmarks/diar/diar_selfservice.py</code>{" "}
+          gegen den crispr-diar-Container.
+        </p>
+      </div>
+    );
+  }
+  const version = diar[0]?.testset_version;
+  const releaseUrl = diar[0]?.testset_release_url;
+  return (
+    <div className="overflow-x-auto">
+      {version ? (
+        <p className="text-xs text-dim mb-2">
+          Testset: <span className="font-mono">{version}</span>
+          {releaseUrl ? (
+            <>
+              {" · "}
+              <a
+                href={releaseUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-accent"
+              >
+                Release-Artefakt + Provenienz
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-dim border-b border-border">
+            <th className="py-2 pr-2">Methode</th>
+            <th className="py-2 pr-2">n</th>
+            <th className="py-2 pr-2">DER ↓</th>
+            <th className="py-2 pr-2">Jaccard</th>
+            <th className="py-2 pr-2">Sprecherzahl-Fehler</th>
+            <th className="py-2 pr-2">RTF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {diar.map((r) => (
+            <tr key={r.backend} className="border-b border-border/50">
+              <td className="py-2 pr-2 font-mono">{r.backend}</td>
+              <td className="py-2 pr-2">{r.n_samples}</td>
+              <td className="py-2 pr-2">
+                {r.der_mean != null ? `${(r.der_mean * 100).toFixed(1)} %` : "–"}
+              </td>
+              <td className="py-2 pr-2">{r.jaccard_mean != null ? r.jaccard_mean.toFixed(3) : "–"}</td>
+              <td className="py-2 pr-2">
+                {r.speaker_count_error_mean != null ? r.speaker_count_error_mean.toFixed(2) : "–"}
+              </td>
+              <td className="py-2 pr-2">{r.rtf_mean != null ? r.rtf_mean.toFixed(3) : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-dim mt-2">
+        DER = Missed Speech + False Alarm + Speaker Confusion (optimal gematcht,
+        je kleiner desto besser). Testset: VoxPopuli-de (CC0), deterministische
+        Mehrsprecher-Mixe mit exakter GT.
+      </p>
+    </div>
+  );
+}
+
+// ── Diar-Testset-Calls (Change 136) ─────────────────────────────────────
+
+export function BenchmarkDiarSamples({ samples }: { samples: DiarSample[] }) {
+  if (!samples || !samples.length) {
+    return (
+      <p className="text-sm text-dim">
+        Noch keine Diar-Testset-Calls verfügbar.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {samples.map((s) => (
+        <div
+          key={s.id}
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-border/60 px-3 py-2"
+        >
+          <span className="font-mono text-sm">{s.id}</span>
+          <span className="text-xs text-dim">
+            {s.speakers.length} Sprecher · {s.n_segments} Segmente ·{" "}
+            {s.duration_s != null ? `${s.duration_s.toFixed(0)} s` : "–"} ·{" "}
+            {s.has_gt ? "exakte GT" : "keine GT"}
+          </span>
+          <span className="ml-auto flex items-center gap-3">
+            <audio
+              controls
+              preload="none"
+              src={s.preview_url}
+              className="h-8 w-52"
+            >
+              Dein Browser unterstützt kein Audio-Element.
+            </audio>
+            <a
+              href={s.audio_url}
+              download={`${s.id}.wav`}
+              className="text-xs underline text-accent"
+            >
+              WAV
+            </a>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── VAD-Testset-Samples (Change 073) ─────────────────────────────────────
 // Die VAD-Samples sind öffentlich anhörbar: jede Zeile hat einen
 // WaveformPlayer (MP3-Preview) + WAV-Download. Gruppiert nach Typ, damit
@@ -981,13 +1112,15 @@ interface PageProps {
   pricing: BenchmarkPricing | null;
   /** Change 073: VAD-Testset-Samples (anhörbar) — 404 = kein Paket. */
   vadSamples?: VadSamplesResponse | null;
+  /** Change 136: Diar-Testset-Calls (anhörbar) — 404 = kein Paket. */
+  diarSamples?: DiarSamplesResponse | null;
   admin: boolean;
   onReject: (sampleId: string) => void;
   onEdit: (sampleId: string, fields: { text: string }) => void;
   onReload: () => void;
 }
 
-export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples, admin, onReject, onEdit, onReload }: PageProps) {
+export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples, diarSamples, admin, onReject, onEdit, onReload }: PageProps) {
   // Change 071 (User-Befund 2026-08-21): erste Kategorie initial OFEN —
   // vorher starteten alle zugeklappt (openCat=null) → Samples + WAV-Player
   // waren ohne manuellen Klick unsichtbar („keine wav Player").
@@ -1311,16 +1444,20 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
         <>
           <SuiteExplainer suite="diar" />
           <section className="border border-border rounded-lg p-4">
-            <h2 className="font-semibold mb-2">Diarization</h2>
-            <div className="text-sm text-dim space-y-2">
-              <p>
-                Noch keine Diarization-Benchmark-Daten. Der Diar-Benchmark
-                (Sprechererkennung je Segment) ist als eigenes Testset geplant
-                (Standard-Sets wie VoxConverse/AMI — siehe Change 136) und wird
-                hier erscheinen, sobald die Diar-Suite läuft.
-              </p>
-            </div>
+            <h2 className="font-semibold mb-2">Diarization-Methoden</h2>
+            <DiarResultsTable diar={results?.diar} />
           </section>
+          {diarSamples && diarSamples.samples.length > 0 ? (
+            <section className="border border-border rounded-lg p-4">
+              <h2 className="font-semibold mb-2">Testset-Calls (anhörbar)</h2>
+              <BenchmarkDiarSamples samples={diarSamples.samples} />
+            </section>
+          ) : (
+            <section className="border border-border rounded-lg p-4">
+              <h2 className="font-semibold mb-2">Testset-Calls</h2>
+              <p className="text-sm text-dim">Kein Diar-Testset-Paket installiert (404).</p>
+            </section>
+          )}
         </>
       )}
 
