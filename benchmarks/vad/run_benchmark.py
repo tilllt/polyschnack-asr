@@ -279,8 +279,8 @@ def main():
                 import urllib.request
 
                 url = ("https://github.com/tilllt/vad-benchmark-data/releases/"
-                       "download/v4/vad-testset-v3.1-public.tar.gz")
-                print(f"Lade V3.1-public-Testset von {url} …")
+                       "download/v5/vad-testset-v4-public.tar.gz")
+                print(f"Lade V4-public-Testset von {url} …")
                 with urllib.request.urlopen(url, timeout=120) as r:
                     raw = r.read()
                 with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:

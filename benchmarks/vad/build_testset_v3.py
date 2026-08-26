@@ -237,6 +237,9 @@ def build(out_dir: Path, tts_dir: Path, ten_dir: Path,
     audio = out_dir / "audio"
     audio.mkdir(exist_ok=True)
     samples: list[dict] = []
+    # Change 081: Sprecher-Provenienz — Dateinamen tragen seit Change 081
+    # ein Sprecher-Suffix (tts_clean_000_thorsten.wav); ältere ohne Suffix
+    # werden weiter erkannt (Glob matcht beide).
     tts = [Path(p) for p in sorted(glob.glob(str(tts_dir / "tts_clean_*.wav")))[:max_tts]]
     noises = [Path(p) for p in sorted(glob.glob(str(demand_dir / "*_sample.wav")))[:2]]
     rng = np.random.default_rng(42)
@@ -323,13 +326,15 @@ def build(out_dir: Path, tts_dir: Path, ten_dir: Path,
                             "split": "public", "source": "musan", "gt": []})
 
     # ── Artefakt ────────────────────────────────────────────────────────
-    manifest = {"version": version, "generated_at": "2026-08-21",
+    manifest = {"version": version, "generated_at": "2026-08-26",
                 "sample_rate": SR, "split": split_mode,
                 "split_seed": SPLIT_SEED, "public_ratio": PUBLIC_RATIO,
                 "samples": samples}
     (out_dir / "testset.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    tag = "v3.1" if split_mode == "all" else f"v3.1-{split_mode}"
+    tag = f"v{version}" if version >= 4 else "v3.1"
+    if split_mode != "all":
+        tag = f"{tag}-{split_mode}"
     tar_path = out_dir / f"vad-testset-{tag}.tar.gz"
     import gzip
     # gzip-Header-mtime auf 0 → deterministische Artefakte (sonst ändert sich
@@ -346,7 +351,7 @@ def build(out_dir: Path, tts_dir: Path, ten_dir: Path,
             with open(out_dir / "testset.json", "rb") as fh:
                 tar.addfile(ti, fh)
     sha = hashlib.sha256(tar_path.read_bytes()).hexdigest()
-    print(f"V3.1-Testset ({split_mode}): {len(samples)} Samples, "
+    print(f"V{version}-Testset ({split_mode}): {len(samples)} Samples, "
           f"{tar_path.name} ({tar_path.stat().st_size / 1e6:.1f} MB), SHA256 {sha[:16]}…")
     return [tar_path]
 

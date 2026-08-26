@@ -86,7 +86,7 @@ def _make_v31_fixture(tmp_path: Path) -> Path:
     (root / "testset.json").write_text(json.dumps(testset, ensure_ascii=False))
     for sid in ("clean_001", "clean_002", "clean_003"):
         (audio / f"{sid}.wav").write_bytes(_miniwav())
-    zip_path = tmp_path / "vad-benchmark-v3.1-public.zip"
+    zip_path = tmp_path / "vad-benchmark-v4-public.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(root / "testset.json", "testset.json")
         for sid in ("clean_001", "clean_002", "clean_003"):
@@ -411,9 +411,9 @@ def test_vad_submit_ok_pools_separately(client):
     assert vad[0]["boundary_start_ms_median"] == pytest.approx(16.0)
     assert vad[0]["boundary_end_ms_median"] == pytest.approx(72.0)
     assert vad[0]["fp_time_s"] == pytest.approx(0.5)
-    # Change 065: testset_version + Release-URL aus dem V3.1-Paket
+    # Change 065/081: testset_version + Release-URL aus dem V4-Paket
     assert vad[0]["testset_version"] == "v4-public"
-    assert "vad-benchmark-v3.1-public.zip" in vad[0]["testset_release_url"]
+    assert "vad-benchmark-v4-public.zip" in vad[0]["testset_release_url"]
     # Run-Datei trägt kind="vad"
     runs = list((Path(settings.BENCHMARK_DATA_DIR) / "results" / "runs").glob("silero-onnx_*.json"))
     assert len(runs) == 1
@@ -426,7 +426,7 @@ def test_vadpackage_sha256_reports_testset_version(client):
     assert r.status_code == 200
     d = r.json()
     assert d["testset_version"] == "v4-public"
-    assert "vad-benchmark-v3.1-public.zip" in d["testset_release_url"]
+    assert "vad-benchmark-v4-public.zip" in d["testset_release_url"]
     assert len(d["sha256"]) == 64
 
 

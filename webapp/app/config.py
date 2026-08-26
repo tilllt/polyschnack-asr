@@ -68,16 +68,18 @@ class _Settings:
 
     #: V3.1-public-VAD-Paket (Change 065): ZIP-Quelle + erwarteter SHA256.
     #: Das Paket wird aus dem GitHub-Release importiert statt aus dem
-    #: ASR-Manifest generiert (V3.1 = CV-Basis + DEMAND-SNR + FP-Sets).
-    #: Tests überschreiben die URL mit einer lokalen file://-Fixture.
+    #: ASR-Manifest generiert (V3.1/V4 = CV-Basis + DEMAND-SNR + FP-Sets).
+    #: Change 081: v5-Release = Testset V4 mit Thorsten/VibeVoice-TTS
+    #: (Ramona entfernt). Tests überschreiben die URL mit einer lokalen
+    #: file://-Fixture.
     VAD_PACKAGE_URL: str = os.getenv(
         "VAD_PACKAGE_URL",
         "https://github.com/tilllt/vad-benchmark-data/releases/download/"
-        "v4/vad-benchmark-v3.1-public.zip",
+        "v5/vad-benchmark-v4-public.zip",
     )
     VAD_PACKAGE_SHA256: str = os.getenv(
         "VAD_PACKAGE_SHA256",
-        "b48bb9e9abd5a4a69c6a8fc9848a563daea0056813d3d6716e5aa5abee9b9788",
+        "63e3ae6a1f45f1c0b8fbe0438d7c2f8a5dc555c58b8bad3db4477d605a057068",
     )
 
     #: Benchmark-Set-Auto-Update (Change 075/076): die Webapp kann sich neue

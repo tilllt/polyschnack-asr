@@ -15,21 +15,24 @@ Evidenzbasis für die VAD-Modellwahl in der Webapp — PolySchnack-Prinzip:
 - `assets/` — Modelle/Testsets (gitignored, Download siehe unten)
 - `/opt/data/scripts/vad_benchmark_vast.py` — vast.ai-Runner (frische Instanz je Test)
 
-## V3.1-Testset (offizielle Storage, Change 063/064)
+## V4-Testset (offizielle Storage, Change 063/064/081)
 
 Das Testset liegt als Release-Artefakt auf GitHub:
 [tilllt/vad-benchmark-data](https://github.com/tilllt/vad-benchmark-data).
 
 - **Release v3** (historisch): `vad-testset-v3.tar.gz`, 101 TTS-Samples.
-- **Release v4** (aktuell): `vad-benchmark-v3.1-public.zip` — **235 public
-  Samples** (Piper-TTS + Common-Voice-DE, DEMAND-SNR 0/5/10 dB, Babble, TEN,
-  Noise, MUSAN-Musik) + `testset.json` + `PROVENANCE.md` + `SHA256SUMS`.
-  Für externe User: ZIP mit Quellen/Lizenzen/Seeds, nicht einzeln.
+- **Release v4** (historisch): `vad-benchmark-v3.1-public.zip` — 235 public
+  Samples, TTS noch Thorsten/Ramona.
+- **Release v5** (aktuell): `vad-benchmark-v4-public.zip` — **235 public
+  Samples** (Piper-TTS Thorsten/VibeVoice + Common-Voice-DE, DEMAND-SNR
+  0/5/10 dB, Babble, TEN, Noise, MUSAN-Musik) + `testset.json` +
+  `PROVENANCE.md` + `SHA256SUMS`. Für externe User: ZIP mit
+  Quellen/Lizenzen/Seeds, nicht einzeln.
 
 ```bash
 # Manuell (run_benchmark.py --v3 lädt automatisch, wenn lokal fehlt):
-curl -L -o assets/v3/vad-testset-v3.1-public.zip \
-  https://github.com/tilllt/vad-benchmark-data/releases/download/v4/vad-benchmark-v3.1-public.zip
+curl -L -o assets/v3/vad-testset-v4-public.zip \
+  https://github.com/tilllt/vad-benchmark-data/releases/download/v5/vad-benchmark-v4-public.zip
 ```
 
 ### public/held-out-Split (Change 064)

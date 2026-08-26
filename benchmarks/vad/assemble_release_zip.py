@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V3.1-Release-ZIP-Assembly (Change 064): public-Teil + Provenienz.
+"""V3.1/V4-Release-ZIP-Assembly (Change 064, 081): public-Teil + Provenienz.
 
 Packt für externe User ein ZIP mit:
   audio/<id>.wav        (nur public-Samples)
@@ -8,7 +8,10 @@ Packt für externe User ein ZIP mit:
   results_v3_public.json (falls vorhanden — Benchmark-Ergebnisse)
 
 Guard: KEIN heldout-Sample darf ins ZIP (Leakage-Schutz, Change 064).
-Ausgabe: vad-benchmark-v3.1-public.zip + SHA256 (stdout + .sha256-Datei).
+Ausgabe: vad-benchmark-v4-public.zip + SHA256 (stdout + .sha256-Datei).
+
+Change 081: Version 4 — TTS-Quellen Thorsten/VibeVoice-f (Ramona entfernt);
+Dateiname/Header versioniert via --version.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ OUT = HERE / "out"
 
 # Quellen-Kategorien → Provenienz (für PROVENANCE.md)
 LICENSES = {
-    "piper-tts": "Piper TTS (rhasspy/piper), MIT; deutsche Stimme Thorsten/Ramona (CC0)",
+    "piper-tts": "Piper TTS (rhasspy/piper), MIT; deutsche Stimme Thorsten/VibeVoice-f (CC0)",
     "commonvoice": "Mozilla Common Voice DE (CC0-1.0); Auswahl via cv_selection.json (Seed 42, 24 Samples)",
     "demand": "DEMAND (Zenodo 1227121, CC-BY-4.0) — Küche/Metro, 16 kHz",
     "musan": "MUSAN (Mozilla, CC-BY-4.0) — Musik-Sektion, 16 kHz",
@@ -58,11 +61,12 @@ def build_provenance(testset: dict, samples: list[dict], zip_path: Path,
     for s in samples:
         cats.setdefault(source_category(s.get("source", "")), []).append(s["id"])
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ver = testset.get("version", 4)
     lines = [
-        "# PROVENANCE — PolySchnack VAD-Benchmark-Testset V3.1 (public)",
+        f"# PROVENANCE — PolySchnack VAD-Benchmark-Testset V{ver} (public)",
         "",
         f"Erzeugt: {now} · Skript: `benchmarks/vad/build_testset_v3.py` "
-        f"(Change 063/064, deterministisch, feste Seeds) · Sample-Rate: {testset['sample_rate']} Hz",
+        f"(Change 063/064/081, deterministisch, feste Seeds) · Sample-Rate: {testset['sample_rate']} Hz",
         "",
         "## Split-Politik",
         "",
@@ -96,7 +100,7 @@ def build_provenance(testset: dict, samples: list[dict], zip_path: Path,
         "### Quellen-Details",
         "",
         "- **Piper-TTS**: `tts_clean_*.wav` aus dem PolySchnack-ASR-Testset "
-        "(piper, deutsche Stimmen Thorsten/Ramona).",
+        "(piper, deutsche Stimmen Thorsten/VibeVoice-f).",
         "- **Common Voice DE**: Mozilla Common Voice (CC0). Auswahl per "
         "`cv_selection.json` (Seed 42): 8 akzent / 8 child / 8 clean, je "
         "einzeln zuordenbar via `source`-Feld im testset.json "
@@ -178,12 +182,16 @@ def assemble(v3_dir: Path, out_dir: Path, zip_path: Path,
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--v3-dir", default=str(ASSETS / "v3"))
+    ap.add_argument("--v3-dir", default=str(ASSETS / "v4"))
     ap.add_argument("--out", default=str(HERE))
-    ap.add_argument("--zip", default=str(HERE / "vad-benchmark-v3.1-public.zip"))
+    ap.add_argument("--version", default="4",
+                    help="Versions-Label für ZIP-Dateiname + PROVENANCE (4 oder 3.1)")
+    ap.add_argument("--zip", default=None,
+                    help="Ziel-ZIP (Default: vad-benchmark-v{version}-public.zip)")
     ap.add_argument("--results", default=str(OUT / "results_v3_public.json"))
     args = ap.parse_args()
-    zip_path = Path(args.zip)
+    version = args.version
+    zip_path = Path(args.zip) if args.zip else HERE / f"vad-benchmark-v{version}-public.zip"
     results_path = Path(args.results)
     assemble(Path(args.v3_dir), Path(args.out), zip_path,
              results_path if results_path.exists() else None)

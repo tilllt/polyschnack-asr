@@ -280,15 +280,15 @@ class BenchmarkService:
     # ── VAD-Benchmark-Paket (Change 062/065) ────────────────────────────────
 
     V31_RELEASE_URL = ("https://github.com/tilllt/vad-benchmark-data/releases/"
-                       "download/v4/vad-benchmark-v3.1-public.zip")
+                       "download/v5/vad-benchmark-v4-public.zip")
 
     def _fetch_v31_zip(self, version: int) -> Path:
-        """V3.1-public-ZIP herunterladen (SHA256-verifiziert), gecacht.
+        """V3.1/V4-public-ZIP herunterladen (SHA256-verifiziert), gecacht.
 
-        Change 065: Das VAD-Paket wird aus dem offiziellen Testset-Artefakt
-        (GitHub-Release v4) importiert statt aus dem ASR-Manifest generiert.
-        SHA256-Mismatch → RuntimeError (kein stiller Fallback auf das alte
-        Set — das wäre ein still falsches Paket).
+        Change 065/081: Das VAD-Paket wird aus dem offiziellen Testset-Artefakt
+        (GitHub-Release v5, Testset V4) importiert statt aus dem ASR-Manifest
+        generiert. SHA256-Mismatch → RuntimeError (kein stiller Fallback auf
+        das alte Set — das wäre ein still falsches Paket).
         """
         import urllib.request
         import zipfile
