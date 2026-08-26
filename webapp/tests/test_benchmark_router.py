@@ -498,6 +498,89 @@ def test_sets_installer_rejects_traversal(tmp_path, monkeypatch):
     assert not (tmp_path / "etc").exists()
 
 
+def test_vad_package_rebuilds_on_sha_change(tmp_path, monkeypatch):
+    """Change 081: konfigurierter VAD-Paket-SHA-Wechsel invalidiert den Cache.
+
+    Gebautes Paket (vad-manifest.json) + alter ZIP-Cache vorhanden; neue
+    VAD_PACKAGE_SHA256 ≠ Cache → Paket wird verworfen und neu gebaut.
+    Ohne Cache-ZIP (Fixture) bleibt das Paket unangetastet.
+    """
+    import urllib.request
+    from app.benchmark_service import BenchmarkService
+    from app.config import settings
+
+    # Altes Paket + ZIP-Cache (SHA "alt")
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    vad = v1 / "vad"
+    (vad / "audio").mkdir(parents=True)
+    (vad / "vad-manifest.json").write_text(json.dumps(
+        {"version": 1, "testset_version": "v3.1-public", "samples": []}))
+    (vad / "audio" / "de_00_lead2.wav").write_bytes(_miniwav())
+    old_zip = b"OLD-ZIP-CONTENT"
+    (vad / "v3.1-public.zip").write_bytes(old_zip)
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(
+        json.dumps({"version": 1, "rows": []}))
+
+    # Neues ZIP (SHA "neu") als Download-Quelle — echtes ZIP mit testset.json
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("testset.json", json.dumps(
+            {"version": 4, "split": "public", "samples": []}))
+        z.writestr("audio/de_00_lead2.wav", _miniwav())
+    new_zip = buf.getvalue()
+
+    class FakeResp:
+        def read(self): return new_zip
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=300: FakeResp())
+    monkeypatch.setattr(settings, "VAD_PACKAGE_SHA256",
+                        hashlib.sha256(new_zip).hexdigest())
+
+    svc = BenchmarkService(root)
+    pkg = svc.build_vad_package(1)
+    # Cache wurde invalidiert → ZIP neu geladen, Cache-Inhalt = neues ZIP
+    assert (pkg / "v3.1-public.zip").read_bytes() == new_zip
+    assert (pkg / "vad-manifest.json").exists()
+
+
+def test_vad_package_keeps_cache_without_zip(tmp_path, monkeypatch):
+    """Change 081: ohne Cache-ZIP (Test-Fixture) kein Netz-Zwang — Paket bleibt."""
+    from app.benchmark_service import BenchmarkService
+    from app.config import settings
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    vad = v1 / "vad"
+    (vad / "audio").mkdir(parents=True)
+    (vad / "vad-manifest.json").write_text(json.dumps(
+        {"version": 1, "testset_version": "v4-public", "samples": []}))
+    (vad / "audio" / "de_00_lead2.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(
+        json.dumps({"version": 1, "rows": []}))
+    monkeypatch.setattr(settings, "VAD_PACKAGE_SHA256", "0" * 64)
+
+    svc = BenchmarkService(root)
+    pkg = svc.build_vad_package(1)
+    # kein Rebuild, kein Download-Versuch — Manifest unverändert
+    assert (pkg / "vad-manifest.json").read_text() is not None
+    assert json.loads((pkg / "vad-manifest.json").read_text())[
+        "testset_version"] == "v4-public"
+
+
 # ── Benchmark-Set-Discovery (Change 076, git-basiert) ────────────────────
 
 

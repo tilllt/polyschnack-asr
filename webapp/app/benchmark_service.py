@@ -322,18 +322,37 @@ class BenchmarkService:
         return pkg / "import" / "testset.json"
 
     def build_vad_package(self, version: int) -> Path:
-        """VAD-Paket (Change 065): importiert das V3.1-public-Testset.
+        """VAD-Paket (Change 065/081): importiert das V3.1/V4-public-Testset.
 
         Statt Stille-Insertions-Varianten aus dem ASR-Manifest zu generieren
-        (V2-Methodik) wird das offizielle V3.1-Artefakt verwendet (235 public
-        Samples: Piper-TTS + Common-Voice, DEMAND-SNR, Noise/Musik-FP, exakte
-        GT). Gecacht unter versions/v{version}/vad/.
+        (V2-Methodik) wird das offizielle V3.1/V4-Artefakt verwendet (235
+        public Samples: Piper-TTS + Common-Voice, DEMAND-SNR, Noise/Musik-FP,
+        exakte GT). Gecacht unter versions/v{version}/vad/.
+
+        Change 081 (SHA-Guard): Der Cache wird gegen VAD_PACKAGE_SHA256
+        geprüft — hat sich der konfigurierte SHA geändert (z. B. Release v5
+        mit Thorsten/VibeVoice statt Ramona), wird das alte Paket verworfen
+        und aus der neuen Quelle neu gebaut. Ohne diesen Guard würde die
+        Webapp nach einem Release-Wechsel still das alte Testset nutzen.
         """
         from app.config import settings
 
         pkg = self.data_dir / "versions" / f"v{version}" / "vad"
         if (pkg / "vad-manifest.json").exists():
-            return pkg
+            expected = settings.VAD_PACKAGE_SHA256.strip().lower()
+            cached = pkg / "v3.1-public.zip"
+            # Change 081 (SHA-Guard): Nur ein vorhandener ZIP-Cache, dessen
+            # SHA nicht zum konfigurierten passt (Release-Wechsel, z. B. v5
+            # mit Thorsten/VibeVoice statt Ramona), invalidiert das Paket.
+            # Ohne Cache-ZIP (z. B. Test-Fixtures) oder ohne konfigurierten
+            # SHA bleibt das gebaute Paket unangetastet — kein Netz-Zwang.
+            if not cached.exists() or not expected or hashlib.sha256(
+                    cached.read_bytes()).hexdigest() == expected:
+                return pkg
+            # SHA-Mismatch → veraltetes Paket entsorgen, neu bauen
+            print(f"[benchmark] VAD-Paket-SHA geändert (erwartet "
+                  f"{expected[:12]}…) — baue aus neuer Quelle neu")
+            shutil.rmtree(pkg, ignore_errors=True)
         pkg.mkdir(parents=True, exist_ok=True)
         out_audio = pkg / "audio"
         out_audio.mkdir(exist_ok=True)
