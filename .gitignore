@@ -13,3 +13,6 @@ public/
 sketches/
 businessplan/
 .dev-data
+benchmark/aligner/run_poc/audio_16k.wav
+benchmark/aligner/run_team/audio_16k.wav
+benchmark/aligner/run_*.log

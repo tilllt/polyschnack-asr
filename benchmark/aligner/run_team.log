@@ -1,8 +1,0 @@
-==> Audio: /tmp/clip90s.wav (90.000000s) | Referenz: 88 Wörter
---- qwen3 ---
-  Words aligned:   88
---- tada ---
-crispasr[align]: 157 tokens → 88 words → /opt/data/pk-asr/benchmark/aligner/run_team/tada.json
---- wav2vec2 ---
-crispasr[align-only]: 88 words → /opt/data/pk-asr/benchmark/aligner/run_team/wav2vec.json
-==> fertig. JSONs in /opt/data/pk-asr/benchmark/aligner/run_team
