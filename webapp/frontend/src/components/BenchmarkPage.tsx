@@ -11,6 +11,9 @@ import type {
   VadResultRow,
   VadSample,
   VadSamplesResponse,
+  AlignerResultRow,
+  AlignerCrossRow,
+  AlignerSummaryRow,
 } from "../benchmark";
 import { fetchBenchmarkSetStatus, installBenchmarkSet } from "../benchmark";
 
@@ -639,6 +642,93 @@ export function VadResultsTable({ vad }: { vad?: VadResultRow[] | null }) {
   );
 }
 
+// ── Aligner-Ergebnisse (Change 132) ───────────────────────────────────────
+
+export function AlignerResultsTable({ aligner }: { aligner?: AlignerSummaryRow[] | null }) {
+  const rows = (aligner?.filter((r) => r.kind === "aligner") ?? []) as AlignerResultRow[];
+  const cross = aligner?.find((r) => r.kind === "aligner_cross") as
+    | { backend: string; kind: "aligner_cross"; pairs: AlignerCrossRow[] }
+    | undefined;
+  if (!rows.length) {
+    return (
+      <div className="text-sm text-dim space-y-2">
+        <p>
+          Noch keine Forced-Aligner-Ergebnisse. Der Aligner-Benchmark misst,
+          wie präzise jedes Modell die <strong className="text-txt">Wort-Zeiten</strong>{" "}
+          (Karaoke-Sync) auf dem Testset findet — auf denselben deutschen
+          Samples wie der ASR-Benchmark (Common Voice + Piper-TTS).
+        </p>
+        <p>
+          Metriken: <strong className="text-txt">Wortabdeckung</strong> (Anteil der
+          Referenzwörter mit gültiger Zeit), <strong className="text-txt">0-Dauer-Wörter</strong>{" "}
+          (Aligner-Fehler), <strong className="text-txt">Audio-Abdeckung</strong>{" "}
+          (letztes Wort-Ende vs. Audio-Dauer) und{" "}
+          <strong className="text-txt">RTF</strong>. Läuft lokal über{" "}
+          <code className="mx-1 font-mono text-xs">benchmarks/aligner/run_aligner.py</code>.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-dim border-b border-border">
+            <th className="py-2 pr-2">Aligner</th>
+            <th className="py-2 pr-2">n</th>
+            <th className="py-2 pr-2">Wortabdeckung</th>
+            <th className="py-2 pr-2">0-Dauer-Wörter</th>
+            <th className="py-2 pr-2">Audio-Abdeckung</th>
+            <th className="py-2 pr-2">RTF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.backend} className="border-b border-border/50">
+              <td className="py-2 pr-2 font-mono">{r.backend}</td>
+              <td className="py-2 pr-2">{r.n_samples}</td>
+              <td className="py-2 pr-2">
+                {r.word_coverage_mean != null ? `${r.word_coverage_mean.toFixed(1)} %` : "–"}
+              </td>
+              <td className="py-2 pr-2">{r.zero_duration_total ?? "–"}</td>
+              <td className="py-2 pr-2">
+                {r.audio_coverage_mean != null ? `${r.audio_coverage_mean.toFixed(1)} %` : "–"}
+              </td>
+              <td className="py-2 pr-2">{r.rtf_mean != null ? r.rtf_mean.toFixed(2) : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {cross?.pairs && cross.pairs.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs text-dim mb-1">
+            <strong className="text-txt">Kreuz-Vergleich</strong> — mittlere Abweichung der
+            Wort-Starts zwischen je zwei Alignern (Median in ms, nur übereinstimmende Wörter).
+            Kein absolutes Maß (keine manuell gelabelte Ground Truth), aber ein Indikator
+            für Konsistenz:
+          </p>
+          <table className="w-full text-sm">
+            <tbody>
+              {cross.pairs.map((p) => (
+                <tr key={p.pair} className="border-b border-border/50">
+                  <td className="py-1 pr-2 font-mono">{p.pair}</td>
+                  <td className="py-1 pr-2">{p.delta_ms_median != null ? `${p.delta_ms_median.toFixed(0)} ms` : "–"}</td>
+                  <td className="py-1 pr-2 text-xs text-dim">({p.n_words} Wörter)</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-dim mt-2">
+            Referenz-Benchmarks mit manuell gelabelten Wortgrenzen: Aligner-SUPERB
+            (WBE, TIMIT), FA-Bench, PHONDAT/MAUS (deutsch). Details in{" "}
+            <code className="mx-1 font-mono text-xs">docs/benchmark/aligner.md</code>.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── VAD-Testset-Samples (Change 073) ─────────────────────────────────────
 // Die VAD-Samples sind öffentlich anhörbar: jede Zeile hat einen
 // WaveformPlayer (MP3-Preview) + WAV-Download. Gruppiert nach Typ, damit
@@ -1070,6 +1160,12 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
         {vadSamples && vadSamples.samples.length > 0 && (
           <BenchmarkVadSamples samples={vadSamples.samples} />
         )}
+      </section>
+
+      {/* Aligner-Ergebnisse (Change 132): Forced-Alignment / Karaoke-Sync */}
+      <section className="border border-border rounded-lg p-4">
+        <h2 className="font-semibold mb-2">Forced-Aligner</h2>
+        <AlignerResultsTable aligner={results?.aligner} />
       </section>
 
       {/* Preisvergleich */}

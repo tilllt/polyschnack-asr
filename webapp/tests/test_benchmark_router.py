@@ -635,3 +635,144 @@ def test_parse_sha_asset_formats():
     assert BenchmarkService._parse_sha_asset(sha.encode()) == sha
     with pytest.raises(RuntimeError, match="keinen SHA256-Hash"):
         BenchmarkService._parse_sha_asset(b"kein hash hier")
+
+
+# ── Aligner-Benchmark (Change 132) ────────────────────────────────────────
+
+def test_aligner_summary_pools_runs(tmp_path, monkeypatch):
+    """_aligner_summary poolt kind=="aligner"-Runs je Backend + Kreuz-Δ."""
+    from app.config import settings
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    audio = v1 / "audio"
+    audio.mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    for sid in ("akzent_001", "akzent_002", "jugend_001"):
+        (audio / f"{sid}.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(
+        json.dumps({"version": 1, "rows": []})
+    )
+    monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+
+    svc = BenchmarkService(root)
+    sha = svc.package_sha256(1)
+    runs = root / "results" / "runs"
+    runs.mkdir(parents=True)
+
+    def _row(sid, cov, zero, audio_cov, rtf):
+        return {
+            "sample_id": sid, "category": "akzent", "quelle": "cv",
+            "word_coverage_pct": cov, "n_zero": zero,
+            "audio_coverage_pct": audio_cov, "rtf": rtf,
+        }
+
+    (runs / "aligner_qwen3.json").write_text(json.dumps({
+        "kind": "aligner", "backend": "qwen3", "manifest_sha256": sha,
+        "rows": [
+            _row("akzent_001", 88.9, 1, 70.0, 3.1),
+            _row("akzent_002", 90.0, 1, 75.0, 3.2),
+        ],
+    }))
+    (runs / "aligner_tada.json").write_text(json.dumps({
+        "kind": "aligner", "backend": "tada", "manifest_sha256": sha,
+        "rows": [
+            _row("akzent_001", 100.0, 0, 100.0, 6.0),
+            _row("akzent_002", 100.0, 0, 100.0, 6.1),
+        ],
+    }))
+    # ASR-Run (kind fehlt / wer-Rows) muss ignoriert werden
+    (runs / "asr_ps.json").write_text(json.dumps({
+        "kind": "asr", "backend": "ps-pk-onnx", "manifest_sha256": sha,
+        "rows": [{"sample_id": "akzent_001", "wer": 0.1}],
+    }))
+    # Kreuz-Δ
+    (runs / "aligner_cross.json").write_text(json.dumps({
+        "kind": "aligner_cross", "manifest_sha256": sha,
+        "rows": [
+            {"pair": "qwen3↔tada", "n_words": 40, "delta_ms_median": 40.0},
+            {"pair": "tada↔wav2vec2", "n_words": 19, "delta_ms_median": 30.0},
+        ],
+    }))
+
+    out = svc._aligner_summary(runs)
+    by_name = {r["backend"]: r for r in out}
+
+    assert by_name["qwen3"]["n_samples"] == 2
+    assert by_name["qwen3"]["word_coverage_mean"] == pytest.approx(89.4, abs=0.2)  # (88.9+90.0)/2
+    assert by_name["qwen3"]["zero_duration_total"] == 2
+    assert by_name["qwen3"]["audio_coverage_mean"] == 72.5
+    assert by_name["qwen3"]["rtf_mean"] == pytest.approx(3.15, abs=0.01)
+    assert by_name["tada"]["word_coverage_mean"] == 100.0
+    assert by_name["tada"]["zero_duration_total"] == 0
+    # ASR-Run ist NICHT dabei
+    assert "ps-pk-onnx" not in by_name
+    # Kreuz-Δ als eigene Zeile
+    cross = by_name["kreuz-Δ"]
+    assert cross["kind"] == "aligner_cross"
+    assert cross["pairs"][0]["pair"] == "qwen3↔tada"
+    assert cross["pairs"][0]["delta_ms_median"] == 40.0
+
+
+def test_aligner_summary_empty_without_runs(tmp_path, monkeypatch):
+    """Keine aligner-Runs → leere Liste, keine Exception."""
+    from app.config import settings
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    (v1 / "audio").mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    (v1 / "audio" / "akzent_001.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(
+        json.dumps({"version": 1, "rows": []})
+    )
+    monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+
+    svc = BenchmarkService(root)
+    runs = root / "results" / "runs"
+    runs.mkdir(parents=True)
+    assert svc._aligner_summary(runs) == []
+
+
+def test_results_endpoint_includes_aligner(tmp_path, monkeypatch):
+    """GET /api/benchmark/results liefert die aligner-Sektion (on-the-fly)."""
+    from app.config import settings
+
+    root = tmp_path / "benchmark_data"
+    v1 = root / "versions" / "v1"
+    audio = v1 / "audio"
+    audio.mkdir(parents=True)
+    (v1 / "manifest.json").write_text(json.dumps(MANIFEST, ensure_ascii=False))
+    for sid in ("akzent_001", "akzent_002", "jugend_001"):
+        (audio / f"{sid}.wav").write_bytes(_miniwav())
+    (root / "results").mkdir()
+    (root / "results" / "latest.json").write_text(
+        json.dumps({"version": 1, "rows": []})
+    )
+    runs = root / "results" / "runs"
+    runs.mkdir(parents=True)
+    monkeypatch.setattr(settings, "BENCHMARK_DATA_DIR", root)
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(settings, "AUDIO_DIR", tmp_path / "audio")
+    monkeypatch.setattr(settings, "DB_PATH", tmp_path / "benchmark.db")
+
+    svc = BenchmarkService(root)
+    sha = svc.package_sha256(1)
+    (runs / "aligner_tada.json").write_text(json.dumps({
+        "kind": "aligner", "backend": "tada", "manifest_sha256": sha,
+        "rows": [{
+            "sample_id": "akzent_001", "category": "akzent", "quelle": "cv",
+            "word_coverage_pct": 100.0, "n_zero": 0,
+            "audio_coverage_pct": 100.0, "rtf": 6.0,
+        }],
+    }))
+
+    with TestClient(app) as c:
+        r = c.get("/api/benchmark/results")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("aligner"), list)
+    assert body["aligner"][0]["backend"] == "tada"
+    assert body["aligner"][0]["word_coverage_mean"] == 100.0

@@ -93,6 +93,30 @@ export interface VadResultRow {
   rtf_mean: number;
 }
 
+/** Change 132: Aligner-Ergebnisse (Forced-Alignment, je Aligner). */
+export interface AlignerResultRow {
+  backend: string;
+  kind: "aligner";
+  n_samples: number;
+  word_coverage_mean: number;
+  zero_duration_total: number;
+  audio_coverage_mean: number;
+  rtf_mean: number;
+}
+
+/** Change 132: Kreuz-Vergleich (paarweises |Δ start|-Median je Paar). */
+export interface AlignerCrossRow {
+  pair: string;
+  n_words: number;
+  delta_ms_median: number;
+  delta_ms_mean: number;
+}
+
+/** Change 132: Aligner-Ergebniszeile ODER Kreuz-Δ-Zusammenfassung. */
+export type AlignerSummaryRow =
+  | AlignerResultRow
+  | { backend: string; kind: "aligner_cross"; pairs: AlignerCrossRow[] };
+
 export interface BenchmarkResults {
   version?: number;
   run_id?: string;
@@ -103,6 +127,8 @@ export interface BenchmarkResults {
   per_sample?: Record<string, Record<string, number>>;
   /** Change 062: VAD-Modell-Ergebnisse (getrennt vom ASR-Pool). */
   vad?: VadResultRow[];
+  /** Change 132: Forced-Aligner-Ergebnisse + Kreuz-Vergleich. */
+  aligner?: AlignerSummaryRow[];
 }
 
 /** Change 073: VAD-Testset-Sample (öffentlich anhörbar auf der Benchmark-Seite). */

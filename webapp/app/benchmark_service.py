@@ -219,6 +219,64 @@ class BenchmarkService:
         out.sort(key=lambda r: r["backend"])
         return out
 
+    # ── Aligner-Benchmark (Change 132) ─────────────────────────────────────
+
+    def _aligner_summary(self, runs_dir: Path) -> List[dict]:
+        """Aligner-Ergebnis-Zusammenfassung (Change 132): je Aligner
+        Wortabdeckung/0-Dauer/Audio-Abdeckung/RTF + Kreuz-Δ.
+
+        Sammelt Runs mit kind=="aligner" (je Aligner) + kind=="aligner_cross"
+        (paarweises |Δ start|-Median) — nur Runs zum aktiven Manifest-Hash.
+        ASR-/VAD-Runs werden ignoriert.
+        """
+        m = self.latest_manifest()
+        sha = self.package_sha256(m["version"])
+        by_backend: Dict[str, List[dict]] = {}
+        cross_rows: List[dict] = []
+        for rf in runs_dir.glob("*.json"):
+            try:
+                data = json.loads(rf.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("manifest_sha256") != sha:
+                continue
+            kind = data.get("kind")
+            if kind == "aligner":
+                rows = [r for r in data.get("rows", [])
+                        if r.get("word_coverage_pct") is not None]
+                by_backend.setdefault(data["backend"], []).extend(rows)
+            elif kind == "aligner_cross":
+                cross_rows.extend(data.get("rows", []))
+
+        out: List[dict] = []
+        for bname, rows in by_backend.items():
+            n = len(rows)
+            if not n:
+                continue
+            out.append({
+                "backend": bname,
+                "kind": "aligner",
+                "n_samples": n,
+                "word_coverage_mean": round(
+                    sum(r.get("word_coverage_pct") or 0 for r in rows) / n, 1),
+                "zero_duration_total": sum(r.get("n_zero") or 0 for r in rows),
+                "audio_coverage_mean": round(
+                    sum(r.get("audio_coverage_pct") or 0 for r in rows) / n, 1),
+                "rtf_mean": round(
+                    sum(r.get("rtf") or 0 for r in rows) / n, 4),
+            })
+        out.sort(key=lambda r: r["backend"])
+
+        cross = sorted(cross_rows, key=lambda r: r.get("pair", ""))
+        if cross:
+            out.append({
+                "backend": "kreuz-Δ",
+                "kind": "aligner_cross",
+                "n_samples": 0,
+                "pairs": cross,
+            })
+        return out
+
     # ── VAD-Benchmark-Paket (Change 062/065) ────────────────────────────────
 
     V31_RELEASE_URL = ("https://github.com/tilllt/vad-benchmark-data/releases/"
@@ -335,8 +393,11 @@ class BenchmarkService:
             runs_dir = self.data_dir / "results" / "runs"
             if runs_dir.exists():
                 latest["vad"] = self._vad_summary(runs_dir)
+                # Change 132: Aligner-Benchmark on-the-fly anreichern
+                latest["aligner"] = self._aligner_summary(runs_dir)
         except (FileNotFoundError, KeyError):
             latest.setdefault("vad", [])
+            latest.setdefault("aligner", [])
         if latest.get("per_category") and latest.get("per_sample"):
             return latest
         try:
