@@ -56,11 +56,15 @@
 - [ ] Volle Backend-Suite grün
 - [ ] Frontend-Build (tsc/vite) grün — nur falls UI-Texte geändert
 
-## 6. Integration Benchmark (Hinweis, nicht Teil dieses Changes)
+## 6. Integration Benchmark (erledigt, 2026-08-26)
 
-- [ ] `benchmarks/aligner/run_aligner.py` auf HTTP-API umstellen
-      (Folge-Change oder im Rahmen von 132-Fertigstellung — Abhängigkeit:
-      Server läuft im Container)
+- [x] `benchmarks/aligner/run_aligner.py` auf HTTP-API umgestellt:
+      `--mode http` (Default) → `POST /v1/audio/align` am aligner-Container
+      (method=qwen3|tada|wav2vec2), `--mode local` = alte CLI-Pfade
+- [x] Smoke-Test: 1 TTS-Sample, alle 3 Methoden via HTTP, 14/14 Wörter je
+      Methode, Kreuz-Δ 40–100 ms — Runs im Format des `_aligner_summary`
+      (getestet gegen `benchmark_service.py`-Feldnamen)
+- [x] README aktualisiert (HTTP/lokal-Modus, cstr-Modell, Container-Hinweis)
 
 ## 7. Commit, Push, CI
 

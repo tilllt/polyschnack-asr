@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """PolySchnack Aligner-Benchmark-Runner (Forced-Alignment).
 
-Lässt die 3 lokalen Forced-Aligner (qwen3-forced-aligner, TADA, wav2vec2-xlsr-de)
+Lässt die 3 Forced-Aligner (qwen3-forced-aligner, TADA, wav2vec2-xlsr-de)
 über die Samples des aktiven Benchmark-Manifests laufen (Quellen: cv + tts —
 die beiden deutschen Sample-Quellen) und schreibt je Backend einen
 Run-JSON (`kind="aligner"`) nach <DATA>/results/runs/ + einen Kreuz-Vergleich
 (`kind="aligner_cross"`, paarweises |Δ start|-Median).
+
+MODUS (Change 133): Der Default-Modus spricht die HTTP-API des
+aligner-Containers an (`POST /v1/audio/align`, Form-Felder file/text/lang/
+method) — derselbe Pfad, den die Webapp nutzt. Damit misst der Benchmark
+genau das, was in Produktion läuft (ein Binary, ein Wrapper, 3 Methoden).
+`--mode local` nutzt stattdessen die lokalen CLIs (für die Dev-Box ohne
+Container).
 
 Metriken je Sample (ohne manuelle GT-Zeiten, pragmatisch):
 - n_ref_words   : Wortanzahl des Referenztextes
@@ -16,10 +23,12 @@ Metriken je Sample (ohne manuelle GT-Zeiten, pragmatisch):
 - rtf           : Laufzeit / Audio-Dauer
 
 Aufruf:
-  python3 run_aligner.py --data-dir <BENCHMARK_DATA_DIR> \
-      [--sources cv,tts] [--limit N] [--category X] [--skip <algo>]
+  python3 run_aligner.py --data-dir <BENCHMARK_DATA_DIR> \\
+      [--mode http|local] [--sources cv,tts] [--limit N] [--category X] \\
+      [--skip <algo>]
 
-Alle Modell-/Binary-Pfade per Env konfigurierbar (Defaults = lokale Dev-Box).
+HTTP-Modus: ALIGN_URL (Default http://127.0.0.1:5099)
+Lokal-Modus: Modell-/Binary-Pfade per Env (Defaults = lokale Dev-Box).
 """
 from __future__ import annotations
 
@@ -29,9 +38,12 @@ import os
 import subprocess
 import sys
 import time
+import urllib.request
+import uuid
 from pathlib import Path
 
 # ── Konfiguration (Env-Overrides, Defaults = lokale Pfade) ────────────────
+ALIGN_URL = os.environ.get("ALIGN_URL", "http://127.0.0.1:5099").rstrip("/")
 QWEN3_CLI = os.environ.get("QWEN3_ASR_CLI", "/opt/data/sep-test/qwen3-asr/build/qwen3-asr-cli")
 QWEN3_MODEL = os.environ.get(
     "QWEN3_ALIGNER_MODEL", "/opt/data/sep-test/models/qwen3-forced-aligner-0.6b-f16.gguf"
@@ -75,6 +87,48 @@ def duration_s(path: Path) -> float:
         return float(out.stdout.strip())
     except Exception:
         return 0.0
+
+
+def _multipart(fields: dict, files: dict) -> tuple[bytes, str]:
+    """Baut multipart/form-data Body + Content-Type (Standardbibliothek, keine Deps)."""
+    boundary = f"----alignbench-{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    for name, value in fields.items():
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+            f"{value}\r\n".encode("utf-8")
+        )
+    for name, (fname, data, ctype) in files.items():
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; "
+            f"filename=\"{fname}\"\r\nContent-Type: {ctype}\r\n\r\n".encode("utf-8")
+            + data + b"\r\n"
+        )
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def run_via_http(wav: Path, ref: str, method: str) -> dict:
+    """POST /v1/audio/align am aligner-Container (Change 133)."""
+    body, ctype = _multipart(
+        {"text": ref, "lang": "de", "method": method},
+        {"file": (wav.name, wav.read_bytes(), "audio/wav")},
+    )
+    t0 = time.monotonic()
+    try:
+        req = urllib.request.Request(
+            f"{ALIGN_URL}/v1/audio/align", data=body,
+            headers={"Content-Type": ctype}, method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:
+        dt = time.monotonic() - t0
+        log(f"  ⚠ {method} HTTP-Fehler: {type(exc).__name__}: {exc}")
+        return {"words": [], "rtf": dt}
+    dt = time.monotonic() - t0
+    words = data.get("words", []) if isinstance(data, dict) else []
+    return {"words": words, "rtf": dt}
 
 
 def run_qwen3(wav: Path, ref: str, out_json: Path) -> dict:
@@ -144,7 +198,8 @@ def run_wav2vec2(wav: Path, ref: str, out_json: Path) -> dict:
     return {"words": words, "rtf": dt}
 
 
-RUNNERS = {"qwen3": run_qwen3, "tada": run_tada, "wav2vec2": run_wav2vec2}
+def make_local_runners() -> dict:
+    return {"qwen3": run_qwen3, "tada": run_tada, "wav2vec2": run_wav2vec2}
 
 
 def compute_metrics(words: list, ref: str, dur: float, rtf: float) -> dict:
@@ -171,12 +226,22 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Aligner-Benchmark-Runner")
     ap.add_argument("--data-dir", type=Path, required=True,
                     help="BENCHMARK_DATA_DIR (mit versions/, results/)")
+    ap.add_argument("--mode", default="http", choices=("http", "local"),
+                    help="http = aligner-Container-API (Default, Change 133), "
+                         "local = lokale CLIs")
     ap.add_argument("--sources", default="cv,tts",
                     help="Quellen (default: cv,tts = die beiden deutschen Quellen)")
     ap.add_argument("--limit", type=int, default=0, help="nur N Samples (0=alle)")
     ap.add_argument("--category", default="", help="nur eine Kategorie")
     ap.add_argument("--skip", default="", help="kommagetrennte Aligner überspringen")
     args = ap.parse_args()
+
+    if args.mode == "http":
+        runners = {a: run_via_http for a in ALIGNERS}
+        log(f"Modus: HTTP → {ALIGN_URL} (aligner-Container)")
+    else:
+        runners = make_local_runners()
+        log("Modus: lokal (CLIs)")
 
     data_dir = args.data_dir
     results_dir = data_dir / "results" / "runs"
@@ -217,7 +282,11 @@ def main() -> int:
         for algo in active:
             out_json = results_dir / f"_tmp_{algo}_{sid}.json"
             try:
-                res = RUNNERS[algo](wav, ref, out_json)
+                if args.mode == "http":
+                    # HTTP-API (Change 133): kein lokales out_json nötig
+                    res = run_via_http(wav, ref, algo)
+                else:
+                    res = runners[algo](wav, ref, out_json)
             except subprocess.TimeoutExpired:
                 log(f"    ⚠ {algo} TIMEOUT")
                 res = {"words": [], "rtf": float("nan")}
