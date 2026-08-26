@@ -121,9 +121,14 @@ class _Settings:
     #: „auto" = TitaNet (pyannote), wird serverseitig via Cache/HF geladen.
     DIARIZE_EMBEDDER: str = os.getenv("DIARIZE_EMBEDDER", "auto")
 
-    #: WeSpeaker-Embedder für die foxnose-Methode (Registry-Alias
-    #: „wespeaker" → Auto-Download von huggingface.co/cstr/…).
-    DIARIZE_FOXNOSE_EMBEDDER: str = os.getenv("DIARIZE_FOXNOSE_EMBEDDER", "wespeaker")
+    #: WeSpeaker-Embedder für die foxnose-Methode. Default „auto": der
+    #: Server löst „auto" serverseitig auf (foxnose → wespeaker-resnet34-lm.gguf,
+    #: pyannote → titanet-large.gguf). NICHT „wespeaker" senden — der Server
+    #: behandelt den Wert als Dateipfad (Registry-Alias wird nicht aufgelöst,
+    #: Change 130; belegt auf v0.8.28-ort-poc1 UND v0.8.29: „failed to open
+    #: GGUF file 'wespeaker'"). Optional expliziter Pfad im Container
+    #: (z. B. /models/.crispasr-cache/wespeaker-resnet34-lm.gguf).
+    DIARIZE_FOXNOSE_EMBEDDER: str = os.getenv("DIARIZE_FOXNOSE_EMBEDDER", "auto")
 
     #: Chunk-Sekunden für den diar-Server (parakeet Longform-Fix 2026-08-15):
     #: Ohne explizites Chunking bricht CrispASR lange Audios nach ~165 s ab

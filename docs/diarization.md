@@ -28,11 +28,19 @@ Die „Sprecheranzahl" aus der UI wird als `diarize_max_speakers` übertragen.
 
 Die Webapp sendet seit Change 126 **immer** `diarize_embedder` mit
 (Config: `DIARIZE_EMBEDDER`, Default `auto` = TitaNet für pyannote;
-`DIARIZE_FOXNOSE_EMBEDDER`, Default `wespeaker` für foxnose). Erst dadurch
-führt der Server das **globale Re-Clustering über die volle Audio** aus
-(CrispASR #107/#292) — ohne Embedder sind die Labels chunk-lokal und bei
-langen Aufnahmen fällt alles auf ein Label (Live-Befund 2026-08-25:
+`DIARIZE_FOXNOSE_EMBEDDER`, Default **`auto`** für foxnose — Change 130).
+Erst dadurch führt der Server das **globale Re-Clustering über die volle
+Audio** aus (CrispASR #107/#292) — ohne Embedder sind die Labels chunk-lokal
+und bei langen Aufnahmen fällt alles auf ein Label (Live-Befund 2026-08-25:
 75-min-Meeting → 26/26 `SPEAKER_00`).
+
+> ⚠️ **Change 130:** NICHT `wespeaker` als Embedder-Wert senden! Der Server
+> behandelt `diarize_embedder` als **Dateipfad** — ein Registry-Alias
+> `wespeaker` wird nicht aufgelöst (`gguf_init_from_file: failed to open GGUF
+> file 'wespeaker'`, belegt auf v0.8.28-ort-poc1 und v0.8.29). `auto` löst der
+> Server serverseitig zum richtigen GGUF auf (foxnose → wespeaker-resnet34-lm,
+> pyannote → titanet-large). Optional ist ein expliziter Container-Pfad
+> (z. B. `DIARIZE_FOXNOSE_EMBEDDER=/models/.crispasr-cache/wespeaker-resnet34-lm.gguf`).
 
 **Voraussetzung:** Der `diar`-Container muss eine CrispASR-Version mit
 Embedder/Clustering-Unterstützung laufen (≥ der Stand mit

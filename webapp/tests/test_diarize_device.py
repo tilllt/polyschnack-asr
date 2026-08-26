@@ -143,11 +143,17 @@ def test_diarize_pyannote_sendet_titanet_auto(monkeypatch, tmp_path):
     assert fc.last_kwargs["data"]["diarize_embedder"] == settings.DIARIZE_EMBEDDER
 
 
-def test_diarize_foxnose_sendet_wespeaker(monkeypatch, tmp_path):
-    """Change 126: foxnose braucht den WeSpeaker-Embedder (Registry-Alias
-    'wespeaker', Auto-Download serverseitig) — nicht den TitaNet-Default."""
+def test_diarize_foxnose_sendet_embedder_auto(monkeypatch, tmp_path):
+    """Change 130: foxnose sendet DIARIZE_FOXNOSE_EMBEDDER (Default 'auto').
+
+    NICHT 'wespeaker' — der Server behandelt den Wert als Dateipfad und
+    scheitert („failed to open GGUF file 'wespeaker'", belegt auf
+    v0.8.28-ort-poc1 und v0.8.29); 'auto' löst der Server serverseitig
+    zum Wespeaker-GGUF auf (6 Speaker im Teamtreffen-Clip-Test)."""
     fc = _patch(monkeypatch, 200, {"segments": []})
     p = tmp_path / "a.wav"
     p.write_bytes(b"RIFF....")
     d.diarize(str(p), method="foxnose")
-    assert fc.last_kwargs["data"]["diarize_embedder"] == "wespeaker"
+    assert fc.last_kwargs["data"]["diarize_embedder"] == settings.DIARIZE_FOXNOSE_EMBEDDER
+    assert fc.last_kwargs["data"]["diarize_embedder"] == "auto"
+    assert fc.last_kwargs["data"]["diarize_embedder"] != "wespeaker"
