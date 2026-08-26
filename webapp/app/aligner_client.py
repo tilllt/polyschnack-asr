@@ -57,8 +57,12 @@ class AlignerClient:
         return {}
 
     def align(self, audio_bytes: bytes, text: str, lang: str = "de",
+              method: str = "qwen3",
               timeout_s: Optional[float] = None) -> List[Dict[str, Any]]:
         """Aligne Audio + Referenztext → [{start, end, word}, ...] (Sekunden, relativ).
+
+        *method* (Change 133): Aligner-Methode des Services —
+        ``qwen3`` (Default), ``tada`` oder ``wav2vec2``.
 
         *timeout_s* (2026-08-15): begrenzt die Wartezeit auf den Aligner —
         die Webapp übergibt das verbleibende Job-Budget, damit ein hängender
@@ -71,7 +75,7 @@ class AlignerClient:
             r = httpx.post(
                 f"{self.url}/v1/audio/align",
                 files={"file": ("audio.wav", audio_bytes, "audio/wav")},
-                data={"text": text, "lang": lang},
+                data={"text": text, "lang": lang, "method": method},
                 timeout=to,
             )
         except httpx.TimeoutException as exc:

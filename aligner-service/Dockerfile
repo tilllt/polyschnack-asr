@@ -1,79 +1,83 @@
 # ==============================================================
-# PolySchnack Forced-Aligner-Service
+# PolySchnack Forced-Aligner Service — CrispASR-Basis (Change 133)
 # ==============================================================
-# Schlanker Container nach dem diar-service-Muster: qwen3-asr.cpp
-# (qwen3-asr-cli) + qwen3-forced-aligner-0.6b-f16 GGUF + kleiner
-# Python-stdlib-HTTP-Wrapper (aligner_server.py).
+# EIN Binary fuer ALLE 3 Aligner (qwen3-forced-aligner, TADA,
+# wav2vec2-xlsr-de) — ersetzt den separaten qwen3-asr.cpp-CUDA-Build.
 #
-# Der Aligner ist ein einzelner, nicht-autoregressiver Forward-Pass:
-# Audio + Referenztext -> präzise Word-Level-Timestamps (80-ms-Bins,
-# max. 400 s Audio pro Pass). Die Webapp alignet ihre 120-s-ASR-Chunks.
+# Hintergrund (Change 133, 2026-08-26):
+#   - CrispASR hat seit April 2026 einen nativen Qwen3FA-Pfad
+#     (crispasr_aligner.cpp, AlignerType::Qwen3FA, Dispatch am
+#     Dateinamen "forced-aligner").
+#   - Das OpenVoiceOS-qwen3-forced-aligner-GGUF (bisher genutzt)
+#     enthaelt die benoetigten Tensoren audio.mel_filters /
+#     audio.mel_window NICHT -> "mel failed". Die CrispStrobe-
+#     Konvertierung cstr/qwen3-forced-aligner-0.6b-GGUF bettet sie
+#     ein -> laeuft. Wortzeiten bitweise identisch zum alten CLI.
+#   - Das ORT-Artefakt v0.8.28-ort-poc1 (gleiches wie diar-service)
+#     kann alle 3 Pfade: --align-only -am (qwen3-FA, wav2vec2),
+#     --align (TADA mit --codec-model/--voice/--source-lang).
 #
-# HYBRID (Weg 1): Der CUDA-Build enthält den CPU-Backend
-# (ggml_backend_init_best = CUDA > Metal > Vulkan > CPU). GPU-Zugriff
-# NUR via compose.gpu.yml (runtime: nvidia); ohne Overlay läuft der
-# Container automatisch auf CPU.
+# HYBRID CPU/GPU wie diar-service: ORT-Binary versucht CUDA-EP zur
+# Laufzeit (dlsym) und faellt still auf CPU zurueck; alle Aligner
+# laufen ueber ggml (CPU) bzw. CUDA-ggml, je nach Build des Artefakts.
 # ==============================================================
-
-# ---- Builder stage — qwen3-asr.cpp mit CUDA (CPU-Fallback via ggml) ----
-FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 AS builder
-
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git cmake build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-RUN git clone --recursive https://github.com/predict-woo/qwen3-asr.cpp.git .
-# CUDA-Backend explizit aktivieren (Fix 2026-08-15): ohne -DGGML_CUDA=ON
-# linkt ggml auf Linux NUR den CPU-Backend — der Aligner lief trotz
-# runtime: nvidia auf CPU (f16-Modell, 60-min-Datei = Stunden).
-# -DCMAKE_CUDA_ARCHITECTURES=86 deckt die RTX-3090 (sm_86) ab.
-# Linker-Flags (llama.cpp#23357): bei BUILD_SHARED_LIBS=ON propagiert
-# ggml-cuda die CUDA::cuda_driver-Dependency nicht INTERFACE — qwen3-asr-cli
-# scheitert sonst am Linken mit undefined references auf cuMem*/cuDevice*.
-# Die Driver-Stub-Library (-lcuda) löst das; zur Laufzeit mountet die
-# NVIDIA-Runtime den echten Treiber.
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
-    -DGGML_CUDA=ON \
-    -DGGML_CUDA_F16=ON \
-    -DCMAKE_CUDA_ARCHITECTURES=86 \
-    -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
-    cmake --build build -j$(nproc)
-# Shared libraries EINSAMMELN (im Builder!): Upstream linkt CLI dynamisch
-# gegen libqwen3-asr.so UND die ggml-Familie (libggml.so.0,
-# libggml-base.so.0, libggml-cpu.so.0 …) — sie liegen verstreut im
-# Build-Output (ggml-Submodule). Die Runtime-Stage hat KEIN /src/build;
-# deshalb hier bündeln und per COPY übernehmen (Regression 2026-08-14:
-# find lief in der Runtime-Stage ins Leere → „erfolgreicher" Build ohne Lib).
-RUN mkdir -p /src/libs && find /src/build -name '*.so*' -exec cp -a {} /src/libs/ \;
-
-# ---- Runtime stage — schlank, nur CLI + Python-stdlib-Wrapper ----
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+# cuDNN 9 fuer den onnxruntime CUDA-EP (gleicher Fix wie diar-service:
+# cuda-runtime-Image bringt cublas/curand/cufft mit, aber NICHT
+# libcudnn.so.9). Vorher .list-Dateien entfernen (doppelte CUDA-Repo-
+# Eintraege -> apt exit 100).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates wget curl python3 \
+    ffmpeg ca-certificates wget curl libopenblas0 python3 \
+    && rm -f /etc/apt/sources.list.d/*.list \
+    && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+       -O /tmp/cuda-keyring.deb \
+    && dpkg -i /tmp/cuda-keyring.deb && rm /tmp/cuda-keyring.deb \
+    && apt-get update && apt-get install -y --no-install-recommends libcudnn9-cuda-12 \
     && rm -rf /var/lib/apt/lists/*
 
-# Nur der CLI wird gebraucht (Alignment ist CLI-Modus: --align / -o)
-COPY --from=builder /src/build/qwen3-asr-cli /usr/local/bin/
+# CrispASR-ORT-Artefakt (gleiches wie diar-service, verifiziert
+# 2026-08-26 mit allen 3 Aligner-Pfaden auf POC-Audio):
+# bin/crispasr + libcrispasr.so.1 + ggml-Libs + onnxruntime 1.21.0.
+ARG CRISPASR_ORT_ARTIFACT_URL=https://github.com/tilllt/CrispASR/releases/download/v0.8.28-ort-poc1/crispasr-ort-poc1.tar.gz
+RUN wget -q "${CRISPASR_ORT_ARTIFACT_URL}" -O /tmp/crispasr-ort.tar.gz \
+    && tar xzf /tmp/crispasr-ort.tar.gz -C /opt \
+    && rm /tmp/crispasr-ort.tar.gz \
+    && ln -sf /opt/crispasr-ort/bin/crispasr /usr/local/bin/crispasr \
+    && chmod +x /usr/local/bin/crispasr \
+    # Release-Tarball enthaelt NUR libonnxruntime.so.1.21.0 (keine
+    # .so.1-Symlinks) — Link nach der hoechsten Version anlegen:
+    && ortlib="$(ls -1 /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.* 2>/dev/null | sort -Vr | head -1)" \
+    && [ -n "${ortlib}" ] \
+    && ln -sf "$(basename "${ortlib}")" /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.1
 
-# Shared libraries aus der Builder-Stage übernehmen (dort gebündelt in
-# /src/libs; die Runtime-Stage hat kein /src/build — siehe Builder oben).
-COPY --from=builder /src/libs/ /usr/local/lib/
-RUN ldconfig
+ENV LD_LIBRARY_PATH=/opt/crispasr-ort/lib:/opt/crispasr-ort/lib/onnxruntime
 
-# Forced-Aligner-Modell (GGUF, ~1,8 GB) — fehlt die Datei, lädt der
-# Entrypoint sie automatisch von HuggingFace nach (Volume ':rw' nötig).
-ENV ALIGNER_MODEL=/models/qwen3-forced-aligner-0.6b-f16.gguf
+# Verify — OHNE Pipe: der Exit-Code von crispasr muss durchschlagen.
+RUN crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
+
+# ------------------------------------------------------------------
+# Modell-Pfade (Volume /models, Entrypoint laedt fehlende nach)
+# ------------------------------------------------------------------
+# qwen3-forced-aligner: CrispStrobe-GGUF MIT Mel-Tensoren (cstr/*).
+# q8_0 = f16 bitweise identisch (0 Zeit-Diffs, 2026-08-26 belegt) —
+# 986 MB statt 1,84 GB.
+ENV ALIGNER_MODEL_QWEN3=/models/qwen3-forced-aligner-0.6b-q8_0.gguf \
+    ALIGNER_MODEL_TADA=/models/tada-tts-1b-q4_k.gguf \
+    ALIGNER_MODEL_TADA_CODEC=/models/tada-codec-f16.gguf \
+    ALIGNER_MODEL_WAV2VEC2=/models/wav2vec2-large-xlsr-53-german-q4_k.gguf
+
+# CrispASR-Cache fuer automatisch nachgeladene Companion-Modelle
+# (tada-encoder-f16.gguf, tada-aligner-*.gguf): im Volume, damit der
+# Download nur einmal passiert. Volume muss :rw sein.
+ENV CRISPASR_CACHE_DIR=/models/.crispasr-cache
 
 COPY aligner_server.py /aligner_server.py
-COPY openapi.json /app/openapi.json
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 5099
 
-# Entrypoint prüft/lädt das Modell, startet dann den Wrapper-Server.
+# Entrypoint prueft/laedt die 3 Aligner-Modelle, startet dann den
+# Server mit allen Modell-Pfaden als Env.
 CMD ["/entrypoint.sh"]

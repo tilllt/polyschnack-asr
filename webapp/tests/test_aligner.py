@@ -42,7 +42,11 @@ def aligner_server():
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, str(REPO / "aligner-service" / "aligner_server.py"),
-         "--cli", str(fake_cli), "--model", str(model), "--port", str(port)],
+         "--cli", str(fake_cli), "--model", str(model), "--port", str(port),
+         # Change 133: alle 4 Modell-Pfade müssen existieren (Startprüfung)
+         "--model-tada", str(model),
+         "--model-tada-codec", str(model),
+         "--model-wav2vec2", str(model)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     url = f"http://127.0.0.1:{port}"
@@ -415,3 +419,97 @@ def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch)
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
     assert "keine Wort-Timestamps" in (rec.error or "")
+
+
+# ============================================================
+# Change 133: method-Dispatch (qwen3/tada/wav2vec2)
+# ============================================================
+
+def test_aligner_args_qwen3_default():
+    """Default-Methode qwen3 -> CrispASR --align-only -am <qwen3-FA>."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aligner_server", REPO / "aligner-service" / "aligner_server.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    models = {"qwen3": "/m/qwen3.gguf", "tada": "/m/tada.gguf",
+              "tada_codec": "/m/codec.gguf", "wav2vec2": "/m/w2v.gguf"}
+    args = mod._aligner_args("qwen3", models, "/tmp/a.wav", "Hallo Welt", "de", "/tmp/o.json")
+    assert args[0] == "--align-only"
+    assert args[1] == "-am"
+    assert "/m/qwen3.gguf" in args
+    assert "--ref-text" in args
+    assert "Hallo Welt" in args
+    assert args[-1] == "/tmp/o.json"
+
+
+def test_aligner_args_tada():
+    """TADA -> -m <tada> --codec-model <codec> --align --voice ... --source-lang."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aligner_server", REPO / "aligner-service" / "aligner_server.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    models = {"qwen3": "/m/qwen3.gguf", "tada": "/m/tada.gguf",
+              "tada_codec": "/m/codec.gguf", "wav2vec2": "/m/w2v.gguf"}
+    args = mod._aligner_args("tada", models, "/tmp/a.wav", "Hallo", "de", "/tmp/o.json")
+    joined = " ".join(args)
+    assert args[0] == "-m"
+    assert "/m/tada.gguf" in args
+    assert "--codec-model" in args and "/m/codec.gguf" in args
+    assert "--align" in args
+    assert "--voice" in args and "/tmp/a.wav" in args
+    assert "--source-lang" in args and "de" in args
+    assert "--align-output" in joined
+
+
+def test_aligner_args_wav2vec2():
+    """wav2vec2 -> --align-only -am <wav2vec2-xlsr-de>."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aligner_server", REPO / "aligner-service" / "aligner_server.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    models = {"qwen3": "/m/qwen3.gguf", "tada": "/m/tada.gguf",
+              "tada_codec": "/m/codec.gguf", "wav2vec2": "/m/w2v.gguf"}
+    args = mod._aligner_args("wav2vec2", models, "/tmp/a.wav", "Hallo", "de", "/tmp/o.json")
+    assert args[0] == "--align-only"
+    assert "/m/w2v.gguf" in args
+    assert "--ref-text" in args
+
+
+def test_aligner_args_unbekannte_methode_raises():
+    """Unbekannte Methode -> ValueError (Server antwortet 422)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aligner_server", REPO / "aligner-service" / "aligner_server.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    models = {"qwen3": "/m/qwen3.gguf", "tada": "/m/tada.gguf",
+              "tada_codec": "/m/codec.gguf", "wav2vec2": "/m/w2v.gguf"}
+    with pytest.raises(ValueError):
+        mod._aligner_args("xyz", models, "/tmp/a.wav", "Hallo", "de", "/tmp/o.json")
+
+
+def test_align_method_roundtrip(aligner_server, wav_bytes):
+    """method-Feld wird an den Service durchgereicht (Default qwen3 ok)."""
+    c = AlignerClient(url=aligner_server, timeout=30)
+    words = c.align(wav_bytes, "Hallo Welt", lang="de", method="tada")
+    assert len(words) == 2
+    assert words[0]["word"] == "Hallo"
+
+
+def test_align_method_unbekannt_422(aligner_server, wav_bytes):
+    """Unbekannte Methode -> 422 vom Service."""
+    c = AlignerClient(url=aligner_server, timeout=30)
+    with pytest.raises(RuntimeError) as ei:
+        c.align(wav_bytes, "Hallo Welt", lang="de", method="nope")
+    assert "422" in str(ei.value)

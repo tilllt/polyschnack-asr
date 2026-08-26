@@ -402,7 +402,40 @@ def _energy_refine(words: list[dict], wav_path: str,
         return words
 
 
-def _run_aligner(cli: str, model: str, wav: str, text: str, lang: str) -> str:
+# ---------------------------------------------------------------------------
+# Aligner-Dispatch (Change 133): EIN CrispASR-Binary, 3 Methoden.
+# Die Modell-Pfade kommen aus Env (Defaults = Container-/models/).
+# ---------------------------------------------------------------------------
+def _aligner_args(method: str, models: dict, wav: str, text: str, lang: str, out_json: str) -> list[str]:
+    """Baut die CrispASR-Argument-Liste fuer die Methode.
+
+    method:
+      qwen3     -> --align-only -am <qwen3-forced-aligner> (Qwen3FA-Pfad)
+      tada      -> --align (TADA: TTS-1b + Codec + Encoder + Aligner-de)
+      wav2vec2  -> --align-only -am <wav2vec2-xlsr-de> (CTC)
+
+    ``models`` ist ein dict mit den Schluesseln qwen3, tada, tada_codec,
+    wav2vec2 (Pfade). Raises ValueError bei unbekannter Methode.
+    """
+    m = (method or "qwen3").strip().lower()
+    if m == "qwen3":
+        model = models.get("qwen3", "")
+        return ["--align-only", "-am", model, "-f", wav, "--ref-text", text,
+                "--align-format", "json", "--align-output", out_json]
+    if m == "tada":
+        model = models.get("tada", "")
+        codec = models.get("tada_codec", "")
+        return ["-m", model, "--codec-model", codec, "--align",
+                "--voice", wav, "--ref-text", text, "--source-lang", lang,
+                "--align-format", "json", "--align-output", out_json]
+    if m == "wav2vec2":
+        model = models.get("wav2vec2", "")
+        return ["--align-only", "-am", model, "-f", wav, "--ref-text", text,
+                "--align-format", "json", "--align-output", out_json]
+    raise ValueError(f"Unbekannte Aligner-Methode: {method}")
+
+
+def _run_aligner(method: str, cli: str, models: dict, wav: str, text: str, lang: str) -> str:
     """Führt den CLI-Aufruf aus, liefert Pfad zur Output-Datei.
 
     Läuft als Popen mit LIVE-stderr-Lesen: Jede ausgegebene Zeile wird in
@@ -417,11 +450,11 @@ def _run_aligner(cli: str, model: str, wav: str, text: str, lang: str) -> str:
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
         out_json = tf.name
     try:
+        args = _aligner_args(method, models, wav, text, lang, out_json)
         with _lock:
             _job_start()
             proc = subprocess.Popen(
-                [cli, "-m", model, "-f", wav, "--align",
-                 "--text", text, "--lang", lang, "-o", out_json],
+                [cli, *args],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )
@@ -461,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "polyschnack-aligner/1.0"
 
     cli = ""
-    model = ""
+    models: dict = {}
 
     # --- helpers -------------------------------------------------------
     def _send(self, code: int, payload: dict) -> None:
@@ -520,7 +553,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {
                 "status": "ok",
                 "service": "aligner",
-                "model": "qwen3-forced-aligner-0.6b-f16",
+                "model": "qwen3-forced-aligner-0.6b-q8_0 (cstr) | tada-tts-1b | wav2vec2-xlsr-de",
+                "methods": ["qwen3", "tada", "wav2vec2"],
                 "max_duration_s": MAX_AUDIO_S,
                 "word_timestamps": True,
                 "confidence": False,
@@ -575,6 +609,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(422, {"error": "Feld 'text' fehlt (Referenztext)"})
                 return
             lang = fields.get("lang") or "de"
+            method = fields.get("method") or "qwen3"
 
             with tempfile.TemporaryDirectory(prefix="align-") as tmp:
                 src = os.path.join(tmp, "upload.bin")
@@ -591,7 +626,12 @@ class Handler(BaseHTTPRequestHandler):
                     })
                     return
                 _to_wav16k(src, wav)
-                out_json = _run_aligner(self.cli, self.model, wav, text, lang)
+                try:
+                    out_json = _run_aligner(method, self.cli, self.models, wav, text, lang)
+                except ValueError as exc:
+                    # Unbekannte Methode -> 422 (vor dem CLI-Aufruf)
+                    self._send(422, {"error": str(exc)})
+                    return
                 words = _parse_alignment(out_json, resolve=False)
                 # Energie-Korrektur (2026-08-17): ordnet Wörter den
                 # akustisch belegten Regionen zu — Stille gehört keinem
@@ -643,21 +683,44 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="PolySchnack Forced-Aligner-Service")
-    ap.add_argument("--cli", default="qwen3-asr-cli", help="Pfad zur qwen3-asr-cli Binary")
-    ap.add_argument("--model", default="/models/qwen3-forced-aligner-0.6b-f16.gguf")
+    ap.add_argument("--cli", default="crispasr",
+                    help="Pfad zur CrispASR-Binary (Default: crispasr)")
+    ap.add_argument("--model", default=os.getenv(
+        "ALIGNER_MODEL_QWEN3", "/models/qwen3-forced-aligner-0.6b-q8_0.gguf"),
+        help="qwen3-forced-aligner GGUF (cstr-Konvertierung mit Mel-Tensoren)")
+    ap.add_argument("--model-tada", default=os.getenv(
+        "ALIGNER_MODEL_TADA", "/models/tada-tts-1b-q4_k.gguf"),
+        help="TADA-TTS-Modell")
+    ap.add_argument("--model-tada-codec", default=os.getenv(
+        "ALIGNER_MODEL_TADA_CODEC", "/models/tada-codec-f16.gguf"),
+        help="TADA-Codec-Modell")
+    ap.add_argument("--model-wav2vec2", default=os.getenv(
+        "ALIGNER_MODEL_WAV2VEC2", "/models/wav2vec2-large-xlsr-53-german-q4_k.gguf"),
+        help="wav2vec2-xlsr-de (CTC-Aligner)")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=5099)
     args = ap.parse_args()
 
-    if not os.path.exists(args.model):
-        print(f"[aligner] FEHLER: Modell nicht gefunden: {args.model}", file=sys.stderr)
+    # Backward-Kompatibilitaet: --model = qwen3-Modell (alter Parametername)
+    models = {
+        "qwen3": args.model,
+        "tada": args.model_tada,
+        "tada_codec": args.model_tada_codec,
+        "wav2vec2": args.model_wav2vec2,
+    }
+    missing = [p for p in models.values() if not os.path.exists(p)]
+    if missing:
+        print(f"[aligner] FEHLER: Modelle nicht gefunden: {missing}", file=sys.stderr)
         sys.exit(1)
     Handler.cli = args.cli
-    Handler.model = args.model
+    Handler.models = models
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[aligner] Forced-Aligner-Service auf {args.host}:{args.port} "
-          f"(Modell: {args.model}, CLI: {args.cli})")
+          f"(CLI: {args.cli})")
+    print(f"[aligner]   qwen3:     {models['qwen3']}")
+    print(f"[aligner]   tada:      {models['tada']} (+ codec {models['tada_codec']})")
+    print(f"[aligner]   wav2vec2:  {models['wav2vec2']}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
