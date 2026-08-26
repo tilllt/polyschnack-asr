@@ -434,8 +434,10 @@ describe("BenchmarkPageContent — Kategorie-Graphen + Filter (REQ-BEN-047/048/0
     expect(screen.getByTestId("cat-bar-akzent-ps-pk-onnx")).toBeTruthy();
     // clean hat 0 Samples: weder als Kategorie-Box noch als Chart
     expect(screen.queryByText(/Hochdeutsch/)).toBeNull();
-    // akzent-Samples-Sektion vorhanden (Kategorie-Header-Button mit Anzahl)
-    expect(screen.getByRole("button", { name: /Akzente/ })).toBeTruthy();
+    // akzent-Samples-Sektion vorhanden — Kategorie-Header (Name + Anzahl)
+    // UND Collapse-Leisten-Chip tragen den Namen; beide vorhanden heißt
+    // Sektion + Leiste aktiv (Change 135).
+    expect(screen.getAllByRole("button", { name: /Akzente/ }).length).toBeGreaterThanOrEqual(2);
   });
 
   test("Modell-Filter oben blendet Modell aus allen Graphen aus", async () => {
@@ -692,6 +694,8 @@ describe("BenchmarkPageContent — Change 073 (VAD-Sample-Liste in Sektion)", ()
         />
       </LocaleProvider>,
     );
+    // Change 135: VAD-Inhalte liegen jetzt hinter dem VAD-Tab
+    fireEvent.click(screen.getByTestId("benchmark-tab-vad"));
     expect(screen.getByText(/Testset-Samples/)).toBeTruthy();
     expect(screen.getByText("de_00_lead2")).toBeTruthy();
   });
@@ -712,7 +716,10 @@ describe("BenchmarkPageContent — Change 073 (VAD-Sample-Liste in Sektion)", ()
         />
       </LocaleProvider>,
     );
-    expect(screen.queryByText(/Testset-Samples/)).toBeNull();
+    fireEvent.click(screen.getByTestId("benchmark-tab-vad"));
+    // Change 135: ohne Paket zeigt der VAD-Tab den Hinweis statt einer Liste
+    expect(screen.queryByText("de_00_lead2")).toBeNull();
+    expect(screen.getByText(/Kein VAD-Testset-Paket installiert/)).toBeTruthy();
   });
 });
 
@@ -851,5 +858,127 @@ describe("BenchmarkSetUpdater (Change 075/076)", () => {
       </LocaleProvider>,
     );
     await waitFor(() => expect(screen.getByText(/Keine Quelle konfiguriert/)).toBeTruthy());
+  });
+});
+
+// ── Change 135: Tabs + Collapse-Leiste + Hypothese-Text ──────────────────
+
+describe("BenchmarkPageContent — Change 135 (Tabs)", () => {
+  const META135: BenchmarkMeta = {
+    version: 1,
+    created_at: "2026-08-26T00:00:00Z",
+    supersedes: null,
+    categories: [{ id: "akzent", name: "Akzente" }],
+    sample_count: 1,
+    per_category: { akzent: 1 },
+    methodology: "WER auf CommonVoice-de",
+    disclaimer: "Referenztexte held-out.",
+  };
+  const DATA135: BenchmarkSamplesResponse = {
+    version: 1,
+    samples: [
+      { id: "akzent_001", category: "akzent", text: "Kisten und Möbel.", preview_url: "/p", audio_url: "/a" },
+    ],
+  };
+  const RESULTS135: BenchmarkResults = {
+    version: 1,
+    run_id: "r1",
+    rows: [{ backend: "ps-pk-onnx", wer: 0.2 }],
+    per_category: [{ category: "akzent", backend: "ps-pk-onnx", wer: 0.2, cer: 0.1, n: 1 }],
+    per_sample: { akzent_001: { "ps-pk-onnx": 0.2 } },
+    per_sample_text: { akzent_001: { "ps-pk-onnx": "Kisten und Möbel." } },
+  };
+  function renderPage135() {
+    try {
+      localStorage.removeItem("benchmark-tab");
+    } catch {
+      /* kein localStorage im Test-Environment */
+    }
+    return render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META135}
+          data={DATA135}
+          results={RESULTS135}
+          pricing={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+  }
+
+  test("zeigt 4 Tabs (ASR/VAD/Align/Diar), Default ASR aktiv", () => {
+    renderPage135();
+    for (const t of ["asr", "vad", "align", "diar"]) {
+      expect(screen.getByTestId(`benchmark-tab-${t}`)).toBeTruthy();
+    }
+    expect(screen.getByTestId("benchmark-tab-asr").getAttribute("data-active")).toBe("true");
+    // ASR-Inhalt sichtbar (Samples-Sektion)
+    expect(screen.getByTestId("asr-samples-section")).toBeTruthy();
+  });
+
+  test("VAD-Tab zeigt VAD-Sektion statt ASR-Samples", () => {
+    renderPage135();
+    fireEvent.click(screen.getByTestId("benchmark-tab-vad"));
+    expect(screen.getByText("VAD-Modelle")).toBeTruthy();
+    expect(screen.queryByTestId("asr-samples-section")).toBeNull();
+  });
+
+  test("Diar-Tab zeigt Platzhalter 'noch keine Daten'", () => {
+    renderPage135();
+    fireEvent.click(screen.getByTestId("benchmark-tab-diar"));
+    expect(screen.getByText(/Noch keine Diarization-Benchmark-Daten/)).toBeTruthy();
+  });
+
+  test("Tab-Auswahl bleibt via localStorage erhalten", () => {
+    renderPage135();
+    fireEvent.click(screen.getByTestId("benchmark-tab-vad"));
+    try {
+      expect(localStorage.getItem("benchmark-tab")).toBe("vad");
+    } catch {
+      /* kein localStorage im Test-Environment — Tab-State reicht */
+      expect(screen.getByTestId("benchmark-tab-vad").getAttribute("data-active")).toBe("true");
+    }
+  });
+
+  test("Collapse-Leiste unten: Kategorie-Chip + 'Alle auf' Toggle", () => {
+    renderPage135();
+    expect(screen.getByTestId("category-collapse-bar")).toBeTruthy();
+    expect(screen.getByTestId("collapse-cat-akzent")).toBeTruthy();
+    // Alle auf: Kategorie bleibt geöffnet (initial offen) — Toggle zeigt "Alle zu"
+    fireEvent.click(screen.getByTestId("collapse-toggle-all"));
+    expect(screen.getByText("▸ Alle zu")).toBeTruthy();
+  });
+
+  test("Hypothese-Text unter den Balken (per_sample_text)", () => {
+    renderPage135();
+    // Initial offene Kategorie → Sample sichtbar, Hypothese-Block da
+    expect(screen.getByTestId("sample-hyp-akzent_001")).toBeTruthy();
+    expect(screen.getByText("Erkannt (Hypothese) je Modell")).toBeTruthy();
+  });
+
+  test("keine Hypothese-Anzeige wenn Run keinen Text submitted hat", () => {
+    const resultsOhneText: BenchmarkResults = {
+      ...RESULTS135,
+      per_sample_text: undefined,
+    };
+    render(
+      <LocaleProvider>
+        <BenchmarkPageContent
+          meta={META135}
+          data={DATA135}
+          results={resultsOhneText}
+          pricing={null}
+          admin={false}
+          onReject={() => {}}
+          onEdit={() => {}}
+          onReload={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByTestId("sample-hyp-akzent_001")).toBeNull();
   });
 });

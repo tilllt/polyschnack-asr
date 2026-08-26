@@ -204,8 +204,10 @@ def test_apply_submission_pools_per_category(data_dir: Path):
         "settings": "auto",
         "generated_at": "2026-08-20T00:00:00Z",
         "rows": [
-            {"sample_id": "akzent_001", "wer": 0.10, "cer": 0.05, "coverage_pct": 100.0, "rtf": 0.1},
-            {"sample_id": "akzent_002", "wer": 0.30, "cer": 0.20, "coverage_pct": 100.0, "rtf": 0.1},
+            {"sample_id": "akzent_001", "wer": 0.10, "cer": 0.05, "coverage_pct": 100.0, "rtf": 0.1,
+             "hyp": "kisten und möbel."},
+            {"sample_id": "akzent_002", "wer": 0.30, "cer": 0.20, "coverage_pct": 100.0, "rtf": 0.1,
+             "hyp": "zweiter satz"},
         ],
     }
     r1 = svc.apply_submission({**base, "backend": "ps-pk-onnx"})
@@ -216,6 +218,11 @@ def test_apply_submission_pools_per_category(data_dir: Path):
     latest = json.loads((data_dir / "results" / "latest.json").read_text(encoding="utf-8"))
     # rows (gepoolte Gesamtwerte) bleibt vorhanden
     assert {r["backend"] for r in latest["rows"]} == {"ps-pk-onnx", "crispr-pk-cpp"}
+    # Change 135: Hypothese-Text je Sample/Backend (per_sample_text)
+    pst = latest["per_sample_text"]
+    assert pst["akzent_001"]["ps-pk-onnx"] == "kisten und möbel."
+    assert pst["akzent_001"]["crispr-pk-cpp"] == "kisten und möbel."
+    assert pst["akzent_002"]["ps-pk-onnx"] == "zweiter satz"
     # per_category: 2 Backends × 1 Kategorie
     pc = latest["per_category"]
     by = {(e["category"], e["backend"]): e for e in pc}
@@ -269,3 +276,39 @@ def test_latest_results_rueckt_per_category_nach(data_dir: Path):
     # Vorhandenes per_category wird nicht überschrieben
     out2 = svc.latest_results()
     assert out2["per_category"] == out["per_category"]
+
+
+def test_latest_results_rueckt_per_sample_text_nach(data_dir: Path):
+    """Change 135: alte latest.json (ohne per_sample_text) bekommt die
+    Hypothese-Texte on-the-fly aus den Run-Rows nachgerüstet — die
+    GUI-Balken-Unterschriften funktionieren direkt nach dem Deploy."""
+    svc = BenchmarkService(data_dir)
+    results_dir = data_dir / "results"
+    results_dir.mkdir(parents=True)
+    (results_dir / "latest.json").write_text(json.dumps({
+        "version": 1,
+        "run_id": "pooled-alt",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "rows": [{"backend": "ps-pk-onnx", "wer": 0.2, "cer": 0.1,
+                  "n_samples": 2}],
+    }))
+    sha = svc.package_sha256(1)
+    runs = results_dir / "runs"
+    runs.mkdir(parents=True)
+    (runs / "ps-pk-onnx_20260101.json").write_text(json.dumps({
+        "backend": "ps-pk-onnx",
+        "manifest_sha256": sha,
+        "rows": [
+            {"sample_id": "akzent_001", "wer": 0.10, "cer": 0.05,
+             "hyp": "kisten und möbel."},
+            {"sample_id": "akzent_002", "wer": 0.30, "cer": 0.20},  # kein hyp
+        ],
+    }))
+
+    out = svc.latest_results()
+    pst = out["per_sample_text"]
+    assert pst["akzent_001"]["ps-pk-onnx"] == "kisten und möbel."
+    # Sample ohne hyp taucht nicht im Text-Map auf (nur in per_sample-Zahlen)
+    assert "akzent_002" not in pst
+    # per_sample (Zahlen) ist unabhängig davon vollständig
+    assert out["per_sample"]["akzent_002"]["ps-pk-onnx"] == pytest.approx(0.30)

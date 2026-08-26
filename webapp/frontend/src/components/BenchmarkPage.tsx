@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { WaveformPlayer } from "./WaveformPlayer";
+import { SuiteExplainer } from "./SuiteExplainer";
 import type {
   BenchmarkCategory,
   BenchmarkMeta,
@@ -34,15 +35,17 @@ interface CategoryProps {
   qualityRows: Array<{ backend: string; wer: number; n: number }>;
   /** Change 039: WER je Backend für genau dieses Sample (per_sample). */
   perSample: Record<string, Record<string, number>>;
+  /** Change 135: Hypothese-Text je Sample (sample_id -> {backend: text}). */
+  hypTexts?: Record<string, Record<string, string>>;
   hiddenModels: ReadonlySet<string>;
 }
 
 export function BenchmarkCategory({
   cat, samples, open, onToggle, showText, admin, onReject, onEdit, previewUrl, audioUrl,
-  qualityRows, perSample, hiddenModels,
+  qualityRows, perSample, hypTexts, hiddenModels,
 }: CategoryProps) {
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div id={`cat-${cat.id}`} className="border border-border rounded-lg overflow-hidden scroll-mt-20">
       <button
         onClick={onToggle}
         className="w-full flex items-center justify-between px-4 py-3 bg-[rgba(255,255,255,.03)] hover:bg-[rgba(255,255,255,.06)] text-left"
@@ -76,6 +79,7 @@ export function BenchmarkCategory({
                 previewUrl={previewUrl}
                 audioUrl={audioUrl}
                 perSample={perSample[s.id]}
+                hypTexts={hypTexts?.[s.id]}
                 hiddenModels={hiddenModels}
               />
             ))}
@@ -87,7 +91,7 @@ export function BenchmarkCategory({
 }
 
 function SampleRow({
-  sample, showText, admin, onReject, onEdit, previewUrl, audioUrl, perSample, hiddenModels,
+  sample, showText, admin, onReject, onEdit, previewUrl, audioUrl, perSample, hypTexts, hiddenModels,
 }: {
   sample: BenchmarkSample;
   showText: boolean;
@@ -98,6 +102,8 @@ function SampleRow({
   audioUrl: (id: string) => string;
   /** Change 039: WER je Backend für genau dieses Sample (optional). */
   perSample?: Record<string, number>;
+  /** Change 135: Hypothese-Text je Backend für dieses Sample (optional). */
+  hypTexts?: Record<string, string>;
   hiddenModels: ReadonlySet<string>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -176,6 +182,27 @@ function SampleRow({
               );
             })}
           </div>
+          {/* Change 135: erkannten Text (Hypothese) je Modell unter den
+              Balken — was das Modell STATT des Ground Truth gehört hat.
+              Nur wenn der Run den Text mitsubmitted hat (neue Läufe). */}
+          {hypTexts && Object.keys(hypTexts).length > 0 && (
+            <div className="mt-1.5 space-y-1 border-t border-border/40 pt-1.5" data-testid={`sample-hyp-${sample.id}`}>
+              <div className="flex items-center gap-1 text-[9px] text-amber-300/90 uppercase tracking-wide">
+                <span aria-hidden>✎</span>
+                <span>Erkannt (Hypothese) je Modell</span>
+              </div>
+              {Object.entries(hypTexts)
+                .filter(([b]) => !hiddenModels.has(b))
+                .map(([backend, text]) => (
+                  <div key={backend} className="flex gap-1.5 text-[11px] leading-snug">
+                    <span className="w-24 font-mono text-[9px] truncate text-right text-dim shrink-0 pt-0.5">
+                      {backend}
+                    </span>
+                    <span className="text-txt/90">{text}</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -970,6 +997,25 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
   const [showText, setShowText] = useState(true);
   const [matrixCell, setMatrixCell] = useState<{ kanal: string; inhalt: string } | null>(null);
   const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
+  // Change 135: Test-Suite-Tabs (ASR | VAD | Align | Diar)
+  const [tab, setTab] = useState<string>(() => {
+    try {
+      return localStorage.getItem("benchmark-tab") ?? "asr";
+    } catch {
+      return "asr"; // kein localStorage (Tests/SSR)
+    }
+  });
+  // Change 135: alle Kategorien zu-/aufklappen (Collapse-Leiste unten)
+  const [allExpanded, setAllExpanded] = useState(false);
+
+  const switchTab = (t: string) => {
+    setTab(t);
+    try {
+      localStorage.setItem("benchmark-tab", t);
+    } catch {
+      /* kein localStorage (Tests/SSR) — Tab-State reicht */
+    }
+  };
 
   // REQ-BEN-048: Modell-Liste aus per_category (Fallback: gepoolte rows)
   const modelList = results?.per_category?.length
@@ -1031,8 +1077,31 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
   }
   const perSample = results?.per_sample ?? {};
 
+  // Change 135: Hypothese-Text je Sample (per_sample_text) als Map.
+  const perSampleText = results?.per_sample_text ?? {};
+
+  // Change 135: Aligner-Samples = dieselben ASR-Samples (Audio-URLs), da der
+  // Aligner-Benchmark auf demselben Testset läuft.
+  const alignerSamples = cats;
+
+  const TABS = [
+    { id: "asr", label: "ASR" },
+    { id: "vad", label: "VAD" },
+    { id: "align", label: "Align" },
+    { id: "diar", label: "Diar" },
+  ] as const;
+
+  const scrollToCat = (id: string) => {
+    setOpenCat(id);
+    setAllExpanded(false);
+    // Nach dem Öffnen scrollen — rAF, damit der DOM aktualisiert ist.
+    requestAnimationFrame(() => {
+      document.getElementById(`cat-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6 pb-24">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">PolySchnack Benchmark</h1>
@@ -1051,128 +1120,245 @@ export function BenchmarkPageContent({ meta, data, results, pricing, vadSamples,
         </div>
       </div>
 
-      {/* REQ-BEN-048: Modell-Filter (oben) */}
-      {modelList.length > 0 && (
-        <section className="border border-border rounded-lg p-3">
-          <ModelFilterChips
-            models={modelList}
-            hiddenModels={hiddenModels}
-            onToggle={toggleModel}
-            onToggleAll={toggleAllModels}
-          />
-        </section>
-      )}
-
-      {/* Methodik */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-1">Methodik</h2>
-        <p className="text-sm text-dim">{meta.methodology}</p>
-        <p className="text-sm text-dim mt-1">{meta.disclaimer}</p>
-        {/* Change 071: VAD-Methodik — das Backend-Manifest (v2) beschreibt
-            nur den ASR-Benchmark; der VAD-Benchmark (Change 062/064/065)
-            läuft mit eigenem Testset. Statischer Text, bis das Manifest
-            VAD-Metadaten trägt. */}
-        <div className="text-sm text-dim mt-3 border-t border-border pt-2">
-          <strong className="text-txt">VAD-Benchmark:</strong>{" "}
-          misst Voice-Activity-Detection auf dem Testset{" "}
-          <span className="font-mono text-xs">V3.1-public</span> (235 Samples:
-          echte Common-Voice-Aufnahmen + DEMAND-SNR-Mixe + Noise/Musik/Babble).
-          Metriken: <strong className="text-txt">F1</strong> (Grenzwert-Matching),
-          Boundary-Genauigkeit (<strong className="text-txt">B-Start/B-Ende</strong>,
-          median in ms), <strong className="text-txt">FP-Speech</strong>
-          (falsch-positive Sprachzeit in Sekunden) und{" "}
-          <strong className="text-txt">RTF</strong> (Echtzeitfaktor). Held-out-
-          Samples (126) bleiben geheim (Anti-Gaming). Das Paket + Provenienz
-          liegt als Release-Artefakt (SHA256-geprüft) vor.
-        </div>
-      </section>
-
-      {/* Change 075: Benchmark-Set-Auto-Update — nur Admin sieht die
-          Install-UI; Status-Endpoint selbst ist öffentlich. */}
-      {admin && (
-        <section className="border border-border rounded-lg p-4">
-          <h2 className="font-semibold mb-1">Benchmark-Set</h2>
-          <BenchmarkSetUpdater onInstalled={onReload} />
-        </section>
-      )}
-
-      {/* 2-Achsen-Matrix */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">Test-Set · 2-Achsen-Matrix</h2>
-        <AxesMatrix meta={meta} active={matrixCell} onSelect={setMatrixCell} />
-      </section>
-
-      {/* REQ-BEN-047/Change 039: Modellqualität je Kategorie jetzt als Teil
-          der Kategorie-Blöcke unten (sehr kleine Tabellen) — keine separate
-          Sektion mehr. Nur Kategorien mit > 0 Samples (Filter wirkt). */}
-
-      {/* Test-Set-Erklärung */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">Wie ist das Test-Set aufgebaut?</h2>
-        <TestSetExplanation meta={meta} />
-      </section>
-
-      {/* Samples nach Kategorie (collapsible) */}
-      <section className="space-y-2">
-        <h2 className="font-semibold">
-          Samples
-          {matrixCell ? (
-            <button onClick={() => setMatrixCell(null)} className="ml-2 btn-ghost text-xs">
-              Filter: {matrixCell.kanal} × {matrixCell.inhalt} ✕
-            </button>
-          ) : null}
-        </h2>
-        {cats.map(({ cat, samples: ss }) => (
-          <BenchmarkCategory
-            key={cat.id}
-            cat={cat}
-            samples={ss}
-            open={openCat === cat.id}
-            onToggle={() => setOpenCat(openCat === cat.id ? null : cat.id)}
-            showText={showText}
-            admin={admin}
-            onReject={onReject}
-            onEdit={onEdit}
-            previewUrl={(id) => `/api/benchmark/preview/${id}`}
-            audioUrl={(id) => `/api/benchmark/audio/${id}`}
-            qualityRows={qualityByCat.get(cat.id) ?? []}
-            perSample={perSample}
-            hiddenModels={hiddenModels}
-          />
+      {/* Change 135: Test-Suite-Tabs (ASR | VAD | Align | Diar) */}
+      <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Test-Suiten">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => switchTab(t.id)}
+            data-testid={`benchmark-tab-${t.id}`}
+            data-active={tab === t.id ? "true" : "false"}
+            className={[
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+              tab === t.id
+                ? "border-accent text-txt"
+                : "border-transparent text-dim hover:text-txt",
+            ].join(" ")}
+          >
+            {t.label}
+          </button>
         ))}
-        {filtered.length === 0 && (
-          <p className="text-sm text-dim">Keine Samples in dieser Matrix-Zelle.</p>
-        )}
-      </section>
+      </div>
 
-      {/* Ergebnisse */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">Ergebnisse</h2>
-        <ResultsTable results={results} hiddenModels={hiddenModels} />
-      </section>
+      {/* ── ASR-Tab ─────────────────────────────────────────────────────── */}
+      {tab === "asr" && (
+        <>
+          {/* Change 135: Laien-Erklärung + Profi-Details */}
+          <SuiteExplainer suite="asr" />
 
-      {/* VAD-Ergebnisse (Change 062) */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">VAD-Modelle</h2>
-        <VadResultsTable vad={results?.vad} />
-        {/* Change 073: VAD-Testset-Samples anhörbar — Player + WAV-Download.
-            404 (kein Paket) → keine Liste. */}
-        {vadSamples && vadSamples.samples.length > 0 && (
-          <BenchmarkVadSamples samples={vadSamples.samples} />
-        )}
-      </section>
+          {/* REQ-BEN-048: Modell-Filter (oben) */}
+          {modelList.length > 0 && (
+            <section className="border border-border rounded-lg p-3">
+              <ModelFilterChips
+                models={modelList}
+                hiddenModels={hiddenModels}
+                onToggle={toggleModel}
+                onToggleAll={toggleAllModels}
+              />
+            </section>
+          )}
 
-      {/* Aligner-Ergebnisse (Change 132): Forced-Alignment / Karaoke-Sync */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">Forced-Aligner</h2>
-        <AlignerResultsTable aligner={results?.aligner} />
-      </section>
+          {/* Methodik */}
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-1">Methodik</h2>
+            <p className="text-sm text-dim">{meta.methodology}</p>
+            <p className="text-sm text-dim mt-1">{meta.disclaimer}</p>
+            <div className="text-sm text-dim mt-3 border-t border-border pt-2">
+              <strong className="text-txt">VAD-Benchmark:</strong>{" "}
+              misst Voice-Activity-Detection auf dem Testset{" "}
+              <span className="font-mono text-xs">V3.1-public</span> (235 Samples:
+              echte Common-Voice-Aufnahmen + DEMAND-SNR-Mixe + Noise/Musik/Babble).
+              Metriken: <strong className="text-txt">F1</strong> (Grenzwert-Matching),
+              Boundary-Genauigkeit (<strong className="text-txt">B-Start/B-Ende</strong>,
+              median in ms), <strong className="text-txt">FP-Speech</strong>
+              (falsch-positive Sprachzeit in Sekunden) und{" "}
+              <strong className="text-txt">RTF</strong> (Echtzeitfaktor). Held-out-
+              Samples (126) bleiben geheim (Anti-Gaming). Das Paket + Provenienz
+              liegt als Release-Artefakt (SHA256-geprüft) vor.
+            </div>
+          </section>
 
-      {/* Preisvergleich */}
-      <section className="border border-border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">Preisvergleich</h2>
-        <PriceComparison pricing={pricing} hiddenModels={hiddenModels} />
-      </section>
+          {/* Change 075: Benchmark-Set-Auto-Update — nur Admin sieht die
+              Install-UI; Status-Endpoint selbst ist öffentlich. */}
+          {admin && (
+            <section className="border border-border rounded-lg p-4">
+              <h2 className="font-semibold mb-1">Benchmark-Set</h2>
+              <BenchmarkSetUpdater onInstalled={onReload} />
+            </section>
+          )}
+
+          {/* 2-Achsen-Matrix */}
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Test-Set · 2-Achsen-Matrix</h2>
+            <AxesMatrix meta={meta} active={matrixCell} onSelect={setMatrixCell} />
+          </section>
+
+          {/* Test-Set-Erklärung */}
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Wie ist das Test-Set aufgebaut?</h2>
+            <TestSetExplanation meta={meta} />
+          </section>
+
+          {/* Samples nach Kategorie (collapsible) */}
+          <section className="space-y-2" data-testid="asr-samples-section">
+            <h2 className="font-semibold">
+              Samples
+              {matrixCell ? (
+                <button onClick={() => setMatrixCell(null)} className="ml-2 btn-ghost text-xs">
+                  Filter: {matrixCell.kanal} × {matrixCell.inhalt} ✕
+                </button>
+              ) : null}
+            </h2>
+            {cats.map(({ cat, samples: ss }) => (
+              <BenchmarkCategory
+                key={cat.id}
+                cat={cat}
+                samples={ss}
+                open={allExpanded || openCat === cat.id}
+                onToggle={() => {
+                  setAllExpanded(false);
+                  setOpenCat(openCat === cat.id ? null : cat.id);
+                }}
+                showText={showText}
+                admin={admin}
+                onReject={onReject}
+                onEdit={onEdit}
+                previewUrl={(id) => `/api/benchmark/preview/${id}`}
+                audioUrl={(id) => `/api/benchmark/audio/${id}`}
+                qualityRows={qualityByCat.get(cat.id) ?? []}
+                perSample={perSample}
+                hypTexts={perSampleText}
+                hiddenModels={hiddenModels}
+              />
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-sm text-dim">Keine Samples in dieser Matrix-Zelle.</p>
+            )}
+          </section>
+
+          {/* Ergebnisse */}
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Ergebnisse</h2>
+            <ResultsTable results={results} hiddenModels={hiddenModels} />
+          </section>
+
+          {/* Preisvergleich */}
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Preisvergleich</h2>
+            <PriceComparison pricing={pricing} hiddenModels={hiddenModels} />
+          </section>
+        </>
+      )}
+
+      {/* ── VAD-Tab ─────────────────────────────────────────────────────── */}
+      {tab === "vad" && (
+        <>
+          <SuiteExplainer suite="vad" />
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">VAD-Modelle</h2>
+            <VadResultsTable vad={results?.vad} />
+          </section>
+          {vadSamples && vadSamples.samples.length > 0 ? (
+            <BenchmarkVadSamples samples={vadSamples.samples} />
+          ) : (
+            <section className="border border-border rounded-lg p-4">
+              <h2 className="font-semibold mb-2">Testset-Samples</h2>
+              <p className="text-sm text-dim">Kein VAD-Testset-Paket installiert (404).</p>
+            </section>
+          )}
+        </>
+      )}
+
+      {/* ── Align-Tab ───────────────────────────────────────────────────── */}
+      {tab === "align" && (
+        <>
+          <SuiteExplainer suite="align" />
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Forced-Aligner</h2>
+            <AlignerResultsTable aligner={results?.aligner} />
+          </section>
+          {/* Change 135: Aligner-Samples anhörbar — dieselben Samples wie
+              ASR (derselbe Testset), Player + Referenztext. */}
+          <section className="space-y-2">
+            <h2 className="font-semibold">Samples (derselbe Testset wie ASR)</h2>
+            {alignerSamples.map(({ cat, samples: ss }) => (
+              <BenchmarkCategory
+                key={cat.id}
+                cat={cat}
+                samples={ss}
+                open={allExpanded || openCat === cat.id}
+                onToggle={() => {
+                  setAllExpanded(false);
+                  setOpenCat(openCat === cat.id ? null : cat.id);
+                }}
+                showText={showText}
+                admin={false}
+                previewUrl={(id) => `/api/benchmark/preview/${id}`}
+                audioUrl={(id) => `/api/benchmark/audio/${id}`}
+                qualityRows={[]}
+                perSample={{}}
+                hiddenModels={hiddenModels}
+              />
+            ))}
+          </section>
+        </>
+      )}
+
+      {/* ── Diar-Tab ────────────────────────────────────────────────────── */}
+      {tab === "diar" && (
+        <>
+          <SuiteExplainer suite="diar" />
+          <section className="border border-border rounded-lg p-4">
+            <h2 className="font-semibold mb-2">Diarization</h2>
+            <div className="text-sm text-dim space-y-2">
+              <p>
+                Noch keine Diarization-Benchmark-Daten. Der Diar-Benchmark
+                (Sprechererkennung je Segment) ist als eigenes Testset geplant
+                (Standard-Sets wie VoxConverse/AMI — siehe Change 136) und wird
+                hier erscheinen, sobald die Diar-Suite läuft.
+              </p>
+            </div>
+          </section>
+        </>
+      )}
+
+      {/* Change 135: Sticky Collapse/Expand-Leiste unten am Rand —
+          Kategorie-Sprünge, ohne wieder ganz nach oben zu scrollen.
+          Nur im ASR-/Align-Tab (Kategorien); VAD hat eigene Gruppen. */}
+      {(tab === "asr" || tab === "align") && cats.length > 0 && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-20 border-t border-border bg-bg/95 backdrop-blur"
+          data-testid="category-collapse-bar"
+        >
+          <div className="max-w-5xl mx-auto px-4 py-2 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-dim shrink-0">Kategorien:</span>
+            <button
+              onClick={() => setAllExpanded((v) => !v)}
+              className="btn-ghost text-xs"
+              data-testid="collapse-toggle-all"
+            >
+              {allExpanded ? "▸ Alle zu" : "▾ Alle auf"}
+            </button>
+            {cats.map(({ cat, samples: ss }) => (
+              <button
+                key={cat.id}
+                onClick={() => scrollToCat(cat.id)}
+                className={[
+                  "px-2 py-0.5 rounded-full text-[11px] border transition-colors",
+                  openCat === cat.id && !allExpanded
+                    ? "border-accent text-txt bg-[rgba(139,92,246,.15)]"
+                    : "border-border text-dim hover:text-txt",
+                ].join(" ")}
+                data-testid={`collapse-cat-${cat.id}`}
+              >
+                {cat.name} <span className="opacity-60">({ss.length})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

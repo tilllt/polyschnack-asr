@@ -125,6 +125,8 @@ export interface BenchmarkResults {
   per_category?: BenchmarkPerCategoryRow[];
   /** Change 039: sample_id -> { backend: wer } für Sample-Mini-Tabellen. */
   per_sample?: Record<string, Record<string, number>>;
+  /** Change 135: sample_id -> { backend: erkannte Zeichenkette } (Hypothese). */
+  per_sample_text?: Record<string, Record<string, string>>;
   /** Change 062: VAD-Modell-Ergebnisse (getrennt vom ASR-Pool). */
   vad?: VadResultRow[];
   /** Change 132: Forced-Aligner-Ergebnisse + Kreuz-Vergleich. */

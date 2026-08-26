@@ -409,6 +409,7 @@ class BenchmarkService:
                      for s in m.get("samples", [])}
         per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
         per_sample: Dict[str, Dict[str, float]] = {}  # sample_id -> {backend: wer}
+        per_sample_text: Dict[str, Dict[str, str]] = {}  # Change 135: sample_id -> {backend: hypothesis}
         runs_dir = self.data_dir / "results" / "runs"
         if not runs_dir.exists():
             return latest
@@ -423,6 +424,11 @@ class BenchmarkService:
                 if not sid:
                     continue
                 per_sample.setdefault(sid, {})[data["backend"]] = r["wer"]
+                # Change 135: erkannten Text (Hypothese) je Sample/Backend
+                # durchreichen — der Runner submitted `hyp` bereits (benchmark
+                # selfservice: rows[].hyp), hier nur in die Response heben.
+                if r.get("hyp"):
+                    per_sample_text.setdefault(sid, {})[data["backend"]] = r["hyp"]
                 cat = cat_by_id.get(sid, "unknown")
                 cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
                 cell[0] += r["wer"]
@@ -442,6 +448,11 @@ class BenchmarkService:
         latest["per_sample"] = {
             sid: {b: round(w, 4) for b, w in backs.items()}
             for sid, backs in sorted(per_sample.items())
+        }
+        # Change 135: erkannten Text (Hypothese) je Sample/Backend — nur
+        # wenn Runs ihn enthalten (neue Läufe); alte Runs bleiben ohne.
+        latest["per_sample_text"] = {
+            sid: backs for sid, backs in sorted(per_sample_text.items())
         }
         return latest
 
@@ -1028,6 +1039,7 @@ class BenchmarkService:
                      for s in m.get("samples", [])}
         per_cat: Dict[tuple, list] = {}  # (category, backend) -> [wer_sum, cer_sum, n]
         per_sample: Dict[str, Dict[str, float]] = {}  # Change 039
+        per_sample_text: Dict[str, Dict[str, str]] = {}  # Change 135
         for rf in runs_dir.glob("*.json"):
             data = json.loads(rf.read_text(encoding="utf-8"))
             # Change 062: VAD-Runs gehören nicht in den ASR-Pool (kein wer)
@@ -1042,6 +1054,10 @@ class BenchmarkService:
                 if not sid:
                     continue
                 per_sample.setdefault(sid, {})[data["backend"]] = r["wer"]
+                # Change 135: Hypothese-Text je Sample/Backend (Runner
+                # submitted `hyp` bereits) — für die GUI-Balken-Unterschrift.
+                if r.get("hyp"):
+                    per_sample_text.setdefault(sid, {})[data["backend"]] = r["hyp"]
                 cat = cat_by_id.get(sid, "unknown")
                 cell = per_cat.setdefault((cat, data["backend"]), [0.0, 0.0, 0])
                 cell[0] += r["wer"]
@@ -1082,6 +1098,10 @@ class BenchmarkService:
             "per_sample": {
                 sid: {b: round(w, 4) for b, w in backs.items()}
                 for sid, backs in sorted(per_sample.items())
+            },
+            # Change 135: Hypothese-Text je Sample/Backend (GUI-Balken-Unterschrift)
+            "per_sample_text": {
+                sid: backs for sid, backs in sorted(per_sample_text.items())
             },
             "vad": self._vad_summary(runs_dir),  # Change 062/065
         }
