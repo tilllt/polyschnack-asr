@@ -38,6 +38,9 @@ RUN mkdir -p /src/libs && find /src/build -name '*.so*' -exec cp -a {} /src/libs
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*

@@ -5,6 +5,9 @@
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 LABEL maintainer="PolySchnack"
 LABEL description="ONNX-optimized speech transcription service (GPU/CUDA)"
 

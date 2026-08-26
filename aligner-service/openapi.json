@@ -6,7 +6,9 @@
     "version": "1.0.0"
   },
   "servers": [
-    { "url": "http://crispr-align:5099" }
+    {
+      "url": "http://crispr-align:5099"
+    }
   ],
   "paths": {
     "/v1/audio/align": {
@@ -20,7 +22,10 @@
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["file", "text"],
+                "required": [
+                  "file",
+                  "text"
+                ],
                 "properties": {
                   "file": {
                     "type": "string",
@@ -34,7 +39,10 @@
                   "lang": {
                     "type": "string",
                     "default": "de",
-                    "enum": ["de", "en"]
+                    "enum": [
+                      "de",
+                      "en"
+                    ]
                   }
                 }
               }
@@ -54,22 +62,39 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "word": { "type": "string" },
-                          "start": { "type": "number" },
-                          "end": { "type": "number" },
-                          "confidence": { "type": "number", "nullable": true }
+                          "word": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "confidence": {
+                            "type": "number",
+                            "nullable": true
+                          }
                         }
                       }
                     },
-                    "language": { "type": "string" },
-                    "duration_s": { "type": "number" }
+                    "language": {
+                      "type": "string"
+                    },
+                    "duration_s": {
+                      "type": "number"
+                    }
                   }
                 }
               }
             }
           },
-          "422": { "description": "file/text fehlt oder Audio > 400 s" },
-          "413": { "description": "Upload zu groß (> 512 MB)" }
+          "422": {
+            "description": "file/text fehlt oder Audio > 400 s"
+          },
+          "413": {
+            "description": "Upload zu groß (> 512 MB)"
+          }
         }
       }
     },
@@ -85,18 +110,47 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string" },
-                    "service": { "type": "string" },
-                    "model": { "type": "string" },
-                    "max_duration_s": { "type": "number" },
-                    "word_timestamps": { "type": "boolean" },
-                    "confidence": { "type": "boolean" },
-                    "languages": { "type": "array", "items": { "type": "string" } },
-                    "device": { "type": "string" }
+                    "status": {
+                      "type": "string"
+                    },
+                    "service": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "max_duration_s": {
+                      "type": "number"
+                    },
+                    "word_timestamps": {
+                      "type": "boolean"
+                    },
+                    "confidence": {
+                      "type": "boolean"
+                    },
+                    "languages": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "device": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "summary": "Build-Version (Git-Commit-SHA, Change 134)",
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }

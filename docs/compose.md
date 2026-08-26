@@ -55,6 +55,35 @@ docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp up
 docker compose -f compose.yml -f compose.oidc.yml up -d
 ```
 
+## Version prüfen (Change 134)
+
+Jeder Container liefert seine Git-Commit-SHA (z. B. `4a41b46e`) — so
+erkennst du nach einem Pull, ob wirklich die neue Version läuft.
+
+**Python-Services — HTTP-Endpunkte:**
+
+| Service | Endpunkt | Beispiel |
+|---------|----------|----------|
+| Webapp (`ps-webapp`) | `GET /api/version` | `https://whisper.cia-spandau.de/api/version` |
+| ASR (`ps-pk-onnx`) | `GET /api/version` | `http://ps-pk-onnx:5092/api/version` |
+| Aligner (`crispr-align`) | `GET /version` | `http://crispr-align:5099/version` |
+| Separation (`crispr-sep`) | `GET /version` | `http://crispr-sep:5100/version` |
+
+Antwort: `{"service": "webapp", "commit": "4a41b46e", "image_tag": "4a41b46e"}`
+(„dev" bei lokalen Builds ohne CI).
+
+**C++-CrispASR-Backends** (diar, pk-cpp, qwen3, ark, moonshine-de, canary,
+voxtral) haben keinen Versions-Endpunkt im fest kompilierten Server — die
+SHA steckt als Docker-Label `org.opencontainers.image.revision` + Env
+`GIT_SHA` im Image:
+
+```bash
+docker inspect crispr-diar --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
+
+**Erwartung nach Deploy:** Alle Images zeigen die SHA des gepullten Commits
+(z. B. `4a41b46e`); `dev` weist auf ein lokal gebautes Image hin.
+
 ## Profile im Detail
 
 | Profil | Befehl | Startet | GPU via Overlay |

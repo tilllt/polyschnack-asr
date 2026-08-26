@@ -18,6 +18,9 @@
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 # cuDNN 9 für den onnxruntime CUDA-EP: das cuda-runtime-Image bringt
 # cublas/curand/cufft mit, aber NICHT libcudnn.so.9 — ORT 1.21 verlangt
 # cuDNN 9 (1.19.x wollte cuDNN 8, fiel sonst still auf CPU zurück).

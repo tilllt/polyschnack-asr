@@ -48,6 +48,15 @@ def health():
     return {"status": "ok", "model": MODEL_NAME, "device": _model_device}
 
 
+@app.get("/version")
+def version():
+    """Build-Version (Change 134): Git-Commit-SHA des laufenden Images."""
+    import os
+
+    commit = os.environ.get("GIT_SHA", "dev").strip() or "dev"
+    return {"service": "whisper", "commit": commit, "image_tag": commit}
+
+
 @app.post("/v1/audio/transcriptions")
 async def transcriptions(
     file: UploadFile = File(...),

@@ -28,10 +28,17 @@ if docker manifest inspect "${SRC}:${SHA}" >/dev/null 2>&1; then
 fi
 
 echo "[ci-smart-build] baue ${IMG} (SHA ${SHA})"
+# GIT_SHA als Build-Arg injizieren (Change 134): Container lesen die
+# Commit-SHA aus ENV GIT_SHA bzw. org.opencontainers.image.revision-Label.
+GIT_SHA="${CI_COMMIT_SHORT_SHA:-dev}"
 if [ -n "$DF" ]; then
-    docker build -f "$DF" -t "${SRC}:latest" -t "${SRC}:${SHA}" "$CTX"
+    docker build -f "$DF" --build-arg GIT_SHA="$GIT_SHA" \
+        --label "org.opencontainers.image.revision=$GIT_SHA" \
+        -t "${SRC}:latest" -t "${SRC}:${SHA}" "$CTX"
 else
-    docker build -t "${SRC}:latest" -t "${SRC}:${SHA}" "$CTX"
+    docker build --build-arg GIT_SHA="$GIT_SHA" \
+        --label "org.opencontainers.image.revision=$GIT_SHA" \
+        -t "${SRC}:latest" -t "${SRC}:${SHA}" "$CTX"
 fi
 docker push "${SRC}:latest"
 docker push "${SRC}:${SHA}"

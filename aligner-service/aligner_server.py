@@ -568,6 +568,15 @@ class Handler(BaseHTTPRequestHandler):
             # kein animierter Fake, sondern: aktiv seit Xs, letzte CLI-Zeile,
             # ggml-Progress % (falls die CLI es ausgibt).
             self._send(200, _job_snapshot())
+        elif self.path == "/version":
+            # Build-Version (Change 134): Git-Commit-SHA des laufenden Images
+            # aus dem Build-Arg GIT_SHA (ci_smart_build.sh) — "dev" bei
+            # lokalen Builds. Zusätzlich im Docker-Label
+            # org.opencontainers.image.revision.
+            import os
+
+            commit = os.environ.get("GIT_SHA", "dev").strip() or "dev"
+            self._send(200, {"service": "aligner", "commit": commit, "image_tag": commit})
         elif self.path == "/openapi.json":
             # OpenAPI-Spec für die Swagger-Doku (Dockerfile kopiert die
             # Datei nach /app/openapi.json — single source of truth).

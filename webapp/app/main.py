@@ -350,6 +350,20 @@ def health() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/version")
+def version() -> Dict[str, str]:
+    """Build-Version (Change 134): Git-Commit-SHA des laufenden Images.
+
+    Wert kommt aus dem Build-Arg GIT_SHA (scripts/ci_smart_build.sh) —
+    CI_COMMIT_SHORT_SHA im CI, "dev" bei lokalen Builds. Zusätzlich im
+    Docker-Label org.opencontainers.image.revision.
+    """
+    import os
+
+    commit = os.environ.get("GIT_SHA", "dev").strip() or "dev"
+    return {"service": "webapp", "commit": commit, "image_tag": commit}
+
+
 # ── DB-Fehler sichtbar machen (Change 067) ────────────────────────────────
 # Vorfall 2026-08-21: DB nicht erreichbar (QueuePool-Timeout/Lock) → die
 # Webapp lieferte still leere Listen/Nullwerte. Ab jetzt: SQLAlchemy-Fehler

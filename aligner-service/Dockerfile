@@ -23,6 +23,9 @@
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 # cuDNN 9 fuer den onnxruntime CUDA-EP (gleicher Fix wie diar-service:
 # cuda-runtime-Image bringt cublas/curand/cufft mit, aber NICHT
 # libcudnn.so.9). Vorher .list-Dateien entfernen (doppelte CUDA-Repo-

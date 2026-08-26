@@ -4,6 +4,9 @@
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 LABEL maintainer="PolySchnack"
 LABEL description="Whisper large-v3 transcription service (faster-whisper, GPU/CUDA + CPU-Fallback)"
 

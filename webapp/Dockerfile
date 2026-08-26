@@ -19,6 +19,9 @@ RUN npm run build
 # --------------------------------------------------------------------------- #
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
 WORKDIR /app
 
 # Resolve Python deps first for layer caching

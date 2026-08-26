@@ -43,6 +43,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(router)
+
+    @app.get("/api/version")
+    def version() -> dict:
+        """Build-Version (Change 134): Git-Commit-SHA des laufenden Images."""
+        import os
+
+        commit = os.environ.get("GIT_SHA", "dev").strip() or "dev"
+        return {"service": "asr", "commit": commit, "image_tag": commit}
+
     return app
 
 
