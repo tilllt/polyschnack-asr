@@ -102,6 +102,32 @@ describe("resegmentByDuration", () => {
     expect(out[1].speaker).toBe("SPEAKER_02");
   });
 
+  it("Change 140: Desync (Wörter ≠ Text) verliert KEINEN Text", () => {
+    // Segment 0–12 s: Text ist VIEL länger als der Wort-Join (Aligner-
+    // Wörter decken den Text nicht ab — User-Befund ec98bfdf). Die
+    // Bucket-Texte partitionieren den Segment-Text verlustfrei; kein Wort
+    // wird an einer Bucket-Grenze getrennt.
+    const words: { word: string; start: number; end: number }[] = [];
+    for (let i = 0; i < 6; i++) words.push({ word: `w${i}`, start: i * 2, end: i * 2 + 2 });
+    const input = [{
+      start: 0,
+      end: 12,
+      text: "eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf",
+      words,
+    }];
+
+    const out = resegmentByDuration(input, 4);
+    expect(out.length).toBeGreaterThan(1);
+    const joined = out.map((s) => s.text).join(" ");
+    // Gesamttext exakt erhalten (alle 12 Wörter)
+    expect(joined).toBe(input[0].text);
+    // Kein Bucket endet mitten in einem Wort (Wortgrenzen-Snap)
+    for (const s of out) {
+      const t = s.text ?? "";
+      expect(t.startsWith(" ") || t.length === 0 || t[0] !== " ").toBe(true);
+    }
+  });
+
   it("gibt Segmente ohne Wörter unverändert zurück", () => {
     const plain = [{ start: 0, end: 5, text: "nur text" }];
     expect(resegmentByDuration(plain, 2)).toEqual(plain);

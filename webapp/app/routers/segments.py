@@ -30,25 +30,35 @@ class SpeakerRename(BaseModel):
 
 
 def _speaker_key(s: Any) -> int | None:
-    """Change 138: Sprecher-Nummer strikt extrahieren — oder None (kein Match).
+    """Change 138/140: Sprecher-Nummer SAUBER und VOLLSTÄNDIG parsen.
 
-    Tolerantes Matching für den Speaker-Rename: ``SPEAKER_01``, ``SPEAKER_1``,
-    „01", „1", „speaker_1" und Buchstaben (A→0) bezeichnen denselben
-    Sprecher (Diarization-Server liefern je nach Backend unterschiedliche
-    Formate — exakter Vergleich gab 400 „SPEAKER_01 not found"). Im
-    Gegensatz zu ``diarize._normalise_speaker`` KEIN Fallback auf
-    SPEAKER_00: leere/unbekannte Werte liefern None und matchen nie.
+    Die Diarization liefert `SPEAKER_01` usw. (die GUI zeigt „01" als
+    `speaker.replace("SPEAKER_", "")`). Der Zusammenhang ist bekannt —
+    kein Substring-Suchen: Die Nummer wird vollständig geparst, damit
+    „1" NIE „SPEAKER_11" matcht.
+
+    Verstanden werden:
+      - `SPEAKER_01` / `SPEAKER_1` / `speaker_1`  → Präfix + KOMPLETTE
+        Ziffernfolge (01 und 1 = derselbe Sprecher 1)
+      - `01` / `1`                               → nackte Zahl
+      - `B` (einzelner Buchstabe A–Z)            → 0–25
+    Alles andere (leer, `SPEAKER_A`, `SPEAKER_1X`, „???") → None = kein
+    Match (kein falsches Umbenennen).
     """
     if s is None:
         return None
     t = str(s).strip().upper()
     if not t:
         return None
-    m = re.search(r"(\d{1,2})", t)
-    if m:
-        return int(m.group(1))
-    if "A" <= t[0] <= "Z":
-        return ord(t[0]) - ord("A")
+    if t.startswith("SPEAKER_"):
+        digits = t[len("SPEAKER_"):]
+        if digits.isdigit():
+            return int(digits)
+        return None
+    if t.isdigit():
+        return int(t)
+    if len(t) == 1 and "A" <= t <= "Z":
+        return ord(t) - ord("A")
     return None
 
 
@@ -250,6 +260,37 @@ def _distribute_words(
         }
         for i, w in enumerate(new_words_list)
     ]
+
+
+def reconcile_words_to_text(
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Change 140 (Wurzel-Fix): Text/Wort-Invariante ERZWINGEN.
+
+    Nach jeder Verarbeitungsphase muss gelten:
+    ``" ".join(seg.words[].word) == seg.text`` — sonst werden Teile der
+    Transkription „verschluckt" oder erfunden (User-Befund ec98bfdf:
+    8/28 Segmente mit Desync; Export und Anzeige wichen ab).
+
+    Ursache des Desyncs: Der Forced-Aligner ordnet Wörter NUR nach
+    Startzeit zu (apply_aligned_words) — weichen die Zeitbasen ab oder
+    alignt eine Gruppe nur teilweise, werden Wörter verworfen (Text ⊃
+    Wörter) oder aus Nachbar-Chunks zugeordnet (Wörter ⊃ Text).
+
+    Heilung: Die Wortliste wird per LCS an den Segment-Text angeglichen
+    (_align_words, Change 010) — unveränderte Wörter behalten ihre
+    (Aligner-)Zeiten, fehlende Text-Wörter werden interpoliert,
+    Fremdwörter entfernt. Der TEXT ist unantastbar: nichts geht verloren.
+    """
+    for s in segments:
+        words = s.get("words")
+        text = (s.get("text") or "").strip()
+        if not words or not text:
+            continue
+        seg_start = float(s.get("start") or 0.0)
+        seg_end = float(s.get("end") or seg_start + 1.0)
+        s["words"] = _align_words(words, text, seg_start, seg_end)
+    return segments
 
 
 @router.post("/recordings/{rid}/speaker-rename")

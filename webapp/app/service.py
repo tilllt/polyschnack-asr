@@ -1010,6 +1010,14 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
         baseline_segments = segments
         segments = apply_aligned_words(segments, all_aligned_words, 0.0)
         segments = restore_override_words(baseline_segments, segments)
+        # Change 140 (Wurzel-Fix): Text/Wort-Invariante erzwingen — die
+        # Aligner-Wörter werden per LCS an den Segment-Text angeglichen
+        # (nichts wird verschluckt, keine Fremdwörter; unveränderte Wörter
+        # behalten ihre Zeiten). User-Befund ec98bfdf: 8/28 Segmente
+        # desynct → Export/Anzeige unvollständig.
+        from .routers.segments import reconcile_words_to_text
+
+        segments = reconcile_words_to_text(segments)
         aligned_any = True
 
     if aligned_any:
@@ -2375,6 +2383,43 @@ def to_txt(text: str) -> str:
     return text.strip() + "\n"
 
 
+def _bucket_text(
+    bucket_words: List[Dict[str, Any]],
+    seg_text: Optional[str],
+    seg_start: float,
+    seg_end: float,
+    c0: int,
+    is_last: bool,
+) -> tuple[str, int]:
+    """Change 140: Bucket-Text OHNE Textverlust.
+
+    Rückgabe ``(text, next_c0)`` — ``next_c0`` = Zeichen-Start des
+    Folgebuckets (nach der Wortgrenze), nur im Desync-Pfad relevant.
+
+    Normal: Wort-Join (wie bisher). Weichen die Wörter vom Segment-Text ab
+    (Desync — Aligner-Wörter decken den Text nicht ab, User-Befund
+    ec98bfdf: Export kürzer als das Transkript), wird der Segment-Text
+    proportional über die Bucket-Zeiten verteilt. ``c0`` ist der Zeichen-
+    Start (vom vorherigen Bucket übergeben); der LETZTE Bucket bekommt den
+    Rest bis zum Text-Ende. c1 wird auf die letzte Wortgrenze VOR der
+    proportionalen Position gerundet — kein Wort wird an einer
+    Bucket-Grenze getrennt; der Folgebucket beginnt bei c1+1 (lückenlos).
+    """
+    word_text = " ".join(str(w.get("word") or "") for w in bucket_words).strip()
+    st = (seg_text or "").strip()
+    if not st or word_text == st:
+        return word_text, 0
+    dur = max(seg_end - seg_start, 1e-6)
+    be = float(bucket_words[-1].get("end") or bucket_words[0].get("start") or seg_start)
+    c1 = len(st) if is_last else int(len(st) * max(be - seg_start, 0.0) / dur)
+    if not is_last:
+        sp = st.rfind(" ", c0, c1)
+        if sp > c0:
+            c1 = sp
+    next_c0 = c1 + 1 if (not is_last and c1 < len(st) and st[c1] == " ") else c1
+    return st[c0:c1].strip(), next_c0
+
+
 def resegment_by_duration(
     segments: List[Dict[str, Any]],
     max_duration_s: float,
@@ -2399,42 +2444,32 @@ def resegment_by_duration(
       Markierung bei Grenz-Drag/Insert/Delete/Split) werden NICHT
       aufgeteilt — sie wandern unverändert in die Ausgabe. Nur
       unmarkierte Segmente werden nach max_duration_s zerlegt.
+    - Change 140 (Desync-Schutz): Weichen die Wörter vom Segment-Text ab
+      (Aligner-Wörter decken den Text nicht ab), wird der Segment-Text
+      proportional über die Buckets verteilt — der Export verliert nie
+      Text (User-Befund ec98bfdf).
     """
     if not segments or max_duration_s <= 0:
         return list(segments)
 
     out: List[Dict[str, Any]] = []
-    cur: List[Dict[str, Any]] = []
-
-    def flush() -> None:
-        if not cur:
-            return
-        start = float(cur[0].get("start") or 0.0)
-        end = float(cur[-1].get("end") or start)
-        speaker = cur[0].get("_speaker", "")
-        text = " ".join(str(x.get("word") or "") for x in cur).strip()
-        seg: Dict[str, Any] = {
-            "start": start,
-            "end": end,
-            "text": text,
-            "words": [{k: v for k, v in x.items() if k != "_speaker"} for x in cur],
-        }
-        if speaker:
-            seg["speaker"] = speaker
-        out.append(seg)
-        cur.clear()
 
     for seg in segments:
         if seg.get("_manual") is True:
-            flush()  # offenen Bucket vor dem manuellen Segment schließen
             out.append(seg)  # Original-Dict unverändert übernehmen
             continue
         if not seg.get("words"):
             # Keine Wort-Timestamps (kein Karaoke): nicht teilbar → Original.
-            flush()
             out.append(seg)
             continue
+        seg_text = (seg.get("text") or "").strip()
+        seg_start = float(seg.get("start") or 0.0)
+        seg_end = float(seg.get("end") or seg_start)
         speaker = seg.get("speaker") or ""
+
+        # Buckets für DIESES Segment sammeln (Grenzen aus den Wörtern).
+        buckets: List[List[Dict[str, Any]]] = []
+        cur: List[Dict[str, Any]] = []
         for w in seg.get("words") or []:
             item = dict(w)
             item["_speaker"] = speaker
@@ -2446,9 +2481,31 @@ def resegment_by_duration(
                 overflow = (we - first_s) > max_duration_s
                 speaker_change = item.get("_speaker", "") != cur_speaker
                 if overflow or speaker_change:
-                    flush()
+                    buckets.append(cur)
+                    cur = []
             cur.append(item)
-    flush()
+        if cur:
+            buckets.append(cur)
+
+        # Texte zuteilen (Change 140: verlustfrei, auch bei Desync).
+        c0 = 0
+        for i, b in enumerate(buckets):
+            start = float(b[0].get("start") or seg_start)
+            end = float(b[-1].get("end") or start)
+            spk = b[0].get("_speaker", "")
+            is_last = i == len(buckets) - 1
+            text, next_c0 = _bucket_text(b, seg_text, seg_start, seg_end, c0, is_last)
+            if not is_last:
+                c0 = next_c0
+            seg_out: Dict[str, Any] = {
+                "start": start,
+                "end": end,
+                "text": text,
+                "words": [{k: v for k, v in x.items() if k != "_speaker"} for x in b],
+            }
+            if spk:
+                seg_out["speaker"] = spk
+            out.append(seg_out)
     return out
 
 

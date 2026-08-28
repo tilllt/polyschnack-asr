@@ -368,6 +368,17 @@ def update_result(
     if duration_s is not None:
         rec.duration_s = duration_s
     rec.language = language
+    # Change 140 (Wurzel-Fix): Text/Wort-Invariante als Sicherheitsnetz —
+    # bevor das Ergebnis persistiert wird, werden die Wörter an die
+    # Segment-Texte angeglichen (LCS). NIE den Job-Abschluss brechen; bei
+    # Fehlern bleibt der unveränderte Stand (der Export-Schutz fängt es ab).
+    if status == "done" and segments:
+        try:
+            from .routers.segments import reconcile_words_to_text
+
+            segments = reconcile_words_to_text(segments)
+        except Exception:
+            log.warning("update_result: reconcile_words_to_text übersprungen (rec_id=%s)", rec_id, exc_info=True)
     rec.segments = segments
     # Change 009: neue ASR-Segmente (Transcribe/Retranscribe) heben die
     # manuelle Aufteilung auf — Auto-Aufteilung gilt wieder.

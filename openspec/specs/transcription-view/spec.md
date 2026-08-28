@@ -208,12 +208,12 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
   `POST /api/recordings/{rid}/speaker-rename` (`{from_speaker, to_speaker}`)
   ersetzt das Feld in ALLEN Segmenten (SRT/VTT/Exporte automatisch konsistent);
   400 wenn `from` nicht existiert.
-- **Tolerantes Matching (Change 138):** `from_speaker` wird über die
+- **Tolerantes Matching (Change 138/140):** `from_speaker` wird über die
   Sprecher-Nummer verglichen (`_speaker_key`) — `SPEAKER_01`, `SPEAKER_1`,
-  `01`, `1`, `speaker_1` und Buchstaben (A→0) bezeichnen denselben Sprecher
-  (Diar-Server liefern je nach Backend unterschiedliche Formate; der exakte
-  Vergleich gab sonst 400 „SPEAKER_01 not found"). Ohne Nummer/Buchstabe
-  (leer/unbekannt) → 400; Segmente ohne speaker-Feld matchen nie.
+  `01`, `1`, `speaker_1` und Buchstaben (A→0) bezeichnen denselben Sprecher.
+  Die Nummer wird VOLLSTÄNDIG geparst (kein Substring): „1" matcht nie
+  „SPEAKER_11"; kaputte Labels (SPEAKER_A, SPEAKER_1X) matchen nie
+  (→ 400). Segmente ohne speaker-Feld matchen nie.
 - **Erzwungener Sync (Change 139):** Beim Speichern eines Text-Edits wird
   die Anzeige SOFORT auf den lokalen Edit-Stand gesetzt (optimistisches
   `onEdited` VOR dem Server-Write, inkl. neu gebauter Wortliste
@@ -223,6 +223,14 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
   sind damit immer identisch (kein „Edit verlassen → alte Version" mehr).
   Bei Server-Fehler: Rollback auf den Stand vor dem Edit + sichtbarer
   Fehler-Toast.
+- **Text/Wort-Invariante (Change 140):** Nach jeder Verarbeitungsphase gilt
+  `" ".join(seg.words[].word) == seg.text` (für Segmente mit Wörtern):
+  `reconcile_words_to_text` gleicht die Wortliste per LCS an den
+  Segment-Text an (unveränderte Wörter behalten ihre Zeiten, fehlende
+  Text-Wörter werden interpoliert, Fremdwörter entfernt; der Text ist
+  unantastbar). Aufgerufen in der Align-Phase und als Sicherheitsnetz beim
+  Job-Abschluss. Der Export (`resegment_by_duration`) verliert zusätzlich
+  nie Text (proportionale Verteilung mit Wortgrenzen bei Desync).
 - **Architektur:** `SegmentList.tsx` (Edit-Textarea, Speaker-Dropdown,
   Rename-Input), `app/routers/segments.py` (update_segment, rename_speaker).
 

@@ -90,6 +90,47 @@ def test_resegment_splits_by_duration():
         assert b["start"] == pytest.approx(a["end"])
 
 
+def test_resegment_desync_keeps_full_text():
+    """Change 140 (User-Befund ec98bfdf): Weichen die Wörter vom Segment-
+    Text ab (Aligner-Wörter decken den Text nicht ab), verteilt der Export
+    den Segment-Text proportional über die Buckets — der Gesamttext bleibt
+    EXAKT erhalten (vorher ging der nicht-abgedeckte Text verloren)."""
+    from app.service import resegment_by_duration
+
+    # Segment 0–10 s, Text hat 3 Sätze — die Wörter decken nur „abc" ab.
+    seg = {
+        "start": 0.0,
+        "end": 10.0,
+        "text": "abc def ghi",
+        "words": [
+            {"word": "abc", "start": 0.0, "end": 10.0},
+        ],
+    }
+    out = resegment_by_duration([seg], 4)
+    assert len(out) == 1  # ein Wort → ein Bucket (Mindest-1-Wort-Regel)
+    assert out[0]["text"] == "abc def ghi"  # voller Text, nichts verloren
+
+
+def test_resegment_desync_multi_bucket_keeps_full_text():
+    """Mehrere Buckets bei Desync: die Bucket-Texte partitionieren den
+    Segment-Text verlustfrei (proportional + letzter Bucket bekommt den
+    Rest)."""
+    from app.service import resegment_by_duration
+
+    # 6 Wörter à 2 s (0–12 s), Text ist LÄNGER als der Wort-Join.
+    seg = {
+        "start": 0.0,
+        "end": 12.0,
+        "text": "eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf",
+        "words": [{"word": f"w{i}", "start": float(i * 2), "end": float(i * 2 + 2)} for i in range(6)],
+    }
+    out = resegment_by_duration([seg], 4)
+    assert len(out) >= 2
+    joined = " ".join(s["text"] for s in out)
+    # Gesamttext exakt erhalten (alle 12 Wörter des Segment-Texts)
+    assert joined == seg["text"]
+
+
 def test_resegment_speaker_boundary():
     from app.service import resegment_by_duration
 

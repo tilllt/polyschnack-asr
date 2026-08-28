@@ -182,6 +182,71 @@ def test_rename_speaker_unknown_number_still_400(client):
     assert r.status_code == 400
 
 
+# ── Change 140: sauberes, vollständiges Parsen (kein Substring-Match) ──
+
+
+def test_rename_speaker_one_never_matches_eleven(client):
+    """„SPEAKER_1" (Sprecher 1) darf NIE „SPEAKER_11"-Segmente treffen —
+    die Nummer wird vollständig geparst (kein Substring „1" in „11")."""
+    from sqlmodel import Session
+
+    from app import db as db_module
+
+    # Segmente mit SPEAKER_00 + SPEAKER_01 + SPEAKER_11 anlegen (tiefe Kopie!)
+    import json as _json
+
+    with Session(db_module.engine) as s:
+        from app.models import Recording
+
+        rec = s.get(Recording, 9)
+        segs = _json.loads(_json.dumps(rec.segments or []))
+        segs[2]["speaker"] = "SPEAKER_11"  # text „c" → Sprecher 11
+        rec.segments = segs
+        s.add(rec)
+        s.commit()
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "SPEAKER_1", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 1  # NUR der SPEAKER_01-Block (text „b")
+    renamed = [s["text"] for s in r.json()["segments"] if s["speaker"] == "Mutter"]
+    assert renamed == ["b"]
+    # SPEAKER_11 bleibt unangetastet
+    sp11 = [s["speaker"] for s in r.json()["segments"] if s["text"] == "c"]
+    assert sp11 == ["SPEAKER_11"]
+
+
+def test_rename_speaker_broken_label_no_match(client):
+    """Kaputte Labels (SPEAKER_A, SPEAKER_1X) matchen NIE — kein falsches
+    Umbenennen über Substring- oder Buchstaben-Fallback."""
+    for bad in ("SPEAKER_A", "SPEAKER_1X"):
+        r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                        json={"from_speaker": bad, "to_speaker": "Anna"})
+        assert r.status_code == 400, f"{bad} hätte 400 geben müssen"
+
+
+def test_rename_speaker_naked_number_matches_only_own(client):
+    """Nackte „1" matcht SPEAKER_01 — aber nicht SPEAKER_11."""
+    from sqlmodel import Session
+
+    from app import db as db_module
+
+    import json as _json
+
+    with Session(db_module.engine) as s:
+        from app.models import Recording
+
+        rec = s.get(Recording, 9)
+        segs = _json.loads(_json.dumps(rec.segments or []))
+        segs[0]["speaker"] = "SPEAKER_11"
+        rec.segments = segs
+        s.add(rec)
+        s.commit()
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "1", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 1  # nur SPEAKER_01 (text „b")
+
+
 def test_rename_speaker_zero_matches_empty_speaker(client, monkeypatch):
     """Segmente OHNE speaker-Feld werden von 'SPEAKER_00' NICHT erfasst
     (kein stiller Fallback auf SPEAKER_00 beim Matching)."""

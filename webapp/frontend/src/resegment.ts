@@ -94,6 +94,39 @@ export function deriveSegments(
   return segments;
 }
 
+/** Change 140: Bucket-Text OHNE Textverlust (siehe Backend `_bucket_text`).
+ *  Rückgabe [text, nextC0]. Normal: Wort-Join. Weichen die Wörter vom
+ *  Segment-Text ab (Desync — Aligner-Wörter decken den Text nicht ab),
+ *  wird der Segment-Text proportional über die Bucket-Zeiten verteilt;
+ *  c1 auf der letzten Wortgrenze VOR der proportionalen Position → kein
+ *  Wort wird an einer Bucket-Grenze getrennt; der LETZTE Bucket bekommt
+ *  den Rest bis zum Text-Ende (Anzeige == Export, nie Textverlust). */
+function bucketText(
+  words: _W[],
+  segText: string,
+  segStart: number,
+  segEnd: number,
+  c0: number,
+  isLast: boolean,
+): [string, number] {
+  const wordText = words
+    .map((x) => (typeof x.word === "string" ? x.word : String(x.word ?? "")))
+    .join(" ")
+    .trim();
+  const st = (segText || "").trim();
+  if (!st || wordText === st) return [wordText, 0];
+  const dur = Math.max(segEnd - segStart, 1e-6);
+  const last = words[words.length - 1];
+  const be = typeof last.end === "number" ? last.end : (typeof words[0].start === "number" ? words[0].start : segStart);
+  let c1 = isLast ? st.length : Math.floor((st.length * Math.max(be - segStart, 0)) / dur);
+  if (!isLast) {
+    const sp = st.lastIndexOf(" ", Math.min(c1, st.length - 1));
+    if (sp > c0) c1 = sp;
+  }
+  const nextC0 = !isLast && c1 < st.length && st[c1] === " " ? c1 + 1 : c1;
+  return [st.slice(c0, c1).trim(), nextC0];
+}
+
 export function resegmentByDuration(
   segments: ResegmentInput,
   maxDurationS: number,
@@ -107,51 +140,29 @@ export function resegmentByDuration(
   // Ausgabe. Kurze unmarkierte Segmente bleiben als 1 Bucket mit
   // identischem Text erhalten; nur Riesen-Chunks (> Ziel) werden geteilt.
   const out: ResegSegment[] = [];
-  let cur: _W[] = [];
-  const flush = () => {
-    if (cur.length === 0) return;
-    const start = typeof cur[0].start === "number" ? cur[0].start : 0;
-    const last = cur[cur.length - 1];
-    const end = typeof last.end === "number" ? last.end : start;
-    const speaker = cur[0]._speaker ?? "";
-    const text = cur
-      .map((x) => (typeof x.word === "string" ? x.word : String(x.word ?? "")))
-      .join(" ")
-      .trim();
-    const seg: ResegSegment = {
-      start,
-      end,
-      text,
-      words: cur.map(({ _speaker: _sp, ...rest }) => rest as ResegWord),
-    };
-    if (speaker) seg.speaker = speaker;
-    out.push(seg);
-    cur = [];
-  };
 
   for (const seg of segments) {
-    const s = seg as { speaker?: unknown; words?: unknown; _manual?: unknown };
+    const s = seg as { speaker?: unknown; words?: unknown; _manual?: unknown; text?: unknown; start?: unknown; end?: unknown };
     if (s._manual === true) {
-      flush(); // offenen Bucket vor dem manuellen Segment schließen
       out.push(seg as ResegSegment); // Original-Objekt, exakt erhalten
       continue;
     }
-    const speaker = typeof s.speaker === "string" ? s.speaker : "";
     const segWords = Array.isArray(s.words) ? (s.words as _W[]) : [];
     if (segWords.length === 0) {
       // Keine Wort-Timestamps (kein Karaoke): Segment kann nicht geteilt
       // werden → Original unverändert übernehmen.
-      flush();
       out.push(seg as ResegSegment);
       continue;
     }
-    // Change 102: Bucket vor jedem neuen Segment schließen — die Bucket-
-    // Logik darf NIE über Segmentgrenzen hinweg sammeln. Vorher wurden
-    // kurze benachbarte unmarkierte Segmente zu EINEM verschmolzen
-    // (14 Wörter/1 Segment statt 2), wodurch Anzeige ≠ DB-Zustand war und
-    // Struktur-Ops (Split/Delete) + der Yjs-Autosave die Verschmelzung
-    // zurückspeicherten (PUT mit leerem text → 400, Datenverlust-Risiko).
-    flush();
+    const speaker = typeof s.speaker === "string" ? s.speaker : "";
+    const segText = typeof s.text === "string" ? s.text : "";
+    const segStart = typeof s.start === "number" ? s.start : 0;
+    const segEnd = typeof s.end === "number" ? s.end : segStart;
+
+    // Change 140: Buckets PRO Segment sammeln, dann Texte zuteilen
+    // (verlustfrei, auch bei Text/Wort-Desync).
+    const buckets: _W[][] = [];
+    let cur: _W[] = [];
     for (const w of segWords) {
       const item: _W = { ...w, _speaker: speaker };
       const ws = typeof w.start === "number" ? w.start : 0;
@@ -162,13 +173,34 @@ export function resegmentByDuration(
         const overflow = we - firstS > maxDurationS;
         const speakerChange = (item._speaker ?? "") !== curSpeaker;
         if (overflow || speakerChange) {
-          flush();
+          buckets.push(cur);
+          cur = [];
         }
       }
       cur.push(item);
     }
+    if (cur.length > 0) buckets.push(cur);
+
+    let c0 = 0;
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i];
+      const start = typeof b[0].start === "number" ? b[0].start : segStart;
+      const last = b[b.length - 1];
+      const end = typeof last.end === "number" ? last.end : start;
+      const spk = b[0]._speaker ?? "";
+      const isLast = i === buckets.length - 1;
+      const [text, nextC0] = bucketText(b, segText, segStart, segEnd, c0, isLast);
+      if (!isLast) c0 = nextC0;
+      const segOut: ResegSegment = {
+        start,
+        end,
+        text,
+        words: b.map(({ _speaker: _sp, ...rest }) => rest as ResegWord),
+      };
+      if (spk) segOut.speaker = spk;
+      out.push(segOut);
+    }
   }
-  flush();
   return out;
 }
 
