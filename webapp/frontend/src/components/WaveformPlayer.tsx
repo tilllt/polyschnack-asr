@@ -500,6 +500,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         const width = containerRef.current?.clientWidth ?? 800;
         const pps = timingPps(width, Math.max(tw.end - tw.start, 1e-3));
         ppsRef.current = pps;
+        // Change 142: Im Timing-Zoom sind die Balken (barWidth 2/gap 1) zu
+        // gestreckten Strichen mit Lücken entartet — man erkennt das Wort
+        // nicht mehr. Durchgehende Wellenform (barWidth 0 = gefüllte Kurve);
+        // setOptions VOR zoom, damit der Render die neuen Optionen nutzt.
+        try {
+          w.setOptions({ barWidth: 0, barGap: 0, barRadius: 0 });
+        } catch {
+          /* setOptions nicht verfügbar — Zoom läuft mit bisheriger Optik */
+        }
         w.zoom(pps);
         setTimingZoom(true);
         try {
@@ -509,6 +518,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         }
       } else {
         setTimingZoom(false);
+        // Change 142: zurück zur Balken-Optik (Kopfraum-Design).
+        try {
+          w.setOptions({ barWidth: 2, barGap: 1, barRadius: 2 });
+        } catch {
+          /* setOptions nicht verfügbar */
+        }
         doZoom(w, 0);
       }
     }, [ready, timingWord, doZoom]);
