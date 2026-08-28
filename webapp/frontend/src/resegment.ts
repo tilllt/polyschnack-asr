@@ -331,6 +331,15 @@ export function insertSegment(
  * ein Segment bleibt immer übrig. Ohne Wörter wird der Text-String einfach
  * angehängt (start/end des Nachbarsegments bleiben).
  */
+/**
+ * Change 144: Leere Segmente (kein Text zugewiesen durch die proportionale
+ * Anzeige-Verteilung bei langen Aufnahmen) vor einem PUT entfernen —
+ * sonst lehnt die Backend-Invariante mit „segment N: empty text" ab.
+ */
+export function cleanSegments<T extends { text?: string | null }>(segs: readonly T[]): T[] {
+  return segs.filter((s) => String(s.text ?? "").trim() !== "");
+}
+
 export function deleteSegment(
   segments: ResegmentInput,
   idx: number,

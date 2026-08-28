@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments, wordRangeToCharRange } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments, wordRangeToCharRange, cleanSegments } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -713,5 +713,18 @@ describe("Change 102: kurze unmarkierte Segmente werden NICHT verschmolzen", () 
     expect(out[1].text).toBe("Segment mit mehreren Wörtern");
     expect(out[2].text).toBe("Und hier kommt das zweite Segment");
     expect(out[0].speaker).toBe("SPEAKER_00");
+  });
+
+  it("cleanSegments (Change 144): entfernt leere Anzeige-Segmente vor dem PUT", () => {
+    const withEmpty = [
+      { start: 0, end: 5, text: "Hallo", words: [] },
+      { start: 5, end: 8, text: "   ", words: [] }, // Anzeige-Lücke ohne Text
+      { start: 8, end: 12, text: "Welt", words: [] },
+      { start: 12, end: 15, text: "", words: [] },
+    ];
+    const out = cleanSegments(withEmpty);
+    expect(out.length).toBe(2);
+    expect(out.map((s) => s.text)).toEqual(["Hallo", "Welt"]);
+    expect(cleanSegments(withEmpty)).not.toBe(withEmpty); // neues Array
   });
 });

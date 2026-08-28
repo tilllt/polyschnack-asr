@@ -15,7 +15,7 @@ import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { deriveSegments, deleteSegment, splitSegmentAtRange } from "../resegment";
+import { deriveSegments, deleteSegment, splitSegmentAtRange, cleanSegments } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { OptionsPanel, type ActionId } from "./OptionsPanel";
@@ -679,14 +679,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Fehler-Toast. PUT-Guard „letzter Drag gewinnt" (monotone Sequenz,
   // 007) bleibt für parallele PUTs. Die Drag-PREVIEW dagegen ist lokal in
   // SegmentList (dragPreview-State) — der Parent sieht sie nicht.
-  // Change 144: Leere Anzeige-Segmente (kein Text zugewiesen durch die
-  // proportionale Verteilung bei langen Aufnahmen) werden vor jedem PUT
-  // entfernt — sonst lehnt die Backend-Invariante mit „segment N: empty
-  // text" ab. Gilt für Delete, Split UND Grenzen-Verschieben.
-  function cleanSegments(segs: Segment[]): Segment[] {
-    return segs.filter((s) => String(s.text ?? "").trim() !== "");
-  }
-
+  // Change 144: Leere Anzeige-Segmente vor jedem PUT entfernen (siehe
+  // resegment.cleanSegments) — sonst lehnt die Backend-Invariante mit
+  // „segment N: empty text" ab. Gilt für Delete, Split UND Grenzen.
   async function handleBoundaryDragEnd(next: Segment[]) {
     if (!next || !r.uid) return;
     const cleaned = cleanSegments(next);

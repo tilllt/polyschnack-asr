@@ -7,7 +7,7 @@ import { updateSegment, renameSpeaker, replaceSegments } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
-import { moveBoundary, wordRangeToCharRange, rebuildWordsFromText, type ResegWord } from "../resegment";
+import { moveBoundary, wordRangeToCharRange, rebuildWordsFromText, cleanSegments, type ResegWord } from "../resegment";
 import { computeSplitPopover } from "../splitPosition";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -284,9 +284,10 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     } else {
       // Solo: ein PUT persistiert die Anzeige-Aufteilung inkl. neuer
       // Texte (segments_manual=True) — Server-Index-Problem entfällt.
+      // Change 144: leere Anzeige-Segmente vor dem PUT entfernen.
       setLocalTexts(changed);
       localPendingRef.current = true;
-      void replaceSegments(recordingId, changed, false).then((result) => {
+      void replaceSegments(recordingId, cleanSegments(changed), false).then((result) => {
         if (result && result.segments) onEdited?.(result.segments, result.text);
       });
     }
@@ -796,19 +797,26 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     const next = shown.map((s, i) =>
       i === idx ? { ...s, text: editText, words: rebuildWordsFromText(s, editText) } : s,
     );
-    const nextText = next.map((s) => s.text ?? "").join(" ");
-    setLocalTexts(next);
+    // Change 144: leere Anzeige-Segmente (kein Text) vor dem PUT entfernen
+    // — sonst lehnt die Backend-Invariante mit „segment N: empty text" ab.
+    // Anzeige, Cache und PUT nutzen das bereinigte Array.
+    const cleaned = cleanSegments(next);
+    if (cleaned.length === 0) {
+      setEditingIdx(null);
+      return;
+    }
+    setLocalTexts(cleaned);
     localPendingRef.current = true;
     // Optimistisch: Anzeige == Edit-Inhalt (manual=true, weil der volle
     // Listen-PUT die Anzeige-Aufteilung persistiert → eine Wahrheit).
-    onEdited?.(next, nextText, true);
+    onEdited?.(cleaned, cleaned.map((s) => s.text ?? "").join(" "), true);
     setEditingIdx(null);
     try {
       // Change 139: voller Listen-PUT statt PATCH — persistiert die ANZEIGE
       // als Wahrheit (segments_manual=true), atomar, ohne Index-Mapping.
       // createVersion=false = Autosave-Semantik (Version entsteht beim
       // Verlassen des Edit-Mode über setEditingActive, Change 068).
-      const result = await replaceSegments(recordingId, next, false);
+      const result = await replaceSegments(recordingId, cleaned, false);
       if (commitSeqRef.current !== seq) {
         // Change 084: ein neuerer Commit hat gewonnen — Antwort verwerfen,
         // die neuere Liste ist die Wahrheit.
