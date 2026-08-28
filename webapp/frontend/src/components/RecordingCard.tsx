@@ -710,13 +710,21 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Hintergrund, Rollback bei Fehler.
   async function persistSegmentList(next: Segment[]) {
     if (!r.uid) return;
+    // Change 144: Die Anzeige-Ableitung (proportionale Text-Verteilung)
+    // erzeugt bei langen Aufnahmen Zeitfenster ohne Text → leere
+    // Anzeige-Segmente. Der PUT validiert „kein leeres Segment" und lehnte
+    // ab („segment N: empty text"). Leere Segmente werden hier vor dem
+    // PUT entfernt — die Anzeige wird damit konsistent (keine leeren
+    // Zeilen), die DB behält ihre Invariante.
+    const cleaned = next.filter((s) => String(s.text ?? "").trim() !== "");
+    if (cleaned.length === 0) return; // alles leer — nichts zu speichern
     const seq = ++persistSeq.current;
     const prevSegments = segments;
     const prevText = recText ?? "";
     const prevManual = !!r.segments_manual;
-    handleEdited(next, next.map((s) => s.text).join(" "), true);
+    handleEdited(cleaned, cleaned.map((s) => s.text).join(" "), true);
     try {
-      const result = await replaceSegments(r.uid, next);
+      const result = await replaceSegments(r.uid, cleaned);
       if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
       handleEdited(result.segments, result.text, result.segments_manual);
       toast(t("boundary_saved"), "ok");
