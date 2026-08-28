@@ -151,7 +151,7 @@ def test_apply_aligned_words_ableitet_dauer_aus_folgewort():
     ws = out[0]["words"]
     assert ws[0]["end"] == pytest.approx(0.40)      # kleine Lücke → Folgewort
     assert ws[1]["end"] == pytest.approx(0.70)
-    cap = 0.45  # keine echten Dauern → median 0.3 → cap = 0.3*1.5
+    cap = 1.0  # harte Maximaldauer (User 2026-08-28)
     assert ws[2]["end"] == pytest.approx(0.70 + cap)  # Stille NICHT übernommen
     assert ws[3]["end"] == pytest.approx(5.00 + cap)  # letztes Wort: Cap
     assert ws[3]["end"] > ws[3]["start"]

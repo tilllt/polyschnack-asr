@@ -908,17 +908,9 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
     # Dauer aus dem Start des Folgeworts ableiten — aber NIE über eine
     # Stille-Lücke hinweg: nur wenn die Lücke klein ist (≤ 0.5 s), wird
     # sie als Wortdauer übernommen; bei langer Stille (Satz-Ende) endet
-    # das Wort nach einer typischen Wortdauer (Cap = Median der echten
-    # Dauern × 1.5, min. 0.3 s). Das letzte Wort der Datei bekommt
-    # ebenfalls die typische Dauer.
-    durations = [
-        float(w.get("end") or 0.0) - float(w.get("start") or 0.0)
-        for w in by_time
-        if (float(w.get("end") or 0.0) - float(w.get("start") or 0.0)) > 0.05
-    ]
-    durations.sort()
-    median_d = durations[len(durations) // 2] if durations else 0.3
-    cap = max(median_d * 1.5, 0.3)
+    # das Wort nach einer harten Maximaldauer von 1 s. Das letzte Wort
+    # der Datei bekommt ebenfalls diese Maximaldauer.
+    cap = 1.0
     for i in range(len(by_time) - 1):
         w = by_time[i]
         ws = float(w.get("start") or 0.0)
