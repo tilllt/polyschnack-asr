@@ -426,19 +426,33 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    mirror_one() {
+      local src="$1" ref="$2" dst="$3"
+      local digest=""
+      # Harbor kann einen Multi-Arch-INDEX liefern (docker-built amd64
+      # + evtl. arm64). Den amd64-Digest aus dem Index auflösen und per
+      # Digest pullen → lokaler Tag ist ein Plattform-Manifest (Push
+      # mit --platform scheitert sonst am Runner-Client).
+      if docker manifest inspect "${src}:${ref}" >/dev/null 2>&1; then
+        digest=$(docker manifest inspect "${src}:${ref}" | python3 -c "import json,sys; d=json.load(sys.stdin); ms=[m['digest'] for m in d.get('manifests') or [] if m.get('platform',{}).get('os')=='linux' and m.get('platform',{}).get('architecture')=='amd64']; print(ms[0] if ms else '')" 2>/dev/null || true)
+      fi
+      if [ -n "$digest" ]; then
+        docker pull "${src}@${digest}" >/dev/null 2>&1
+        docker tag "${src}@${digest}" "${dst}:${ref}"
+        echo "[mirror-ghcr] ${src##*/}:${ref} → amd64 ${digest:0:12}"
+      else
+        docker pull "${src}:${ref}" >/dev/null 2>&1
+        docker tag "${src}:${ref}" "${dst}:${ref}"
+      fi
+      docker push "${dst}:${ref}"
+    }
     for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
-      # crane copy: Registry→Registry ohne lokalen Speicher. SpiegelT NUR
-      # die gebaute Plattform (Harbor liefert Multi-Arch-Index; docker-
-      # Shim-Push bricht sonst mit "does not provide the specified
-      # platform" / "not all manifests available locally" ab).
-      crane copy --platform linux/amd64 "${src}:latest" "${dst}:latest"
-      # SHA-Tag nur spiegeln, wenn das Image in dieser Pipeline (oder fuer
-      # diesen SHA) gebaut wurde — seit Change 117 bauen nicht mehr alle
-      # Images bei jedem Push (changes-Filter).
-      if crane digest "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
-        crane copy --platform linux/amd64 "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
+      mirror_one "${src}" "latest" "${dst}"
+      # SHA-Tag nur spiegeln, wenn das Image fuer diesen SHA gebaut wurde
+      if docker manifest inspect "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
+        mirror_one "${src}" "${CI_COMMIT_SHORT_SHA}" "${dst}"
       else
         echo "[mirror-ghcr] kein SHA-Tag ${CI_COMMIT_SHORT_SHA} fuer ${src} — uebersprungen"
       fi
