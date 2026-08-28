@@ -301,7 +301,8 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
                         lambda session, rec_id, pct, note=None: None)
     monkeypatch.setattr(service_mod, "_compute_peaks", lambda b: None)
 
-    def boom(audio_path, num_speakers=None, min_duration_off=None, method=None):
+    def boom(audio_path, num_speakers=None, min_duration_off=None, method=None,
+             on_progress=None):
         raise DiarizationError(
             "gated",
             "Das Diarization-Modell ist lizenzgeschützt. "
