@@ -208,8 +208,9 @@ class Handler(BaseHTTPRequestHandler):
             # aus dem Build-Arg GIT_SHA (ci_smart_build.sh) — "dev" bei
             # lokalen Builds. Zusätzlich im Docker-Label
             # org.opencontainers.image.revision.
-            import os
-
+            # Fix (2026-08-28): `import os` hier im Funktionskörper machte
+            # `os` zur lokalen Variablen → UnboundLocalError im /health-Zweig
+            # (Z. 196). os ist bereits am Modulkopf importiert.
             commit = os.environ.get("GIT_SHA", "dev").strip() or "dev"
             self._send(200, {"service": "separator", "commit": commit, "image_tag": commit})
         else:
