@@ -62,6 +62,10 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
   (`hasConfidence`), sonst keine Färbung.
 - **Wort-Klick:** seekt zum Wort-Start (mit 280-ms-Doppelklick-Schutz; der
   Doppelklick öffnet den Edit-Modus statt Playback).
+- **Wort-Klick im Timing-Tab (Change 137):** Im Timing-Tab lädt der
+  Wort-Klick das Wort stattdessen in die Waveform-Detailansicht
+  (30 %-Zoom + Timing-Markierung, s. Req 11) — kein Doppelklick-Edit, da
+  der Timing-Tab read-only ist.
 - **Architektur:** `src/karaoke.ts` (activeWordIndex, confidenceTier,
   confidenceClass, hasConfidence), `SegmentList.tsx` (Wort-Spans).
 
@@ -267,6 +271,10 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
 - **Ausnahme:** Nur die Text-Edit-Operation (Req 7) baut Wörter NEU
   (gleichverteilt) — dokumentierter Trade-off, damit Karaoke nach Korrekturen
   funktioniert.
+- **Ausnahme 2 (Change 137):** Die Timing-Korrektur (Req 11) ändert gezielt
+  `start`/`end` genau EINES Wortes und setzt `override` — die
+  `flattenWords`-Invariante gilt weiterhin für Struktur-Operationen; die
+  Reihenfolge der Wörter bleibt per Clamp monoton (Lücken erlaubt).
 - **Architektur:** `src/resegment.ts`, `src/resegment.test.ts`,
   `app/routers/segments.py` (replace_segments: tiefe Kopie).
 
@@ -277,6 +285,74 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
   Segmentlänge ändern — in beliebiger Reihenfolge.
 - **Ergebnis:** flattenWords (wort|start|end über alle Segmente) ist vor und
   nach jeder Operation identisch; nur die Segment-Zuordnung ändert sich.
+
+### Req 11: Timing-Tab (Word-Timing manuell präzisieren)
+
+- **Ablauf:** Der Editor-Bereich der RecordingCard hat zwei Tabs:
+  „Transkription" (bestehender Text-Editor) und „Timing" (neu). Der
+  Timing-Tab zeigt eine read-only-Wortliste/Transkription plus eine
+  Waveform-Detailansicht. Klick auf ein Wort lädt das Wort in die Waveform.
+- **Zoom (30 %-Regel):** Die Waveform zoomt so auf das Wort, dass dessen
+  Wellenform ca. **30 % der sichtbaren Zeitspanne** belegt
+  (`pps = 0.3 * Containerbreite / Wortdauer`, geclampt auf
+  `MAX_TIMING_PPS`/fitPps); der Playhead springt zum Wortstart. Quelle für
+  Position/Länge ist das **letzte Alignment** (aktueller
+  `words[].start/end`-Stand in den Segmenten) — kein neuer Align-Lauf.
+- **Markierung:** Ein Overlay über der Waveform repräsentiert das Alignment
+  des geladenen Wortes: **Anfang, Ende, Länge** (Anzeige als Zeitcodes).
+  Zwei Drag-Handles (Start/Ende) verändern das Wort-Timing — die manuelle
+  Präzisierung überschreibt das automatische Alignment.
+- **Persistenz:** onDragEnd → `PATCH /api/recordings/{rid}/segments/{idx}/words/{word_idx}`
+  mit `{start, end}` (Auth, `ensure_access(write)`, Versions-Snapshot
+  `kind="edit"`). Das Wort bekommt `override=true`; die Segment-Grenzen
+  werden aus erstem/letztem Wort neu abgeleitet (Export/SRT/VTT konsistent).
+  Fehler → sichtbarer Toast + Anzeige-Rollback; Erfolg → Toast.
+- **Override entfernen:** „Reset"-Button am geladenen Wort löscht das
+  Override-Flag; das Wort behält seine aktuelle Zeit bis zum nächsten
+  Re-Align.
+- **Re-Align-Schutz (Override):** Ein Re-Align (Change 045/046) überschreibt
+  Wörter mit `override=true` nicht — ihre manuellen `start`/`end` werden nach
+  dem Align-Lauf wiederhergestellt (Index-Zuordnung je Segment; bei
+  abweichender Wortzahl/Textänderung wird der Override verworfen). Alle
+  anderen Wörter bekommen die frisch alignten Zeiten.
+- **Validierung:** `start < end`, Mindestdauer 20 ms, Monotonie gegen
+  Nachbarwörter (`start_i >= end_{i-1}`, `end_i <= start_{i+1}`, Lücken
+  erlaubt) — beim Drag wird geclampt, ungültige PATCHes liefern 400.
+- **Deaktivierte Edit-Funktionen:** Im Timing-Tab sind alle Edit-Funktionen
+  des Transkription-Tabs aus — kein Text-Edit, kein Sprecher-Edit/Rename,
+  keine Segmentgrenzen verschieben, kein +/−/Split, kein Re-Segmentieren.
+  Playback/Seek bleiben aktiv (Wort akustisch prüfen).
+- **Architektur:** `RecordingCard.tsx` (Tabs, TimingEditor-Integration),
+  `src/components/TimingEditor.tsx` (Wortliste, Marker-Overlay, Drag),
+  `WaveformPlayer.tsx` (Timing-Modus: pps-Zoom), `SegmentList.tsx`
+  (`readOnly`-Prop), `app/routers/segments.py` (PATCH word timing),
+  `app/service.py` (Re-Align-Merge, Change-078-Zuordnung).
+
+#### Scenario: Wort-Timing manuell korrigieren
+
+- **Akteure:** Besitzer der Aufnahme (aligniert, `words[].start/end` vorhanden).
+- **Eingaben:** Timing-Tab öffnen, Wort anklicken, Ende-Handle der Markierung
+  um ~150 ms nach rechts ziehen, loslassen.
+- **Ergebnis:** Waveform zeigt das Wort gezoomt (~30 % der Ansicht); die
+  Markierung wächst entsprechend; nach dem Loslassen Toast „gespeichert";
+  Wort hat `override=true`, Segment-Grenze (end) folgt dem letzten Wort;
+  SRT/VTT nutzen die neue Zeit; kein anderer Text/Sprecher ändert sich.
+
+#### Scenario: Override überlebt Re-Align
+
+- **Akteure:** Besitzer mit manuell korrigiertem Wort.
+- **Eingaben:** Re-Align starten, warten bis `alignment: done`.
+- **Ergebnis:** Das manuell korrigierte Wort behält seine start/end; alle
+  anderen Wörter des Recordings haben die frisch alignten Zeiten.
+
+#### Scenario: Timing-Tab blockiert Text-Edits
+
+- **Akteure:** Besitzer im Timing-Tab.
+- **Eingaben:** Doppelklick auf ein Wort/Segment, Klick auf Sprecher,
+  Grenz-Handle versuchen.
+- **Ergebnis:** Keine Edit-Interaktion reagiert (keine Textarea, kein
+  Speaker-Menü, kein Grenz-Drag); nur Wort-Klick, Playback, Seek und die
+  Timing-Markierung funktionieren.
 
 ## Bekannte Abweichungen (User-Befunde 2026-08-17 — Stand nach Fix 007)
 

@@ -1,6 +1,6 @@
 # Change 137: Word-Timing-Editor (Timing-Tab mit Waveform-Markierung)
 
-**Status:** Proposed
+**Status:** Archived (auf specs/transcription-view/spec.md angewendet, 2026-08-28)
 
 ## Problem
 
