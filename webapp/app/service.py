@@ -88,6 +88,56 @@ def _run_vad_mode(run) -> str:
     return "edges" if run.enable_vad else "off"
 
 
+def _probe_audio_duration(audio_bytes: bytes) -> Optional[float]:
+    """Change 146: Dauer der VERARBEITETEN Audio-Bytes via ffprobe
+    (Segment-Zeiten beziehen sich auf dieses Audio, nicht auf das
+    Original). None bei Fehlern — der Aufrufer lässt den Check aus."""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
+            tf.write(audio_bytes)
+            probe = tf.name
+        try:
+            r = sp.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=nk=1:nw=1", probe],
+                capture_output=True, timeout=30,
+            )
+            return float(r.stdout.decode().strip())
+        finally:
+            os.unlink(probe)
+    except Exception:
+        return None
+
+
+def _detect_truncated_asr(
+    segments: List[Dict[str, Any]],
+    duration: Optional[float],
+    audio_bytes: Optional[bytes] = None,
+    tolerance_s: float = 30.0,
+) -> Optional[str]:
+    """Change 146: Erkennt still abgerissene ASR-Streams. Das Backend
+    schließt die SSE-Verbindung bei Problemen OFT ohne error-Event —
+    unvollständige Ergebnisse wurden bisher als done gespeichert
+    (User-Befund: 90-min-Film → nur 26,6 min transkribiert).
+    Liefert eine Fehlermeldung, wenn das letzte Segment deutlich vor dem
+    Ende des verarbeiteten Audios stoppt; sonst None."""
+    if not segments:
+        return None
+    last_end = max(float(s.get("end") or 0) for s in segments)
+    if last_end <= 0:
+        return None
+    audio_total = duration
+    if not audio_total and audio_bytes:
+        audio_total = _probe_audio_duration(audio_bytes)
+    if not audio_total or last_end >= float(audio_total) - tolerance_s:
+        return None
+    return (
+        f"Transkription unvollständig: {int(last_end / 60)} von "
+        f"{int(float(audio_total) / 60)} min (ASR-Verbindung abgebrochen). "
+        f"Bitte erneut transkribieren."
+    )
+
+
 def _apply_vad(audio_bytes: bytes, mode: str) -> Tuple[bytes, Optional[Dict[str, Any]]]:
     """Change 114: VAD-Preprocessing nach Modus (off|edges|all).
 
@@ -2038,6 +2088,24 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         language = result["language"]
         segments = result["segments"]
         phase_times[f"asr:{backend}"] = (time.perf_counter() - _t_asr0) * 1000
+
+        # Change 146: Stiller Stream-Abbruch erkennen. Das Backend schließt
+        # die SSE-Verbindung bei Problemen im Audio-Fenster OFT ohne
+        # error-Event — bisher wurde ein unvollständiges Ergebnis still als
+        # done gespeichert (User-Befund: 90-min-Film → nur 26,6 min
+        # transkribiert, Status trotzdem done). Wenn das letzte Segment
+        # deutlich vor dem Ende des verarbeiteten Audios stoppt, wird der
+        # Job ehrlich als failed markiert (der Teil-Text bleibt gespeichert).
+        if segments and status == "done":
+            trunc_error = _detect_truncated_asr(segments, duration, audio_bytes)
+            if trunc_error:
+                log.warning(
+                    "ASR-Stream vorzeitig beendet: rec_id=%s last_end=%.1fs total=%.1fs (%d Segmente)",
+                    rec_id, max(float(s.get("end") or 0) for s in segments),
+                    float(duration) if duration else -1, len(segments),
+                )
+                error = trunc_error
+                status = "failed"
 
         # Cancel-Prüfung nach ASR: teuerste Phasen (Diar/Align) nicht starten
         if _cancelled(job, rec_id):
