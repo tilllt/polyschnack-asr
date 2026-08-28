@@ -10,7 +10,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchRecordings } from "./api";
-import { useDebouncedValue } from "./hooks";
+import { useDebouncedValue, detailEnabled, shouldPollDetail } from "./hooks";
 
 describe("useDebouncedValue", () => {
   beforeEach(() => {
@@ -98,5 +98,25 @@ describe("fetchRecordings — AbortSignal", () => {
       fetchRecordings("", {}, true, controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("detailEnabled / shouldPollDetail (Change 138)", () => {
+  it("detailEnabled: queued/processing/done aktiv, uploaded/failed/undefined nicht", () => {
+    expect(detailEnabled("queued")).toBe(true);
+    expect(detailEnabled("processing")).toBe(true);
+    expect(detailEnabled("done")).toBe(true);
+    expect(detailEnabled("uploaded")).toBe(false);
+    expect(detailEnabled("failed")).toBe(false);
+    expect(detailEnabled(undefined)).toBe(false);
+  });
+
+  it("shouldPollDetail: nur queued/processing pollen (done/uploaded/failed nicht)", () => {
+    expect(shouldPollDetail("queued")).toBe(true);
+    expect(shouldPollDetail("processing")).toBe(true);
+    expect(shouldPollDetail("done")).toBe(false);
+    expect(shouldPollDetail("uploaded")).toBe(false);
+    expect(shouldPollDetail("failed")).toBe(false);
+    expect(shouldPollDetail(undefined)).toBe(false);
   });
 });

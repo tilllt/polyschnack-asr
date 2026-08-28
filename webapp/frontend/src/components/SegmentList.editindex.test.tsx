@@ -14,6 +14,7 @@ vi.mock("../hooks/useYjsTranscription", () => ({
 vi.mock("../api", () => ({
   updateSegment: vi.fn(),
   renameSpeaker: vi.fn(),
+  replaceSegments: vi.fn(),
 }));
 vi.mock("./Toasts", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
@@ -21,7 +22,7 @@ import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { LocaleProvider } from "../useLocale";
 import { SegmentList } from "./SegmentList";
 import { deriveSegments } from "../resegment";
-import { updateSegment } from "../api";
+import { updateSegment, replaceSegments } from "../api";
 
 type W = { word: string; start: number; end: number };
 type Seg = { start: number; end: number; text: string; words: W[] };
@@ -37,7 +38,7 @@ const serverSegs: Seg[] = [
   { start: 0, end: 84, text: words.map((w) => w.word).join(" "), words },
 ];
 
-function renderList() {
+function renderList(onEdited?: (segs: never, text: string) => void) {
   const display = deriveSegments(serverSegs, 25) as unknown as Seg[];
   vi.mocked(useYjsTranscription).mockReturnValue({
     conn: null,
@@ -60,7 +61,7 @@ function renderList() {
         onSplitSegment={vi.fn()}
         recordingId="r1"
         onSeekTo={() => {}}
-        onEdited={() => {}}
+        onEdited={(onEdited as never) ?? (() => {})}
         onBoundaryDragEnd={() => {}}
         onSegmentDelete={vi.fn()}
       />
@@ -77,14 +78,16 @@ function typeInTextarea(ta: HTMLTextAreaElement, value: string) {
   fireEvent.input(ta, { target: { value } });
 }
 
-describe("SegmentList — Edit-Save Server-Index (Change 129)", () => {
+describe("SegmentList — Edit-Save Sync (Change 139, ersetzt 129-PATCH)", () => {
   beforeEach(() => {
     HTMLElement.prototype.scrollTo = vi.fn();
     vi.mocked(updateSegment).mockReset();
-    vi.mocked(updateSegment).mockResolvedValue({
-      segments: serverSegs,
-      text: serverSegs[0].text,
-    } as never);
+    vi.mocked(replaceSegments).mockReset();
+    vi.mocked(replaceSegments).mockImplementation(async (_rid, segs) => ({
+      segments: segs as never,
+      text: (segs as unknown as { text?: string }[]).map((s) => s.text ?? "").join(" "),
+      segments_manual: true,
+    } as never));
   });
 
   it("Anzeige teilt das Riesen-Segment in mehrere Buckets", () => {
@@ -93,12 +96,12 @@ describe("SegmentList — Edit-Save Server-Index (Change 129)", () => {
     expect(buckets.length).toBeGreaterThan(1);
   });
 
-  it("Edit im 2. Bucket patcht das SERVER-Segment 0 mit dem vollständigen Text", () => {
+  it("Edit persistiert die VOLLE Anzeige-Liste per PUT (kein PATCH mehr)", () => {
     const { container } = renderList();
     const buckets = container.querySelectorAll("[data-split-container]");
     const display = deriveSegments(serverSegs, 25) as unknown as Seg[];
 
-    // 2. Anzeige-Bucket (die Passage) doppelklicken → Edit-Box öffnet sich.
+    // 2. Anzeige-Bucket doppelklicken → Edit-Box öffnet sich.
     fireEvent.doubleClick(buckets[1]);
     const ta = container.querySelector("textarea");
     expect(ta).toBeTruthy();
@@ -108,17 +111,35 @@ describe("SegmentList — Edit-Save Server-Index (Change 129)", () => {
     typeInTextarea(ta as HTMLTextAreaElement, neu);
     fireEvent.keyDown(ta as HTMLTextAreaElement, { key: "Enter", ctrlKey: true });
 
-    // Erwartung: Server-Index 0 (nicht Anzeige-Index 1) + vollständiger
-    // Server-Segment-Text = alle Buckets, das editierte ersetzt.
-    const expected = [
-      display[0].text,
-      neu,
-      display[2].text,
-      display[3].text,
-    ].join(" ");
-    expect(vi.mocked(updateSegment)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateSegment).mock.calls[0][0]).toBe("r1");
-    expect(vi.mocked(updateSegment).mock.calls[0][1]).toBe(0); // Server-Index!
-    expect(vi.mocked(updateSegment).mock.calls[0][2]).toBe(expected);
+    // Change 139: voller Listen-PUT mit der ANZEIGE (editierter Bucket),
+    // createVersion=false — KEIN updateSegment-PATCH mit Index-Mapping.
+    expect(vi.mocked(updateSegment)).not.toHaveBeenCalled();
+    expect(vi.mocked(replaceSegments)).toHaveBeenCalledTimes(1);
+    const [rid, list, createVersion] = vi.mocked(replaceSegments).mock.calls[0];
+    expect(rid).toBe("r1");
+    expect(createVersion).toBe(false);
+    const sent = list as unknown as Seg[];
+    expect(sent[1].text).toBe(neu);
+    // Rest der Anzeige unverändert mitgeschickt
+    expect(sent[0].text).toBe(display[0].text);
+    expect(sent[2].text).toBe(display[2].text);
+  });
+
+  it("Anzeige == Edit-Inhalt SOFORT (onEdited optimistisch, noch vor dem PUT)", () => {
+    let captured: { segs: unknown; text: string } | null = null;
+    const onEdited = (segs: never, text: string) => { captured = { segs, text }; };
+    const { container } = renderList(onEdited);
+    const buckets = container.querySelectorAll("[data-split-container]");
+    fireEvent.doubleClick(buckets[1]);
+    const ta = container.querySelector("textarea");
+    if (!ta) return;
+    typeInTextarea(ta as HTMLTextAreaElement, "PASSAGE-NEU");
+    fireEvent.keyDown(ta as HTMLTextAreaElement, { key: "Enter", ctrlKey: true });
+
+    // Der Cache-Update kam SOFORT mit dem lokalen Stand (erzwungener Sync) —
+    // die Anzeige kann nie hinter dem Edit-Inhalt zurückbleiben.
+    expect(captured).not.toBeNull();
+    const segs = (captured as unknown as { segs: Seg[] }).segs;
+    expect(segs[1].text).toBe("PASSAGE-NEU");
   });
 });

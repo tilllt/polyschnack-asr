@@ -28,6 +28,10 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
 - **Lade-Indikator:** eigener Audio-Fetch (`readyFetch`) signalisiert echtes
   Lade-Ende; bis dahin Play-Button disabled + „Loading audio…" (`canplay`/
   `decode`/readyState sind im Peaks-Pfad unbrauchbar).
+- **Transkript nach done (Change 138):** `useRecordingDetail` ist zusätzlich
+  während `queued` aktiv (Poll 2 s bei queued/processing) — der Übergang
+  `queued → processing → done` wird mitgenommen; nach abgeschlossener
+  Transkription erscheint der Text in der offenen Karte ohne Reload.
 - **Architektur:** `src/components/WaveformPlayer.tsx`, `App.tsx`
   (Space-Handler), `src/components/RecordingCard.tsx` (currentTime-State,
   `handleTimeUpdate`).
@@ -204,6 +208,21 @@ mit dem Text einer einzelnen Aufnahme passiert, läuft in dieser Ansicht.
   `POST /api/recordings/{rid}/speaker-rename` (`{from_speaker, to_speaker}`)
   ersetzt das Feld in ALLEN Segmenten (SRT/VTT/Exporte automatisch konsistent);
   400 wenn `from` nicht existiert.
+- **Tolerantes Matching (Change 138):** `from_speaker` wird über die
+  Sprecher-Nummer verglichen (`_speaker_key`) — `SPEAKER_01`, `SPEAKER_1`,
+  `01`, `1`, `speaker_1` und Buchstaben (A→0) bezeichnen denselben Sprecher
+  (Diar-Server liefern je nach Backend unterschiedliche Formate; der exakte
+  Vergleich gab sonst 400 „SPEAKER_01 not found"). Ohne Nummer/Buchstabe
+  (leer/unbekannt) → 400; Segmente ohne speaker-Feld matchen nie.
+- **Erzwungener Sync (Change 139):** Beim Speichern eines Text-Edits wird
+  die Anzeige SOFORT auf den lokalen Edit-Stand gesetzt (optimistisches
+  `onEdited` VOR dem Server-Write, inkl. neu gebauter Wortliste
+  `rebuildWordsFromText` — gleichverteilt über die Segment-Zeit, ein
+  Re-Align verfeinert später). Persistiert wird die KOMPLETTE Anzeige-Liste
+  (voller Listen-PUT, `segments_manual=true`) — Anzeige, DB und Edit-Inhalt
+  sind damit immer identisch (kein „Edit verlassen → alte Version" mehr).
+  Bei Server-Fehler: Rollback auf den Stand vor dem Edit + sichtbarer
+  Fehler-Toast.
 - **Architektur:** `SegmentList.tsx` (Edit-Textarea, Speaker-Dropdown,
   Rename-Input), `app/routers/segments.py` (update_segment, rename_speaker).
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -26,6 +27,29 @@ class SegmentUpdate(BaseModel):
 class SpeakerRename(BaseModel):
     from_speaker: str
     to_speaker: str
+
+
+def _speaker_key(s: Any) -> int | None:
+    """Change 138: Sprecher-Nummer strikt extrahieren — oder None (kein Match).
+
+    Tolerantes Matching für den Speaker-Rename: ``SPEAKER_01``, ``SPEAKER_1``,
+    „01", „1", „speaker_1" und Buchstaben (A→0) bezeichnen denselben
+    Sprecher (Diarization-Server liefern je nach Backend unterschiedliche
+    Formate — exakter Vergleich gab 400 „SPEAKER_01 not found"). Im
+    Gegensatz zu ``diarize._normalise_speaker`` KEIN Fallback auf
+    SPEAKER_00: leere/unbekannte Werte liefern None und matchen nie.
+    """
+    if s is None:
+        return None
+    t = str(s).strip().upper()
+    if not t:
+        return None
+    m = re.search(r"(\d{1,2})", t)
+    if m:
+        return int(m.group(1))
+    if "A" <= t[0] <= "Z":
+        return ord(t[0]) - ord("A")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +283,15 @@ def rename_speaker(
         raise HTTPException(
             status_code=400, detail="from_speaker and to_speaker must not be empty"
         )
+    # Change 138: tolerantes Matching über die Sprecher-Nummer — Diar-Server
+    # liefern je nach Backend „SPEAKER_01"/„SPEAKER_1"/„01"/Buchstaben; der
+    # exakte ==-Vergleich gab sonst 400 trotz sichtbarem Namen in der GUI.
+    key = _speaker_key(from_speaker)
+    if key is None:
+        raise HTTPException(
+            status_code=400,
+            detail="from_speaker must contain a speaker number or letter",
+        )
 
     # Tiefe Kopie (In-Place-Mutation würde SQLAlchemy-Change-Erkennung umgehen)
     import json as _json
@@ -266,7 +299,7 @@ def rename_speaker(
     segments = _json.loads(_json.dumps(rec.segments or []))
     renamed = 0
     for s in segments:
-        if s.get("speaker") == from_speaker:
+        if _speaker_key(s.get("speaker")) == key:
             s["speaker"] = to_speaker
             renamed += 1
     if renamed == 0:

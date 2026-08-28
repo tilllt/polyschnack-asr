@@ -121,8 +121,98 @@ def test_rename_speaker_persists_after_reload(client):
 
 def test_rename_speaker_empty_names_400(client):
     r = client.post("/api/recordings/rec-rename-1/speaker-rename",
-                    json={"from_speaker": "", "to_speaker": "X"})
+                    json={"from_speaker": " ", "to_speaker": "Anna"})
     assert r.status_code == 400
-    r2 = client.post("/api/recordings/rec-rename-1/speaker-rename",
-                     json={"from_speaker": "SPEAKER_00", "to_speaker": "  "})
-    assert r2.status_code == 400
+
+
+# ── Change 138: tolerantes Matching (SPEAKER_01 ↔ SPEAKER_1 ↔ 01 ↔ 1) ──
+
+
+def test_rename_speaker_one_digit_matches(client):
+    """from_speaker 'SPEAKER_1' (einstellig) renamed 'SPEAKER_01'-Segmente —
+    exakter Vergleich gab vorher 400 („SPEAKER_01 not found")."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "SPEAKER_1", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["renamed"] == 1
+    seg_b = [s for s in body["segments"] if s["text"] == "b"][0]
+    assert seg_b["speaker"] == "Mutter"
+    # andere Segmente unangetastet
+    assert [s["speaker"] for s in body["segments"] if s["text"] != "b"] == [
+        "SPEAKER_00", "SPEAKER_00"]
+
+
+def test_rename_speaker_bare_number_matches(client):
+    """from_speaker '01' (ohne Präfix) matcht 'SPEAKER_01'."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "01", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 1
+
+
+def test_rename_speaker_case_insensitive(client):
+    """from_speaker 'speaker_01' (klein) matcht 'SPEAKER_01'."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "speaker_01", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 1
+
+
+def test_rename_speaker_letter_label_matches(client):
+    """Buchstabe 'B' → Sprecher 1 → matcht 'SPEAKER_01' (CrispASR-Format)."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "B", "to_speaker": "Mutter"})
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 1
+
+
+def test_rename_speaker_without_number_400(client):
+    """Kein Nummern-/Buchstaben-Key → klare 400 statt 'not found'."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "???", "to_speaker": "Anna"})
+    assert r.status_code == 400
+    assert "number or letter" in r.json()["detail"]
+
+
+def test_rename_speaker_unknown_number_still_400(client):
+    """Nummer, die in KEINEM Segment vorkommt → weiterhin 400 (ehrlich)."""
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "SPEAKER_07", "to_speaker": "Anna"})
+    assert r.status_code == 400
+
+
+def test_rename_speaker_zero_matches_empty_speaker(client, monkeypatch):
+    """Segmente OHNE speaker-Feld werden von 'SPEAKER_00' NICHT erfasst
+    (kein stiller Fallback auf SPEAKER_00 beim Matching)."""
+    from sqlmodel import Session
+
+    from app import db as db_module
+
+    client.post("/api/recordings/rec-rename-1/speaker-rename",
+                json={"from_speaker": "SPEAKER_00", "to_speaker": "Anna"})
+    # Alle drei Segmente umbenannt (00 matcht 00) — Baseline ok; jetzt
+    # Segmente ohne speaker bauen und prüfen, dass sie NICHT matchen:
+    with Session(db_module.engine) as s:
+        from app.models import Recording
+
+        rec = s.get(Recording, 9)
+        # Tiefe Kopie nötig — In-Place-Mutation der JSON-Liste umgeht die
+        # SQLAlchemy-Änderungserkennung (bekanntes Muster, s. segments.py).
+        import json as _json
+
+        segs = _json.loads(_json.dumps(rec.segments or []))
+        for seg in segs:
+            seg.pop("speaker", None)
+        rec.segments = segs
+        s.add(rec)
+        s.commit()
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "SPEAKER_00", "to_speaker": "Anna"})
+    assert r.status_code == 400  # kein Segment hat einen Speaker → kein Match
+
+
+def test_rename_speaker_empty_to_400(client):
+    r = client.post("/api/recordings/rec-rename-1/speaker-rename",
+                    json={"from_speaker": "SPEAKER_00", "to_speaker": "  "})
+    assert r.status_code == 400

@@ -18,6 +18,7 @@ import {
   type Recording,
   type RecordingSort,
   type RecordingSortDir,
+  type RecordingStatus,
   type Stats,
   type ModelStatus,
 } from "./api";
@@ -64,6 +65,20 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
 /** Change 059 — Voll-Datensatz EINER Aufnahme (Transkription + Peaks),
  *  nachgeladen sobald die Karte aufgeklappt ist. Cache pro uid; Polling
  *  nur während processing (Live-Streaming bleibt live). */
+
+/** Change 138: Detail-Fetch aktiv? — zusätzlich während `queued`, damit der
+ *  Übergang queued→processing→done mitgenommen wird (sonst blieb die Karte
+ *  nach abgeschlossener Transkription leer bis zum Reload). */
+export function detailEnabled(status: RecordingStatus | undefined): boolean {
+  return status === "done" || status === "processing" || status === "queued";
+}
+
+/** Change 138: Detail-Poll-Intervall? — 2 s bei queued/processing, sonst
+ *  false (done/uploaded/failed pollen nicht). */
+export function shouldPollDetail(status: RecordingStatus | undefined): boolean {
+  return status === "processing" || status === "queued";
+}
+
 export function useRecordingDetail(uid: string, enabled: boolean) {
   return useQuery<Recording, Error>({
     queryKey: ["recording-detail", uid],
@@ -71,7 +86,7 @@ export function useRecordingDetail(uid: string, enabled: boolean) {
     enabled,
     refetchInterval: (query) => {
       const d = query.state.data as Recording | undefined;
-      return d && d.status === "processing" ? 2000 : false;
+      return shouldPollDetail(d?.status) ? 2000 : false;
     },
   });
 }

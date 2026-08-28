@@ -51,6 +51,11 @@ vi.mock("../hooks", () => ({
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useNearViewport: () => ({ ref: { current: null }, near: true }),
   useRecordingDetail: vi.fn(() => ({ data: undefined, isLoading: false, isFetching: false })),
+  // Change 138: pure Helfer direkt (kein Mock nötig — konsistent mit der
+  // echten Logik, damit detailEnabled/useRecordingDetail-Aufrufe stimmen).
+  detailEnabled: (s: string | undefined) =>
+    s === "done" || s === "processing" || s === "queued",
+  shouldPollDetail: (s: string | undefined) => s === "processing" || s === "queued",
 }));
 
 vi.mock("@tanstack/react-query", () => ({

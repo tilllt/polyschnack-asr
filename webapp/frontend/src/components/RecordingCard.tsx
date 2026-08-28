@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
-import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail } from "../hooks";
+import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
@@ -463,6 +463,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
   const streamingSupported = streamingByBackend[feat.backend] ?? false;
 
+  // Change 138: native Punctuation je Backend (CrispASR/Whisper punktuieren
+  // + schreiben groß IM SERVER, immer) — Default ("" = ps-pk-onnx) kann es.
+  const nativePunctByBackend: Record<string, boolean> = { "": true };
+  for (const b of matrix) {
+    if (typeof b.native_punctuation === "boolean") {
+      nativePunctByBackend[b.backend] = b.native_punctuation;
+    }
+  }
+  const nativePunctuation = nativePunctByBackend[feat.backend] ?? true;
+
   async function handleStartTranscription(id: string) {
     try {
       await startTranscription(
@@ -635,7 +645,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Listenfelder (z. B. Test-Fixtures ohne lite).
   const detailQ = useRecordingDetail(
     r.uid,
-    !collapsed && (r.status === "done" || r.status === "processing"),
+    // Change 138: auch während `queued` aktiv (Transkribieren gestartet) —
+    // der Poll nimmt queued→processing→done mit, Text erscheint ohne Reload.
+    !collapsed && detailEnabled(r.status),
   );
   const detail = detailQ.data;
   const segments = detail?.segments ?? r.segments;
@@ -1373,6 +1385,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   backends={availableBackends}
                   streamingSupported={streamingSupported}
                   streamingByBackend={streamingByBackend}
+                  nativePunctuation={nativePunctuation}
                   flags={flags}
                   pp={{ templates, targets, endpoints, isOidc }}
                   action={action}

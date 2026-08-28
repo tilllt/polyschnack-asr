@@ -77,6 +77,12 @@ Formaten exportieren.
   Defaults (`POLYSCHNACK_DEFAULT_PUNCTUATION`, `POLYSCHNACK_DEFAULT_LLM_ENHANCE`)
   sind aus. Punctuation-Modus: `POLYSCHNACK_PUNCTUATION_MODE`
   (`off|local|llm`); `llm` und LLM-Enhance sind **paid** → nur registrierte User.
+- **Native Punctuation (Change 138):** Backends mit `native_punctuation`
+  (CrispASR-Familie, Whisper) punktuieren + schreiben groß IM ASR-Server
+  (residente Modelle) bei jedem Request — unabhängig vom Toggle. Die UI
+  markiert die Option dort als „aktiv (Server)" (Toggle gesperrt); der
+  Toggle steuert nur den LLM-Punct-Fallback für Backends ohne native
+  Fähigkeit (ONNX-Referenz).
 - **Ergebnis:** Text/Segmente werden nach der Erkennung nachbearbeitet;
   LLM-Ergebnisse als neue Version `kind="postprocess"`.
 

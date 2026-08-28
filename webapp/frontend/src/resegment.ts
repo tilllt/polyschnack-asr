@@ -24,6 +24,28 @@ export interface ResegWord {
   [k: string]: unknown;
 }
 
+/** Change 139: Wortliste aus einem (editierten) Text neu bauen — Wörter
+ *  gleichverteilt über die Segment-Zeit (Backend-Fallback-Muster
+ *  `_distribute_words`). Nötig, weil die Anzeige die Wort-Spans aus
+ *  `seg.words` rendert: Nach einem Text-Edit mit geänderter Wortzahl
+ *  zeigten die Spans sonst die ALTEN Wörter („Edit verlassen → alte
+ *  Version"). Ein späterer Re-Align verfeinert die Zeiten akustisch. */
+export function rebuildWordsFromText(
+  seg: { start?: number; end?: number },
+  text: string,
+): { word: string; start: number; end: number }[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const s0 = typeof seg.start === "number" ? seg.start : 0;
+  const s1 = typeof seg.end === "number" ? seg.end : s0 + Math.max(words.length, 1);
+  const dur = Math.max(s1 - s0, 0.1);
+  const step = dur / Math.max(words.length, 1);
+  return words.map((word, i) => ({
+    word,
+    start: Math.round((s0 + i * step) * 100) / 100,
+    end: Math.round((s0 + (i + 1) * step) * 100) / 100,
+  }));
+}
+
 export interface ResegSegment {
   start?: number;
   end?: number;

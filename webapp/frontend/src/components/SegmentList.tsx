@@ -7,7 +7,7 @@ import { updateSegment, renameSpeaker, replaceSegments } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
-import { moveBoundary, wordRangeToCharRange, type ResegWord } from "../resegment";
+import { moveBoundary, wordRangeToCharRange, rebuildWordsFromText, type ResegWord } from "../resegment";
 import { computeSplitPopover } from "../splitPosition";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -23,7 +23,7 @@ interface Props {
   activeIdx: number;
   onActiveChange: (idx: number) => void;
   recordingId?: string;
-  onEdited?: (segments: Segment[], text: string) => void;
+  onEdited?: (segments: Segment[], text: string, manual?: boolean) => void;
   currentTime?: number;
   /** Fix 2026-08-17: Play-Zustand — Karaoke-Vorlauf (KARAOKE_LEAD_S) gilt
    *  NUR während der Wiedergabe; pausiert/gestoppt rechnet exakt (Markierung
@@ -744,46 +744,12 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   }
 
   /**
-   * Change 129: Das editierte Anzeige-Stück auf das Server-Segment abbilden
-   * und dessen VOLLSTÄNDIGEN neuen Text rekonstruieren. Die Anzeige ist
-   * re-segmentiert (25-s-Default) — der Anzeige-Index ist ab dem ersten
-   * Split NICHT mehr der Server-Index; ein PATCH auf den Anzeige-Index
-   * überschrieb das falsche Server-Segment (Real-Fall 2026-08-25:
-   * 541 Zeichen verloren inkl. einer Passage im Teamtreffen).
+   * Change 139: Der Text-Edit persistiert die KOMPLETTE Anzeige-Liste
+   * (voller Listen-PUT, Change 125-Muster) — der Anzeige-Index ist bei
+   * Re-Segmentierung (25-s-Default) nicht der Server-Index, und die alte
+   * PATCH-Rekonstruktion (Change 129) desyncte bei Wortanzahl-Änderungen.
+   * Die Funktion ist entfernt; siehe handleSave.
    */
-  function resolveServerTarget(
-    base: readonly Segment[],
-    idx: number,
-    editText: string,
-  ): { serverIdx: number; fullText: string } {
-    const shownSeg = shown[idx];
-    // Keine Server-Basis oder keine Zeitangabe → direkter Index
-    // (Anzeige == Server, altes Verhalten).
-    if (!base.length || shownSeg?.start === undefined) {
-      return { serverIdx: idx, fullText: editText };
-    }
-    // Server-Segment finden, in dem das Anzeige-Stück zeitlich liegt.
-    let serverIdx = base.length - 1;
-    for (let j = 0; j < base.length; j++) {
-      const b = base[j];
-      if ((b.start ?? -Infinity) <= shownSeg.start && shownSeg.start < (b.end ?? Infinity)) {
-        serverIdx = j;
-        break;
-      }
-    }
-    const b = base[serverIdx];
-    // Alle Anzeige-Stücke desselben Server-Segments zusammenfügen — das
-    // editierte ersetzt seinen Teil; unveränderte Teile bleiben erhalten.
-    const parts: string[] = [];
-    for (let i = 0; i < shown.length; i++) {
-      const s = shown[i];
-      if (s.start === undefined) continue;
-      const inSeg = (b.start ?? -Infinity) <= s.start && s.start < (b.end ?? Infinity);
-      if (inSeg) parts.push(i === idx ? editText : (s.text ?? ""));
-    }
-    const fullText = parts.filter((p) => p.trim() !== "").join(" ") || editText;
-    return { serverIdx, fullText };
-  }
 
   async function handleSave(idx: number) {
     if (saving || !recordingId || !onEdited) return;
@@ -805,34 +771,54 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       return;
     }
     setSaving(true);
-    // Change 077: optimistisches Update VOR dem API-Call — die Anzeige
-    // zeigt den neuen Text sofort, `onEdited` (mit Server-Segments)
-    // bestätigt und ersetzt localTexts via Fingerprint-Guard.
-    setLocalTexts(shown.map((s, i) => (i === idx ? { ...s, text: editText } : s)));
+    // Change 139 (User-Befund Chrome/Android „Edit verlassen → alte
+    // Version"): ERZWUNGENER SYNC — die Anzeige wird SOFORT auf den lokalen
+    // Edit-Stand gesetzt (onEdited → Cache), noch VOR dem Server-Write.
+    // Zwei Ebenen (Edit-Inhalt vs. Anzeige) können so nie divergieren.
+    // Der alte PATCH-Pfad (Anzeige-Index → Server-Segment, Change 129)
+    // rekonstruierte den Server-Text über Anzeige-Teile und desyncte bei
+    // Wortanzahl-Änderungen (Bucket-Grenzen verschieben sich) → Anzeige
+    // kippte nach dem Edit-Ende zurück, obwohl der Server den Text hatte.
+    const prevShown = shown;
+    // Change 139: auch die WORDS neu bauen — die Anzeige rendert die
+    // Wort-Spans aus seg.words; ohne Neubau zeigten sie nach dem Edit die
+    // alten Wörter („Edit verlassen → alte Version").
+    const next = shown.map((s, i) =>
+      i === idx ? { ...s, text: editText, words: rebuildWordsFromText(s, editText) } : s,
+    );
+    const nextText = next.map((s) => s.text ?? "").join(" ");
+    setLocalTexts(next);
     localPendingRef.current = true;
+    // Optimistisch: Anzeige == Edit-Inhalt (manual=true, weil der volle
+    // Listen-PUT die Anzeige-Aufteilung persistiert → eine Wahrheit).
+    onEdited?.(next, nextText, true);
+    setEditingIdx(null);
     try {
-      // Change 129: Anzeige-Index → Server-Segment (Anzeige ist re-
-      // segmentiert) + vollständiger Segment-Text statt Teil-Text.
-      const { serverIdx, fullText } = resolveServerTarget(
-        persistBase ?? [],
-        idx,
-        editText,
-      );
-      const result = await updateSegment(recordingId, serverIdx, fullText);
+      // Change 139: voller Listen-PUT statt PATCH — persistiert die ANZEIGE
+      // als Wahrheit (segments_manual=true), atomar, ohne Index-Mapping.
+      // createVersion=false = Autosave-Semantik (Version entsteht beim
+      // Verlassen des Edit-Mode über setEditingActive, Change 068).
+      const result = await replaceSegments(recordingId, next, false);
       if (commitSeqRef.current !== seq) {
         // Change 084: ein neuerer Commit hat gewonnen — Antwort verwerfen,
-        // Edit schließen (die neuere Liste ist die Wahrheit).
-        setEditingIdx(null);
+        // die neuere Liste ist die Wahrheit.
         setLocalTexts(null);
         localPendingRef.current = false;
         return;
       }
-      onEdited(result.segments, result.text);
-      setEditingIdx(null);
+      // Server-Bestätigung (bis auf Normalisierung == next) → Anzeige bleibt
+      // beim Edit-Inhalt, Guard löst aus (Prop-Fingerprint == local).
+      if (result && result.segments) {
+        onEdited?.(result.segments, result.text, true);
+      }
     } catch {
-      // keep edit open on error, user can retry
-      setLocalTexts(null); // kein Fake-Erfolg: zurück zur Prop
+      // Change 139: kein stilles Zurückkippen — ehrlicher Rollback auf den
+      // Stand VOR dem Edit + sichtbarer Fehler (kein Fake-Erfolg, keine
+      // stillen Fehler). Der User sieht sofort, dass nicht gespeichert wurde.
+      setLocalTexts(null);
       localPendingRef.current = false;
+      onEdited?.(prevShown, prevShown.map((s) => s.text ?? "").join(" "));
+      toast(t("edit_save_error"), "err");
     } finally {
       setSaving(false);
     }

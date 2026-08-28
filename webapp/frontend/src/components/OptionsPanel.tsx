@@ -51,6 +51,12 @@ const TXT: Record<string, S> = {
   met_b: { de: "Methode B (foxnose)", en: "Method B (foxnose)", pt: "Método B (foxnose)" },
   met_c: { de: "Methode C (Energie)", en: "Method C (energy)", pt: "Método C (energia)" },
   opt_punct: { de: "Zeichensetzung", en: "Punctuation", pt: "Pontuação" },
+  // Change 138: Backend punktuiert nativ — Toggle ist ein No-Op.
+  punct_native_hint: {
+    de: "Aktiv (Server): Der ASR-Server setzt Satzzeichen und Groß-/Kleinschreibung automatisch — diese Option ist nicht nötig.",
+    en: "Active (server): The ASR server adds punctuation and capitalizes automatically — this option is not needed.",
+    pt: "Ativo (servidor): O servidor ASR adiciona pontuação e maiúsculas automaticamente — esta opção não é necessária.",
+  },
   opt_llmfix: { de: "ASR-Fehler korrigieren", en: "Fix ASR errors", pt: "Corrigir erros de ASR" },
   opt_template: { de: "Vorlage", en: "Template", pt: "Modelo de prompt" },
   opt_endpoint: { de: "KI-Server", en: "AI server", pt: "Servidor de IA" },
@@ -304,12 +310,13 @@ function Row({ id, label, help, dis, control }: {
   );
 }
 
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ on, onChange, title }: { on: boolean; onChange: (v: boolean) => void; title?: string }) {
   return (
     <input
       type="checkbox"
       checked={on}
       onChange={(e) => onChange(e.target.checked)}
+      title={title}
       className="accent-[#2ea043] w-[14px] h-[14px] cursor-pointer"
     />
   );
@@ -342,13 +349,17 @@ interface Props {
   backends: string[];
   streamingSupported?: boolean;
   streamingByBackend?: Record<string, boolean>;
+  /** Change 138: das GEWÄHLTE Backend punktuiert/großschreibt nativ im
+   *  Server (CrispASR-Familie, Whisper) → Punctuation-Toggle ehrlich
+   *  als „aktiv (Server)" markieren statt funktionslos. */
+  nativePunctuation?: boolean;
   flags?: { vad?: boolean; diarize?: boolean };
   pp?: PostProcessOptions;
   action: ActionId;
   onChange: (patch: Partial<FeatureValues>) => void;
 }
 
-export function OptionsPanel({ values, backends, streamingSupported, streamingByBackend, flags, pp, action, onChange }: Props) {
+export function OptionsPanel({ values, backends, streamingSupported, streamingByBackend, nativePunctuation = false, flags, pp, action, onChange }: Props) {
   const { lang } = useT();
   const [tab, setTab] = useState<"pre" | "spk" | "post">("pre");
   const oidc = pp?.isOidc ?? false;
@@ -559,8 +570,19 @@ export function OptionsPanel({ values, backends, streamingSupported, streamingBy
 
       {tab === "post" && (
         <div className="flex flex-col">
-          <Row id="punct" label={L(TXT.opt_punct, lang)} help="punct" dis={rowDis("post", "punct") || !oidc}
-            control={<Toggle on={values.punctuation} onChange={(v) => onChange({ punctuation: v })} />}
+          <Row id="punct" label={L(TXT.opt_punct, lang)} help="punct" dis={rowDis("post", "punct") || !oidc || nativePunctuation}
+            control={
+              // Change 138: punktuiert das gewählte Backend NATIV (CrispASR/
+              // Whisper), ist der Toggle ein No-Op → als „aktiv (Server)"
+              // markieren und sperren (kein funktionsloser Button).
+              <Toggle
+                on={nativePunctuation || values.punctuation}
+                onChange={(v) => {
+                  if (!nativePunctuation) onChange({ punctuation: v });
+                }}
+                title={nativePunctuation ? L(TXT.punct_native_hint, lang) : undefined}
+              />
+            }
           />
           <Row id="llmfix" label={L(TXT.opt_llmfix, lang)} help="llmfix" dis={rowDis("post", "llmfix") || !oidc}
             control={<Toggle on={values.llmEnhance} onChange={(v) => onChange({ llmEnhance: v })} />}

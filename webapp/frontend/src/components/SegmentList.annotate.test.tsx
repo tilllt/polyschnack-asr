@@ -44,9 +44,15 @@ vi.mock("../hooks/useYjsTranscription", () => ({
 vi.mock("../api", () => ({
   updateSegment: vi.fn(),
   renameSpeaker: vi.fn(),
+  // Change 139: Text-Edit persistiert jetzt die volle Anzeige-Liste (PUT).
+  replaceSegments: vi.fn(async (_rid: string, segs: never[]) => ({
+    segments: segs,
+    text: (segs as unknown as { text?: string }[]).map((s) => s.text ?? "").join(" "),
+    segments_manual: true,
+  })),
 }));
 
-import { updateSegment } from "../api";
+import { updateSegment, replaceSegments } from "../api";
 
 vi.mock("./Toasts", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
@@ -141,7 +147,7 @@ describe("SegmentList — Change 077 Fixes", () => {
     HTMLElement.prototype.scrollTo = vi.fn();
   });
 
-  it("Edit-Save zeigt den neuen Text SOFORT (optimistisches localTexts-Update)", async () => {
+  it("Edit-Save zeigt den neuen Text SOFORT (Anzeige == Edit-Inhalt, Change 139)", async () => {
     const onEdited = vi.fn();
     const { container } = renderList(undefined, { onEdited });
     const row = container.querySelector("[role=button]") as HTMLElement;
@@ -151,15 +157,24 @@ describe("SegmentList — Change 077 Fixes", () => {
     expect(ta).toBeTruthy();
     // Text ändern + speichern (Ctrl+Enter)
     fireEvent.change(ta, { target: { value: "Hallo Welt 2" } });
+    expect(ta.value).toBe("Hallo Welt 2"); // Debug: change wirkt?
     vi.mocked(updateSegment).mockResolvedValue({
       segments: [{ ...SEG, text: "Hallo Welt 2" }],
       text: "Hallo Welt 2",
     });
     fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+    await vi.waitFor(() => expect(vi.mocked(replaceSegments)).toHaveBeenCalled());
+    // Debug: Was geschah? (onEdited-Aufrufe, Fehlerpfad)
+    expect(onEdited).toHaveBeenCalled();
+    const first = onEdited.mock.calls[0]?.[0] as { text: string }[] | undefined;
+    expect(first?.[0]?.text).toBe("Hallo Welt 2");
     await vi.waitFor(() => {
-      // Anzeige (Span) zeigt sofort den neuen Text — ohne auf die
-      // API-Antwort zu warten (der alte Bug: alter Text bis Roundtrip).
-      expect(screen.getByText("Hallo Welt 2")).toBeTruthy();
+      // Change 139: Edit wird SOFORT geschlossen, die ANZEIGE (Segment-Text
+      // als Wort-Spans) zeigt den neuen Text — ohne auf die API-Antwort zu
+      // warten (der alte Bug: Edit-Ende → alte Version sichtbar).
+      const sc = container.querySelector("[data-split-container]");
+      const shown = sc?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      expect(shown).toContain("Hallo Welt 2");
     });
   });
 

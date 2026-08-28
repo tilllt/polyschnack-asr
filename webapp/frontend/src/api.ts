@@ -202,6 +202,9 @@ export interface ModelMatrixEntry {
   vad: string;
   diarization: string;
   enhance: boolean;
+  /** Change 138: Backend punktuiert/großschreibt NATIV (CrispASR-Familie,
+   *  Whisper) — die UI-Option ist dann ein No-Op und wird ehrlich markiert. */
+  native_punctuation?: boolean;
   requires: Record<string, number>;
 }
 
