@@ -338,10 +338,12 @@ def _unshift_or_unmap(segments: list, vad_meta: Optional[Dict[str, Any]]) -> Non
 
 def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
                      min_duration_off: Optional[float] = None,
-                     method: Optional[str] = None) -> list:
+                     method: Optional[str] = None,
+                     on_progress: Optional[Callable[[int], None]] = None) -> list:
     from .diarize import diarize
     segs = diarize(audio_path, num_speakers=num_speakers,
-                   min_duration_off=min_duration_off, method=method)
+                   min_duration_off=min_duration_off, method=method,
+                   on_progress=on_progress)
     # Change 126: Qualitäts-Warnung — bei langem Audio (> 10 min) und nur
     # EINEM erkannten Speaker ist fast sicher das serverseitige Clustering
     # ausgefallen (Embedder fehlt → chunk-lokale Labels, alles fällt auf ein
@@ -360,6 +362,20 @@ def _run_diarization(audio_path: str, num_speakers: Optional[int] = None,
                 max_end / 60, len(segs),
             )
     return segs
+
+
+def _report_diar_progress(rec_id: int, pct: int) -> None:
+    """Change 150: echter CrispASR-/progress-Wert (0..100) in die DB schreiben.
+
+    Läuft im Poller-Thread → EIGENE Session (die Aufrufer-Session ist nicht
+    thread-safe). Die Phase bleibt bei 96 (Heartbeat-Konvention), die NOTE
+    trägt den echten Prozentwert („diarization 42%") für das Frontend.
+    """
+    try:
+        with Session(engine) as s:
+            set_progress(s, rec_id, 96, note=f"diarization {pct}%")
+    except Exception:
+        log.exception("diar-progress: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
 
 
 def _word_overlap(w: Dict[str, Any], d_start: float, d_end: float) -> float:
@@ -1673,11 +1689,13 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
             _tmp_wav.close()
             diar_path = _tmp_wav.name
             _t_diar0 = time.perf_counter()
+            set_progress(session, rec_id, 96, note="diarization")
             diar = _run_diarization(
                 diar_path,
                 num_speakers=num_speakers,
                 min_duration_off=min_duration_off,
                 method=method,
+                on_progress=lambda pct: _report_diar_progress(rec_id, pct),
             )
             diar_ms = (time.perf_counter() - _t_diar0) * 1000
         finally:

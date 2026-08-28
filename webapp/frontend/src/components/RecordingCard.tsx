@@ -132,7 +132,7 @@ export function activePhaseIndex(r: {
   const n = r.progress_note ?? "";
   if (n === "preparing" || n === "vad" || n === "enhance") return 0;
   if (n === "asr" || n.startsWith("asr ")) return 1;
-  if (n === "diarization") return 2;
+  if (n === "diarization" || n.startsWith("diarization ")) return 2;
   if (n.startsWith("alignment")) return 3;
   if (n === "postprocessing" || n === "finalizing") return 4;
   const pct = r.progress_pct ?? 0;
@@ -1076,7 +1076,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       ? note.slice("alignment".length).trim()
       : note.startsWith("asr ") && note.length > 4
         ? note.slice(4).trim() // Change 147: „asr Chunk 12/45" → „Chunk 12/45"
-        : "";
+        : note.startsWith("diarization ") && note.length > "diarization ".length
+          ? note.slice("diarization ".length).trim() // Change 150: „diarization 42%" → „42%"
+          : "";
   // Change 082: Heartbeat-Zustand + echte ETA (Backend: Dauer × RTF).
   // Keine Rate-ETA mehr — ohne Backend-Felder zeigt die Zeile
   // „verarbeitet seit Xs" bzw. „aktiv seit Xs" — nie mehr „…".

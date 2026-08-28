@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+import threading
+from typing import Callable
 
 from .config import settings
 
@@ -84,6 +86,7 @@ def _post_diarize(
     audio_path: str,
     num_speakers: Optional[int],
     method: Optional[str],
+    on_progress: Optional[Callable[[int], None]] = None,
 ) -> "httpx.Response":
     """Baut den Request und liefert die rohe httpx-Antwort (auch bei != 200).
 
@@ -131,6 +134,33 @@ def _post_diarize(
     if num_speakers is not None:
         data["diarize_max_speakers"] = str(num_speakers)
 
+    progress_stop: Optional[threading.Event] = None
+    if on_progress is not None:
+        # Change 150: CrispASR-Server liefert GET /progress {"busy", "progress"}
+        # (0..100) — Daemon-Thread pollt, während der POST läuft. Die Webapp
+        # zeigt damit ECHTEN Server-Fortschritt (kein Raten).
+        progress_stop = threading.Event()
+
+        def _poll_progress() -> None:
+            prog_url = f"{settings.DIAR_URL.rstrip('/')}/progress"
+            while not progress_stop.is_set():
+                try:
+                    with httpx.Client(timeout=5) as pc:
+                        r = pc.get(prog_url, timeout=3)
+                    if r.status_code == 200:
+                        d = r.json()
+                        if (
+                            d.get("busy")
+                            and isinstance(d.get("progress"), int)
+                            and d["progress"] >= 0
+                        ):
+                            on_progress(int(d["progress"]))
+                except Exception:
+                    pass
+                progress_stop.wait(2.0)
+
+        threading.Thread(target=_poll_progress, daemon=True).start()
+
     try:
         with httpx.Client(timeout=1800) as client:
             # Dateiname IMMER auf .wav zwingen: der CrispASR-Server dekodiert
@@ -147,11 +177,15 @@ def _post_diarize(
             )
     except httpx.HTTPError as exc:
         log.warning("diarize: diar-Service nicht erreichbar (%s)", exc)
+        if progress_stop is not None:
+            progress_stop.set()
         raise DiarizationError(
             "service-unreachable",
             "Der Diarization-Service ist nicht erreichbar. Bitte den "
             "Administrator informieren (Container 'diar' prüfen).",
         ) from exc
+    if progress_stop is not None:
+        progress_stop.set()
     return resp
 
 
@@ -160,6 +194,7 @@ def diarize(
     num_speakers: Optional[int] = None,
     min_duration_off: Optional[float] = None,
     method: Optional[str] = None,
+    on_progress: Optional[Callable[[int], None]] = None,
 ) -> List[Dict[str, Any]]:
     """Ruft den CrispASR-diar-Service und liefert {start, end, speaker}-Segmente.
 
@@ -173,7 +208,7 @@ def diarize(
     Raises :class:`DiarizationError` (service-unreachable / Proxy-Fehler) —
     nie eine stille leere Liste bei Service-Problemen.
     """
-    resp = _post_diarize(audio_path, num_speakers, method)
+    resp = _post_diarize(audio_path, num_speakers, method, on_progress)
 
     if resp.status_code != 200:
         detail = {}
