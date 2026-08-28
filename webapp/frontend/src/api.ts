@@ -11,6 +11,9 @@ export interface SegmentWord {
   /** Per-Token-Confidence 0.0-1.0 (CrispASR `probability`) — optional, nur
    *  wenn das Backend sie liefert. Fehlt → keine Färbung. */
   confidence?: number;
+  /** Change 137 (Timing-Tab): manuell korrigiert (override=true) — ein
+   *  späterer Re-Align überschreibt dieses Wort nicht mehr. */
+  override?: boolean;
 }
 
 export interface Segment {
@@ -435,6 +438,27 @@ export async function updateSegment(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).then(checkOk);
+  return res.json();
+}
+
+/** Change 137: manuelle Wort-Timing-Korrektur (Timing-Tab). Setzt
+ *  start/end GENAU EINES Wortes (+ override=true); `override: false` ohne
+ *  start/end entfernt das Override-Flag (Reset). Response = komplette
+ *  Segmentliste (wie updateSegment). */
+export async function updateWordTiming(
+  recordingId: string,
+  segmentIdx: number,
+  wordIdx: number,
+  body: { start?: number; end?: number; override?: boolean },
+): Promise<{ segments: Segment[]; text: string }> {
+  const res = await fetch(
+    `/api/recordings/${recordingId}/segments/${segmentIdx}/words/${wordIdx}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  ).then(checkOk);
   return res.json();
 }
 

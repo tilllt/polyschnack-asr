@@ -4,7 +4,14 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import { useT } from "../useLocale";
-import { fitPps, MIN_PPS, timeFromClick } from "../waveformTime";
+import {
+  clampWordTiming,
+  fitPps,
+  MIN_PPS,
+  MIN_WORD_DURATION_S,
+  timeFromClick,
+  timingPps,
+} from "../waveformTime";
 
 export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
@@ -65,6 +72,30 @@ interface Props {
   annotations?: { id: number; start_s: number }[];
   /** Change 056: Klick auf einen Annotation-Marker (start_s). */
   onMarkerClick?: (start_s: number) => void;
+  /** Change 137 (Timing-Tab): das aktive Wort — Alignment-Timing (start/end
+   *  aus dem letzten Align) + Drag-Grenzen aus den Nachbarwörtern
+   *  (minStart = Ende des Vorgängers, maxEnd = Start des Folgeworts).
+   *  Gesetzt → Waveform zoomt auf das Wort (~30 % der Ansicht) und zeigt
+   *  die Timing-Markierung mit Start-/Ende-Handles. null = normal. */
+  timingWord?: TimingWord | null;
+  /** Change 137: Live-Update während des Handle-Drags (Anzeige im
+   *  Timing-Editor). */
+  onTimingChange?: (start: number, end: number) => void;
+  /** Change 137: Commit nach Loslassen — der Parent persistiert per PATCH
+   *  (und rollt bei Fehler zurück). */
+  onTimingCommit?: (start: number, end: number) => void;
+}
+
+/** Change 137: Wort-Timing-Detail (siehe Props.timingWord). segIdx/wordIdx
+ *  identifizieren das Wort — der 30 %-Zoom läuft nur beim WECHSEL des
+ *  Wortes, nicht bei jeder Timing-Änderung während eines Drags. */
+export interface TimingWord {
+  segIdx: number;
+  wordIdx: number;
+  start: number;
+  end: number;
+  minStart?: number;
+  maxEnd?: number;
 }
 
 const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
@@ -203,7 +234,7 @@ export function toggleActivePlayback(): void {
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, onTimingChange, onTimingCommit }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     // Change 072 (User-Befund 2026-08-21, „Waveforms lade endlos“ trotz 070):
@@ -235,6 +266,19 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     onPlayStateRef.current = onPlayStateChange;
     onRegionRef.current = onRegionChange;
     onLoadErrorRef.current = onLoadError;
+    // ── Change 137: Timing-Tab (Wort-Markierung + 30 %-Zoom) ──
+    const timingWordRef = useRef<TimingWord | null>(timingWord);
+    timingWordRef.current = timingWord;
+    const onTimingChangeRef = useRef(onTimingChange);
+    onTimingChangeRef.current = onTimingChange;
+    const onTimingCommitRef = useRef(onTimingCommit);
+    onTimingCommitRef.current = onTimingCommit;
+    const [timingZoom, setTimingZoom] = useState(false);
+    const timingMarkerRef = useRef<HTMLDivElement | null>(null);
+    const timingDraggingRef = useRef(false);
+    // Crop-Auswahl-Region (✂ Transcribe): in der Timing-Ansicht ausgeblendet,
+    // damit sie nicht mit den Timing-Handles um die Drag-Gesten konkurriert.
+    const cropRegionRef = useRef<{ remove: () => void } | null>(null);
     const [ready, setReady] = useState(false);
     const [error, setError] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -301,6 +345,126 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       updateMarkers();
     }, [updateMarkers]);
 
+    // ── Change 137: Timing-Markierung (Overlay im Waveform-Container) ──
+    // Eigenes Overlay statt des RegionsPlugin: die Crop-Auswahl-Region (✂
+    // Transcribe) und die Timing-Markierung haben unterschiedliche
+    // Commit-Semantik (Loslassen = PATCH). Das Overlay gibt volle Kontrolle
+    // über Clamp (Nachbar-Grenzen) und Commit — ohne Plugin-Konflikte.
+    // Pointer-Capture auf den Handles; während des Drags bewegt der
+    // Drag-Handler den Marker DIREKT im DOM (kein React-Rebuild — der würde
+    // Pointer-Capture und die laufende Geste zerstören).
+    const onTimingPointerDown = (e: PointerEvent) => {
+      const target = (e.target as HTMLElement).closest("[data-timing-handle]") as HTMLElement | null;
+      const tw = timingWordRef.current;
+      const root = timingMarkerRef.current;
+      if (!target || !tw || !root) return;
+      e.stopPropagation();
+      const handle = target.dataset.timingHandle as "start" | "end";
+      const pps = ppsRef.current;
+      const dur = wsRef.current?.getDuration?.() ?? duration;
+      const startX = e.clientX;
+      const origStart = tw.start;
+      const origEnd = tw.end;
+      timingDraggingRef.current = true;
+      let live = { start: origStart, end: origEnd };
+      const apply = (clientX: number) => {
+        const dT = (clientX - startX) / Math.max(pps, 1e-6);
+        const next =
+          handle === "start"
+            ? clampWordTiming(origStart + dT, origEnd, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
+            : clampWordTiming(origStart, origEnd + dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S);
+        live = next;
+        if (root.isConnected && dur > 0) {
+          root.style.left = `${(next.start / dur) * 100}%`;
+          root.style.width = `${((next.end - next.start) / dur) * 100}%`;
+        }
+        onTimingChangeRef.current?.(next.start, next.end);
+      };
+      const onMove = (ev: PointerEvent) => apply(ev.clientX);
+      const onUp = (ev: PointerEvent) => {
+        timingDraggingRef.current = false;
+        target.removeEventListener("pointermove", onMove);
+        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onUp);
+        try {
+          target.releasePointerCapture(ev.pointerId);
+        } catch {
+          /* Capture bereits frei */
+        }
+        onTimingCommitRef.current?.(live.start, live.end);
+        updateTimingMarker();
+      };
+      try {
+        target.setPointerCapture(e.pointerId);
+      } catch {
+        /* Pointer-Capture nicht verfügbar — Drag läuft ohne */
+      }
+      target.addEventListener("pointermove", onMove);
+      target.addEventListener("pointerup", onUp);
+      target.addEventListener("pointercancel", onUp);
+    };
+
+    const updateTimingMarker = useCallback(() => {
+      const container = containerRef.current;
+      const tw = timingWordRef.current;
+      const existing = timingMarkerRef.current;
+      if (!container || !ready || !duration || !tw) {
+        existing?.remove();
+        timingMarkerRef.current = null;
+        return;
+      }
+      if (timingDraggingRef.current) return;
+      if (!existing || !existing.isConnected) {
+        const root = document.createElement("div");
+        root.dataset.timingMarker = "1";
+        root.style.cssText =
+          "position:absolute;top:0;bottom:0;pointer-events:none;z-index:6;" +
+          "background:rgba(46,160,67,0.18);border-top:1px solid #2ea043;border-bottom:1px solid #2ea043;";
+        root.innerHTML =
+          '<div data-timing-handle="start" style="position:absolute;top:0;bottom:0;left:0;width:14px;pointer-events:auto;cursor:ew-resize;touch-action:none;background:rgba(255,255,255,0.12);border-left:2px solid #2ea043;border-radius:2px 0 0 2px;"></div>' +
+          '<div data-timing-handle="end" style="position:absolute;top:0;bottom:0;right:0;width:14px;pointer-events:auto;cursor:ew-resize;touch-action:none;background:rgba(255,255,255,0.12);border-right:2px solid #2ea043;border-radius:0 2px 2px 0;"></div>';
+        root.addEventListener("pointerdown", onTimingPointerDown);
+        // Klick auf Marker/Handles darf den Container-Klick-Seek nicht auslösen.
+        root.addEventListener("click", (e) => e.stopPropagation());
+        container.appendChild(root);
+        timingMarkerRef.current = root;
+      }
+      const el = timingMarkerRef.current;
+      if (!el) return;
+      el.style.left = `${(tw.start / duration) * 100}%`;
+      el.style.width = `${((tw.end - tw.start) / duration) * 100}%`;
+    }, [ready, duration]);
+
+    // Neu-Zeichnen bei Wort-/Zeit-Änderung (während eines Drags übernimmt
+    // der Drag-Handler das DOM — updateTimingMarker kehrt dann früh zurück).
+    useEffect(() => {
+      updateTimingMarker();
+    }, [updateTimingMarker, timingWord]);
+
+    // Change 137: Crop-Auswahl-Region (✂ Transcribe) in der Timing-Ansicht
+    // ausblenden — sonst konkurriert sie mit den Timing-Handles um Drags.
+    useEffect(() => {
+      const regions = regionsRef.current;
+      if (!regions || !ready) return;
+      if (timingWord) {
+        if (cropRegionRef.current) {
+          cropRegionRef.current.remove();
+          cropRegionRef.current = null;
+        }
+      } else if (!cropRegionRef.current) {
+        const dur = wsRef.current?.getDuration?.() ?? 0;
+        if (dur > 0) {
+          cropRegionRef.current = regions.addRegion({
+            start: 0,
+            end: dur,
+            color: "rgba(46,160,67,0.1)",
+            drag: true,
+            resize: true,
+          });
+        }
+      }
+    }, [timingWord, ready]);
+
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst
       // „Error: No audio loaded“ (z. B. im Re-Init-Fenster nach asynchron
@@ -320,6 +484,34 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
       updateMarkers();
     }, [updateMarkers]);
+
+    // Change 137: 30 %-Zoom beim WECHSEL des Timing-Wortes (nicht bei jeder
+    // Timing-Änderung während eines Drags — das würde den Zoom springen
+    // lassen). Ohne Wort → zurück zu „fit“.
+    const prevTimingWordKeyRef = useRef<string | null>(null);
+    useEffect(() => {
+      if (!ready || !wsReadyRef.current || !wsRef.current) return;
+      const tw = timingWord;
+      const key = tw ? `${tw.segIdx}:${tw.wordIdx}` : null;
+      if (key === prevTimingWordKeyRef.current) return;
+      prevTimingWordKeyRef.current = key;
+      const w = wsRef.current;
+      if (tw) {
+        const width = containerRef.current?.clientWidth ?? 800;
+        const pps = timingPps(width, Math.max(tw.end - tw.start, 1e-3));
+        ppsRef.current = pps;
+        w.zoom(pps);
+        setTimingZoom(true);
+        try {
+          w.setTime(tw.start);
+        } catch {
+          /* WS7 noch ohne geladenes Audio — Seek überspringen */
+        }
+      } else {
+        setTimingZoom(false);
+        doZoom(w, 0);
+      }
+    }, [ready, timingWord, doZoom]);
 
     // Change 083-Fix (2026-08-22): Initial-Zoom erst NACH dem
     // Sichtbarwerden. Der ready-Handler lief mit display:none-Container
@@ -538,14 +730,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // (hidden bis ready), clientWidth=0 → fitPps fiele auf MIN_PPS
         // (Welle 285 px statt Container-Breite; Klick-Seek verzerrt um
         // Faktor ~3,4: „Klick bei 9 min → Playback bei 31 min“).
-
-        regions.addRegion({
-          start: 0,
-          end: dur,
-          color: "rgba(46,160,67,0.1)",
-          drag: true,
-          resize: true,
-        });
+        // Change 137: Die Crop-Auswahl-Region (✂ Transcribe) legt ein
+        // eigener Effekt an (timingWord-abhängig ausgeblendet).
       });
 
       // Change 095: Ladefortschritt des Audio-Fetches (0–100) — füllt den
@@ -939,17 +1125,31 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             </span>
             <span className="flex-1" />
             <button
-              onClick={() => { const w = wsRef.current; if (w) doZoom(w, Math.max(0, zoomIdx - 1)); }}
-              disabled={zoomIdx <= 0}
+              onClick={() => {
+                const w = wsRef.current;
+                if (!w) return;
+                // Change 137: Im Timing-Zoom („Wort“) zoomt − auf die größte
+                // normale Stufe zurück (danach laufen die Stufen normal weiter).
+                if (timingZoom) {
+                  setTimingZoom(false);
+                  doZoom(w, ZOOM_STEPS.length - 1);
+                } else {
+                  doZoom(w, Math.max(0, zoomIdx - 1));
+                }
+              }}
+              disabled={!timingZoom && zoomIdx <= 0}
               className="btn-ghost-sm text-[13px] px-1 disabled:opacity-30"
               title="Zoom out"
             >−</button>
             <span className="text-[11px] text-muted2 tabular-nums min-w-[36px] text-center">
-              {zoomIdx === 0 ? "fit" : `${ZOOM_STEPS[zoomIdx - 1]}×`}
+              {timingZoom ? "Wort" : zoomIdx === 0 ? "fit" : `${ZOOM_STEPS[zoomIdx - 1]}×`}
             </span>
             <button
-              onClick={() => { const w = wsRef.current; if (w) doZoom(w, Math.min(ZOOM_STEPS.length - 1, zoomIdx + 1)); }}
-              disabled={zoomIdx >= ZOOM_STEPS.length - 1}
+              onClick={() => {
+                const w = wsRef.current;
+                if (w && !timingZoom) doZoom(w, Math.min(ZOOM_STEPS.length - 1, zoomIdx + 1));
+              }}
+              disabled={timingZoom || zoomIdx >= ZOOM_STEPS.length - 1}
               className="btn-ghost-sm text-[13px] px-1 disabled:opacity-30"
               title="Zoom in"
             >+</button>

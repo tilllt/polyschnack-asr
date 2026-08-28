@@ -2,14 +2,15 @@ import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate, parseUtcMs } from "../format";
-import { WaveformPlayer, type WaveSurferHandle } from "./WaveformPlayer";
+import { WaveformPlayer, type WaveSurferHandle, type TimingWord } from "./WaveformPlayer";
+import { TimingEditor } from "./TimingEditor";
 import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
@@ -223,6 +224,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
   const [cropRange, setCropRange] = useState<{start: number; end: number} | null>(null);
+  // ── Change 137: Editor-Tabs (Transkription | Timing) ──
+  const [editorTab, setEditorTab] = useState<"transcription" | "timing">("transcription");
+  // Aktives Wort im Timing-Tab: Alignment-Timing + Drag-Grenzen (Nachbarn).
+  // start/end werden während des Marker-Drags LIVE aktualisiert.
+  const [timingWord, setTimingWord] = useState<TimingWord | null>(null);
+  const [timingOverride, setTimingOverride] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
   // Change 015: Export-Formate dynamisch aus GET /export-templates
   // (Fallback: hartkodierte txt|srt|vtt, falls der Call fehlschlägt).
@@ -963,6 +970,80 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const hb = heartbeatState(r);
   const etaRange = fmtEtaRange(r.eta_low_s, r.eta_high_s);
 
+  // ── Change 137: Timing-Tab (Wort laden, Marker-Drag, PATCH, Reset) ──
+  function handleTimingWordSelect(segIdx: number, wordIdx: number) {
+    const segs = displaySegments ?? segments;
+    const seg = segs?.[segIdx];
+    const w = seg?.words?.[wordIdx];
+    const words = seg?.words ?? [];
+    if (!seg || !w || words.length === 0 || typeof w.start !== "number" || typeof w.end !== "number") return;
+    // Drag-Grenzen aus dem WORT-FLOW: Ende des Vorgängers / Start des
+    // Folgeworts (segmentübergreifend — Lücken erlaubt, Überlappungen nicht).
+    let minStart: number | undefined;
+    let maxEnd: number | undefined;
+    if (wordIdx > 0) {
+      minStart = words[wordIdx - 1].end;
+    } else if (segIdx > 0) {
+      const prevWords = segs[segIdx - 1]?.words;
+      if (prevWords?.length) minStart = prevWords[prevWords.length - 1].end;
+    }
+    if (wordIdx < words.length - 1) {
+      maxEnd = words[wordIdx + 1].start;
+    } else if (segIdx < (segs?.length ?? 0) - 1) {
+      const nextWords = segs[segIdx + 1]?.words;
+      if (nextWords?.length) maxEnd = nextWords[0].start;
+    }
+    setTimingWord({ segIdx, wordIdx, start: w.start, end: w.end, minStart, maxEnd });
+    setTimingOverride(!!w.override);
+    setActiveSegIdx(segIdx);
+  }
+
+  // Live-Update während des Drags: nur die Zeiten ändern (der 30 %-Zoom
+  // läuft im WaveformPlayer nur beim Wort-WECHSEL, nicht bei jedem Delta).
+  function handleTimingChange(start: number, end: number) {
+    setTimingWord((tw) => (tw ? { ...tw, start, end } : tw));
+  }
+
+  // Commit nach Loslassen: PATCH ans Backend, Cache-Update, Rollback+Toast
+  // bei Fehler (User-Regel: sichtbares Feedback, stille Fehler inakzeptabel).
+  async function handleTimingCommit(start: number, end: number) {
+    const tw = timingWord;
+    if (!tw || !r.uid) return;
+    const prev = { start: tw.start, end: tw.end };
+    try {
+      const res = await updateWordTiming(r.uid, tw.segIdx, tw.wordIdx, { start, end });
+      handleEdited(res.segments, res.text);
+      setTimingWord((cur) => (cur ? { ...cur, start, end } : cur));
+      setTimingOverride(true);
+      toast(t("timing_saved"), "ok");
+    } catch {
+      setTimingWord((cur) => (cur ? { ...cur, ...prev } : cur));
+      toast(t("timing_save_error"), "err");
+    }
+  }
+
+  // Reset: Override-Flag entfernen — Wort behält seine Zeit bis zum
+  // nächsten Re-Align (dann gilt wieder die automatische Zeit).
+  async function handleTimingReset() {
+    const tw = timingWord;
+    if (!tw || !r.uid) return;
+    try {
+      const res = await updateWordTiming(r.uid, tw.segIdx, tw.wordIdx, { override: false });
+      handleEdited(res.segments, res.text);
+      setTimingOverride(false);
+      toast(t("timing_saved"), "ok");
+    } catch {
+      toast(t("timing_save_error"), "err");
+    }
+  }
+
+  function switchEditorTab(tab: "transcription" | "timing") {
+    setEditorTab(tab);
+    // Beim Verlassen des Timing-Tabs das Wort entladen → Waveform zurück
+    // zu „fit" (und die Crop-Auswahl-Region wieder aktiv).
+    if (tab === "transcription") setTimingWord(null);
+  }
+
   function handleEdited(
     newSegs: typeof segments,
     newText: string,
@@ -1190,6 +1271,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             // Change 056: Annotation-Marker auf der Timeline + Klick.
             annotations={annotations.map((a) => ({ id: a.id, start_s: a.start_s }))}
             onMarkerClick={handleMarkerClick}
+            // Change 137: Timing-Tab — Wort laden (30 %-Zoom + Markierung),
+            // Drag-Handles live + Commit per PATCH.
+            timingWord={timingWord}
+            onTimingChange={handleTimingChange}
+            onTimingCommit={handleTimingCommit}
           />
         ) : (
           // Platzhalter mit fester Höhe — verhindert Layout-Springen beim
@@ -1473,6 +1559,47 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             ) : hasSegments && segments ? (
               <>
+                {/* Change 137: Editor-Tabs — Transkription | Timing */}
+                <div className="mb-2 flex items-center gap-[6px] border-b border-border" data-testid="editor-tabs">
+                  <button
+                    type="button"
+                    data-testid="editor-tab-tr"
+                    onClick={() => switchEditorTab("transcription")}
+                    className={`flex-1 inline-flex items-center justify-center gap-[6px] text-[12px] font-semibold py-[6px] cursor-pointer border-b-2 -mb-px transition-colors ${
+                      editorTab === "transcription" ? "text-accent border-b-accent" : "text-muted border-b-transparent hover:text-txt"
+                    }`}
+                  >
+                    {t("editor_tab_transcription")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="editor-tab-timing"
+                    onClick={() => switchEditorTab("timing")}
+                    className={`flex-1 inline-flex items-center justify-center gap-[6px] text-[12px] font-semibold py-[6px] cursor-pointer border-b-2 -mb-px transition-colors ${
+                      editorTab === "timing" ? "text-accent border-b-accent" : "text-muted border-b-transparent hover:text-txt"
+                    }`}
+                  >
+                    {t("editor_tab_timing")}
+                  </button>
+                </div>
+                {editorTab === "timing" ? (
+                  <TimingEditor
+                    segments={displaySegments ?? segments}
+                    activeIdx={activeSegIdx}
+                    onActiveChange={setActiveSegIdx}
+                    currentTime={currentTime}
+                    isPlaying={isPlaying}
+                    searchQuery={searchQuery}
+                    searchJump={searchJump}
+                    onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
+                    onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
+                    onWordClick={handleTimingWordSelect}
+                    timing={timingWord ? { segIdx: timingWord.segIdx, wordIdx: timingWord.wordIdx, start: timingWord.start, end: timingWord.end } : null}
+                    override={timingOverride}
+                    onResetOverride={timingOverride ? handleTimingReset : undefined}
+                  />
+                ) : (
+                <>
                 {/* Feature 2026-08-15: Segmentlänge wählbar (freies
                     Zahlenfeld, Sekunden) — Preview zeigt die re-segmentierten
                     Segmente; der Export nutzt dieselben (persistiert über
@@ -1551,6 +1678,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   // Aufnahmen — sonst keine Yjs-Verbindung/Checks.
                   collabEnabled={!!(r.has_shares || r.is_anon_shared || r.shared_with_me)}
                 />
+                </>
+                )}
               </>
             ) : hasText ? (
               <div className="bg-panel2 border border-border rounded-sm px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[240px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">

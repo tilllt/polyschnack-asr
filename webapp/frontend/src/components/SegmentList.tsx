@@ -91,6 +91,13 @@ interface Props {
   activeAnnotationId?: number | null;
   /** Change 077: Klick auf eine Text-Markierung → Annotation öffnen. */
   onAnnotateJump?: (a: { id: number; segment_idx: number; start_s: number }) => void;
+  /** Change 137 (Timing-Tab): read-only — KEINE Edit-Interaktion (kein
+   *  Text-Edit, kein Speaker-Menü/Rename, keine Grenzen, kein +/−/Split,
+   *  keine Annotation/Text-Markierung). Playback/Karaoke/Suche bleiben. */
+  readOnly?: boolean;
+  /** Change 137 (Timing-Tab, readOnly): Klick auf ein Wort → Wort laden
+   *  (Waveform-Detail). Ersetzt im readOnly-Modus den Seek-Klick. */
+  onWordClick?: (segIdx: number, wordIdx: number) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -148,7 +155,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -198,7 +205,9 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   // sonst zeigt die Edit-Box nach der Verschiebung alten Text (Desync).
   // Achtung: `!= null` (nicht `!== null`) — der Hook/Mocks können
   // editLock als undefined liefern; `undefined !== null` wäre true.
-  const structureLocked = editingIdx !== null || editLock != null;
+  // Change 137: readOnly (Timing-Tab) sperrt die Struktur-Editoren komplett —
+  // dieselben Guards wie bei aktiver Kollaborations-Sperre.
+  const structureLocked = editingIdx !== null || editLock != null || readOnly;
 
   // Change 067-Fix: eigenes editing-Flag in die Awareness melden —
   // Andere sehen „X bearbeitet gerade" nur, während wirklich ein
@@ -584,8 +593,14 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     onSeekTo?.(shown[idx].start);
   }
 
-  function handleWordClick(idx: number, seconds: number) {
+  function handleWordClick(idx: number, wordIdx: number, seconds: number) {
     if (editingIdx !== null) return;
+    // Change 137: im readOnly-Timing-Modus lädt der Wort-Klick das Wort in
+    // die Waveform (statt nur zu seeken).
+    if (readOnly && onWordClick) {
+      onWordClick(idx, wordIdx);
+      return;
+    }
     // Change 091: gleiche Semantik wie handleClick — einfacher Klick =
     // Markierungen aufräumen + Playback ab dem Wort.
     if (dragMadeRef.current) return;
@@ -1157,6 +1172,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
           tabIndex={0}
           onClick={() => scheduleClick(() => handleClick(i))}
           onDoubleClick={() => {
+            if (readOnly) return; // Change 137: kein Text-Edit im Timing-Tab
             if (!recordingId) return;
             // Change 077 (Doppelklick-Cursor): der Browser hat beim
             // Doppelklick genau das geklickte Wort selektiert — diese Range
@@ -1368,9 +1384,18 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
             ) : (
               <span className="relative flex items-center gap-0.5 flex-shrink-0">
                 <span
-                  className="text-[11px] font-bold text-[#25d366] max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap uppercase tracking-[.04em] cursor-pointer hover:underline decoration-dotted underline-offset-2"
-                  title={`${speaker.replace("SPEAKER_", "")} — ${t("speaker_dropdown_hint")}`}
+                  className={`text-[11px] font-bold text-[#25d366] max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap uppercase tracking-[.04em] ${
+                    readOnly ? "" : "cursor-pointer hover:underline decoration-dotted underline-offset-2"
+                  }`}
+                  title={
+                    readOnly
+                      ? undefined
+                      : `${speaker.replace("SPEAKER_", "")} — ${t("speaker_dropdown_hint")}`
+                  }
                   onClick={(e) => {
+                    // Change 137: im readOnly-Timing-Tab ist das
+                    // Speaker-Dropdown deaktiviert (kein Sprecher-Edit).
+                    if (readOnly) return;
                     // Feature 2026-08-16: Klick auf den Namen öffnet das
                     // Dropdown mit den erkannten Sprechern (Segment-weises
                     // Setzen). Rename nur übers Stift-Icon daneben.
@@ -1384,22 +1409,24 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
                       Spalte per w-max mit dem Inhalt wuchs. */}
                   {abbreviateMid(speaker.replace("SPEAKER_", ""), 14)}
                 </span>
-                <button
-                  onClick={(e) => {
-                    // Fix 2026-08-16: Stift bearbeitet DIESES Segment (Index
-                    // i) — vorher zeigte der String-Zustand das Input in allen
-                    // Segmenten mit demselben Sprecher und der Fokus sprang ans
-                    // Ende der Liste.
-                    e.stopPropagation();
-                    setRenamingSpeakerIdx(i);
-                    setRenameText(speaker.replace("SPEAKER_", ""));
-                  }}
-                  className="text-[11px] leading-none text-muted2 hover:text-accent px-0.5 cursor-pointer"
-                  title={t("rename_speaker_placeholder")}
-                  aria-label={t("rename_speaker_placeholder")}
-                >
-                  ✎
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={(e) => {
+                      // Fix 2026-08-16: Stift bearbeitet DIESES Segment (Index
+                      // i) — vorher zeigte der String-Zustand das Input in allen
+                      // Segmenten mit demselben Sprecher und der Fokus sprang ans
+                      // Ende der Liste.
+                      e.stopPropagation();
+                      setRenamingSpeakerIdx(i);
+                      setRenameText(speaker.replace("SPEAKER_", ""));
+                    }}
+                    className="text-[11px] leading-none text-muted2 hover:text-accent px-0.5 cursor-pointer"
+                    title={t("rename_speaker_placeholder")}
+                    aria-label={t("rename_speaker_placeholder")}
+                  >
+                    ✎
+                  </button>
+                )}
                 {openSpeakerMenu === i && (
                   <>
                     {/* Klick-Catcher: schließt das Menü bei Klick außerhalb */}
@@ -1561,7 +1588,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
                   Spans → Markieren/Split ging erst nach einem Playback-Zyklus.
                   Ohne Confidence/Playback bleibt die Optik identisch
                   (confidenceClass liefert ""). */}
-              {seg.words && seg.words.length > 0 && (onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx) || (annotations && annotations.some((a) => a.segment_idx === i)))
+              {seg.words && seg.words.length > 0 && (readOnly || onSplitSegment || hasConfidence(seg.words) || (currentTime != null && i === activeIdx) || (annotations && annotations.some((a) => a.segment_idx === i)))
                 ? (() => {
                     const activeW = i === activeIdx && currentTime != null ? activeWordIndex(seg.words, currentTime, isPlaying ? undefined : 0) : -1;
                     // Change 013 (Tablet): eigene Touch-Markierung hervorheben.
@@ -1635,12 +1662,12 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
                             // Klick (dragMadeRef) behält die Markierung für
                             // Split/Annotate — ohne Playback.
                             if (dragMadeRef.current) return;
-                            scheduleClick(() => handleWordClick(i, w.start));
+                            scheduleClick(() => handleWordClick(i, wi, w.start));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
-                              handleWordClick(i, w.start);
+                              handleWordClick(i, wi, w.start);
                             }
                           }}
                           className={`cursor-pointer transition-colors duration-[100ms] ${cls}`}
