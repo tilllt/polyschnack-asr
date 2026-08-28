@@ -373,7 +373,9 @@ def _report_diar_progress(rec_id: int, pct: int) -> None:
     """
     try:
         with Session(engine) as s:
-            set_progress(s, rec_id, 96, note=f"diarization {pct}%")
+            # Change 151: pct ist phasen-lokal (0..100 der Diarization) —
+            # der echte Server-/progress-Wert, kein globales Mapping.
+            set_progress(s, rec_id, pct, note=f"diarization {pct}%")
     except Exception:
         log.exception("diar-progress: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
 
@@ -994,7 +996,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
 
     if not background:
         with Session(engine) as session:
-            set_progress(session, rec_id, 96, note="alignment")
+            set_progress(session, rec_id, 0, note="alignment")
 
     tmp_audio = ""
     aligned_any = False
@@ -1074,7 +1076,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                                 with Session(engine) as s2:
                                     set_progress(
                                         s2, rec_id,
-                                        96 + int((gi + 1) / len(groups) * 3.99),
+                                        int((gi + 1) / len(groups) * 100),  # Change 151
                                         note=note,
                                     )
                         stop.wait(3.0)
@@ -1689,7 +1691,7 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
             _tmp_wav.close()
             diar_path = _tmp_wav.name
             _t_diar0 = time.perf_counter()
-            set_progress(session, rec_id, 96, note="diarization")
+            set_progress(session, rec_id, 0, note="diarization")
             diar = _run_diarization(
                 diar_path,
                 num_speakers=num_speakers,
@@ -2049,16 +2051,18 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         # nicht nur asr/diar/llm. Beendet im finally unten.
         hb_job = _start_job_heartbeat(rec_id)
 
-        # Mark progress: 10% — loaded
+        # Change 151: Jede Phase hat ihren EIGENEN 0..100-Balken (die Chips
+        # zeigen die Abfolge). Diskrete Schritte ohne Teilfortschritt melden
+        # 100, sobald sie laufen — kein global skaliertes Fake-Splitting.
         with Session(engine) as session:
-            set_progress(session, rec_id, 10, note="preparing")
+            set_progress(session, rec_id, 100, note="preparing")
 
         # Optional VAD silence trimming (Change 114: vad_mode off|edges|all,
         # User-konfigurierbar, kein Env-Gate mehr)
         if vad_mode and vad_mode != "off":
             _t_vad0 = time.perf_counter()
             with Session(engine) as session:
-                set_progress(session, rec_id, 12, note="vad")
+                set_progress(session, rec_id, 100, note="vad")
             audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
             if vad_meta:
                 log.info("vad: rec_id=%s mode=%s", rec_id, vad_meta["type"])
@@ -2070,7 +2074,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         if enable_enhance and enable_enhance != "off":
             _t_enh0 = time.perf_counter()
             with Session(engine) as session:
-                set_progress(session, rec_id, 16, note="enhance")
+                set_progress(session, rec_id, 100, note="enhance")
             log.info("Enhance: rec_id=%s level=%s", rec_id, enable_enhance)
             enhanced = enhance_audio(audio_bytes, level=enable_enhance)
             if len(enhanced) != len(audio_bytes):
@@ -2084,7 +2088,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         if separate_backend and separate_backend != "none":
             _t_sep0 = time.perf_counter()
             with Session(engine) as session:
-                set_progress(session, rec_id, 18, note="separate")
+                set_progress(session, rec_id, 100, note="separate")
             try:
                 from .separate_client import SeparateClient
                 sc = SeparateClient()
@@ -2103,7 +2107,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             phase_times[f"separate:{separate_backend}"] = (time.perf_counter() - _t_sep0) * 1000
 
         with Session(engine) as session:
-            set_progress(session, rec_id, 20, note="asr")
+            set_progress(session, rec_id, 0, note="asr")
 
         # Run ASR (batched sync or SSE streaming)
         _t_asr0 = time.perf_counter()
@@ -2125,7 +2129,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         if enable_streaming and client.capabilities.streaming:
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
-                pct = int((idx + 1) / total * 70) + 10
+                pct = int((idx + 1) / total * 100)  # Change 151: phasen-lokal 0..100
                 # Change 147: Chunk-Zähler in die note — die UI zeigt
                 # „Transkribieren 23/45" statt nur der Phase.
                 with Session(engine) as session:
@@ -2143,10 +2147,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 on_chunk=_on_chunk,
             )
             with Session(engine) as session:
-                # 95 statt 80: 80 war der Endwert der Streaming-Skala und wirkte
-                # bei abgerissenen Streams wie ein Dauer-Hang. 95 signalisiert
-                # „ASR fertig, Nachbearbeitung läuft" (konsistent zum Batch-Pfad).
-                set_progress(session, rec_id, 95, note="finalizing")
+                # Change 151: finalizing ist eine eigene Phase (Balken 0..100)
+                # — 100 = die Nachbearbeitung läuft; der Balken ist voll,
+                # die Chips zeigen die Phase als aktiv.
+                set_progress(session, rec_id, 100, note="finalizing")
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None
@@ -2183,7 +2187,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 if hb_stop is not None:
                     hb_stop.set()
             with Session(engine) as session:
-                set_progress(session, rec_id, 95, note="finalizing")
+                set_progress(session, rec_id, 100, note="finalizing")
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None
@@ -2247,11 +2251,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             log.info("Diarization ENABLED for rec_id=%s — calling run_diarization(%s)", rec_id, audio_path)
             # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
             with Session(engine) as session:
-                set_progress(session, rec_id, 96, note="diarization")
-            # Change 011: Heartbeat tickt last_heartbeat_at während der
-            # Diarization (kein Fortschritts-Reporting vom Dienst) — die UI
-            # zeigt „diarizing · aktiv seit Xs" statt eingefrorenem 96%.
-            hb_stop_d = _start_heartbeat(rec_id, 96, "diarization")
+                set_progress(session, rec_id, 0, note="diarization")
+            # Change 011/151: Heartbeat tickt last_heartbeat_at; der echte
+            # Fortschritt kommt via /progress (Change 150, on_progress unten).
+            hb_stop_d = _start_heartbeat(rec_id, 0, "diarization")
             # Zeitbasis: Bei VAD-Verarbeitung (trim/squash, Change 114) arbeiten
             # ASR/Aligner auf dem verarbeiteten Audio — die Diarization muss
             # DASSELBE Audio bekommen, sonst sind die Speaker-Zeiten versetzt
@@ -2268,6 +2271,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     diar_path,
                     num_speakers=run_diarize_num_speakers,
                     min_duration_off=run_diarize_min_duration_off,
+                    on_progress=lambda pct: _report_diar_progress(rec_id, pct),
                     method=run_diarize_method,
                 )
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)

@@ -218,9 +218,15 @@ def test_run_align_phase_ersetzt_words(aligner_server, wav_bytes, monkeypatch):
         {"word": "Hallo", "start": 0.0, "end": 0.4},
         {"word": "Welt", "start": 0.4, "end": 0.9},
     ]
-    # Progress-Hinweis kam: 96 mit note=alignment (mit Gruppen-Zaehler)
+    # Change 151: Progress-Hinweis kam — phasen-lokal: Start 0 mit
+    # note="alignment" (der Gruppen-Balken 0..100 hängt an der
+    # Gruppen-Bildung und ist hier nicht deterministisch).
     assert any(
-        c[0] == 7 and c[1] == 96 and str(c[2]).startswith("alignment")
+        c[0] == 7 and c[1] == 0 and str(c[2]) == "alignment"
+        for c in calls["set_progress"]
+    )
+    assert any(
+        c[0] == 7 and str(c[2]).startswith("alignment")
         for c in calls["set_progress"]
     )
 
