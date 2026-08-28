@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed, Undo2, Redo2 } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
@@ -679,6 +679,86 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Fehler-Toast. PUT-Guard „letzter Drag gewinnt" (monotone Sequenz,
   // 007) bleibt für parallele PUTs. Die Drag-PREVIEW dagegen ist lokal in
   // SegmentList (dragPreview-State) — der Parent sieht sie nicht.
+  // ——— Undo/Redo (Change 145, Option A: lokaler Stack) ———
+  const undoStackRef = useRef<Segment[][]>([]) as { current: Segment[][] };
+  const redoStackRef = useRef<Segment[][]>([]) as { current: Segment[][] };
+  const segmentsRef = useRef<Segment[]>(segments) as { current: Segment[] };
+  useEffect(() => {
+    segmentsRef.current = segments ?? [];
+  }, [segments]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+
+  const pushUndo = useCallback((snapshot: Segment[]) => {
+    undoStackRef.current.push(snapshot);
+    if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+    redoStackRef.current = []; // neue Aktion invalidiert Redo
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(0);
+  }, []);
+
+  const applyUndoRedo = useCallback(
+    async (target: Segment[]) => {
+      if (!r.uid || target.length === 0) return;
+      try {
+        await replaceSegments(r.uid, target);
+        handleEdited(target, target.map((s) => s.text ?? "").join(" "), true);
+      } catch (err) {
+        // Fehler: Stack-Pointer unverändert lassen; sichtbarer Hinweis.
+        toast(
+          err instanceof Error ? err.message : t("undo_error"),
+          "err",
+        );
+      }
+    },
+    [r.uid, handleEdited],
+  );
+
+  const doUndo = useCallback(() => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    redoStackRef.current.push(segmentsRef.current);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+    void applyUndoRedo(prev);
+  }, [applyUndoRedo]);
+
+  const doRedo = useCallback(() => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push(segmentsRef.current);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+    void applyUndoRedo(next);
+  }, [applyUndoRedo]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (
+        el &&
+        (el.tagName === "TEXTAREA" ||
+          el.tagName === "INPUT" ||
+          (el as HTMLElement).isContentEditable)
+      ) {
+        return; // Browser-natives Text-Undo in Eingabefeldern
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (!mod) return;
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) doRedo();
+        else doUndo();
+      } else if (k === "y") {
+        e.preventDefault();
+        doRedo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doUndo, doRedo]);
+
   // Change 144: Leere Anzeige-Segmente vor jedem PUT entfernen (siehe
   // resegment.cleanSegments) — sonst lehnt die Backend-Invariante mit
   // „segment N: empty text" ab. Gilt für Delete, Split UND Grenzen.
@@ -697,6 +777,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
       // Server-Antwort ist die Wahrheit (inkl. Flag).
       handleEdited(result.segments, result.text, result.segments_manual);
+      // Change 145: erfolgreiche Grenzen-Änderung → Undo-Snapshot des
+      // Zustands VOR der Mutation.
+      if (prevSegments) pushUndo(prevSegments);
       toast(t("boundary_saved"), "ok");
     } catch (err) {
       if (persistSeq.current !== seq) return;
@@ -726,9 +809,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     handleEdited(cleaned, cleaned.map((s) => s.text).join(" "), true);
     try {
       const result = await replaceSegments(r.uid, cleaned);
-      if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
+      if (persistSeq.current !== seq) return; // ein neuerer Save hat gewonnen
+      // Change 145: erfolgreiche Delete/Split-Änderung → Undo-Snapshot
+      // des Zustands VOR der Mutation (segments ist hier der alte Wert).
+      if (segments) pushUndo(segments);
       handleEdited(result.segments, result.text, result.segments_manual);
-      toast(t("boundary_saved"), "ok");
+      toast(t("segment_saved"), "ok");
     } catch (err) {
       if (persistSeq.current !== seq) return;
       handleEdited(prevSegments ?? null, prevText, prevManual);
@@ -1656,6 +1742,38 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   <span className="text-[11px] text-muted2">
                     {t("boundary_drag_hint_short")}
                   </span>
+                  {/* Change 145: Undo/Redo (lokaler Stack, Option A) —
+                      dezent, nur mit Inhalt aktiv. */}
+                  <button
+                    type="button"
+                    onClick={doUndo}
+                    disabled={undoCount === 0}
+                    title={t("undo_title")}
+                    className={`ml-auto flex-shrink-0 inline-flex items-center gap-[5px] text-[11px] font-semibold px-[6px] py-[3px] rounded-sm transition-colors border ${
+                      undoCount > 0
+                        ? "border-border text-txt hover:text-accent"
+                        : "border-border/50 text-muted2/60 cursor-default"
+                    }`}
+                    aria-label={t("undo_title")}
+                  >
+                    <Undo2 size={12} />
+                    {t("undo_btn")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={doRedo}
+                    disabled={redoCount === 0}
+                    title={t("redo_title")}
+                    className={`flex-shrink-0 inline-flex items-center gap-[5px] text-[11px] font-semibold px-[6px] py-[3px] rounded-sm transition-colors border ${
+                      redoCount > 0
+                        ? "border-border text-txt hover:text-accent"
+                        : "border-border/50 text-muted2/60 cursor-default"
+                    }`}
+                    aria-label={t("redo_title")}
+                  >
+                    <Redo2 size={12} />
+                    {t("redo_btn")}
+                  </button>
                   {/* Change 141: „Folgen"-Toggle — Auto-Scroll der
                       Transkription an das Playback an/aus (lesen in Ruhe). */}
                   <button

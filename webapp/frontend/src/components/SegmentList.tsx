@@ -103,6 +103,9 @@ interface Props {
    *  true (Default) = Text scrollt automatisch entlang des Timings.
    *  Das Karaoke-Highlight bleibt in beiden Fällen aktiv. */
   followPlayback?: boolean;
+  /** Change 145: Undo-Snapshot — wird NACH erfolgreicher Persistenz mit
+   *  dem Zustand VOR der Mutation aufgerufen (Edit-Modus-Exit). */
+  onUndoSnapshot?: (snapshot: Segment[]) => void;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -160,7 +163,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -828,6 +831,9 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       // beim Edit-Inhalt, Guard löst aus (Prop-Fingerprint == local).
       if (result && result.segments) {
         onEdited?.(result.segments, result.text, true);
+        // Change 145: Edit-Exit erfolgreich → Undo-Snapshot des Zustands
+        // VOR der Änderung (nur nach Server-Bestätigung, kein Fehler-Push).
+        onUndoSnapshot?.(prevShown);
         // Change 139-Fix: Server-Wahrheit ist da (PUT committet) — der
         // Poller kann ab jetzt nur noch den NEUEN Stand liefern; lokale
         // Anzeige-Wahrheit freigeben (Prop gewinnt wieder).
