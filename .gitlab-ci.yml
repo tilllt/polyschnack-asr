@@ -429,7 +429,9 @@ mirror-ghcr:
     for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
-      docker pull "${src}:latest"
+      # Multi-Arch-Index in Harbor → Plattform beim PULL fixieren, damit
+      # der lokale Tag ein Plattform-Manifest ist (crane-Index-Problem).
+      docker pull --platform linux/amd64 "${src}:latest"
       docker tag "${src}:latest" "${dst}:latest"
       # Multi-Arch-Index in Harbor → nur die gebaute Plattform spiegeln
       # (go-containerregistry bricht sonst mit "not all manifests available
@@ -439,6 +441,7 @@ mirror-ghcr:
       # diesen SHA) gebaut wurde — seit Change 117 bauen nicht mehr alle
       # Images bei jedem Push (changes-Filter).
       if docker manifest inspect "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
+        docker pull --platform linux/amd64 "${src}:${CI_COMMIT_SHORT_SHA}"
         docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
         docker push --platform linux/amd64 "${dst}:${CI_COMMIT_SHORT_SHA}"
       else
