@@ -90,7 +90,46 @@ class QueueManager:
         self._started = True
         self._stop.clear()
         self._ensure_workers()
+        self._recover_queued()
         log.info("QueueManager started (%d workers)", len(self._threads))
+
+    def _recover_queued(self) -> None:
+        """Change 143: Webapp-Neustart darf queued-Jobs nicht verwaist lassen.
+
+        User-Befund 2026-08-28: „Re-Transcribe wird nur zur Queue
+        hinzugefügt und fängt nicht an". Ursache: Der In-Memory-Manager
+        kennt nach einem Neustart nur Jobs, die danach enqueued wurden —
+        DB-Jobs mit status='queued' (Run angelegt, aber der alte Prozess
+        starb vor der Verarbeitung) startet nie ein Worker; die UI zeigt
+        dauerhaft „in Warteschlange". Beim Start werden sie wieder in den
+        Manager geladen (Priorität 0, FIFO-Hinten). Vorsicht: Läuft ein
+        Re-Enqueue gegen einen inzwischen manuell gecancelten Job, bricht
+        der Cancel-Guard im Worker das Starten ab (kein Doppelstart).
+        """
+        try:
+            from .models import Recording  # lokaler Import (Zyklus-Vermeidung)
+
+            with Session(engine) as session:
+                rows = session.query(Recording).filter(Recording.status == "queued").all()
+        except Exception:
+            log.exception("QueueManager recover failed")
+            return
+        if not rows:
+            return
+        with self._lock:
+            for rec in rows:
+                if rec.id in self._jobs:
+                    continue
+                self._seq += 1
+                self._jobs[rec.id] = Job(
+                    rec_id=rec.id, user_id=rec.user_id, backend=rec.backend or "",
+                    status="queued", seq=self._seq,
+                )
+        for rec in rows:
+            if rec.id not in self._jobs:
+                continue
+            self._fifo.put((0, self._jobs[rec.id].seq, rec.id))
+        log.info("QueueManager: %d verwaiste queued-Jobs wieder aufgenommen", len(rows))
 
     def stop(self) -> None:
         self._stop.set()

@@ -269,7 +269,7 @@ describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () =
     // Auf den Re-Render warten (Tab aktiv), sonst greift der Start-Klick
     // den alten Handler mit action="tr".
     await waitFor(() => expect(screen.getByTestId("act-alg").className).toContain("border-b-accent"));
-    screen.getByText("Start").click();
+    screen.getByText("Process").click();
     await waitFor(() => expect(hooks.realignMutate).toHaveBeenCalled());
   });
 
@@ -305,7 +305,7 @@ describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () =
     });
     screen.getByTestId("act-alg").click();
     await waitFor(() => expect(screen.getByTestId("act-alg").className).toContain("border-b-accent"));
-    screen.getByText("Start").click();
+    screen.getByText("Process").click();
     await waitFor(() => {
       expect(hooks113.realignMutate113).toHaveBeenCalledWith(
         expect.objectContaining({

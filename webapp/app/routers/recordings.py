@@ -1798,6 +1798,7 @@ def transcribe_ep(
     session.add(run)
     session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
     session.add(rec)
+    prev_run_id = rec.current_run_id  # Change 143: Rollback-Ziel bei enqueue-Fehlern
     if rec.current_run_id is None:
         rec.current_run_id = run.id  # Change 099: Zeiger auf den aktiven Run
     session.commit()
@@ -1813,8 +1814,10 @@ def transcribe_ep(
             priority=1 if (user is not None and user.kind == "anonymous") else 0,
         )
     except QueueFullError as exc:
+        _abort_queued_run(session, rec, run, prev_run_id)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
+        _abort_queued_run(session, rec, run, prev_run_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
@@ -1925,6 +1928,7 @@ def retranscribe(
         run.llm_endpoint_id = params.llm_endpoint_id
     session.add(run)
     session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
+    prev_run_id = rec.current_run_id  # Change 143: Rollback-Ziel bei enqueue-Fehlern
     rec.current_run_id = run.id  # Change 099: neuer Run = aktiver Run
     session.add(rec)
     session.commit()
@@ -1940,8 +1944,10 @@ def retranscribe(
             priority=1 if (user is not None and user.kind == "anonymous") else 0,
         )
     except QueueFullError as exc:
+        _abort_queued_run(session, rec, run, prev_run_id)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
+        _abort_queued_run(session, rec, run, prev_run_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Re-Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
@@ -2111,6 +2117,21 @@ def list_all_tags(
 # ---------------------------------------------------------------------------
 # Crop / transcribe-range
 # ---------------------------------------------------------------------------
+
+
+def _abort_queued_run(session: Session, rec: Any, run: Any, prev_run_id: Optional[int]) -> None:
+    """Change 143: Ein committeter, aber nie enqueueder Run darf nicht als
+    'queued' verwaist in der DB hängen — sonst zeigt die UI dauerhaft „in
+    Warteschlange" und kein Worker startet ihn (User-Befund 2026-08-28).
+    Bei enqueue-Fehlern (QueueError/QueueFullError) wird der Run auf
+    'failed' gesetzt und der Run-Zeiger auf den vorherigen Stand zurück-
+    gerollt (nur wenn er auf den neuen Run zeigt)."""
+    run.status = "failed"
+    if rec.current_run_id == run.id:
+        rec.current_run_id = prev_run_id
+    session.add(run)
+    session.add(rec)
+    session.commit()
 
 
 @router.post("/recordings/{rid}/transcribe-range", status_code=201)

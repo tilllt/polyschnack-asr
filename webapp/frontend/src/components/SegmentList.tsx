@@ -321,14 +321,17 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   const localPendingRef = useRef(false);
   useEffect(() => {
     if (!localTexts) return;
-    const propFp = segmentsProp.map((s) => s.text ?? "").join("\u0000");
-    const localFp = localTexts.map((s) => s.text ?? "").join("\u0000");
     if (localPendingRef.current) {
-      if (propFp === localFp) {
-        // Eigene Bestätigung (API-Antwort/Yjs-Roundtrip) → Prop ist die Wahrheit.
-        localPendingRef.current = false;
-        setLocalTexts(null);
-      }
+      // Change 139-Fix (2026-08-28): NICHT beim Prop-Match zurücksetzen!
+      // Der optimistische Sync (handleEdited → Cache) erzeugt dasselbe
+      // Match wie die spätere Server-Bestätigung — würde hier schon
+      // aufgelöst, könnte der Detail-Poller (2-s-Interval, Change 138)
+      // den Cache mit einer VOR dem PUT-Commit aufgenommenen Antwort
+      // überschreiben (Poller-Race): Anzeige kippt nach dem Edit-Ende
+      // auf den alten Text zurück (User-Befund Chrome/Android „Edit
+      // verlassen → alte Version“, weiterhin reproduzierbar).
+      // localTexts bleibt die Anzeige-Wahrheit, bis handleSave nach dem
+      // PUT-Erfolg (Server-Bestätigung) pending=false setzt.
       return;
     }
     // Kein eigener Save pending → jeder Prop-Wechsel ist fremd → Fremd gewinnt.
@@ -817,6 +820,11 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       // beim Edit-Inhalt, Guard löst aus (Prop-Fingerprint == local).
       if (result && result.segments) {
         onEdited?.(result.segments, result.text, true);
+        // Change 139-Fix: Server-Wahrheit ist da (PUT committet) — der
+        // Poller kann ab jetzt nur noch den NEUEN Stand liefern; lokale
+        // Anzeige-Wahrheit freigeben (Prop gewinnt wieder).
+        localPendingRef.current = false;
+        setLocalTexts(null);
       }
     } catch {
       // Change 139: kein stilles Zurückkippen — ehrlicher Rollback auf den
