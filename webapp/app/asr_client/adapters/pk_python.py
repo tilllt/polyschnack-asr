@@ -87,6 +87,7 @@ class PkPythonClient(AsrClient):
         segments: List[Dict[str, Any]] = []
         final_text = ""
         total_chunks = 1
+        last_idx = 0
         data = {
             "model": settings.ASR_MODEL,
             "noise_reduce": "true" if noise_reduce else "false",
@@ -117,6 +118,7 @@ class PkPythonClient(AsrClient):
                     }
                     segments.append(seg)
                     total_chunks = ev.get("total_chunks", 1)
+                    last_idx = ev.get("chunk_index", 0)
                     if ev.get("final"):
                         final_text = ev.get("text", "")
                     if on_chunk:
@@ -129,11 +131,20 @@ class PkPythonClient(AsrClient):
                             ev.get("final", False),
                         )
 
+        # Change 147: Vollständigkeit über die Chunk-Zählung — endet der
+        # Stream vorzeitig (letzter chunk_index < total_chunks-1), wurde
+        # die Verbindung abgerissen (deterministisch, ohne Audio-Marker).
+        chunked = total_chunks > 1
+        truncated = chunked and (last_idx + 1 < total_chunks)
         return {
             "text": final_text or " ".join(filter(None, accumulated)).strip(),
             "segments": segments,
             "duration": None,
             "language": None,
+            "chunked": chunked,
+            "truncated": truncated,
+            "chunks_received": last_idx + 1,
+            "chunks_total": total_chunks,
         }
 
     def transcribe_async(

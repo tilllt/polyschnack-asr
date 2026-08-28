@@ -2108,8 +2108,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
                 pct = int((idx + 1) / total * 70) + 10
+                # Change 147: Chunk-Zähler in die note — die UI zeigt
+                # „Transkribieren 23/45" statt nur der Phase.
                 with Session(engine) as session:
-                    set_progress(session, rec_id, pct)
+                    set_progress(session, rec_id, pct, note=f"asr Chunk {idx + 1}/{total}")
                     if acc_text:
                         rec = crud.get_recording(session, rec_id)
                         if rec:
@@ -2177,21 +2179,36 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         phase_times[f"asr:{backend}"] = (time.perf_counter() - _t_asr0) * 1000
 
         # Change 147: Marker prüfen + Marker-Segmente entfernen. Die
-        # Vollständigkeit wird über die Marker-Zeit bestimmt: Audio-Dauer
-        # MIT Marker vs. letztes Segment-Ende (kein Abspann-Risiko).
-        if marker_active:
+        # Change 147: Vollständigkeits-Erkennung — Chunk-Zählung (primär,
+        # deterministisch: endet der Stream vor total_chunks, ist die
+        # Verbindung abgerissen). TTS-Marker nur als Fallback für
+        # Backends ohne brauchbare Chunk-Zählung (total_chunks == 1).
+        if result.get("truncated") and status == "done":
+            chunks = result.get("chunks_received", 0)
+            total = result.get("chunks_total", 0)
+            log.warning(
+                "Change 147: ASR-Stream vorzeitig beendet — rec_id=%s "
+                "chunks=%s/%s", rec_id, chunks, total,
+            )
+            error = (
+                f"Transkription unvollständig: Der ASR-Stream endete "
+                f"vorzeitig ({chunks} von {total} Chunks). Bitte erneut "
+                f"transkribieren."
+            )
+            status = "failed"
+        elif marker_active and not result.get("chunked") and status == "done":
+            # Fallback: Marker-Zeitprüfung (Audio-Dauer MIT Marker vs.
+            # letztes Segment-Ende — kein Abspann-Risiko).
             audio_total_s = _probe_audio_duration(audio_bytes)
             segments, text, marker_found = _strip_transcript_marker(
                 segments, text, audio_total_s,
             )
-            if (
-                not marker_found
-                and not _transcript_complete(segments, audio_total_s)
-                and status == "done"
+            if not marker_found and not _transcript_complete(
+                segments, audio_total_s,
             ):
                 log.warning(
-                    "Change 147: ASR-Marker fehlt — Stream vorzeitig beendet? "
-                    "rec_id=%s segments=%d audio_total=%.1fs",
+                    "Change 147: ASR-Marker fehlt — Stream vorzeitig "
+                    "beendet? rec_id=%s segments=%d audio_total=%.1fs",
                     rec_id, len(segments), audio_total_s or 0.0,
                 )
                 error = (

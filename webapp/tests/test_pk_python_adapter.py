@@ -110,6 +110,31 @@ def test_pk_python_streaming_parses_sse():
     assert result["text"] == "Guten Tag"
     assert len(chunks) == 2
     assert chunks[1][1] == 1 and chunks[1][2] == 2
+    # Change 147: vollständiger Stream (letzter chunk_index == total-1)
+    # → nicht truncated, Chunk-Zählung brauchbar.
+    assert result["truncated"] is False
+    assert result["chunked"] is True
+    assert result["chunks_total"] == 2
+
+    # Change 147: Stream endet VOR dem letzten Chunk (Verbindung abgerissen)
+    # → truncated=True (deterministische Vollständigkeits-Erkennung).
+    short_events = [
+        {"text": "Nur", "chunk_index": 0, "total_chunks": 5,
+         "start": 0.0, "end": 1.0, "final": False},
+    ]
+    short_body = "".join(
+        f"data: {__import__('json').dumps(e)}\n\n" for e in short_events)
+    def short_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=short_body,
+                              headers={"content-type": "text/event-stream"})
+    short_client = PkPythonClient(
+        url="http://ps-pk-onnx:5092",
+        transport=httpx.MockTransport(short_handler))
+    short_result = short_client.transcribe_streaming(
+        b"\x00\x01", "a.wav", "audio/wav")
+    assert short_result["truncated"] is True
+    assert short_result["chunks_received"] == 1
+    assert short_result["chunks_total"] == 5
     # SSE-Fehler-Events werden als RuntimeError propagiert:
     def err_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text="data: {\"error\": \"kaputt\"}\n\n")

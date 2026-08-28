@@ -1,6 +1,12 @@
-# Change 147 — Tasks (TTS-Marker)
+# Change 147 — Tasks (TTS-Marker + Chunk-Erkennung)
 
-## 1. Marker-Asset
+## 1. Vollständigkeits-Erkennung (primär: Chunk-Zählung)
+
+- [x] `pk_python.py`: Stream liefert `chunked`/`truncated`/
+      `chunks_received`/`chunks_total` (letzter `chunk_index` vs. `total_chunks`)
+- [x] `service.py`: `truncated` → `failed` mit „X von Y Chunks"-Meldung
+
+## 2. TTS-Marker (Fallback für Backends ohne Chunk-Zählung)
 
 - [x] TTS generieren („Seven. Four. Two. …", langsam, mit Pausen)
 - [x] Konvertiert zu 16 kHz mono s16 WAV (`webapp/app/transcript_marker.wav`)
@@ -12,7 +18,11 @@
 - [x] `_strip_transcript_marker()` — Marker-Segmente entfernen + found-Flag
 - [x] Marker fehlt → `failed` mit Meldung (Teil-Text bleibt)
 
-## 3. Verifikation
+## 3. Progress-Bar (aussagekräftiger)
+
+- [x] `service.py` `_on_chunk`: note `"asr Chunk X/Y"` (statt nur `"asr"`)
+- [x] `RecordingCard.tsx`: `activePhaseIndex` akzeptiert `asr …`;
+      `phaseDetail` zeigt „Chunk X/Y" (wie alignment-Details)
 
 - [x] 9 Tests (Marker-Erkennung, Entfernung, stille-Abspann-Fall,
       echter ffmpeg-Anhang)
