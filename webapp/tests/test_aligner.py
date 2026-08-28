@@ -136,6 +136,36 @@ def test_build_align_groups_einzelnes_langes_segment_wird_gechunkt():
     assert joined == "eins zwei drei vier fünf"
 
 
+def test_apply_aligned_words_ableitet_dauer_aus_folgewort():
+    """Change 152: Aligner-Wörter mit end=start (Dauer 0) bekommen die
+    Dauer aus dem Start des Folgeworts; das letzte Wort 100 ms."""
+    segs = [{"start": 0.0, "end": 3.0, "text": "eins zwei drei"}]
+    words = [
+        {"word": "eins", "start": 0.10, "end": 0.10},   # Dauer 0
+        {"word": "zwei", "start": 0.65, "end": 0.65},   # Dauer 0
+        {"word": "drei", "start": 1.20, "end": 1.20},   # Dauer 0
+    ]
+    out = apply_aligned_words(segs, words, group_start=0.0)
+    ws = out[0]["words"]
+    assert ws[0]["end"] == pytest.approx(0.65)   # nächste Wortgrenze
+    assert ws[1]["end"] == pytest.approx(1.20)
+    assert ws[2]["end"] == pytest.approx(1.30)   # letztes Wort: +0.1
+    assert ws[2]["end"] > ws[2]["start"]
+
+
+def test_apply_aligned_words_behaelt_echte_dauer():
+    """Change 152: Wörter mit plausibler Dauer (> 50 ms) bleiben unberührt."""
+    segs = [{"start": 0.0, "end": 3.0, "text": "eins zwei"}]
+    words = [
+        {"word": "eins", "start": 0.10, "end": 0.40},
+        {"word": "zwei", "start": 0.50, "end": 0.90},
+    ]
+    out = apply_aligned_words(segs, words, group_start=0.0)
+    ws = out[0]["words"]
+    assert ws[0]["end"] == pytest.approx(0.40)
+    assert ws[1]["end"] == pytest.approx(0.90)
+
+
 def test_build_align_groups_mehrere_chunks_unter_max():
     """Change 078: 500-s-Segment mit max_s=120 → 5 Chunks, jeder ≤ 120 s."""
     segs = [{"start": 0, "end": 500, "text": " ".join(f"w{i}" for i in range(10))}]

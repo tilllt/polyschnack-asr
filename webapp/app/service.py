@@ -902,6 +902,24 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
     behalten ihre Backend-Timestamps.
     """
     by_time = sorted(words, key=lambda w: w.get("start") or 0.0)
+    # Change 152 (User-Befund 2026-08-28): Der Aligner liefert für die
+    # meisten Wörter end=start (Dauer 0) oder unplausibel kurze Werte
+    # (≤ 50 ms) — dadurch wird das Wort auf der Timeline nie markiert.
+    # Dauer aus dem Start des Folgeworts ableiten (die Lücke zwischen
+    # zwei Wörtern wird dem ersten zugeschlagen); das letzte Wort der
+    # Liste bekommt eine Mindestdauer von 100 ms.
+    for i in range(len(by_time) - 1):
+        w = by_time[i]
+        ws = float(w.get("start") or 0.0)
+        we = float(w.get("end") or ws)
+        if we - ws <= 0.05:
+            by_time[i] = {**w, "end": float(by_time[i + 1].get("start") or ws)}
+    if by_time:
+        w = by_time[-1]
+        ws = float(w.get("start") or 0.0)
+        we = float(w.get("end") or ws)
+        if we - ws <= 0.05:
+            by_time[-1] = {**w, "end": ws + 0.1}
     out: List[Dict[str, Any]] = []
     wi = 0
     for s in segments:
