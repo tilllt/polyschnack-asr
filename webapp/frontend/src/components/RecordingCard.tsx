@@ -679,16 +679,26 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Fehler-Toast. PUT-Guard „letzter Drag gewinnt" (monotone Sequenz,
   // 007) bleibt für parallele PUTs. Die Drag-PREVIEW dagegen ist lokal in
   // SegmentList (dragPreview-State) — der Parent sieht sie nicht.
+  // Change 144: Leere Anzeige-Segmente (kein Text zugewiesen durch die
+  // proportionale Verteilung bei langen Aufnahmen) werden vor jedem PUT
+  // entfernt — sonst lehnt die Backend-Invariante mit „segment N: empty
+  // text" ab. Gilt für Delete, Split UND Grenzen-Verschieben.
+  function cleanSegments(segs: Segment[]): Segment[] {
+    return segs.filter((s) => String(s.text ?? "").trim() !== "");
+  }
+
   async function handleBoundaryDragEnd(next: Segment[]) {
     if (!next || !r.uid) return;
+    const cleaned = cleanSegments(next);
+    if (cleaned.length === 0) return;
     const seq = ++persistSeq.current;
     const prevSegments = segments; // Rollback-Ziel (Modell vor dem Commit)
     const prevText = recText ?? "";
     const prevManual = !!r.segments_manual;
     // Optimistisch: Modell sofort aktualisieren — Anzeige folgt automatisch.
-    handleEdited(next, next.map((s) => s.text).join(" "), true);
+    handleEdited(cleaned, cleaned.map((s) => s.text).join(" "), true);
     try {
-      const result = await replaceSegments(r.uid, next);
+      const result = await replaceSegments(r.uid, cleaned);
       if (persistSeq.current !== seq) return; // ein neuerer Drag hat gewonnen
       // Server-Antwort ist die Wahrheit (inkl. Flag).
       handleEdited(result.segments, result.text, result.segments_manual);
@@ -710,13 +720,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Hintergrund, Rollback bei Fehler.
   async function persistSegmentList(next: Segment[]) {
     if (!r.uid) return;
-    // Change 144: Die Anzeige-Ableitung (proportionale Text-Verteilung)
-    // erzeugt bei langen Aufnahmen Zeitfenster ohne Text → leere
-    // Anzeige-Segmente. Der PUT validiert „kein leeres Segment" und lehnte
-    // ab („segment N: empty text"). Leere Segmente werden hier vor dem
-    // PUT entfernt — die Anzeige wird damit konsistent (keine leeren
-    // Zeilen), die DB behält ihre Invariante.
-    const cleaned = next.filter((s) => String(s.text ?? "").trim() !== "");
+    // Change 144: leere Anzeige-Segmente vor dem PUT entfernen (siehe
+    // cleanSegments) — statt den 400 „segment N: empty text" zu provozieren.
+    const cleaned = cleanSegments(next);
     if (cleaned.length === 0) return; // alles leer — nichts zu speichern
     const seq = ++persistSeq.current;
     const prevSegments = segments;
