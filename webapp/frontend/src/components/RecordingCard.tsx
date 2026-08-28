@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed } from "lucide-react";
 import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
 import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
@@ -230,6 +230,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // start/end werden während des Marker-Drags LIVE aktualisiert.
   const [timingWord, setTimingWord] = useState<TimingWord | null>(null);
   const [timingOverride, setTimingOverride] = useState(false);
+  // Change 141: „Folgen"-Toggle — Auto-Scroll der Transkription an das
+  // Playback (Default an). Aus = in Ruhe lesen/bearbeiten während das
+  // Audio läuft; das Karaoke-Highlight bleibt aktiv.
+  const [followPlayback, setFollowPlayback] = useState(true);
   const [dlOpen, setDlOpen] = useState(false);
   // Change 015: Export-Formate dynamisch aus GET /export-templates
   // (Fallback: hartkodierte txt|srt|vtt, falls der Call fehlschlägt).
@@ -1400,9 +1404,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 type="button"
                 onClick={handleStartAction}
                 disabled={startDisabled}
-                className="bg-accent text-white text-[13px] px-5 py-[7px] rounded-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-[6px]"
+                // Change 141: nicht mit dem Waveform-Play verwechselbar —
+                // Send-Icon statt Play, dezenter Outline-Stil, passt zu
+                // den Aktions-Tabs darüber.
+                className="border border-accent/50 text-accent text-[13px] px-5 py-[6px] rounded-sm font-semibold hover:bg-accent/10 transition-colors disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-[6px] bg-transparent"
               >
-                <Play size={13} />
+                <Send size={13} />
                 {t("start_btn")}
               </button>
               <span className="text-[10.5px] text-muted leading-[1.4]">
@@ -1607,6 +1614,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
                     onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
                     onWordClick={handleTimingWordSelect}
+                    followPlayback={followPlayback}
                     timing={timingWord ? { segIdx: timingWord.segIdx, wordIdx: timingWord.wordIdx, start: timingWord.start, end: timingWord.end } : null}
                     override={timingOverride}
                     onResetOverride={timingOverride ? handleTimingReset : undefined}
@@ -1639,11 +1647,27 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   <span className="text-[11px] text-muted2">
                     {t("boundary_drag_hint_short")}
                   </span>
+                  {/* Change 141: „Folgen"-Toggle — Auto-Scroll der
+                      Transkription an das Playback an/aus (lesen in Ruhe). */}
+                  <button
+                    type="button"
+                    onClick={() => setFollowPlayback((f) => !f)}
+                    aria-pressed={followPlayback}
+                    className={`ml-auto flex-shrink-0 inline-flex items-center gap-[5px] text-[11px] font-semibold px-[6px] py-[3px] rounded-sm transition-colors border ${
+                      followPlayback
+                        ? "border-accent/50 text-accent bg-accent/10"
+                        : "border-border text-muted2 hover:text-txt"
+                    }`}
+                    title={t("follow_title")}
+                  >
+                    <LocateFixed size={12} />
+                    {t(followPlayback ? "follow_on" : "follow_off")}
+                  </button>
                   {/* Change 124: Lupe auf dieser Zeile am rechten Rand —
                       dort, wo der User in der Transkription sucht. */}
                   <button
                     onClick={() => setSearchOpen((v) => !v)}
-                    className={`ml-auto flex-shrink-0 text-[12px] px-[6px] py-[3px] rounded-sm font-semibold transition-colors ${
+                    className={`flex-shrink-0 text-[12px] px-[6px] py-[3px] rounded-sm font-semibold transition-colors ${
                       searchOpen
                         ? "bg-accent/15 text-accent"
                         : "text-muted2 hover:text-txt"
@@ -1660,6 +1684,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   // abgeleitete Anzeige (resegmentByDuration-Vorschau),
                   // sondern die DB-Segmente als Struktur-Base.
                   persistBase={segments}
+                  followPlayback={followPlayback}
                   activeIdx={activeSegIdx}
                   onActiveChange={setActiveSegIdx}
                   onSeekTo={(sec) => wsRef.current?.seekTo(sec)}

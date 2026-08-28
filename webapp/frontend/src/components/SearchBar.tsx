@@ -36,7 +36,7 @@ export function SearchBar({ value, onChange, count }: Props) {
           className="absolute left-[11px] top-1/2 -translate-y-1/2 text-muted2 pointer-events-none"
         />
         <input
-          type="search"
+          type="text"
           value={local}
           onChange={handleChange}
           placeholder={t("search_placeholder")}

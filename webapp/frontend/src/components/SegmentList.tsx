@@ -95,9 +95,14 @@ interface Props {
    *  Text-Edit, kein Speaker-Menü/Rename, keine Grenzen, kein +/−/Split,
    *  keine Annotation/Text-Markierung). Playback/Karaoke/Suche bleiben. */
   readOnly?: boolean;
-  /** Change 137 (Timing-Tab, readOnly): Klick auf ein Wort → Wort laden
-   *  (Waveform-Detail). Ersetzt im readOnly-Modus den Seek-Klick. */
+  /** Change 141: Wort-Klick → Wort laden (Waveform-Detail). Ersetzt im
+   *  readOnly-Modus den Seek-Klick. */
   onWordClick?: (segIdx: number, wordIdx: number) => void;
+  /** Change 141: „Folgen"-Toggle — false = Auto-Scroll der Transkription
+   *  an das Playback AUS (lesen/bearbeiten während das Audio läuft),
+   *  true (Default) = Text scrollt automatisch entlang des Timings.
+   *  Das Karaoke-Highlight bleibt in beiden Fällen aktiv. */
+  followPlayback?: boolean;
 }
 
 // Re-segmentierte Segmente (resegment.ts) sind strukturell identisch zu
@@ -155,7 +160,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -493,7 +498,9 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
   useEffect(() => {
     // User 2026-08-20: Während der Edit-Modus offen ist (Textbox), kein
     // Auto-Scroll — die Wiedergabe darf die Textbox nicht wegbewegen.
-    if (editingIdx !== null) return;
+    // Change 141: „Folgen" aus → kein Auto-Scroll (lesen/bearbeiten in
+    // Ruhe, das Karaoke-Highlight bleibt aktiv).
+    if (editingIdx !== null || !followPlayback) return;
     const container = containerRef.current;
     if (!container || activeIdx < 0) return;
     // User 2026-08-23: Zwischen zwei Segmenten (Karaoke-Lücke — kein Wort
@@ -529,7 +536,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       return () => cancelAnimationFrame(raf);
     }
     centerWord();
-  }, [activeIdx, activeW, editingIdx, renderAll, virtualizer]);
+  }, [activeIdx, activeW, editingIdx, followPlayback, renderAll, virtualizer]);
 
   // Change 077 (Annotation-Scope): Klick auf Annotation (Waveform-Marker
   // oder Text-Markierung) → Transkription scrollt zum Segment der
@@ -1192,8 +1199,8 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
               (onSeekPaused ?? onSeekTo)?.(typeof w.start === "number" ? w.start : 0);
             }
           }}
-          className={`
-            relative flex items-baseline gap-x-2 px-3 py-[6px]
+          className={` 
+            relative flex flex-wrap items-baseline gap-x-2 px-3 py-[6px]
             cursor-pointer transition-colors duration-[120ms]
             border-l-2 border-transparent
             text-[13.5px] leading-[1.5]
@@ -1496,7 +1503,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
           )}
           {editingIdx === i ? (
             <textarea
-              className="flex-1 min-w-0 bg-panel2 border border-border rounded-sm px-2 py-1 text-[13px] leading-[1.4] overflow-hidden"
+              className="w-full basis-full min-w-0 bg-panel2 border border-border rounded-sm px-2 py-1 text-[13px] leading-[1.4] overflow-hidden"
               value={editText}
               onChange={(e) => {
                 setEditText(e.target.value);
@@ -1536,7 +1543,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
             />
           ) : (
             <span
-              className="text-txt flex-1 min-w-0 pointer-coarse:select-none"
+              className="text-txt w-full basis-full min-w-0 pointer-coarse:select-none"
               style={
                 {
                   WebkitTouchCallout: "none",

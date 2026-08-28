@@ -27,6 +27,9 @@ interface Props {
   onSeekPaused?: (seconds: number) => void;
   /** Klick auf ein Wort → in die Waveform laden (Zoom + Markierung). */
   onWordClick: (segIdx: number, wordIdx: number) => void;
+  /** Change 141: „Folgen"-Toggle (Auto-Scroll der Wortliste an das
+   *  Playback) — an die SegmentList durchgereicht. */
+  followPlayback?: boolean;
   /** Geladenes Wort inkl. LIVE-Timing während des Marker-Drags. */
   timing?: { segIdx: number; wordIdx: number; start: number; end: number } | null;
   /** override-Flag des geladenen Wortes (manuell korrigiert). */
@@ -47,6 +50,7 @@ export function TimingEditor({
   onSeekTo,
   onSeekPaused,
   onWordClick,
+  followPlayback = true,
   timing,
   override,
   onResetOverride,
@@ -115,6 +119,7 @@ export function TimingEditor({
         onSeekPaused={onSeekPaused}
         readOnly
         onWordClick={onWordClick}
+        followPlayback={followPlayback}
       />
     </div>
   );

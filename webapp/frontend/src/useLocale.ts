@@ -358,6 +358,10 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Tempo da palavra salvo",
     timing_save_error: "Falha ao salvar o tempo da palavra",
     edit_save_error: "Não foi possível salvar a edição — tente novamente",
+    // Change 141: „Folgen"-Toggle
+    follow_on: "Seguindo",
+    follow_off: "Seguir",
+    follow_title: "Seguir: a transcrição rola junto com a reprodução. Desligado = ler/editar em paz.",
     timing_override_hint: "Corrigido manualmente (protegido do re-alinhamento)",
     timing_no_words: "Sem timestamps de palavras (alinhamento ausente)",
   },
@@ -716,6 +720,10 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Wort-Timing gespeichert",
     timing_save_error: "Wort-Timing speichern fehlgeschlagen",
     edit_save_error: "Bearbeitung konnte nicht gespeichert werden — bitte erneut versuchen",
+    // Change 141: „Folgen"-Toggle
+    follow_on: "Folgen",
+    follow_off: "Folgen",
+    follow_title: "Folgen: die Transkription scrollt automatisch mit der Wiedergabe. Aus = in Ruhe lesen/bearbeiten.",
     timing_override_hint: "Manuell korrigiert (geschützt vor Re-Align)",
     timing_no_words: "Keine Wort-Timestamps (Alignment fehlt)",
   },
@@ -1074,6 +1082,10 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Word timing saved",
     timing_save_error: "Failed to save word timing",
     edit_save_error: "Could not save the edit — please try again",
+    // Change 141: "Follow" toggle
+    follow_on: "Following",
+    follow_off: "Follow",
+    follow_title: "Follow: the transcript scrolls along with playback. Off = read/edit in peace.",
     timing_override_hint: "Manually corrected (protected from re-align)",
     timing_no_words: "No word timestamps (alignment missing)",
   },
