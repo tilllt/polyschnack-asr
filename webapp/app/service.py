@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import subprocess as sp
+import re
 import tempfile
 import threading
 import time
@@ -109,33 +110,94 @@ def _probe_audio_duration(audio_bytes: bytes) -> Optional[float]:
         return None
 
 
-def _detect_truncated_asr(
-    segments: List[Dict[str, Any]],
-    duration: Optional[float],
-    audio_bytes: Optional[bytes] = None,
-    tolerance_s: float = 30.0,
-) -> Optional[str]:
-    """Change 146: Erkennt still abgerissene ASR-Streams. Das Backend
-    schließt die SSE-Verbindung bei Problemen OFT ohne error-Event —
-    unvollständige Ergebnisse wurden bisher als done gespeichert
-    (User-Befund: 90-min-Film → nur 26,6 min transkribiert).
-    Liefert eine Fehlermeldung, wenn das letzte Segment deutlich vor dem
-    Ende des verarbeiteten Audios stoppt; sonst None."""
+# Change 147: TTS-Marker für deterministische Vollständigkeits-Erkennung
+# (User-Idee 2026-08-28). Ein eindeutiger Marker (Ziffernfolge, einmalig
+# als WAV generiert) wird ans Audio-Ende gehängt. Transkribiert die ASR
+# den Marker, hat sie das Audio-Ende erreicht; fehlt er, brach der Stream
+# ab. Kein Zeit-Raten — auch Filme mit stillem Abspann sind korrekt.
+_TRANSCRIPT_MARKER_PATH = os.path.join(os.path.dirname(__file__), "transcript_marker.wav")
+
+# Marker-Wörter (Ziffern in EN/DE/PT + isolierte Ziffern-Tokens) für die
+# Erkennung — Whisper transkribiert einzeln gesprochene Ziffern je nach
+# Sprachdetektion als Ziffern oder Zahlwörter.
+_MARKER_WORDS = {
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "null", "eins", "zwei", "drei", "vier", "fünf", "fuenf", "sechs", "sieben",
+    "acht", "neun", "um", "dois", "tres", "quatro", "cinco", "seis", "sete",
+    "oito", "nove",
+}
+
+
+def _append_transcript_marker(audio_bytes: bytes) -> bytes:
+    """Change 147: Hängt den TTS-Marker (Ziffernfolge 7-4-2-8-1-6-0-3-9)
+    ans Audio-Ende und konvertiert zu 16 kHz mono WAV (concat via ffmpeg).
+    Liefert das Audio unverändert, wenn der Marker fehlt oder ffmpeg
+    scheitert — dann greift keine Vollständigkeits-Erkennung (kein
+    falsches failed)."""
+    if not audio_bytes or not os.path.exists(_TRANSCRIPT_MARKER_PATH):
+        return audio_bytes
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
+            tf.write(audio_bytes)
+            path = tf.name
+        try:
+            r = sp.run(
+                ["ffmpeg", "-hide_banner", "-i", path, "-i", _TRANSCRIPT_MARKER_PATH,
+                 "-filter_complex",
+                 "[0:a]aresample=16000,pan=mono[a0];[1:a]aresample=16000,pan=mono[a1];"
+                 "[a0][a1]concat=n=2:v=0:a=1[aout]",
+                 "-map", "[aout]", "-acodec", "pcm_s16le", "-f", "wav", "pipe:1"],
+                capture_output=True, timeout=180,
+            )
+        finally:
+            os.unlink(path)
+        if r.returncode == 0 and r.stdout:
+            return r.stdout
+        log.warning("Change 147: ffmpeg-Marker-Anhang fehlgeschlagen (rc=%s)", r.returncode)
+    except Exception:
+        log.exception("Change 147: Marker-Anhang fehlgeschlagen")
+    return audio_bytes
+
+
+def _is_marker_segment(text: str) -> bool:
+    """Change 147: True, wenn das Segment überwiegend aus Marker-Ziffern
+    besteht (isolierte Ziffern oder Zahlwörter) — mindestens 4 Treffer und
+    ≥ 50 % der Tokens. Ein normales Abschluss-Segment („…das ist das
+    Ende“) enthält praktisch nie 4 isolierte Ziffern."""
+    tokens = [t for t in re.split(r"\s+", text) if t.strip()]
+    if not tokens:
+        return False
+    hits = 0
+    for t in tokens:
+        core = t.strip(".,;:!?\"'()[]-–—")
+        if core.isdigit():
+            hits += 1
+        elif core.lower() in _MARKER_WORDS:
+            hits += 1
+    return hits >= 4 and hits / len(tokens) >= 0.5
+
+
+def _strip_transcript_marker(
+    segments: List[Dict[str, Any]], text: str
+) -> Tuple[List[Dict[str, Any]], str, bool]:
+    """Change 147: Entfernt Marker-Segmente am Transkript-Ende.
+    Rückgabe (segments_ohne_marker, text_ohne_marker, marker_gefunden).
+    marker_gefunden=True → die ASR hat das Audio-Ende erreicht
+    (vollständig). False → Marker fehlt (Stream abgerissen oder ASR hat
+    das Ende nicht erreicht)."""
     if not segments:
-        return None
-    last_end = max(float(s.get("end") or 0) for s in segments)
-    if last_end <= 0:
-        return None
-    audio_total = duration
-    if not audio_total and audio_bytes:
-        audio_total = _probe_audio_duration(audio_bytes)
-    if not audio_total or last_end >= float(audio_total) - tolerance_s:
-        return None
-    return (
-        f"Transkription unvollständig: {int(last_end / 60)} von "
-        f"{int(float(audio_total) / 60)} min (ASR-Verbindung abgebrochen). "
-        f"Bitte erneut transkribieren."
-    )
+        return segments, text, False
+    clean = list(segments)
+    found = False
+    removed = 0
+    while clean and removed < 3 and _is_marker_segment(str(clean[-1].get("text") or "")):
+        clean.pop()
+        found = True
+        removed += 1
+    if not found:
+        return segments, text, False
+    new_text = " ".join(str(s.get("text") or "").strip() for s in clean).strip()
+    return clean, new_text, True
 
 
 def _apply_vad(audio_bytes: bytes, mode: str) -> Tuple[bytes, Optional[Dict[str, Any]]]:
@@ -2017,6 +2079,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             log.info("Converting %s → 16k mono WAV for backend %s",
                      audio_path.name, backend)
             audio_bytes, _, _ = convert_to_wav_16k_mono(audio_bytes, audio_path.name)
+        # Change 147: TTS-Marker ans Audio-Ende hängen — deterministische
+        # Vollständigkeits-Erkennung (User-Idee). Transkribiert die ASR
+        # den Marker, hat sie das Audio-Ende erreicht.
+        audio_bytes = _append_transcript_marker(audio_bytes)
         if enable_streaming and client.capabilities.streaming:
 
             def _on_chunk(acc_text: str, idx: int, total: int, start: float, end: float, final: bool):
@@ -2089,23 +2155,24 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         segments = result["segments"]
         phase_times[f"asr:{backend}"] = (time.perf_counter() - _t_asr0) * 1000
 
-        # Change 146: Stiller Stream-Abbruch erkennen. Das Backend schließt
-        # die SSE-Verbindung bei Problemen im Audio-Fenster OFT ohne
-        # error-Event — bisher wurde ein unvollständiges Ergebnis still als
-        # done gespeichert (User-Befund: 90-min-Film → nur 26,6 min
-        # transkribiert, Status trotzdem done). Wenn das letzte Segment
-        # deutlich vor dem Ende des verarbeiteten Audios stoppt, wird der
-        # Job ehrlich als failed markiert (der Teil-Text bleibt gespeichert).
-        if segments and status == "done":
-            trunc_error = _detect_truncated_asr(segments, duration, audio_bytes)
-            if trunc_error:
-                log.warning(
-                    "ASR-Stream vorzeitig beendet: rec_id=%s last_end=%.1fs total=%.1fs (%d Segmente)",
-                    rec_id, max(float(s.get("end") or 0) for s in segments),
-                    float(duration) if duration else -1, len(segments),
-                )
-                error = trunc_error
-                status = "failed"
+        # Change 147: Marker prüfen + Marker-Segmente entfernen. Fehlt der
+        # Marker, hat die ASR das Audio-Ende nicht erreicht (still
+        # abgerissener Stream — User-Befund: 90-min-Film → nur 26,6 min
+        # transkribiert, Status trotzdem done). Dann ehrlich failed —
+        # der Teil-Text bleibt gespeichert (update_result speichert ihn
+        # auch bei failed).
+        segments, text, marker_ok = _strip_transcript_marker(segments, text)
+        if not marker_ok and segments and status == "done":
+            log.warning(
+                "Change 147: ASR-Marker fehlt — Stream vorzeitig beendet? "
+                "rec_id=%s segments=%d", rec_id, len(segments),
+            )
+            error = (
+                "Transkription unvollständig: Die ASR hat das Audio-Ende "
+                "nicht erreicht (Verbindung abgebrochen). Bitte erneut "
+                "transkribieren."
+            )
+            status = "failed"
 
         # Cancel-Prüfung nach ASR: teuerste Phasen (Diar/Align) nicht starten
         if _cancelled(job, rec_id):
