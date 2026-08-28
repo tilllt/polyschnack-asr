@@ -69,6 +69,10 @@ def _align_words(
                 "word": nw,
                 "start": float(old_words[i].get("start", seg_start)),
                 "end": float(old_words[i].get("end", seg_start)),
+                # Change 137: manuell korrigierte Wörter (Timing-Tab) behalten
+                # ihr Override-Flag auch nach einem Text-Edit (gleiche Wortzahl)
+                # — der Re-Align-Schutz bleibt damit erhalten.
+                **({"override": True} if old_words[i].get("override") else {}),
             }
             for i, nw in enumerate(new_words_list)
         ]
@@ -103,6 +107,9 @@ def _align_words(
             "word": new_words_list[new_idx],
             "start": float(ow.get("start", seg_start)),
             "end": float(ow.get("end", seg_start)),
+            # Change 137: Override-Flag über LCS-Matches hinweg erhalten
+            # (wie bei der 1:1-Regel — manuelle Korrektur überlebt Text-Edit).
+            **({"override": True} if ow.get("override") else {}),
         })
         new_i = new_idx + 1
     # Restliche eingefügte Wörter am Ende: gleichmäßig zwischen letztem
@@ -459,6 +466,164 @@ def update_segment(
             segments[idx]["speaker"] = new_speaker
     rec.segments = list(segments)  # neue Referenz → SQLAlchemy erkennt die Änderung
     rec.text = " ".join(s["text"] for s in segments)
+    rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+
+    from ..versions import snapshot
+
+    snapshot(session, rec, "edit", user_id=uid)
+
+    return {"segments": rec.segments, "text": rec.text}
+
+
+class WordTimingUpdate(BaseModel):
+    """Change 137: manuelle Wort-Timing-Korrektur (Timing-Tab).
+
+    ``start`` + ``end`` zusammen = Timing setzen (setzt ``override=true``,
+    das Wort ist damit gegen Re-Align geschützt); nur ``override`` =
+    Flag setzen/löschen ohne Timing-Änderung (Reset: ``override: false``).
+    """
+
+    start: float | None = None
+    end: float | None = None
+    override: bool | None = None
+
+
+# Change 137: kürzestes sinnvolles Wort (verhindert 0-dauer-Zeitfenster
+# und damit degenerierte Zoom-/Karaoke-Werte im Timing-Tab).
+MIN_WORD_DURATION_S = 0.02
+
+
+def _flattened_neighbor_bounds(
+    segments: list[dict[str, Any]],
+    idx: int,
+    word_idx: int,
+) -> tuple[float | None, float | None]:
+    """Vorgänger-Ende / Nachfolger-Start im WORT-FLOW (segmentübergreifend).
+
+    Rückgabe ``(prev_end, next_start)`` — jeweils ``None``, wenn es den
+    Nachbarn nicht gibt (erstes/letztes Wort der gesamten Aufnahme).
+    Grundlage der Monotonie-Regel (Change 137): Lücken sind erlaubt (ASR
+    liefert sie), Überlappungen nicht — Reihenfolge bleibt chronologisch.
+    """
+    words = segments[idx].get("words") or []
+    prev_end: float | None = None
+    next_start: float | None = None
+    if word_idx > 0:
+        prev_end = float(words[word_idx - 1].get("end"))
+    elif idx > 0:
+        prev_words = segments[idx - 1].get("words") or []
+        if prev_words:
+            prev_end = float(prev_words[-1].get("end"))
+    if word_idx < len(words) - 1:
+        next_start = float(words[word_idx + 1].get("start"))
+    elif idx < len(segments) - 1:
+        next_words = segments[idx + 1].get("words") or []
+        if next_words:
+            next_start = float(next_words[0].get("start"))
+    return prev_end, next_start
+
+
+@router.patch("/recordings/{rid}/segments/{idx}/words/{word_idx}")
+def update_word_timing(
+    rid: str,
+    idx: int,
+    word_idx: int,
+    body: WordTimingUpdate,
+    request: Request = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    """Change 137: manuelle Wort-Timing-Korrektur (Timing-Tab).
+
+    Setzt ``start``/``end`` GENAU EINES Wortes (Wort-Timing-Invariante
+    Req 10 — dokumentierte Ausnahme neben Text-Edit Change 010), markiert
+    das Wort mit ``override=true`` (ein späterer Re-Align überschreibt es
+    nicht mehr) und leitet die Segment-Grenzen aus erstem/letztem Wort neu
+    ab (Export/SRT/VTT bleiben konsistent). Auth + Zugriff + Versions-
+    Snapshot wie ``update_segment``.
+
+    Validierung (Design Change 137): ``start < end``, Mindestdauer 20 ms,
+    Monotonie gegen die Nachbarwörter im Wort-Flow (segmentübergreifend).
+    Das Frontend clampt beim Drag; ungültige Werte liefern hier 400.
+
+    ``override: false`` (ohne start/end) entfernt das Override-Flag — das
+    Wort behält seine aktuelle Zeit bis zum nächsten Re-Align.
+    """
+    import math
+
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    from ..identity import current_identity
+
+    identity = current_identity(request, session)
+    if identity is None or getattr(identity, "user", None) is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    uid = identity.user.id
+    ensure_access(session, rec, uid, "write", cap=identity.key_level)
+
+    # Tiefe Kopie (Muster update_segment: neue dicts → SQLAlchemy erkennt
+    # die Zuweisung als Änderung).
+    import json as _json
+
+    segments = _json.loads(_json.dumps(rec.segments or []))
+    if idx < 0 or idx >= len(segments):
+        raise HTTPException(status_code=404, detail="segment not found")
+    words = segments[idx].get("words") or []
+    if word_idx < 0 or word_idx >= len(words):
+        raise HTTPException(status_code=404, detail="word not found")
+
+    if body.start is None and body.end is None and body.override is None:
+        raise HTTPException(
+            status_code=400, detail="start/end or override must be provided"
+        )
+
+    timing_change = body.start is not None or body.end is not None
+    if timing_change:
+        if body.start is None or body.end is None:
+            raise HTTPException(
+                status_code=400, detail="start and end must be provided together"
+            )
+        start, end = float(body.start), float(body.end)
+        if not (math.isfinite(start) and math.isfinite(end)):
+            raise HTTPException(status_code=400, detail="start/end must be finite")
+        if not (start < end):
+            raise HTTPException(status_code=400, detail="start must be < end")
+        if end - start < MIN_WORD_DURATION_S:
+            raise HTTPException(
+                status_code=400,
+                detail=f"word duration must be >= {MIN_WORD_DURATION_S}s",
+            )
+        prev_end, next_start = _flattened_neighbor_bounds(segments, idx, word_idx)
+        if prev_end is not None and start < prev_end - 1e-6:
+            raise HTTPException(
+                status_code=400,
+                detail=f"start must not precede previous word end ({prev_end:.3f}s)",
+            )
+        if next_start is not None and end > next_start + 1e-6:
+            raise HTTPException(
+                status_code=400,
+                detail=f"end must not exceed next word start ({next_start:.3f}s)",
+            )
+        words[word_idx]["start"] = start
+        words[word_idx]["end"] = end
+        # Jede Timing-Änderung ist eine manuelle Korrektur → Override setzen
+        # (unabhängig von einem expliziten override-Feld im selben Request).
+        words[word_idx]["override"] = True
+        # Segment-Grenzen aus erstem/letztem Wort neu ableiten.
+        segments[idx]["start"] = float(words[0]["start"])
+        segments[idx]["end"] = float(words[-1]["end"])
+    elif body.override is not None:
+        # Nur-Flag-Update (Reset): Timing unverändert.
+        if body.override:
+            words[word_idx]["override"] = True
+        else:
+            words[word_idx].pop("override", None)
+
+    rec.segments = list(segments)  # neue Referenz → SQLAlchemy erkennt die Änderung
     rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
     session.add(rec)
     session.commit()

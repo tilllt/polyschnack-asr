@@ -776,6 +776,47 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
     return out
 
 
+def restore_override_words(
+    old_segments: List[Dict[str, Any]],
+    new_segments: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Change 137: Manuell korrigierte Wort-Timings (override=true) nach
+    einem Align-Lauf wiederherstellen.
+
+    Der Forced-Aligner ersetzt ALLE Word-Timestamps (apply_aligned_words).
+    Wörter, die der User im Timing-Tab manuell korrigiert hat (override),
+    behalten ihre ``start``/``end`` — der Override-Schutz (User-Entscheid
+    2026-08-28). Zuordnung per Index je Segment: der alignte Text entspricht
+    dem Segment-Text (Overrides ändern den Text nicht). Weicht die Wortzahl
+    ab (Text wurde geändert), wird der Override verworfen. Wo ein Override
+    wiederhergestellt wurde, folgen die Segment-Grenzen wieder dem ersten/
+    letzten Wort (ein korrigiertes Rand-Wort ändert die Grenzen mit).
+    """
+    out: List[Dict[str, Any]] = []
+    for i, ns in enumerate(new_segments):
+        ns = dict(ns)
+        if i < len(old_segments):
+            old_words = old_segments[i].get("words") or []
+            new_words = ns.get("words") or []
+            if old_words and len(old_words) == len(new_words):
+                restored = False
+                for j, ow in enumerate(old_words):
+                    if ow.get("override"):
+                        new_words[j] = {
+                            **new_words[j],
+                            "start": float(ow["start"]),
+                            "end": float(ow["end"]),
+                            "override": True,
+                        }
+                        restored = True
+                if restored:
+                    ns["words"] = new_words
+                    ns["start"] = float(new_words[0]["start"])
+                    ns["end"] = float(new_words[-1]["end"])
+        out.append(ns)
+    return out
+
+
 def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: bytes,
                      audio_name: str, language: Optional[str], job=None,
                      background: bool = False) -> List[Dict[str, Any]]:
@@ -963,7 +1004,12 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     # ORIGINAL-Segmenten zuordnen — GUI-Segmentgrenzen bleiben exakt,
     # egal wie viele technische Align-Chunks nötig waren.
     if all_aligned_words:
+        # Change 137: Baseline VOR dem Anwenden merken — nach dem Align
+        # werden manuell korrigierte Wörter (override=true) wiederhergestellt
+        # (Re-Align überschreibt sie nicht, User-Entscheid 2026-08-28).
+        baseline_segments = segments
         segments = apply_aligned_words(segments, all_aligned_words, 0.0)
+        segments = restore_override_words(baseline_segments, segments)
         aligned_any = True
 
     if aligned_any:
