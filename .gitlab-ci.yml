@@ -429,21 +429,16 @@ mirror-ghcr:
     for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
       dst="ghcr.io/${GHCR_USER}/${CI_PROJECT_NAME}${img}"
-      # Multi-Arch-Index in Harbor → Plattform beim PULL fixieren, damit
-      # der lokale Tag ein Plattform-Manifest ist (crane-Index-Problem).
-      docker pull --platform linux/amd64 "${src}:latest"
-      docker tag "${src}:latest" "${dst}:latest"
-      # Multi-Arch-Index in Harbor → nur die gebaute Plattform spiegeln
-      # (go-containerregistry bricht sonst mit "not all manifests available
-      # locally" ab, wenn der lokale Cache nur eine Plattform hat).
-      docker push --platform linux/amd64 "${dst}:latest"
+      # crane copy: Registry→Registry ohne lokalen Speicher. SpiegelT NUR
+      # die gebaute Plattform (Harbor liefert Multi-Arch-Index; docker-
+      # Shim-Push bricht sonst mit "does not provide the specified
+      # platform" / "not all manifests available locally" ab).
+      crane copy --platform linux/amd64 "${src}:latest" "${dst}:latest"
       # SHA-Tag nur spiegeln, wenn das Image in dieser Pipeline (oder fuer
       # diesen SHA) gebaut wurde — seit Change 117 bauen nicht mehr alle
       # Images bei jedem Push (changes-Filter).
-      if docker manifest inspect "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
-        docker pull --platform linux/amd64 "${src}:${CI_COMMIT_SHORT_SHA}"
-        docker tag "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
-        docker push --platform linux/amd64 "${dst}:${CI_COMMIT_SHORT_SHA}"
+      if crane digest "${src}:${CI_COMMIT_SHORT_SHA}" >/dev/null 2>&1; then
+        crane copy --platform linux/amd64 "${src}:${CI_COMMIT_SHORT_SHA}" "${dst}:${CI_COMMIT_SHORT_SHA}"
       else
         echo "[mirror-ghcr] kein SHA-Tag ${CI_COMMIT_SHORT_SHA} fuer ${src} — uebersprungen"
       fi
