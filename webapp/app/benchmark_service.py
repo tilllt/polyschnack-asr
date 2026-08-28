@@ -17,6 +17,7 @@ mutieren die aktuelle Version in-place (updated_at).
 from __future__ import annotations
 
 import copy
+import gzip
 import hashlib
 import io
 import json
@@ -981,7 +982,7 @@ class BenchmarkService:
         if preview_dir.is_dir():
             rels += sorted(f"preview/{p.name}" for p in preview_dir.glob("*.mp3"))
         buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
+        with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as tar:
             for rel in rels:
                 p = vdir / rel
                 if not p.is_file():
@@ -992,7 +993,13 @@ class BenchmarkService:
                 ti.uname = ti.gname = ""
                 with open(p, "rb") as f:
                     tar.addfile(ti, f)
-        return buf.getvalue()
+        # Change 148: gzip-Header deterministisch (mtime=0) — "w:gz" würde
+        # die aktuelle Zeit schreiben → Byte-Drift zwischen Aufrufen
+        # (User-Befund: test_package_deterministic flaky).
+        gz = io.BytesIO()
+        with gzip.GzipFile(fileobj=gz, mode="wb", mtime=0) as g:
+            g.write(buf.getvalue())
+        return gz.getvalue()
 
     def apply_submission(self, payload: dict) -> dict:
         """Validiert + persistiert einen Backend-Submit (REQ-WEB-041).

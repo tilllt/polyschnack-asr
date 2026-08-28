@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import io
+import gzip
 import json
 import tarfile
 from pathlib import Path
@@ -220,7 +221,7 @@ def diar_package() -> Response:
     m = svc.latest_manifest()
     pkg = svc.build_diar_package(m["version"])
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as tar:
         manifest = pkg / "diar-manifest.json"
         ti = tar.gettarinfo(str(manifest), arcname="diar-manifest.json")
         ti.mtime = 0
@@ -235,7 +236,11 @@ def diar_package() -> Response:
             ti.uname = ti.gname = ""
             with open(wav, "rb") as f:
                 tar.addfile(ti, f)
-    data = buf.getvalue()
+    # Change 148: gzip deterministisch (mtime=0)
+    gz = io.BytesIO()
+    with gzip.GzipFile(fileobj=gz, mode="wb", mtime=0) as g:
+        g.write(buf.getvalue())
+    data = gz.getvalue()
     sha = svc.diar_package_sha256(m["version"])
     return Response(
         content=data, media_type="application/gzip",
@@ -390,7 +395,7 @@ def vad_package() -> Response:
     m = svc.latest_manifest()
     pkg = svc.build_vad_package(m["version"])
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as tar:
         manifest = pkg / "vad-manifest.json"
         ti = tar.gettarinfo(str(manifest), arcname="vad-manifest.json")
         ti.mtime = 0
@@ -405,7 +410,11 @@ def vad_package() -> Response:
             ti.uname = ti.gname = ""
             with open(wav, "rb") as f:
                 tar.addfile(ti, f)
-    data = buf.getvalue()
+    # Change 148: gzip deterministisch (mtime=0)
+    gz = io.BytesIO()
+    with gzip.GzipFile(fileobj=gz, mode="wb", mtime=0) as g:
+        g.write(buf.getvalue())
+    data = gz.getvalue()
     sha = svc.vad_package_sha256(m["version"])
     return Response(
         content=data, media_type="application/gzip",
