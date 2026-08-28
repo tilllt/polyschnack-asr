@@ -166,8 +166,13 @@ def list_recordings(
         stmt = stmt.where(Recording.user_id.is_(None))
     if q:
         term = f"%{q.lower()}%"
+        # Change 149: title mit-suchen — der Rename (PATCH /title) setzt
+        # genau dieses Feld; vorher waren umbenannte Aufnahmen nicht per
+        # neuem Namen auffindbar (User-Befund 2026-08-28).
         stmt = stmt.where(
-            Recording.original_name.ilike(term) | Recording.text.ilike(term)  # type: ignore[union-attr]
+            Recording.title.ilike(term)  # type: ignore[union-attr]
+            | Recording.original_name.ilike(term)
+            | Recording.text.ilike(term)  # type: ignore[union-attr]
         )
     rows = list(session.exec(stmt).all())
 
