@@ -905,21 +905,36 @@ def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, An
     # Change 152 (User-Befund 2026-08-28): Der Aligner liefert für die
     # meisten Wörter end=start (Dauer 0) oder unplausibel kurze Werte
     # (≤ 50 ms) — dadurch wird das Wort auf der Timeline nie markiert.
-    # Dauer aus dem Start des Folgeworts ableiten (die Lücke zwischen
-    # zwei Wörtern wird dem ersten zugeschlagen); das letzte Wort der
-    # Liste bekommt eine Mindestdauer von 100 ms.
+    # Dauer aus dem Start des Folgeworts ableiten — aber NIE über eine
+    # Stille-Lücke hinweg: nur wenn die Lücke klein ist (≤ 0.5 s), wird
+    # sie als Wortdauer übernommen; bei langer Stille (Satz-Ende) endet
+    # das Wort nach einer typischen Wortdauer (Cap = Median der echten
+    # Dauern × 1.5, min. 0.3 s). Das letzte Wort der Datei bekommt
+    # ebenfalls die typische Dauer.
+    durations = [
+        float(w.get("end") or 0.0) - float(w.get("start") or 0.0)
+        for w in by_time
+        if (float(w.get("end") or 0.0) - float(w.get("start") or 0.0)) > 0.05
+    ]
+    durations.sort()
+    median_d = durations[len(durations) // 2] if durations else 0.3
+    cap = max(median_d * 1.5, 0.3)
     for i in range(len(by_time) - 1):
         w = by_time[i]
         ws = float(w.get("start") or 0.0)
         we = float(w.get("end") or ws)
         if we - ws <= 0.05:
-            by_time[i] = {**w, "end": float(by_time[i + 1].get("start") or ws)}
+            nxt = float(by_time[i + 1].get("start") or ws)
+            if nxt - ws <= 0.5:
+                by_time[i] = {**w, "end": nxt}
+            else:
+                by_time[i] = {**w, "end": ws + cap}
     if by_time:
         w = by_time[-1]
         ws = float(w.get("start") or 0.0)
         we = float(w.get("end") or ws)
         if we - ws <= 0.05:
-            by_time[-1] = {**w, "end": ws + 0.1}
+            by_time[-1] = {**w, "end": ws + cap}
     out: List[Dict[str, Any]] = []
     wi = 0
     for s in segments:
