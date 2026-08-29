@@ -1333,15 +1333,29 @@ class _AlignmentCache:
             log.warning("align-cache: delete failed rec_id=%s: %s", rec_id, exc)
 
 
-def _run_background_align(rec_id: int) -> None:
+def run_align_job(rec_id: int, job: Optional[Any] = None) -> None:
+    """Change 155 (Schritt 4): Queue-Dispatch-Ziel für align-Jobs."""
+    separate_backend = "none"
+    if job is not None and job.payload:
+        separate_backend = job.payload.get("separate_backend") or "none"
+    _run_background_align(rec_id, job=job, separate_backend=separate_backend)
+
+
+def _run_background_align(rec_id: int, job: Optional[Any] = None,
+                          separate_backend: str = "none") -> None:
     """Hintergrund-Worker (Change 045): präzises Forced-Alignment nach „done".
 
+    Change 155 (Schritt 4): Läuft als Queue-Job (kind=align) statt nacktem
+    Thread. Das Audio wird selbst vorbereitet (_prepare_align_audio —
+    gleiche Zeitbasis wie die Pipeline, reproduzierbar aus den Run-Settings)
+    statt aus dem RAM-Cache gelesen — damit align-Jobs nach einem
+    Webapp-Neustart rehydrierbar sind.
+
     - Setzt ``alignment``: pending → running → done|skipped.
-    - Liest das Cache-Audio (verarbeitete Bytes = Zeitbasis der Segmente).
     - Versions-Guard: wurden die Segmente seit dem Job geändert (Edit,
       Re-Transcribe), wird das Ergebnis verworfen (nie fremde Edits
       überschreiben).
-    - Fehler (Cache weg, Aligner down): ``skipped``, Backend-Timestamps
+    - Fehler (Audio weg, Aligner down): ``skipped``, Backend-Timestamps
       bleiben — nie ein Job-Fail.
     """
     from .aligner_client import ALIGN_WORDS_ENABLED
@@ -1350,8 +1364,8 @@ def _run_background_align(rec_id: int) -> None:
     if not ALIGN_WORDS_ENABLED:
         return
 
-    audio_bytes = _AlignmentCache.read(rec_id)
-    if audio_bytes is None:
+    prepared = _prepare_align_audio(rec_id, separate_backend=separate_backend)
+    if prepared is None:
         try:
             with Session(engine) as session:
                 rec = session.get(_Rec, rec_id)
@@ -1360,9 +1374,10 @@ def _run_background_align(rec_id: int) -> None:
                     session.add(rec)
                     session.commit()
         except Exception as exc:
-            log.warning("bg-align: Cache fehlt, Status-Update fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
-        log.info("bg-align: Cache fehlt für rec_id=%s — skipped", rec_id)
+            log.warning("bg-align: Audio fehlt, Status-Update fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+        log.info("bg-align: Audio nicht verfügbar für rec_id=%s — skipped", rec_id)
         return
+    audio_bytes, vad_meta_prep = prepared
 
     # Baseline der Segmente (für den Versions-Guard) + Job-Parameter.
     try:
@@ -1373,12 +1388,12 @@ def _run_background_align(rec_id: int) -> None:
                 return
             segments: List[Dict[str, Any]] = _json_deepcopy(rec.segments or [])
             language = rec.language
-            # Cache-Bytes sind die VERARBEITETE Audio (nach Trim/Enhance) — der
-            # Aligner bekommt sie direkt. Nur die Segment-Zeiten sind im Job um
+            # Audio/Zeitbasis: die vorbereiteten Bytes (Trim/Enhance) gehen
+            # direkt an den Aligner. Nur die Segment-Zeiten sind im Job um
             # vad_meta (shift/map, Change 114) kompensiert → vor dem Align
             # zurückrechnen, danach wieder aufschlagen (identische Zeitbasis
             # wie der synchrone Lauf).
-            vad_meta = _AlignmentCache.read_vad_meta(rec_id)
+            vad_meta = vad_meta_prep
             if vad_meta:
                 _unshift_or_unmap(segments, vad_meta)
             rec.alignment = "running"
@@ -1519,20 +1534,77 @@ def _current_run(session, rec):
         _Run.rec_id == rec.id).order_by(_Run.id.desc())).first()
 
 
+def _prepare_align_audio(rec_id: int,
+                         separate_backend: Optional[str] = None,
+                         run: Optional[Any] = None) -> Optional[Tuple[bytes, Optional[Dict[str, Any]]]]:
+    """Change 155 (Schritt 4): Audio fürs Forced-Alignment vorbereiten.
+
+    Aus ``_schedule_realign`` verschoben — die Vorverarbeitung (Audio laden,
+    VAD-Trim, Enhance, Music-Removal) läuft jetzt IM Queue-Worker, damit
+    align-Jobs rehydrierbar sind (kein RAM-Cache mehr nötig). Reproduziert
+    die Zeitbasis der Transkriptions-Pipeline (gleiche Settings aus dem Run).
+
+    Returns (audio_bytes, vad_meta) oder None wenn nicht möglich.
+    """
+    from .models import Recording as _Rec
+
+    with Session(engine) as session:
+        rec = session.get(_Rec, rec_id)
+        if rec is None:
+            return None
+        stored = Path(rec.stored_path) if rec.stored_path else None
+        if stored is None or not stored.is_file():
+            log.warning("align: Audio fehlt für rec_id=%s", rec_id)
+            return None
+        try:
+            audio_bytes = stored.read_bytes()
+        except Exception as exc:
+            log.warning("align: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
+            return None
+        vad_meta: Optional[Dict[str, Any]] = None  # Change 114
+        if run is None:
+            run = _current_run(session, rec)  # Change 099: Settings aus dem Run
+        vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
+        if vad_mode != "off":
+            try:
+                audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
+            except Exception as exc:
+                log.warning("vad fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
+                vad_meta = None
+        if run is not None and run.enable_enhance and run.enable_enhance != "off":
+            try:
+                audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
+            except Exception as exc:
+                log.warning("align: enhance failed rec_id=%s: %s", rec_id, exc)
+        # Change 113: Music-Removal — vocals als Align-Eingabe (wie ASR-Pipeline).
+        if separate_backend and separate_backend != "none":
+            try:
+                from .separate_client import SeparateClient
+                sc = SeparateClient()
+                if sc.health():
+                    vocals = sc.separate(audio_bytes, backend=separate_backend)
+                    if vocals:
+                        log.info("align: separate rec_id=%s backend=%s → vocals als Align-Eingabe (%d→%d B)",
+                                 rec_id, separate_backend, len(audio_bytes), len(vocals))
+                        audio_bytes = vocals
+                    else:
+                        log.warning("align: separate rec_id=%s lieferte keine vocals — weiter mit Original", rec_id)
+                else:
+                    log.warning("align: separate crispr-sep nicht erreichbar — weiter mit Original (rec_id=%s)", rec_id)
+            except Exception as exc:
+                log.warning("align: separate Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
+        return audio_bytes, vad_meta
+
+
 def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
     """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
 
-    Lädt die gespeicherte Audiodatei, reproduziert VAD-Trim/Enhance wie im
-    Job (gleiche Zeitbasis), schreibt den Alignment-Cache und startet den
-    Hintergrund-Worker (_run_background_align). Der User kann die
-    Transkription weiter sehen/bearbeiten; die Word-Timestamps werden
-    akustisch verifiziert, sobald der Worker fertig ist.
-
-    Change 113: optionales Music-Removal (separate_backend) — gleiche
-    Reihenfolge/Logik wie die Transkriptions-Pipeline (trim → enhance →
-    separate → Cache). Bei Musik-Aufnahmen alignt der Forced-Aligner auf
-    den Vocals; ehrlicher Fallback „weiter mit Original" wenn crispr-sep
-    nicht erreichbar ist, nichts liefert oder ein Fehler auftritt.
+    Change 155 (Schritt 4): Statt eigenem Thread wird ein ``align``-Queue-Job
+    enqueued — universelles Scheduling (Priorität, Rehydration, ein
+    Heartbeat-Muster). Der Worker bereitet das Audio selbst vor
+    (``_prepare_align_audio``). Der User kann die Transkription weiter
+    sehen/bearbeiten; die Word-Timestamps werden akustisch verifiziert,
+    sobald der Worker fertig ist.
 
     Returns False wenn Aligner deaktiviert, Datei fehlt oder Audio nicht
     lesbar — der Aufrufer antwortet dann mit verständlichem Fehler.
@@ -1555,54 +1627,24 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
         if stored is None or not stored.is_file():
             log.warning("realign: Audio fehlt für rec_id=%s", rec_id)
             return False
-        try:
-            audio_bytes = stored.read_bytes()
-        except Exception as exc:
-            log.warning("realign: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
-            return False
-        vad_meta: Optional[Dict[str, Any]] = None  # Change 114
-        run = _current_run(session, rec)  # Change 099: Settings aus dem Run
-        vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
-        if vad_mode != "off":
-            try:
-                audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
-            except Exception as exc:
-                log.warning("vad fehlgeschlagen (rec_id=%s): %s", rec_id, exc)
-                vad_meta = None
-        if run is not None and run.enable_enhance and run.enable_enhance != "off":
-            try:
-                audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
-            except Exception as exc:
-                log.warning("realign: enhance failed rec_id=%s: %s", rec_id, exc)
-        # Change 113: Music-Removal — vocals als Align-Eingabe (wie ASR-Pipeline).
-        if separate_backend and separate_backend != "none":
-            try:
-                from .separate_client import SeparateClient
-                sc = SeparateClient()
-                if sc.health():
-                    vocals = sc.separate(audio_bytes, backend=separate_backend)
-                    if vocals:
-                        log.info("realign: separate rec_id=%s backend=%s → vocals als Align-Eingabe (%d→%d B)",
-                                 rec_id, separate_backend, len(audio_bytes), len(vocals))
-                        audio_bytes = vocals
-                    else:
-                        log.warning("realign: separate rec_id=%s lieferte keine vocals — weiter mit Original", rec_id)
-                else:
-                    log.warning("realign: separate crispr-sep nicht erreichbar — weiter mit Original (rec_id=%s)", rec_id)
-            except Exception as exc:
-                log.warning("realign: separate Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
         rec.alignment = "pending"
+        user_id = rec.user_id
+        backend = rec.backend or ""
         session.add(rec)
         session.commit()
 
-    _AlignmentCache.write(rec_id, audio_bytes, vad_meta)
-    threading.Thread(
-        target=_run_background_align,
-        args=(rec_id,),
-        daemon=True,
-        name=f"realign-{rec_id}",
-    ).start()
-    log.info("realign: rec_id=%s Worker gestartet", rec_id)
+    from .queue import QueueError, queue_manager
+
+    try:
+        queue_manager.enqueue(
+            rec_id, user_id=user_id, backend=backend,
+            kind="align", payload={"separate_backend": separate_backend},
+            key=f"align-{rec_id}",
+        )
+    except QueueError as exc:
+        log.warning("realign: enqueue fehlgeschlagen rec_id=%s: %s", rec_id, exc)
+        return False
+    log.info("realign: rec_id=%s align-Queue-Job enqueued", rec_id)
     return True
 
 
@@ -1614,11 +1656,12 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
 def _schedule_rediarize(rec_id: int, opts: Optional[Dict[str, Any]] = None) -> bool:
     """Change 057: Diarization auf dem aktuellen Audio neu berechnen.
 
-    Analog ``_schedule_realign``: lädt die gespeicherte Audiodatei,
-    reproduziert VAD-Trim/Enhance (gleiche Zeitbasis wie beim Job) und
-    startet den Hintergrund-Worker ``_run_background_rediarize``. Ersetzt
-    NUR die ``speaker``-Felder der Segmente — Text, Wörter, Timestamps,
-    manuelle Aufteilung und Alignment bleiben unangetastet.
+    Change 155 (Schritt 4): Statt eigenem Thread wird ein ``rediarize``-
+    Queue-Job enqueued (universelles Scheduling). Der Worker bereitet das
+    Audio selbst vor (lädt Datei, reproduziert VAD-Trim/Enhance — gleiche
+    Zeitbasis wie beim Job). Ersetzt NUR die ``speaker``-Felder der
+    Segmente — Text, Wörter, Timestamps, manuelle Aufteilung und Alignment
+    bleiben unangetastet.
 
     Change 116: optionale Diar-Optionen (``num_speakers``,
     ``min_duration_off``, ``method``) — übersteuern die gespeicherten
@@ -1640,11 +1683,53 @@ def _schedule_rediarize(rec_id: int, opts: Optional[Dict[str, Any]] = None) -> b
         if stored is None or not stored.is_file():
             log.warning("rediarize: Audio fehlt für rec_id=%s", rec_id)
             return False
+        rec.diar_status = "pending"
+        user_id = rec.user_id
+        backend = rec.backend or ""
+        session.add(rec)
+        session.commit()
+
+    from .queue import QueueError, queue_manager
+
+    try:
+        queue_manager.enqueue(
+            rec_id, user_id=user_id, backend=backend,
+            kind="rediarize", payload=opts, key=f"rediarize-{rec_id}",
+        )
+    except QueueError as exc:
+        log.warning("rediarize: enqueue fehlgeschlagen rec_id=%s: %s", rec_id, exc)
+        return False
+    log.info("rediarize: rec_id=%s rediarize-Queue-Job enqueued", rec_id)
+    return True
+
+
+def run_rediarize_job(rec_id: int, payload: Optional[Dict[str, Any]] = None,
+                      job: Optional[Any] = None) -> None:
+    """Change 155 (Schritt 4): Queue-Dispatch-Ziel für rediarize-Jobs.
+
+    Bereitet das Audio selbst vor (lädt Datei, reproduziert VAD-Trim/
+    Enhance aus den Run-Settings — gleiche Zeitbasis wie beim Transkriptions-
+    Job) und übergibt es an den bisherigen Worker. Damit sind rediarize-
+    Jobs nach einem Webapp-Neustart rehydrierbar (kein RAM-Cache).
+    """
+    from .models import Recording as _Rec
+
+    with Session(engine) as session:
+        rec = session.get(_Rec, rec_id)
+        if rec is None:
+            return
+        if rec.status != "done":
+            log.info("rediarize: rec_id=%s status=%s — nur done erlaubt", rec_id, rec.status)
+            return
+        stored = Path(rec.stored_path) if rec.stored_path else None
+        if stored is None or not stored.is_file():
+            log.warning("rediarize: Audio fehlt für rec_id=%s", rec_id)
+            return
         try:
             audio_bytes = stored.read_bytes()
         except Exception as exc:
             log.warning("rediarize: Audio nicht lesbar rec_id=%s: %s", rec_id, exc)
-            return False
+            return
         vad_meta: Optional[Dict[str, Any]] = None  # Change 114
         run = _current_run(session, rec)  # Change 099: Settings aus dem Run
         vad_mode = _run_vad_mode(run)  # Change 114: off|edges|all
@@ -1659,18 +1744,7 @@ def _schedule_rediarize(rec_id: int, opts: Optional[Dict[str, Any]] = None) -> b
                 audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
             except Exception as exc:
                 log.warning("rediarize: enhance failed rec_id=%s: %s", rec_id, exc)
-        rec.diar_status = "pending"
-        session.add(rec)
-        session.commit()
-
-    threading.Thread(
-        target=_run_background_rediarize,
-        args=(rec_id, audio_bytes, vad_meta, opts),
-        daemon=True,
-        name=f"rediarize-{rec_id}",
-    ).start()
-    log.info("rediarize: rec_id=%s Worker gestartet", rec_id)
-    return True
+    _run_background_rediarize(rec_id, audio_bytes, vad_meta, payload)
 
 
 def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
@@ -2570,16 +2644,21 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     session.add(rec)
                     session.commit()
                 # Change 045: Hintergrund-Alignment — sobald der Job "done"
-                # ist, startet der Worker das präzise Forced-Alignment
-                # (liest das Cache-Audio, aktualisiert die Segmente per
-                # Versions-Guard). Nie ein Job-Fail, nie blockierend.
+                # ist, wird das präzise Forced-Alignment als eigener
+                # Queue-Job (kind=align, eigener Key) eingereiht — Change 155:
+                # universelles Scheduling statt nacktem Thread. Der Worker
+                # bereitet das Audio selbst vor und aktualisiert die Segmente
+                # per Versions-Guard. Nie ein Job-Fail, nie blockierend.
                 if alignment_pending:
-                    threading.Thread(
-                        target=_run_background_align,
-                        args=(rec_id,),
-                        daemon=True,
-                        name=f"bg-align-{rec_id}",
-                    ).start()
+                    from .queue import QueueError, queue_manager
+
+                    try:
+                        queue_manager.enqueue(
+                            rec_id, user_id=None, backend=rec.backend or "",
+                            kind="align", key=f"align-{rec_id}",
+                        )
+                    except QueueError as exc:
+                        log.warning("bg-align: enqueue fehlgeschlagen rec_id=%s: %s", rec_id, exc)
 
     # Change 085: Phasen-Stichproben in den ETA-Learner einspeisen (eigene
     # Session; ein Fehler darf den Job-Abschluss nie blockieren).

@@ -227,6 +227,8 @@ class _FakeRec:
         self.user_id = None
         self.backend = "ps-pk-onnx"
         self.status = status
+        self.alignment = ""       # Change 155: kind-Ableitung im Recover
+        self.diar_status = ""
         # Change 155: stale updated_at (1 h alt) → sicher tot → re-enqueue
         import datetime as _dt
 
@@ -258,4 +260,68 @@ def test_recover_resumes_processing_zombies(monkeypatch):
     assert m._jobs[1].status == "queued"
     assert (1, "ps-pk-onnx") in fake.queued, "Zombie muss via set_queued konsistent gemacht werden"
     assert (2, "ps-pk-onnx") not in fake.queued, "queued-Job braucht kein set_queued"
-    m.stop()
+
+
+def test_recover_align_und_rediarize_zombies(monkeypatch):
+    """Change 155 (Schritt 4): align/rediarize-Zombies (alignment/diar_status)
+    werden als eigene Queue-Jobs mit kind + String-Key wieder aufgenommen."""
+    fake = _FakeCrud()
+    monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
+    monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
+    monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
+    monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+    a = _FakeRec(1, "done")
+    a.alignment = "aligning"
+    r = _FakeRec(2, "done")
+    r.diar_status = "running"
+    rows = [a, r]
+    monkeypatch.setattr(queue_mod, "Session", lambda engine: _FakeSessionCtx(rows))
+
+    m = QueueManager(max_queue_len=5)
+    m._ensure_workers = lambda: None  # type: ignore[assignment]
+    m.start()
+
+    assert "align-1" in m._jobs and m._jobs["align-1"].kind == "align"
+    assert "rediarize-2" in m._jobs and m._jobs["rediarize-2"].kind == "rediarize"
+    assert fake.queued == [], "align/rediarize-Zombies brauchen kein set_queued (kein transcribe)"
+
+
+def test_enqueue_align_mit_eigenem_key_kein_konflikt(qm):
+    """Change 155 (Schritt 4): align-Job nutzt String-Key — die Recording
+    kann parallel als transcribe-Job (int-Key) in der Queue sein."""
+    qm.enqueue(7, None, "ps-pk-onnx")                     # transcribe: key=7
+    pos = qm.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
+    assert pos >= 1
+    assert 7 in qm._jobs and qm._jobs[7].kind == "transcribe"
+    assert "align-7" in qm._jobs and qm._jobs["align-7"].kind == "align"
+    # Doppel-Enqueue desselben align-Jobs → QueueError
+    try:
+        qm.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
+        assert False, "Doppel-Enqueue desselben Keys muss QueueError werfen"
+    except queue_mod.QueueError:
+        pass
+    qm.cancel(7, user_id=None)  # transcribe-Job räumen
+
+
+def test_worker_dispatch_align_ohne_set_processing(qm, monkeypatch):
+    """Change 155 (Schritt 4): align-Jobs laufen über run_align_job —
+    set_processing (leert text/segments!) darf NICHT aufgerufen werden."""
+    fake = _FakeCrud()
+    monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
+    monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
+    monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
+    monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+    started = threading.Event()
+    seen = []
+
+    def fake_run_align(rec_id, job=None):
+        seen.append(("align", rec_id, job.kind if job else None))
+        started.set()
+
+    from app import service as _svc_mod
+    monkeypatch.setattr(_svc_mod, "run_align_job", fake_run_align)
+    qm.enqueue(9, None, "ps-pk-onnx", kind="align", key="align-9")
+    assert started.wait(timeout=5)
+    assert seen == [("align", 9, "align")]
+    assert fake.processing == [], "align-Job darf set_processing NICHT auslösen"
+    qm.stop()

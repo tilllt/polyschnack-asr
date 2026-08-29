@@ -161,29 +161,35 @@ def test_schedule_realign_separiert_audio(db, monkeypatch, tmp_path):
     fake_sep = _FakeSep()
     monkeypatch.setattr("app.separate_client.SeparateClient", lambda: fake_sep)
 
-    # Cache + Worker mocken (kein echter Aligner/Thread im Test)
-    written = {}
+    # Change 155 (Schritt 4): die separate-Logik läuft jetzt im Worker
+    # (_prepare_align_audio) — vocals sind die Align-Eingabe.
+    prepared = service._prepare_align_audio(1, separate_backend="htdemucs")
+    assert prepared is not None
+    assert fake_sep.backend == "htdemucs"
+    assert prepared[0] == b"VOCALS-VOCALS"
+    assert prepared[1] is None  # Change 114: vad_mode off → kein Trim
 
-    class _FakeCache:
-        @staticmethod
-        def write(rec_id, audio_bytes, vad_meta=None):
-            written["bytes"] = audio_bytes
-            written["vad_meta"] = vad_meta
+    # _schedule_realign enqueued einen align-Queue-Job (kein nackter Thread).
+    enqueued = {}
 
-    monkeypatch.setattr(service, "_AlignmentCache", _FakeCache)
-    monkeypatch.setattr(service, "_run_background_align", lambda rec_id: None)
+    class _FakeQueue:
+        def enqueue(self, rec_id, user_id=None, backend=None, priority=0,
+                    kind="transcribe", payload=None, key=None):
+            enqueued.update(rec_id=rec_id, kind=kind, key=key, payload=payload)
+            return 1
 
+    monkeypatch.setattr("app.queue.queue_manager", _FakeQueue())
     ok = service._schedule_realign(1, separate_backend="htdemucs")
     assert ok is True
-    assert fake_sep.backend == "htdemucs"
-    assert written["bytes"] == b"VOCALS-VOCALS"
-    assert written["vad_meta"] is None  # Change 114: vad_mode off → kein Trim
+    assert enqueued["rec_id"] == 1 and enqueued["kind"] == "align"
+    assert enqueued["key"] == "align-1"
+    assert enqueued["payload"] == {"separate_backend": "htdemucs"}
     with Session(db) as s:
         assert s.get(Recording, 1).alignment == "pending"
 
 
 def test_schedule_realign_fallback_bei_sep_fehler(db, monkeypatch, tmp_path):
-    """crispr-sep nicht erreichbar → ehrlicher Fallback: Original ins Cache."""
+    """crispr-sep nicht erreichbar → ehrlicher Fallback: Original als Align-Eingabe."""
     import app.service as service
     audio = tmp_path / "real.wav"
     audio.write_bytes(b"ORIGINAL-AUDIO-BYTES")
@@ -204,16 +210,6 @@ def test_schedule_realign_fallback_bei_sep_fehler(db, monkeypatch, tmp_path):
 
     monkeypatch.setattr("app.separate_client.SeparateClient", lambda: _DownSep())
 
-    written = {}
-
-    class _FakeCache:
-        @staticmethod
-        def write(rec_id, audio_bytes, trim_offset_s):
-            written["bytes"] = audio_bytes
-
-    monkeypatch.setattr(service, "_AlignmentCache", _FakeCache)
-    monkeypatch.setattr(service, "_run_background_align", lambda rec_id: None)
-
-    ok = service._schedule_realign(1, separate_backend="htdemucs")
-    assert ok is True
-    assert written["bytes"] == b"ORIGINAL-AUDIO-BYTES"  # Fallback, kein Abbruch
+    prepared = service._prepare_align_audio(1, separate_backend="htdemucs")
+    assert prepared is not None
+    assert prepared[0] == b"ORIGINAL-AUDIO-BYTES"  # Fallback, kein Abbruch

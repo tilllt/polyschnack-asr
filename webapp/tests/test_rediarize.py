@@ -101,12 +101,26 @@ def test_schedule_missing_audio(env):
     assert service_mod._schedule_rediarize(1) is False
 
 
-def test_schedule_starts_worker_and_sets_speakers(env):
+def test_schedule_enqueues_und_worker_setzt_speaker(env, monkeypatch):
+    """Change 155 (Schritt 4): _schedule_rediarize enqueued einen
+    rediarize-Queue-Job — der Fake-Queue führt den Worker inline aus
+    (deterministisch), Sprecher werden gesetzt, Text/Wörter unangetastet."""
     _mk_recording(env)
+
+    class _InlineQueue:
+        def enqueue(self, rec_id, user_id=None, backend=None, priority=0,
+                    kind="transcribe", payload=None, key=None):
+            assert kind == "rediarize" and key == f"rediarize-{rec_id}"
+            assert payload is None  # keine Diar-Optionen übersteuert
+            # Universelles Scheduling: der Dispatch ruft den Worker.
+            service_mod.run_rediarize_job(rec_id, payload=payload)
+            return 1
+
+    monkeypatch.setattr("app.queue.queue_manager", _InlineQueue())
     assert service_mod._schedule_rediarize(1) is True
     with Session(env) as s:
         rec = s.get(Recording, 1)
-        assert rec.diar_status == "done"  # Sync-Thread lief inline durch
+        assert rec.diar_status == "done"  # Worker lief durch
         assert rec.segments[0]["speaker"] == "SPEAKER_00"
         assert rec.segments[1]["speaker"] == "SPEAKER_00"
         # Text + Wörter unangetastet
@@ -196,10 +210,30 @@ def test_route_conflict_when_running(env, _patch_auth):
     assert ei.value.status_code == 409
 
 
-def test_route_ok(env, _patch_auth):
+@pytest.fixture()
+def _fake_queue(monkeypatch):
+    """Change 155 (Schritt 4): _schedule_rediarize enqueued ins echte
+    Singleton — Tests isolieren das (keine echten Worker, kein geteilter
+    Zustand über Tests hinweg). Protokolliert die Aufrufe."""
+    calls = []
+
+    class _FakeQueue:
+        def enqueue(self, rec_id, user_id=None, backend=None, priority=0,
+                    kind="transcribe", payload=None, key=None):
+            calls.append((rec_id, kind, key, payload))
+            return 1
+
+    monkeypatch.setattr("app.queue.queue_manager", _FakeQueue())
+    return calls
+
+
+def test_route_ok(env, _patch_auth, _fake_queue):
     _mk_recording(env)
     out = _call_route(env)
     assert out == {"id": "r1", "diar_status": "pending"}
+    # Change 116: Diar-Optionen (Form) werden als payload weitergereicht.
+    assert _fake_queue[0][:3] == (1, "rediarize", "rediarize-1")
+    assert isinstance(_fake_queue[0][3], dict)
 
 
 def test_route_503_when_audio_missing(env, _patch_auth):

@@ -66,6 +66,11 @@ class Job:
     priority: int = 0       # 0 = registriert, 1 = anonym (Task B6)
     cancel_requested: bool = False  # 2026-08-15: Cancel für laufende Jobs
     started_at: Optional[float] = None  # epoch-s, für Job-Timeout
+    # Change 155 (Schritt 4): ein universelles Scheduling für ALLE
+    # Programmteile. kind wählt den Worker-Dispatch: transcribe (Standard),
+    # align (Forced-Alignment), rediarize (Sprecher-Zuordnung).
+    kind: str = "transcribe"  # transcribe | align | rediarize
+    payload: Optional[Dict[str, Any]] = None  # z.B. {"separate_backend": ...}
 
     @property
     def running_s(self) -> float:
@@ -85,7 +90,9 @@ class QueueManager:
         #: wird er als failed markiert und das Semaphore freigegeben.
         self._max_processing_s = max_processing_s
         self._lock = threading.Lock()
-        self._jobs: Dict[int, Job] = {}
+        # Change 155 (Schritt 4): Keys sind int (rec_id, transcribe) ODER
+        # str (z.B. "align-123" für align/rediarize-Jobs).
+        self._jobs: Dict[Any, Job] = {}
         self._fifo: "queue.PriorityQueue" = queue.PriorityQueue()
         self._semaphores: Dict[str, threading.Semaphore] = {}
         self._threads: List[threading.Thread] = []
@@ -117,6 +124,11 @@ class QueueManager:
         Re-Enqueue gegen einen inzwischen manuell gecancelten Job, bricht
         der Cancel-Guard im Worker das Starten ab (kein Doppelstart).
 
+        Change 155 (Schritt 4): Auch `align`/`rediarize`-Aufträge werden
+        rehydriert — über ihre Statusfelder `alignment` (pending/aligning)
+        und `diar_status` (pending/running). Der kind-Dispatch stellt
+        sicher, dass der richtige Worker wieder läuft.
+
         Change 155: Auch `processing`-Zombies werden aufgenommen — aber nur,
         wenn der letzte DB-Write sicher alt ist (Prozess tot durch Crash oder
         Deploy). User-Befund 2026-08-29: Ein Deploy/Restart während einer
@@ -134,6 +146,8 @@ class QueueManager:
             with Session(engine) as session:
                 rows = session.query(Recording).filter(
                     Recording.status.in_(["queued", "processing"])
+                    | Recording.alignment.in_(["pending", "aligning"])
+                    | Recording.diar_status.in_(["pending", "running"])
                 ).all()
         except Exception:
             log.exception("QueueManager recover failed")
@@ -144,7 +158,20 @@ class QueueManager:
         processing_recovered: List[Any] = []
         with self._lock:
             for rec in rows:
-                if rec.id in self._jobs:
+                # Change 155 (Schritt 4): Job-Kind aus dem Statusfeld ableiten
+                # (alignment/diar_status statt recording.status).
+                if rec.status in ("queued", "processing"):
+                    kind = "transcribe"
+                elif rec.alignment in ("pending", "aligning"):
+                    kind = "align"
+                else:
+                    kind = "rediarize"
+                job_key: Any = rec.id
+                if kind != "transcribe":
+                    job_key = f"{kind}-{rec.id}"
+                # Duplicate-Guard pro (rec, kind): transcribe- und
+                # align-Job derselben Recording koexistieren dürfen.
+                if job_key in self._jobs:
                     continue
                 if rec.status == "processing":
                     updated = getattr(rec, "updated_at", None)
@@ -156,9 +183,9 @@ class QueueManager:
                             continue
                     processing_recovered.append(rec)
                 self._seq += 1
-                self._jobs[rec.id] = Job(
+                self._jobs[job_key] = Job(
                     rec_id=rec.id, user_id=rec.user_id, backend=rec.backend or "",
-                    status="queued", seq=self._seq,
+                    status="queued", seq=self._seq, kind=kind,
                 )
         for rec in processing_recovered:
             # Change 155: processing-Zombie → konsistent queued setzen
@@ -170,12 +197,17 @@ class QueueManager:
             except Exception:
                 log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec.id)
         for rec in rows:
-            if rec.id not in self._jobs:
+            job_key: Any = rec.id
+            if rec.alignment in ("pending", "aligning"):
+                job_key = f"align-{rec.id}"
+            elif rec.diar_status in ("pending", "running"):
+                job_key = f"rediarize-{rec.id}"
+            if job_key not in self._jobs:
                 continue
-            self._fifo.put((0, self._jobs[rec.id].seq, rec.id))
+            self._fifo.put((0, self._jobs[job_key].seq, job_key))
         log.info(
-            "QueueManager: %d verwaiste queued/processing-Jobs wieder aufgenommen (%d processing-Zombies)",
-            len([r for r in rows if r.id in self._jobs]), len(processing_recovered),
+            "QueueManager: %d verwaiste Jobs wieder aufgenommen (%d processing-Zombies)",
+            len(self._jobs), len(processing_recovered),
         )
 
     def stop(self) -> None:
@@ -206,22 +238,42 @@ class QueueManager:
     # ---------------------------------------------------------------- api
 
     def enqueue(self, rec_id: int, user_id: Optional[int], backend: str,
-                priority: int = 0) -> int:
-        """Queue a job; returns its position on the endpoint. Raises QueueError."""
+                priority: int = 0, kind: str = "transcribe",
+                payload: Optional[Dict[str, Any]] = None,
+                key: Optional[Any] = None) -> int:
+        """Queue a job; returns its position on the endpoint. Raises QueueError.
+
+        Change 155 (Schritt 4): ``kind`` steuert den Worker-Dispatch
+        (transcribe | align | rediarize) — ein universelles Scheduling für
+        alle Arbeits-Typen; ``payload`` trägt optionale Auftrags-Daten.
+        ``key`` bildet die Job-Identität: Default ist ``rec_id`` (transcribe),
+        für align/rediarize muss ein eigener Key übergeben werden
+        (z.B. ``align-{rec_id}``), weil die Recording während des
+        transcribe-Jobs bereits belegt ist und kein zweiter Job unter
+        derselben ID existieren darf.
+        """
+        if key is None:
+            # transcribe: int-Key = rec_id (bestehende Semantik — position(),
+            # cancel(), list() hängen daran). align/rediarize: eigener
+            # String-Key, weil die Recording während des transcribe-Jobs
+            # bereits belegt ist.
+            key = rec_id if kind == "transcribe" else f"{kind}-{rec_id}"
         with self._lock:
-            if rec_id in self._jobs:
+            if key in self._jobs:
                 raise QueueError(f"recording {rec_id} is already queued/processing")
             if len(self._jobs) >= self._max_queue_len:
                 raise QueueFullError(f"queue full (max {self._max_queue_len} jobs)")
             self._seq += 1
-            self._jobs[rec_id] = Job(
+            self._jobs[key] = Job(
                 rec_id=rec_id, user_id=user_id, backend=backend,
                 status="queued", seq=self._seq, priority=priority,
+                kind=kind, payload=payload,
             )
-        with Session(engine) as session:
-            crud.set_queued(session, rec_id, backend)
+        if kind == "transcribe":
+            with Session(engine) as session:
+                crud.set_queued(session, rec_id, backend)
         self._ensure_workers()
-        self._fifo.put((priority, self._seq, rec_id))
+        self._fifo.put((priority, self._seq, key))
         return self.position(rec_id)
 
     def cancel(self, rec_id: int, user_id: Optional[int], is_admin: bool = False) -> bool:
@@ -315,20 +367,21 @@ class QueueManager:
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                _, _, rec_id = self._fifo.get(timeout=1.0)
+                _, _, key = self._fifo.get(timeout=1.0)
             except queue.Empty:
                 continue
             with self._lock:
-                job = self._jobs.get(rec_id)
+                job = self._jobs.get(key)
                 # Review 2026-08-15 (P1): Cancel-Race — cancel() (queued →
                 # aus _jobs entfernt) kann zwischen Dequeue und status=
                 # "processing" liegen. Unter dem Lock nachprüfen: Wurde der
                 # Job inzwischen gecancelt oder ganz entfernt, NICHT starten
                 # (sonst läuft die Transkription trotz Cancel weiter, und
                 # ein Re-Enqueue könnte denselben Job doppelt ausführen).
-                if job is None or job.cancel_requested or rec_id not in self._jobs:
+                if job is None or job.cancel_requested or key not in self._jobs:
                     self._fifo.task_done()
                     continue
+            rec_id = job.rec_id
             sem = self._semaphore_for(job.backend)
             sem.acquire()
             skip = False
@@ -337,7 +390,7 @@ class QueueManager:
                     # Zweiter Recheck nach dem Semaphore-Wait: während der
                     # Worker auf Kapazität wartete, kann der User gecancelt
                     # haben. Dann nicht starten.
-                    if job.cancel_requested or rec_id not in self._jobs:
+                    if job.cancel_requested or key not in self._jobs:
                         skip = True
                     else:
                         job.status = "processing"
@@ -345,15 +398,29 @@ class QueueManager:
                         self._attach_limits(job)
                 if skip:
                     continue
-                with Session(engine) as session:
-                    crud.set_processing(session, rec_id)
-                process_recording(rec_id, backend=job.backend, job=job)
+                # Change 155 (Schritt 4): ein universelles Scheduling —
+                # der kind-Dispatch entscheidet, welcher Worker läuft.
+                # WICHTIG: set_processing NUR für transcribe (leert
+                # text/segments — für align/rediarize wäre das fatal, der
+                # Versions-Guard schützt die bestehenden Segmente).
+                if job.kind == "align":
+                    from . import service as _svc
+
+                    _svc.run_align_job(job.rec_id, job=job)
+                elif job.kind == "rediarize":
+                    from . import service as _svc
+
+                    _svc.run_rediarize_job(job.rec_id, payload=job.payload, job=job)
+                else:
+                    with Session(engine) as session:
+                        crud.set_processing(session, rec_id)
+                    process_recording(rec_id, backend=job.backend, job=job)
             except Exception:
                 log.exception("queue worker failed for rec_id=%s", rec_id)
             finally:
                 sem.release()
                 with self._lock:
-                    self._jobs.pop(rec_id, None)
+                    self._jobs.pop(key, None)
                 self._fifo.task_done()
 
 

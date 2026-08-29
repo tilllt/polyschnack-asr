@@ -1,6 +1,6 @@
-# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Gap-Analyse + Schritt 1)
+# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Gap-Analyse + Schritte 1+4)
 
-**Status:** Proposed (Schritt 1 umgesetzt)
+**Status:** Proposed (Schritt 1 + Schritt 4 umgesetzt)
 
 ## Gap-Analyse (2026-08-29): Alle Programmteile vs. universelles Scheduling
 
@@ -12,8 +12,8 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
 `queued` (Change 143).
 
 ### NICHT erfasst (Gaps) — fire-and-forget-Threads / Scheduled-Tasks / Router-Threads
-1. `service.py:1599` + `:2577` — `_run_background_align` (nach done / alignment_pending)
-2. `service.py:1666` — `_run_background_rediarize`
+1. `service.py:1599` + `:2577` — `_run_background_align` (nach done / alignment_pending) — **SEIT SCHRITT 4 ALS QUEUE-JOB**
+2. `service.py:1666` — `_run_background_rediarize` — **SEIT SCHRITT 4 ALS QUEUE-JOB**
 3. `service.py:1125/1910/1950` — 3 Heartbeat-Thread-Kopien (`align-hb-*`,
    `heartbeat-*`, `job-heartbeat-*`)
 4. `diarize.py:162` — `_poll_progress` (Diarization-Progress)
@@ -24,9 +24,8 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
 
 ### Fehlende Kernstücke (Change 109 Folge-Change)
 - Job-Tabelle in der DB (Jobs leben nur im RAM-Dict `QueueManager._jobs`)
-- Rehydration deckt nur `status="queued"` — **`processing`-Zombies bleiben
-  nach Neustart ewig hängen** (Deploy während laufender Transkription = Job
-  verloren, Status klebt auf processing) ← Schritt 1 (heute)
+- ~~Rehydration deckt nur `status="queued"`~~ — **erledigt:** `processing`-Zombies
+  (heartbeat-basiert, nur wenn sicher tot) + align/rediarize-Statusfelder werden rehydriert
 - Retry/Backoff/Dead-Letter + Admin-Retry-API
 - ETA zentralisieren (eine Funktion, drei Aufrufer)
 - Recording.status ableiten (ein Status-System)
@@ -39,7 +38,16 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
        Verarbeitung → Job weg, Status ewig processing.
 2. [ ] Job-Tabelle (Runs werden Jobs) + Rehydration aus Tabelle
 3. [ ] `run_workflow` — process_recording in Phasen zerlegen (Change 110)
-4. [ ] align/rediarize als Queue-Jobs (nackte Threads entfernen)
+4. [x] **align/rediarize als Queue-Jobs** (nackte Threads entfernt):
+       Job.kind + payload, Job-Key (int für transcribe, `align-{id}`/
+       `rediarize-{id}`), kind-Dispatch im Worker (set_processing nur für
+       transcribe — schützt text/segments), `run_align_job`/
+       `run_rediarize_job` mit Selbst-Vorbereitung des Audios
+       (`_prepare_align_audio`, VAD/enhance/separate aus den Run-Settings —
+       reproduzierbare Zeitbasis, rehydrierbar), Schedules → enqueue.
+       Design-Hinweis: align/rediarize belegen einen Backend-Slot
+       (Semaphore) — ein langes rediarize lässt Transkriptionen auf dem
+       selben Backend warten (Preis des universellen Schedulings).
 5. [ ] Heartbeat-Muster vereinheitlichen (3 Kopien → 1)
 6. [ ] SCHEDULED_TASKS-Registry (sweep/peaks/health) + Router-Threads raus
 7. [ ] Grep-Gate in CI (keine nackten Threads in service.py)

@@ -343,43 +343,41 @@ def test_alignment_cache_roundtrip(tmp_path, monkeypatch):
 def test_background_align_cache_fehlt_skipped(tmp_path, monkeypatch):
     from app import service as svc
 
-    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
+    # Change 155 (Schritt 4): Audio wird selbst vorbereitet — fehlt es
+    # (Datei weg/nicht lesbar), → skipped (kein stiller Erfolg).
     monkeypatch.setattr(svc, "engine", object())
     rec = _FakeRecording([], alignment="pending")
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: None)
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
 
 
 def test_background_align_ersetzt_words(aligner_server, wav_bytes, tmp_path, monkeypatch):
-    """Worker: Cache-Audio → Aligner → Segmente aktualisiert, alignment=done."""
+    """Worker: Audio vorbereitet → Aligner → Segmente aktualisiert, alignment=done."""
     from app import service as svc
     from app import aligner_client as ac
 
-    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
     monkeypatch.setattr(ac, "ALIGN_URL", aligner_server)
     monkeypatch.setattr(svc, "engine", object())
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
 
-    # Cache wie der Job-Fluss schreiben (verarbeitete Bytes, kein Trim).
-    svc._AlignmentCache.write(7, wav_bytes)
+    # Audio wie der Queue-Fluss vorbereitet (verarbeitete Bytes, kein Trim).
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (wav_bytes, None))
 
     svc._run_background_align(7)
     assert rec.alignment == "done"
     words = rec.segments[0].get("words") or []
     assert [w["word"] for w in words] == ["Hallo", "Welt"]
-    # Cache aufgeräumt
-    assert svc._AlignmentCache.read(7) is None
 
 
 def test_background_align_versionsguard_verwirft(tmp_path, monkeypatch):
     """Worker: Segmente während des Laufs geändert → Ergebnis verworfen."""
     from app import service as svc
 
-    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
     monkeypatch.setattr(svc, "engine", object())
 
     # Geteilter Zähler über alle Session-Instanzen (Session() wird pro
@@ -404,7 +402,7 @@ def test_background_align_versionsguard_verwirft(tmp_path, monkeypatch):
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _MutableFakeSession(rec))
-    svc._AlignmentCache.write(7, b"x")
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (b"x", None))
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
@@ -417,7 +415,6 @@ def test_background_align_ohne_effekt_ist_skipped_nicht_done(tmp_path, monkeypat
     from app import service as svc
     from app import aligner_client as ac
 
-    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
     monkeypatch.setattr(ac, "ALIGN_URL", "http://127.0.0.1:1")  # sicher down
     monkeypatch.setattr(svc, "engine", object())
 
@@ -426,7 +423,7 @@ def test_background_align_ohne_effekt_ist_skipped_nicht_done(tmp_path, monkeypat
         "words": [{"word": "Hallo", "start": 0.0, "end": 0.5}],
     }])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
-    svc._AlignmentCache.write(7, b"x")
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (b"x", None))
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
@@ -448,13 +445,12 @@ def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch)
         def align(self, audio, text, lang="de", timeout_s=None):
             return []
 
-    monkeypatch.setattr(svc._AlignmentCache, "_DIR", tmp_path / "cache")
     monkeypatch.setattr(ac, "AlignerClient", _FakeClient)
     monkeypatch.setattr(svc, "engine", object())
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
-    svc._AlignmentCache.write(7, b"x")
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (b"x", None))
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"
