@@ -15,6 +15,7 @@ is only possible while queued; a running transcription finishes its endpoint
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
 import queue
@@ -26,7 +27,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session
 
 from . import crud
-from .db import engine
+from . import db  # Change 155 (Schritt 2): db.engine zur Laufzeit lesen (Test-Mocks wirken)
 from .service import process_recording
 from .service_registry import available_services, get_service
 
@@ -48,6 +49,83 @@ class QueueFullError(QueueError):
 RECOVER_PROCESSING_STALE_S = int(
     os.getenv("POLYSCHNACK_RECOVER_PROCESSING_STALE_S", "120")
 )
+
+
+def _insert_job_row(key: Any, rec_id: int, kind: str, backend: str,
+                    priority: int, payload: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Change 155 (Schritt 2): Job-Row persistieren (status=queued).
+
+    Rückgabe: Row-ID (None bei DB-Fehler — der Aufrufer entscheidet, ob
+    der Fehler hart ist). Bewusst defensiv: Ein Persistenz-Ausfall darf
+    die Transkription NICHT blockieren (die In-Memory-Queue arbeitet
+    weiter; die Row fehlt dann nur in Historie/Rehydration).
+    """
+    try:
+        from .models import Job  # lokaler Import (Zyklus-Vermeidung)
+
+        with Session(db.engine) as session:
+            row = Job(
+                key=str(key), rec_id=rec_id, kind=kind, backend=backend,
+                priority=priority,
+                payload=json.dumps(payload, ensure_ascii=False) if payload else None,
+                status="queued",
+                created_at=dt.datetime.now(dt.timezone.utc),
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return row.id
+    except Exception:
+        log.exception("Job-Row-INSERT fehlgeschlagen (key=%s, kind=%s)", key, kind)
+        return None
+
+
+def _update_job_status(row_id: Optional[int], status: str,
+                       error: Optional[str] = None) -> None:
+    """Change 155 (Schritt 2): Job-Row-Status fortschreiben (defensiv)."""
+    if row_id is None:
+        return
+    try:
+        from .models import Job  # lokaler Import (Zyklus-Vermeidung)
+
+        now = dt.datetime.now(dt.timezone.utc)
+        with Session(db.engine) as session:
+            row = session.get(Job, row_id)
+            if row is None:
+                return
+            row.status = status
+            if status == "running" and row.started_at is None:
+                row.started_at = now
+            if status in ("done", "failed", "cancelled"):
+                row.finished_at = now
+            if error:
+                row.error = error
+            session.add(row)
+            session.commit()
+    except Exception:
+        log.exception("Job-Row-Update fehlgeschlagen (row_id=%s, status=%s)",
+                      row_id, status)
+
+
+def _finalize_job_row(row_id: Optional[int], rec_id: int, kind: str) -> None:
+    """Change 155 (Schritt 2): Endstatus der Job-Row.
+
+    transcribe: done, es sei denn das Recording endete als failed
+    (Fehler ODER User-Cancel — beides kein echtes done). align/rediarize/
+    peaks/vad: done (Fehler liefen über die Exception → failed).
+    """
+    if row_id is None:
+        return
+    final = "done"
+    try:
+        if kind == "transcribe":
+            with Session(db.engine) as session:
+                rec = crud.get_recording(session, rec_id)
+                if rec is not None and rec.status == "failed":
+                    final = "failed"
+    except Exception:
+        log.exception("Job-Row-Finalize fehlgeschlagen (row_id=%s)", row_id)
+    _update_job_status(row_id, final)
 
 
 @dataclass
@@ -129,6 +207,12 @@ class QueueManager:
         und `diar_status` (pending/running). Der kind-Dispatch stellt
         sicher, dass der richtige Worker wieder läuft.
 
+        Change 155 (Schritt 2): Rehydrations-Quelle ist jetzt die Job-Tabelle
+        (status queued|running) — sie kennt kind/backend/payload exakt. Der
+        Recording-Status-Fallback bleibt für Altdaten aus Deploys VOR der
+        Job-Tabelle (dort existieren keine Rows): Er greift nur, wenn für
+        die Recording keine Job-Row vorliegt.
+
         Change 155: Auch `processing`-Zombies werden aufgenommen — aber nur,
         wenn der letzte DB-Write sicher alt ist (Prozess tot durch Crash oder
         Deploy). User-Befund 2026-08-29: Ein Deploy/Restart während einer
@@ -140,11 +224,23 @@ class QueueManager:
         konsistenten Zustand gebracht (frischer Heartbeat; Text/Segmente werden
         geleert — sie waren beim Abbruch ohnehin noch nicht geschrieben).
         """
-        try:
-            from .models import Recording  # lokaler Import (Zyklus-Vermeidung)
+        from .models import Job as JobRow  # lokaler Import (Zyklus-Vermeidung; Alias — der Dataclass Job bleibt im Scope)
+        from .models import Recording
 
-            with Session(engine) as session:
-                rows = session.query(Recording).filter(
+        now = dt.datetime.now(dt.timezone.utc)
+        # Pfad A: Job-Tabelle — isoliert: fehlt die Tabelle (alte DB), fällt
+        # der Recover auf den Recording-Fallback (Pfad B) zurück.
+        job_rows: List[Any] = []
+        try:
+            with Session(db.engine) as session:
+                job_rows = session.query(JobRow).filter(
+                    JobRow.status.in_(["queued", "running"])
+                ).all()
+        except Exception:
+            log.warning("Job-Tabelle nicht verfügbar — nur Recording-Fallback", exc_info=True)
+        try:
+            with Session(db.engine) as session:
+                rec_rows = session.query(Recording).filter(
                     Recording.status.in_(["queued", "processing"])
                     | Recording.alignment.in_(["pending", "aligning"])
                     | Recording.diar_status.in_(["pending", "running"])
@@ -152,27 +248,74 @@ class QueueManager:
         except Exception:
             log.exception("QueueManager recover failed")
             return
-        if not rows:
+        if not job_rows and not rec_rows:
             return
-        now = dt.datetime.now(dt.timezone.utc)
         processing_recovered: List[Any] = []
         with self._lock:
-            for rec in rows:
-                # Change 155 (Schritt 4): Job-Kind aus dem Statusfeld ableiten
-                # (alignment/diar_status statt recording.status).
+            # --- Pfad A: persistente Job-Rows (Change 155 Schritt 2) ---
+            for row in job_rows:
+                # transcribe nutzt int-Keys (rec_id), andere kinds String-Keys
+                job_key: Any = row.rec_id if row.kind == "transcribe" else row.key
+                if job_key in self._jobs:
+                    continue
+                if row.status == "running":
+                    started = row.started_at
+                    if started is not None:
+                        if started.tzinfo is None:
+                            started = started.replace(tzinfo=dt.timezone.utc)
+                        if (now - started).total_seconds() < RECOVER_PROCESSING_STALE_S:
+                            # läuft evtl. noch → nicht doppelt starten
+                            continue
+                payload = None
+                if row.payload:
+                    try:
+                        payload = json.loads(row.payload)
+                    except Exception:
+                        payload = None
+                self._seq += 1
+                job = Job(
+                    rec_id=row.rec_id, user_id=None, backend=row.backend,
+                    status="queued", seq=self._seq, priority=row.priority,
+                    kind=row.kind, payload=payload,
+                )
+                job._row_id = row.id  # type: ignore[attr-defined]
+                self._jobs[job_key] = job
+                try:
+                    with Session(db.engine) as session:
+                        row2 = session.get(JobRow, row.id)
+                        if row2 is not None:
+                            row2.attempts = (row2.attempts or 0) + 1
+                            session.add(row2)
+                            session.commit()
+                except Exception:
+                    log.exception("QueueManager recover: attempts++ fehlgeschlagen (row=%s)", row.id)
+                if row.kind == "transcribe" and row.status == "running":
+                    processing_recovered.append((row.rec_id, row.backend))
+            # --- Pfad B: Recording-Fallback (Altdaten ohne Job-Rows) ---
+            for rec in rec_rows:
                 if rec.status in ("queued", "processing"):
                     kind = "transcribe"
                 elif rec.alignment in ("pending", "aligning"):
                     kind = "align"
                 else:
                     kind = "rediarize"
-                job_key: Any = rec.id
+                fallback_key: Any = rec.id
                 if kind != "transcribe":
-                    job_key = f"{kind}-{rec.id}"
-                # Duplicate-Guard pro (rec, kind): transcribe- und
-                # align-Job derselben Recording koexistieren dürfen.
-                if job_key in self._jobs:
+                    fallback_key = f"{kind}-{rec.id}"
+                # Nur wenn KEINE Job-Row existiert (weder in _jobs noch als
+                # Row in der DB — z.B. die Row wurde schon verarbeitet).
+                if fallback_key in self._jobs:
                     continue
+                try:
+                    with Session(db.engine) as session:
+                        exists = session.query(JobRow).filter(
+                            JobRow.key == str(fallback_key),
+                            JobRow.status.in_(["queued", "running", "done"]),
+                        ).first()
+                    if exists:
+                        continue
+                except Exception:
+                    pass
                 if rec.status == "processing":
                     updated = getattr(rec, "updated_at", None)
                     if updated is not None:
@@ -181,45 +324,56 @@ class QueueManager:
                         if (now - updated).total_seconds() < RECOVER_PROCESSING_STALE_S:
                             # läuft evtl. noch → nicht doppelt starten
                             continue
-                    processing_recovered.append(rec)
+                    processing_recovered.append((rec.id, rec.backend or ""))
                 self._seq += 1
-                self._jobs[job_key] = Job(
+                job = Job(
                     rec_id=rec.id, user_id=rec.user_id, backend=rec.backend or "",
                     status="queued", seq=self._seq, kind=kind,
                 )
-        for rec in processing_recovered:
-            # Change 155: processing-Zombie → konsistent queued setzen
-            # (gleicher Pfad wie enqueue), damit der Worker ihn normal
-            # verarbeitet und der Run-Status zusammenpasst.
+                self._jobs[fallback_key] = job
+        # processing-Zombies (beide Pfade) → konsistent queued setzen
+        # (gleicher Pfad wie enqueue), damit der Worker normal verarbeitet.
+        for rec_id, backend in processing_recovered:
             try:
-                with Session(engine) as session:
-                    crud.set_queued(session, rec.id, rec.backend or "")
+                with Session(db.engine) as session:
+                    crud.set_queued(session, rec_id, backend)
             except Exception:
-                log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec.id)
-        for rec in rows:
-            job_key: Any = rec.id
-            if rec.alignment in ("pending", "aligning"):
-                job_key = f"align-{rec.id}"
-            elif rec.diar_status in ("pending", "running"):
-                job_key = f"rediarize-{rec.id}"
-            if job_key not in self._jobs:
-                continue
+                log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec_id)
+        with self._lock:
+            keys = list(self._jobs.keys())
+        for job_key in keys:
             self._fifo.put((0, self._jobs[job_key].seq, job_key))
         log.info(
             "QueueManager: %d verwaiste Jobs wieder aufgenommen (%d processing-Zombies)",
-            len(self._jobs), len(processing_recovered),
+            len(keys), len(processing_recovered),
         )
 
     def stop(self) -> None:
+        """Shutdown. Change 155 (Schritt 2): RAM-Queue aufräumen.
+
+        Queued Jobs überleben den Neustart über die Job-Tabelle
+        (_recover_queued rehydriert sie); laufende Jobs finalisiert
+        der Worker im finally (Row auf done/failed).
+        """
         self._stop.set()
         for t in self._threads:
             t.join(timeout=5)
+        with self._lock:
+            self._jobs.clear()
+        while True:
+            try:
+                self._fifo.get_nowait()
+            except queue.Empty:
+                break
         self._started = False
 
     def _ensure_workers(self) -> None:
         """Workers = sum of capacities of available endpoints (Decision 3)."""
         target = sum(s["concurrency"] for s in available_services())
         with self._lock:
+            # tote Threads aus früheren stop() entfernen — sonst blockieren
+            # sie den Neustart (latenter Bug, Change 155 Schritt 2)
+            self._threads = [t for t in self._threads if t.is_alive()]
             while len(self._threads) < target:
                 t = threading.Thread(target=self._worker_loop, daemon=True)  # thread:ok Queue-Worker (einziger Job-Executor)
                 t.start()
@@ -264,13 +418,20 @@ class QueueManager:
             if len(self._jobs) >= self._max_queue_len:
                 raise QueueFullError(f"queue full (max {self._max_queue_len} jobs)")
             self._seq += 1
-            self._jobs[key] = Job(
+            job = Job(
                 rec_id=rec_id, user_id=user_id, backend=backend,
                 status="queued", seq=self._seq, priority=priority,
                 kind=kind, payload=payload,
             )
+            self._jobs[key] = job
+        # Change 155 (Schritt 2): Job-Row persistieren (defensiv — die
+        # In-Memory-Queue arbeitet auch ohne Row; Rehydration/Historie
+        # verlieren dann nur diesen Eintrag).
+        row_id = _insert_job_row(key, rec_id, kind, backend, priority, payload)
+        if row_id is not None:
+            job._row_id = row_id  # type: ignore[attr-defined]
         if kind == "transcribe":
-            with Session(engine) as session:
+            with Session(db.engine) as session:
                 crud.set_queued(session, rec_id, backend)
         self._ensure_workers()
         self._fifo.put((priority, self._seq, key))
@@ -293,8 +454,10 @@ class QueueManager:
                 return False
             if job.status == "queued":
                 del self._jobs[rec_id]
+                # Change 155 (Schritt 2): Job-Row → cancelled.
+                _update_job_status(getattr(job, "_row_id", None), "cancelled")
                 # Reset the DB row so the user can re-transcribe.
-                with Session(engine) as session:
+                with Session(db.engine) as session:
                     rec = crud.get_recording(session, rec_id)
                     if rec is not None:
                         rec.status = "uploaded"
@@ -342,7 +505,7 @@ class QueueManager:
         with self._lock:
             jobs = list(self._jobs.values())
         avg_ms = 0.0
-        with Session(engine) as session:
+        with Session(db.engine) as session:
             avg_ms = crud.avg_recent_processing_ms(session)
         out: List[Dict[str, Any]] = []
         for j in jobs:
@@ -398,6 +561,8 @@ class QueueManager:
                         self._attach_limits(job)
                 if skip:
                     continue
+                # Change 155 (Schritt 2): Job-Row → running.
+                _update_job_status(getattr(job, "_row_id", None), "running")
                 # Change 155 (Schritt 4): ein universelles Scheduling —
                 # der kind-Dispatch entscheidet, welcher Worker läuft.
                 # WICHTIG: set_processing NUR für transcribe (leert
@@ -424,13 +589,21 @@ class QueueManager:
 
                     _mod.run_vad_download_job()
                 else:
-                    with Session(engine) as session:
+                    with Session(db.engine) as session:
                         crud.set_processing(session, rec_id)
                     process_recording(rec_id, backend=job.backend, job=job)
             except Exception:
                 log.exception("queue worker failed for rec_id=%s", rec_id)
+                _update_job_status(getattr(job, "_row_id", None), "failed",
+                                   error="worker exception")
             finally:
                 sem.release()
+                # Change 155 (Schritt 2): Endstatus der Job-Row (done,
+                # failed bei Fehler/Cancel-Transkription). Skip-Fall:
+                # cancel() hat die Row bereits auf cancelled gesetzt —
+                # NICHT überschreiben.
+                if not skip:
+                    _finalize_job_row(getattr(job, "_row_id", None), rec_id, job.kind)
                 with self._lock:
                     self._jobs.pop(key, None)
                 self._fifo.task_done()

@@ -18,8 +18,21 @@ class _FakeRequest:
 
 
 @pytest.fixture()
-def qm(monkeypatch):
-    """Frischer QueueManager mit gemocktem crud (keine echte DB)."""
+def qm(monkeypatch, tmp_path):
+    """Frischer QueueManager mit gemocktem crud + tmp-SQLite.
+
+    Change 155 (Schritt 2): die Job-Tabelle wird in eine tmp-DB gelegt
+    (db.engine zur Laufzeit gemockt) — die Persistenz läuft echt, ohne
+    die Dev-DB anzufassen.
+    """
+    from sqlmodel import SQLModel, create_engine
+
+    eng = create_engine(
+        f"sqlite:///{tmp_path / 'qapi.db'}", connect_args={"check_same_thread": False}
+    )
+    SQLModel.metadata.create_all(eng)
+    monkeypatch.setattr("app.db.engine", eng)
+
     class _FakeCrud:
         def set_queued(self, session, rec_id, backend): pass
         def set_processing(self, session, rec_id): pass
@@ -40,6 +53,10 @@ def qm(monkeypatch):
     monkeypatch.setattr(queue_mod, "process_recording",
                         lambda rec_id, backend=None, job=None: time.sleep(5))
     m = QueueManager(max_queue_len=5)
+    # Change 155 (Schritt 2): OHNE Worker — die Positionen sollen
+    # deterministisch queued bleiben (ein echter Worker setzt Jobs sofort
+    # auf processing → position()==0; Race unter SQLite-Write-Locks).
+    monkeypatch.setattr(m, "_ensure_workers", lambda: None)
     m.start()
     monkeypatch.setattr(queue_api, "queue_manager", m)
     yield m

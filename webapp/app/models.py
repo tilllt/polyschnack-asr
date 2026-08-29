@@ -429,3 +429,33 @@ class RtfEstimate(SQLModel, table=True):
     updated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
+
+
+class Job(SQLModel, table=True):
+    """Change 155 (Schritt 2): Persistente Job-Tabelle.
+
+    Jeder Queue-Job wird in der DB gespiegelt — die In-Memory-Queue
+    (``QueueManager._jobs``) bleibt der Scheduler, die Tabelle ist
+    Persistenz/Historie + Rehydrations-Quelle. ``key`` ist die
+    Job-Identität (int-Key als str, z.B. ``7`` / ``align-7`` /
+    ``peaks-3`` / ``vad-download``), ``status`` der Lebenszyklus
+    queued → running → done|failed|cancelled.
+    """
+
+    __tablename__ = "jobs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True)
+    rec_id: int = 0  # 0 = kein Recording (z.B. vad-download)
+    kind: str = "transcribe"  # transcribe | align | rediarize | peaks | vad
+    backend: str = ""
+    priority: int = 0  # 0 = registriert, 1 = anonym
+    status: str = "queued"  # queued | running | done | failed | cancelled
+    payload: Optional[str] = None  # JSON-String
+    error: Optional[str] = None
+    attempts: int = 0
+    created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    started_at: Optional[dt.datetime] = None
+    finished_at: Optional[dt.datetime] = None

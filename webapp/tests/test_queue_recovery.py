@@ -27,7 +27,9 @@ def session(tmp_path, monkeypatch):
     SQLModel.metadata.create_all(eng)
     monkeypatch.setattr(db_module, "engine", eng)
     # queue.py hat `engine` beim Import eingefroren → dort ebenfalls patchen.
-    monkeypatch.setattr("app.queue.engine", eng)
+    # Change 155 (Schritt 2): queue.py liest db.engine zur Laufzeit —
+    # Mock dort, damit auch der Job-Tabellen-Pfad in die tmp-DB zeigt.
+    monkeypatch.setattr("app.db.engine", eng)
     with Session(eng) as s:
         yield s
 
@@ -123,3 +125,71 @@ def test_abort_queued_run_rolls_back_pointer(session):
     _abort_queued_run(session, rec, run, old_run_id)
     assert run.status == "failed"
     assert rec.current_run_id == old_run_id
+
+
+# --- Change 155 (Schritt 2): Rehydration aus der Job-Tabelle (Pfad A) ---
+
+
+def test_recover_nimmt_job_row_auf(session, fresh_manager):
+    """Job-Row (queued) ist die primäre Rehydrations-Quelle — kind/backend/
+    payload kommen exakt aus der Tabelle (kein Recording nötig)."""
+    import json
+
+    from app.models import Job
+
+    row = Job(
+        key="align-9", rec_id=9, kind="align", backend="ps-pk-onnx",
+        priority=0, status="queued",
+        payload=json.dumps({"id": "r9", "diar_status": "pending"}),
+    )
+    session.add(row)
+    session.commit()
+
+    fresh_manager._recover_queued()
+
+    assert "align-9" in fresh_manager._jobs
+    job = fresh_manager._jobs["align-9"]
+    assert job.kind == "align" and job.backend == "ps-pk-onnx"
+    assert job.payload == {"id": "r9", "diar_status": "pending"}
+
+
+def test_recover_skip_frische_running_row(session, fresh_manager):
+    """Running-Row mit frischem started_at → läuft evtl. noch → skip."""
+    import datetime as dt
+
+    from app.models import Job
+
+    row = Job(
+        key="7", rec_id=7, kind="transcribe", backend="pk",
+        status="running", started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    session.add(row)
+    session.commit()
+
+    fresh_manager._recover_queued()
+
+    assert 7 not in fresh_manager._jobs
+
+
+def test_recover_nimmt_stale_running_row_auf_mit_attempts(session, fresh_manager):
+    """Running-Zombie (started_at alt → Prozess tot) wird wieder aufgenommen,
+    attempts wird inkrementiert."""
+    import datetime as dt
+
+    from app.models import Job
+
+    row = Job(
+        key="7", rec_id=7, kind="transcribe", backend="pk",
+        status="running",
+        started_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1),
+        attempts=1,
+    )
+    session.add(row)
+    session.commit()
+
+    fresh_manager._recover_queued()
+
+    assert 7 in fresh_manager._jobs
+    assert fresh_manager._jobs[7].status == "queued"
+    session.refresh(row)
+    assert row.attempts == 2

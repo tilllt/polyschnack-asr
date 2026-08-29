@@ -57,8 +57,11 @@ def test_cancel_queued_entfernt_und_reset(tmp_path, monkeypatch):
     # Einzellauf zeigt sie auf eine echte DB (der Reset klappt). Für den
     # Unit-Test: Engine auf einen nicht existierenden Pfad, damit der
     # Reset deterministisch scheitert (Flag-Entfernen passiert davor).
+    # Change 155 (Schritt 2): der Row-Update (cancelled) ist defensiv, aber
+    # der Recording-Reset bleibt bewusst nicht-defensiv — ein DB-Fehler
+    # beim Cancel muss sichtbar sein. Flag-Entfernen passiert davor.
     monkeypatch.setattr(
-        "app.queue.engine",
+        "app.db.engine",
         create_engine("sqlite:////nonexistent-yjs/queue.db"),
     )
     with pytest.raises(Exception):

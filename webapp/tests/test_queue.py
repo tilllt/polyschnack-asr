@@ -43,14 +43,29 @@ def _make_manager(monkeypatch, *, start: bool):
 
 
 @pytest.fixture()
-def qm(monkeypatch):
+def job_db(tmp_path, monkeypatch):
+    # Change 155 (Schritt 2): tmp-SQLite für die persistente Job-Tabelle.
+    # queue.py liest db.engine zur Laufzeit → dort patchen (crud bleibt
+    # gefakt, Service-Verhalten unverändert).
+    from sqlmodel import SQLModel, create_engine
+
+    eng = create_engine(
+        f"sqlite:///{tmp_path / 'queue_jobs.db'}", connect_args={"check_same_thread": False}
+    )
+    SQLModel.metadata.create_all(eng)
+    monkeypatch.setattr("app.db.engine", eng)  # queue.py liest db.engine zur Laufzeit
+    return eng
+
+
+@pytest.fixture()
+def qm(monkeypatch, job_db):
     m = _make_manager(monkeypatch, start=True)
     yield m
     m.stop()
 
 
 @pytest.fixture()
-def qm_no_worker(monkeypatch):
+def qm_no_worker(monkeypatch, job_db):
     """QueueManager OHNE Worker — für reine Queue-Logik-Tests (kein Race).
 
     Wichtig: enqueue() ruft _ensure_workers() auf und startet damit IMMER
@@ -125,6 +140,11 @@ def test_worker_processes_jobs_with_bound_backend(qm, monkeypatch):
     while len(seen) < 2 and time.time() < deadline:
         time.sleep(0.02)
     assert sorted(seen) == [(1, "ps-pk-onnx"), (2, "crispr-qwen3")]
+    # Change 155 (Schritt 2): der pop passiert NACH dem _finalize_job_row
+    # (DB-Read) — deshalb auf das Leeren warten statt sofort zu prüfen.
+    deadline = time.time() + 5
+    while qm.queued_count() > 0 and time.time() < deadline:
+        time.sleep(0.02)
     assert qm.queued_count() == 0  # Jobs nach Abschluss entfernt
 
 
@@ -200,10 +220,18 @@ def test_cancel_processing_setzt_flag(qm, monkeypatch):
 
 
 class _FakeSessionCtx:
-    """Context-Manager-Session für _recover_queued (DB-frei)."""
+    """Context-Manager-Session für _recover_queued (DB-frei).
 
-    def __init__(self, rows):
+    Change 155 (Schritt 2): Der Recover fragt jetzt die Job-Tabelle
+    (JobRow) UND die Recordings ab — die Fake-Session unterscheidet
+    nach Modell und liefert die passende Liste (job_rows default leer
+    → die Recover-Tests üben den Recording-Fallback-Pfad).
+    """
+
+    def __init__(self, rows, job_rows=None):
         self.rows = rows
+        self.job_rows = job_rows if job_rows is not None else []
+        self._is_job = False
 
     def __enter__(self):
         return self
@@ -212,13 +240,27 @@ class _FakeSessionCtx:
         return False
 
     def query(self, model):
+        self._is_job = getattr(model, "__name__", "") == "Job"
         return self
 
     def filter(self, *a, **k):
         return self
 
     def all(self):
-        return self.rows
+        return self.job_rows if self._is_job else self.rows
+
+    def first(self):
+        src = self.job_rows if self._is_job else self.rows
+        return src[0] if src else None
+
+    def get(self, model, ident):
+        return None
+
+    def add(self, obj):
+        return None
+
+    def commit(self):
+        return None
 
 
 class _FakeRec:
@@ -286,21 +328,24 @@ def test_recover_align_und_rediarize_zombies(monkeypatch):
     assert fake.queued == [], "align/rediarize-Zombies brauchen kein set_queued (kein transcribe)"
 
 
-def test_enqueue_align_mit_eigenem_key_kein_konflikt(qm):
+def test_enqueue_align_mit_eigenem_key_kein_konflikt(qm_no_worker):
     """Change 155 (Schritt 4): align-Job nutzt String-Key — die Recording
-    kann parallel als transcribe-Job (int-Key) in der Queue sein."""
-    qm.enqueue(7, None, "ps-pk-onnx")                     # transcribe: key=7
-    pos = qm.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
+    kann parallel als transcribe-Job (int-Key) in der Queue sein.
+
+    qm_no_worker: ohne Worker bleibt Job 7 queued → position deterministisch.
+    """
+    qm_no_worker.enqueue(7, None, "ps-pk-onnx")                     # transcribe: key=7
+    pos = qm_no_worker.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
     assert pos >= 1
-    assert 7 in qm._jobs and qm._jobs[7].kind == "transcribe"
-    assert "align-7" in qm._jobs and qm._jobs["align-7"].kind == "align"
+    assert 7 in qm_no_worker._jobs and qm_no_worker._jobs[7].kind == "transcribe"
+    assert "align-7" in qm_no_worker._jobs and qm_no_worker._jobs["align-7"].kind == "align"
     # Doppel-Enqueue desselben align-Jobs → QueueError
     try:
-        qm.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
+        qm_no_worker.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
         assert False, "Doppel-Enqueue desselben Keys muss QueueError werfen"
     except queue_mod.QueueError:
         pass
-    qm.cancel(7, user_id=None)  # transcribe-Job räumen
+    qm_no_worker.cancel(7, user_id=None)  # transcribe-Job räumen
 
 
 def test_worker_dispatch_align_ohne_set_processing(qm, monkeypatch):
@@ -351,3 +396,75 @@ def test_worker_dispatch_peaks_und_vad(qm, monkeypatch):
     assert seen_vad.wait(timeout=5), "vad-Job kam nie im Worker an"
     assert fake.processing == [], "peaks/vad dürfen set_processing NICHT auslösen"
     qm.stop()
+
+
+def test_enqueue_persistiert_job_row(qm_no_worker, job_db):
+    """Change 155 (Schritt 2): enqueue spiegelt den Job in die DB."""
+    from sqlmodel import Session, select
+
+    from app.models import Job
+
+    qm_no_worker.enqueue(7, None, "ps-pk-onnx", kind="transcribe", key=7)
+    qm_no_worker.enqueue(9, None, "ps-pk-onnx", kind="align", key="align-9",
+                         payload={"separate_backend": "htdemucs"})
+    with Session(job_db) as s:
+        rows = s.exec(select(Job)).all()
+    assert {r.key for r in rows} == {"7", "align-9"}
+    by_key = {r.key: r for r in rows}
+    assert by_key["7"].kind == "transcribe" and by_key["7"].status == "queued"
+    assert by_key["7"].rec_id == 7
+    assert by_key["align-9"].kind == "align"
+    assert by_key["align-9"].rec_id == 9
+    import json as _json
+
+    assert _json.loads(by_key["align-9"].payload) == {"separate_backend": "htdemucs"}
+
+
+def test_worker_setzt_job_row_done(qm, monkeypatch, job_db):
+    """Change 155 (Schritt 2): Worker-Lifecycle schreibt running → done."""
+    from sqlmodel import Session, select
+
+    from app.models import Job
+
+    fake = _FakeCrud()
+    monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
+    monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
+    monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
+    monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+
+    from app import service as _svc_mod
+
+    done = threading.Event()
+    # queue.process_recording ist die beim Import gebundene Referenz —
+    # dort mocken, nicht am service-Modul.
+    monkeypatch.setattr(queue_mod, "process_recording",
+                        lambda rec_id, backend=None, job=None: done.set())
+
+    qm.enqueue(7, None, "ps-pk-onnx", kind="transcribe", key=7)
+    assert done.wait(timeout=5), "Worker kam nie durch"
+    import time as _t
+
+    row = None
+    deadline = _t.time() + 5
+    while _t.time() < deadline:
+        with Session(job_db) as s:
+            row = s.exec(select(Job).where(Job.key == "7")).first()
+        if row is not None and row.status == "done":
+            break
+        _t.sleep(0.05)
+    assert row is not None and row.status == "done"
+    assert row.started_at is not None and row.finished_at is not None
+
+
+def test_cancel_setzt_job_row_cancelled(qm_no_worker, job_db):
+    """Change 155 (Schritt 2): cancel() markiert die Row als cancelled."""
+    from sqlmodel import Session, select
+
+    from app.models import Job
+
+    qm_no_worker.enqueue(7, 1, "ps-pk-onnx", kind="transcribe", key=7)
+    assert qm_no_worker.cancel(7, 1) is True
+    with Session(job_db) as s:
+        row = s.exec(select(Job).where(Job.key == "7")).first()
+    assert row is not None and row.status == "cancelled"
+    assert row.finished_at is not None

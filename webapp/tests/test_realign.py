@@ -36,9 +36,10 @@ def client(tmp_path, monkeypatch):
     # bereits importiert haben (queue, service), müssen direkt gemockt
     # werden; main.py importiert lokal (nutzt den db-Mock automatisch).
     import app.queue as queue_mod
+    # Change 155 (Schritt 2): queue liest db.engine zur Laufzeit — die
+    # Engine-Isolation läuft komplett über db.engine (queue-Mock entfällt).
     import app.service as svc_mod
 
-    monkeypatch.setattr(queue_mod, "engine", eng)
     monkeypatch.setattr(svc_mod, "engine", eng)
     with Session(eng) as s:
         s.add(User(id=77, sub="realign-tester", kind="oidc"))

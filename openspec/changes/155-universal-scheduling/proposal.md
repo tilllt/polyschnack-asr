@@ -1,6 +1,6 @@
 # Change 155 — Universelles Scheduling: Umsetzung 109/110 (Schritte 1–7)
 
-**Status:** Proposed (Schritte 1, 4, 5, 6, 7 umgesetzt — Schritt 2/3 offen)
+**Status:** Proposed (Schritte 1–7 umgesetzt — Schritt 2 Kern fertig, Folgepunkte notiert)
 
 ## Gap-Analyse (2026-08-29): Alle Programmteile vs. universelles Scheduling
 
@@ -59,4 +59,24 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
        Slots "peaks"/"ops", Kapazität 1; Key-Dedup). Inflight-Guard lebt im
        Worker (run_peaks_job) — ein fehlgeschlagener enqueue hinterlässt kein
        verwaistes Set (Review-Befund: rec_id klebte in _peaks_inflight).
-7. [ ] Grep-Gate in CI (keine nackten Threads in service.py)
+7. [x] Grep-Gate in CI: `grep-gate`-Job verbietet `threading.Thread(`
+       ohne `# thread:ok`-Marker in webapp/app/ (5 Zweck-Threads markiert).
+
+## Schritt 2 — Persistente Job-Tabelle (Kern umgesetzt 2026-08-29)
+
+- [x] `Job`-Modell (jobs-Tabelle; create_all legt sie an — keine Migration)
+- [x] enqueue persistiert queued-Row (defensiv: DB-Fehler blockiert NICHT)
+- [x] Worker-Lifecycle: running → done/failed (Exception) / cancelled (Cancel)
+- [x] cancel() markiert cancelled; Recording-Reset bleibt nicht-defensiv
+- [x] Recover: Pfad A Job-Tabelle (exakt kind/backend/payload, attempts++,
+     running-Zombies nur bei stale started_at) + Pfad B Recording-Fallback
+     (Altdaten ohne Rows); transcribe rehydriert mit int-Key (enqueue-Semantik)
+- [x] queue.py liest db.engine zur Laufzeit (Test-Mocks wirken; kein
+     eingefrorener Engine-Verweis mehr)
+- [x] Tests: Persistenz-Flow, JobRow-Recover (queued/running-frisch/stale),
+     Fallback; Queue-Tests mit tmp-SQLite
+
+### Folgepunkte (nicht Teil dieses Commits)
+- [ ] Retry/Backoff + Dead-Letter + Admin-Retry-API (attempts ist vorbereitet)
+- [ ] ETA aus Job-Rows zentralisieren (statt Recording-Status-Ableitung)
+- [ ] Queue-Admin-UI (Historie aus jobs-Tabelle)

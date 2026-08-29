@@ -261,7 +261,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr("app.db.engine", eng)
     monkeypatch.setattr("app.service.engine", eng)
     monkeypatch.setattr("app.routers.recordings.engine", eng)  # Direkt-Import
-    monkeypatch.setattr("app.queue.engine", eng)  # queue_manager-Session
+    monkeypatch.setattr("app.db.engine", eng)  # queue liest db.engine zur Laufzeit
     with Session(eng) as s:
         s.add(User(id=1, sub="oidc-user"))
         audio = tmp_path / "a.mp3"
