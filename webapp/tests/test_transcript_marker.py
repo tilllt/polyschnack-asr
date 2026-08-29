@@ -134,5 +134,50 @@ def test_append_marker_verlaengert_audio():
     assert len(out) > 300_000
 
 
+def test_append_marker_erzeugt_gueltige_16k_mono_wav():
+    """Change 154: Der Concat-Output muss eine dekodierbare 16k/mono/s16-WAV
+    sein — die alte aresample/pan-Filterkette erzeugte ein Format, das der
+    ONNX-ASR nicht transkribieren konnte (leere Segmente)."""
+    import io
+    import wave as wave_mod
+
+    out = _append_transcript_marker(_sine_wav(2.0))
+    with wave_mod.open(io.BytesIO(out), "rb") as w:
+        assert w.getnchannels() == 1
+        assert w.getframerate() == 16000
+        assert w.getsampwidth() == 2
+        # ≈ 2,0 s Audio + 8,1 s Marker
+        assert 9.5 <= w.getnframes() / 16000 <= 11.0
+
+
+def test_append_marker_konvertiert_gemischte_inputs():
+    """Change 154: Auch Stereo-/44,1-kHz-Inputs (typische Uploads) werden
+    zu 16k/mono konvertiert — ffmpeg via Output-Flags, nicht via Filter."""
+    import io
+    import math
+    import struct
+    import wave as wave_mod
+
+    bio = io.BytesIO()
+    with wave_mod.open(bio, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(44100)
+        n = int(1.0 * 44100)
+        frames = bytearray()
+        for i in range(n):
+            v = int(12000 * math.sin(2 * math.pi * 440 * i / 44100))
+            frames += struct.pack("<hh", v, v)  # Stereo
+        w.writeframes(bytes(frames))
+    stereo = bio.getvalue()
+
+    out = _append_transcript_marker(stereo)
+    assert out != stereo
+    with wave_mod.open(io.BytesIO(out), "rb") as w:
+        assert w.getnchannels() == 1
+        assert w.getframerate() == 16000
+        assert w.getsampwidth() == 2
+
+
 def test_append_marker_leere_eingabe_unveraendert():
     assert _append_transcript_marker(b"") == b""

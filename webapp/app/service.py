@@ -129,26 +129,42 @@ def _append_transcript_marker(audio_bytes: bytes) -> bytes:
     ans Audio-Ende und konvertiert zu 16 kHz mono WAV (concat via ffmpeg).
     Liefert das Audio unverändert, wenn der Marker fehlt oder ffmpeg
     scheitert — dann greift keine Vollständigkeits-Erkennung (kein
-    falsches failed)."""
+    falsches failed).
+    Change 154: concat OHNE aresample/pan-Filterkette — die erzeugte WAV
+    konnte der ONNX-ASR nicht transkribieren (leere Segmente ab 5 min,
+    Produktions-Befund 2026-08-29). Sample-Rate/Kanäle stattdessen als
+    Output-Flags; ffmpeg konvertiert gemischte Inputs automatisch."""
     if not audio_bytes or not os.path.exists(_TRANSCRIPT_MARKER_PATH):
         return audio_bytes
     try:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
             tf.write(audio_bytes)
             path = tf.name
+        out_path = tempfile.mktemp(suffix=".wav")
         try:
+            # Change 154: Output als Temp-DATEI statt pipe:1 — ffmpeg schreibt
+            # bei pipe:1 eine unbekannte Größe (0x7FFFFFFF) in den WAV-Header,
+            # die der ONNX-ASR nicht verarbeiten kann (leere Segmente ab 5 min,
+            # Produktions-Befund 2026-08-29). Bei Datei-Output patcht ffmpeg
+            # die echte Größe; -ar/-ac konvertieren gemischte Inputs.
             r = sp.run(
                 ["ffmpeg", "-hide_banner", "-i", path, "-i", _TRANSCRIPT_MARKER_PATH,
-                 "-filter_complex",
-                 "[0:a]aresample=16000,pan=mono[a0];[1:a]aresample=16000,pan=mono[a1];"
-                 "[a0][a1]concat=n=2:v=0:a=1[aout]",
-                 "-map", "[aout]", "-acodec", "pcm_s16le", "-f", "wav", "pipe:1"],
+                 "-filter_complex", "concat=n=2:v=0:a=1[aout]",
+                 "-map", "[aout]", "-ar", "16000", "-ac", "1",
+                 "-acodec", "pcm_s16le", "-f", "wav", out_path],
                 capture_output=True, timeout=180,
             )
+            if r.returncode == 0:
+                with open(out_path, "rb") as f:
+                    out = f.read()
+            else:
+                out = b""
         finally:
             os.unlink(path)
-        if r.returncode == 0 and r.stdout:
-            return r.stdout
+            if os.path.exists(out_path):
+                os.unlink(out_path)
+        if r.returncode == 0 and out:
+            return out
         log.warning("Change 147: ffmpeg-Marker-Anhang fehlgeschlagen (rc=%s)", r.returncode)
     except Exception:
         log.exception("Change 147: Marker-Anhang fehlgeschlagen")
