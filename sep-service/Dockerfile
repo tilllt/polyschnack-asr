@@ -7,9 +7,10 @@
 # (--separate), GGUF-Modelle von cstr auf HuggingFace.
 #
 # Basis: aligner-service/Dockerfile-Muster (Builder mit CUDA,
-# Runtime schlank) + CrispASR-Fork tilllt/CrispASR (enthält
-# htdemucs-Parity + diar-Fixes; Stand 2bded4194, lokales Binary
-# verifiziert: beide Backends mit separate:Y).
+# Runtime schlank) + CrispASR aus dem ORIGINAL-Repo CrispStrobe/CrispASR
+# (Stand 81595d17 — inkl. unserem gemergten /progress-Fix PR #408 +
+# Maintainer-Härtung 87670dd; der bisher genutzte Fork tilllt/CrispASR
+# ist ein veralteter Upstream-Stand, 0 eigene Commits).
 #
 # HYBRID (wie aligner): Der CUDA-Build enthält den CPU-Backend
 # (ggml_backend_init_best = CUDA > Metal > Vulkan > CPU). GPU-Zugriff
@@ -17,7 +18,7 @@
 # Container automatisch auf CPU (langsam — siehe Change 106, Risiko).
 # ==============================================================
 
-# ---- Builder stage — CrispASR-Fork mit CUDA (CPU-Fallback via ggml) ----
+# ---- Builder stage — CrispASR (Original-Repo) mit CUDA (CPU-Fallback via ggml) ----
 FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -26,8 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN git clone --recursive https://github.com/tilllt/CrispASR.git . \
-    && git checkout 2bded4194
+RUN git clone --recursive https://github.com/CrispStrobe/CrispASR.git . \
+    && git checkout 81595d17f72e36380bc455a09b63757e82cd0da2
 # CUDA-Backend explizit aktivieren (gleiches Muster wie aligner):
 # -DGGML_CUDA=ON, arch 86 für RTX 3090 (sm_86), Linker-Flags für die
 # Driver-Stub-Library (-lcuda) wegen BUILD_SHARED_LIBS=ON.

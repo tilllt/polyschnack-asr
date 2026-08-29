@@ -8,6 +8,10 @@
 ## Phase 1 — crispr-sep-Dienst (Code fertig, Smoke-Test läuft)
 - [x] Smoke-Test `--separate`: **htdemucs-F16 separiert korrekt** (4 sources, vocals.wav); mel-band-f16 + htdemucs-q8_0 laufen noch (CPU scalar — sehr langsam, bestätigt Risiko)
 - [x] Dockerfile `sep-service/` (CrispASR-Fork tilllt/CrispASR @ 2bded4194, CUDA arch 86, Entrypoint mit HF-Auto-Download beider GGUFs)
+- [x] 2026-08-29: Quelle auf ORIGINAL-Repo CrispStrobe/CrispASR umgestellt
+      (sep: clone main @ 81595d17 inkl. gemergtem PR #408 /progress-Fix;
+      diar+aligner: offizielles Release v0.8.30 statt verworfenem ORT-POC
+      v0.8.28-ort-poc1 — GPU-Experiment, 6× langsamer als ggml-CPU)
 - [x] `compose.yml`: Service `crispr-sep` (intern, Port 5100, healthcheck, Volume DATA/models)
 - [x] Endpoint `POST /v1/audio/separate` (multipart file+backend, vocals.wav zurück, ehrlicher 422, Ein-Job-Lock) + `GET /health` + `/status`
 - [ ] CI: Build + Harbor-Push `polyschnack-asr-sep` (nach Deploy-Entscheidung)

@@ -13,48 +13,41 @@
 #     audio.mel_window NICHT -> "mel failed". Die CrispStrobe-
 #     Konvertierung cstr/qwen3-forced-aligner-0.6b-GGUF bettet sie
 #     ein -> laeuft. Wortzeiten bitweise identisch zum alten CLI.
-#   - Das ORT-Artefakt v0.8.28-ort-poc1 (gleiches wie diar-service)
-#     kann alle 3 Pfade: --align-only -am (qwen3-FA, wav2vec2),
-#     --align (TADA mit --codec-model/--voice/--source-lang).
+#   - Seit 2026-08-29: Binary aus dem ORIGINAL-Repo CrispStrobe/CrispASR
+#     (offizielles Release v0.8.30, ARG CRISPASR_VERSION). Der bisherige
+#     ORT-POC (v0.8.28-ort-poc1, tilllt/CrispASR) war ein verworfenes GPU-
+#     Experiment und wird nicht mehr genutzt. Alle 3 Aligner-Pfade laufen
+#     über ggml im offiziellen Release.
 #
-# HYBRID CPU/GPU wie diar-service: ORT-Binary versucht CUDA-EP zur
-# Laufzeit (dlsym) und faellt still auf CPU zurueck; alle Aligner
-# laufen ueber ggml (CPU) bzw. CUDA-ggml, je nach Build des Artefakts.
+# HYBRID CPU/GPU: CUDA-Binary (hart an libcuda.so.1) startet ohne
+# NVIDIA-Container-Toolkit nicht; mit GPU-Overlay nutzt sie das
+# ggml-CUDA-Backend, ohne Overlay CPU-Fallback via CPU-Binary.
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
-# cuDNN 9 fuer den onnxruntime CUDA-EP (gleicher Fix wie diar-service:
-# cuda-runtime-Image bringt cublas/curand/cufft mit, aber NICHT
-# libcudnn.so.9). Vorher .list-Dateien entfernen (doppelte CUDA-Repo-
-# Eintraege -> apt exit 100).
+# ORT-POC (v0.8.28-ort-poc1, tilllt/CrispASR) VERWORFEN (GPU-Experiment,
+# 6× langsamer als ggml-CPU) → seit 2026-08-29 offizielles Release
+# CrispStrobe/CrispASR v0.8.30 (cuda-runtime-Image bringt cublas/curand/
+# cufft für das ggml-CUDA-Backend mit; cuDNN wird nicht benötigt).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget curl libopenblas0 python3 \
-    && rm -f /etc/apt/sources.list.d/*.list \
-    && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
-       -O /tmp/cuda-keyring.deb \
-    && dpkg -i /tmp/cuda-keyring.deb && rm /tmp/cuda-keyring.deb \
-    && apt-get update && apt-get install -y --no-install-recommends libcudnn9-cuda-12 \
     && rm -rf /var/lib/apt/lists/*
 
-# CrispASR-ORT-Artefakt (gleiches wie diar-service, verifiziert
-# 2026-08-26 mit allen 3 Aligner-Pfaden auf POC-Audio):
-# bin/crispasr + libcrispasr.so.1 + ggml-Libs + onnxruntime 1.21.0.
-ARG CRISPASR_ORT_ARTIFACT_URL=https://github.com/tilllt/CrispASR/releases/download/v0.8.28-ort-poc1/crispasr-ort-poc1.tar.gz
-RUN wget -q "${CRISPASR_ORT_ARTIFACT_URL}" -O /tmp/crispasr-ort.tar.gz \
-    && tar xzf /tmp/crispasr-ort.tar.gz -C /opt \
-    && rm /tmp/crispasr-ort.tar.gz \
-    && ln -sf /opt/crispasr-ort/bin/crispasr /usr/local/bin/crispasr \
-    && chmod +x /usr/local/bin/crispasr \
-    # Release-Tarball enthaelt NUR libonnxruntime.so.1.21.0 (keine
-    # .so.1-Symlinks) — Link nach der hoechsten Version anlegen:
-    && ortlib="$(ls -1 /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.* 2>/dev/null | sort -Vr | head -1)" \
-    && [ -n "${ortlib}" ] \
-    && ln -sf "$(basename "${ortlib}")" /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.1
-
-ENV LD_LIBRARY_PATH=/opt/crispasr-ort/lib:/opt/crispasr-ort/lib/onnxruntime
+# CrispASR-Binary aus dem ORIGINAL-Repo (v0.8.30, CUDA+CPU-Hybrid):
+# Layout crispasr-linux-x86_64-cuda/crispasr + libc2pa_c.so (wie
+# whisper-crisp). Alle 3 Aligner-Pfade (qwen3-FA, TADA, wav2vec2)
+# laufen über ggml — im offiziellen Release enthalten.
+ARG CRISPASR_VERSION=v0.8.30
+RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPASR_VERSION}/crispasr-linux-x86_64-cuda.tar.gz" \
+    -O /tmp/crispasr-cuda.tar.gz \
+    && tar xzf /tmp/crispasr-cuda.tar.gz -C /tmp \
+    && cp /tmp/crispasr-linux-x86_64-cuda/crispasr /usr/local/bin/crispasr \
+    && cp /tmp/crispasr-linux-x86_64-cuda/libc2pa_c.so /usr/local/lib/libc2pa_c.so \
+    && rm -rf /tmp/crispasr-cuda.tar.gz /tmp/crispasr-linux-x86_64-cuda \
+    && ldconfig
 
 # Verify — OHNE Pipe: der Exit-Code von crispasr muss durchschlagen.
 RUN crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"

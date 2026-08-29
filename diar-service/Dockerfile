@@ -5,60 +5,43 @@
 # mit dem CrispASR-Binary und einem kleinen parakeet-Modell. Die Webapp
 # ruft POST /v1/audio/transcriptions mit diarize=true auf.
 #
-# WEG B (Übergang, bis PR #364 upstream gemerged ist): Das Binary wird
-# NICHT aus dem Source gebaut, sondern als verifiziertes Artefakt vom
-# Fork-Release tilllt/CrispASR gezogen (crispasr-ort-poc1: CRISPASR_
-# USE_ONNXRUNTIME=ON, onnxruntime-gpu 1.21.0, CUDA EP verifiziert auf
-# RTX 3060: pyannote-seg + TitaNet als CUDA EP, 2-Sprecher-Referenz A B A B).
-# Nach dem Upstream-Merge zurück aufs offizielle Release stellen (ARG).
+# WEG B ist beendet (2026-08-29): Der ORT-POC war ein GPU-Experiment und
+# wurde verworfen (6× langsamer als ggml-CPU). Seitdem wird das Binary
+# aus dem ORIGINAL-Repo CrispStrobe/CrispASR gezogen (offizielles Release
+# v0.8.30, ARG CRISPASR_VERSION). Der Server läuft mit parakeet-GGUF +
+# foxnose-Diarize + wespeaker-Embedder (alles ggml).
 #
-# HYBRID: Das ORT-Binary versucht den CUDA-EP zur Laufzeit (dlsym) und
-# fällt still auf CPU zurück; ohne GPU-Overlay (compose.gpu.yml) läuft
-# der Container automatisch auf CPU. parakeet-ASR läuft über ggml (CPU).
+# HYBRID: Die CUDA-Binary ist hart an libcuda.so.1 gelinkt und startet
+# ohne NVIDIA-Container-Toolkit nicht; ohne GPU-Overlay (compose.gpu.yml)
+# läuft der Container nicht (CPU-Fallback via ggml wäre nur über die
+# CPU-Binary — hier nicht vorgesehen).
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
-# cuDNN 9 für den onnxruntime CUDA-EP: das cuda-runtime-Image bringt
-# cublas/curand/cufft mit, aber NICHT libcudnn.so.9 — ORT 1.21 verlangt
-# cuDNN 9 (1.19.x wollte cuDNN 8, fiel sonst still auf CPU zurück).
-# WICHTIG (CI-Fix 2026-08-16): das nvidia/cuda-Base-Image bringt bereits
-# eigene /etc/apt/sources.list.d/*.list-Einträge für das CUDA-Repo mit →
-# cuda-keyring würde eine ZWEITE Repo-Liste anlegen → apt bricht mit
-# "Conflicting values set for option Signed-By" ab (exit 100). Vorher alle
-# .list-Dateien entfernen (die Ubuntu-24.04-Basis nutzt .sources/deb822 in
-# /etc/apt/sources.list.d/ubuntu.sources — die bleibt unangetastet):
+# ORT-POC (v0.8.28-ort-poc1, tilllt/CrispASR) VERWORFEN (2026-08-17:
+# ORT/GPU-Weg 6× langsamer als ggml-CPU; die .onnx-Diarize-Modelle
+# werden nicht genutzt) → seit 2026-08-29 offizielles Release
+# CrispStrobe/CrispASR v0.8.30 (das cuda-runtime-Image bringt cublas/
+# curand/cufft für das ggml-CUDA-Backend mit; cuDNN wird nicht benötigt).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget curl libopenblas0 \
-    && rm -f /etc/apt/sources.list.d/*.list \
-    && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
-       -O /tmp/cuda-keyring.deb \
-    && dpkg -i /tmp/cuda-keyring.deb && rm /tmp/cuda-keyring.deb \
-    && apt-get update && apt-get install -y --no-install-recommends libcudnn9-cuda-12 \
     && rm -rf /var/lib/apt/lists/*
 
-# CrispASR-ORT-Artefakt (Weg B): bin/crispasr + libcrispasr.so.1 +
-# ggml-Libs + onnxruntime 1.21.0 (libonnxruntime + CUDA-Provider) +
-# .onnx-Diarize-Modelle (pyannote-seg-3-0, TitaNet, 3dspeaker).
-# GLIBC-Hinweis: Binary wurde auf Ubuntu-22.04-Basis gebaut und läuft
-# auf 24.04 (abwärtskompatibel).
-ARG CRISPASR_ORT_ARTIFACT_URL=https://github.com/tilllt/CrispASR/releases/download/v0.8.28-ort-poc1/crispasr-ort-poc1.tar.gz
-RUN wget -q "${CRISPASR_ORT_ARTIFACT_URL}" -O /tmp/crispasr-ort.tar.gz \
-    && tar xzf /tmp/crispasr-ort.tar.gz -C /opt \
-    && rm /tmp/crispasr-ort.tar.gz \
-    && ln -sf /opt/crispasr-ort/bin/crispasr /usr/local/bin/crispasr \
-    && chmod +x /usr/local/bin/crispasr \
-    # Das Release-Tarball enthält NUR libonnxruntime.so.1.21.0 (keine .so.1-
-    # Symlinks!) — der Dynamic Linker matcht exakt den SONAME .so.1 → ohne
-    # Link crasht das Binary trotz korrektem LD_LIBRARY_PATH. Link nach der
-    # höchsten Version anlegen (fix: ORT 1.21.0; sort -V robust bei Wechsel):
-    && ortlib="$(ls -1 /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.* 2>/dev/null | sort -Vr | head -1)" \
-    && [ -n "${ortlib}" ] \
-    && ln -sf "$(basename "${ortlib}")" /opt/crispasr-ort/lib/onnxruntime/libonnxruntime.so.1
-
-ENV LD_LIBRARY_PATH=/opt/crispasr-ort/lib:/opt/crispasr-ort/lib/onnxruntime
+# CrispASR-Binary aus dem ORIGINAL-Repo (v0.8.30, CUDA+CPU-Hybrid):
+# Layout crispasr-linux-x86_64-cuda/crispasr + libc2pa_c.so (wie
+# whisper-crisp). Der Server läuft mit parakeet-GGUF (ggml) + foxnose-
+# Diarize + wespeaker-Embedder (ggml) — alles im offiziellen Release.
+ARG CRISPASR_VERSION=v0.8.30
+RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPASR_VERSION}/crispasr-linux-x86_64-cuda.tar.gz" \
+    -O /tmp/crispasr-cuda.tar.gz \
+    && tar xzf /tmp/crispasr-cuda.tar.gz -C /tmp \
+    && cp /tmp/crispasr-linux-x86_64-cuda/crispasr /usr/local/bin/crispasr \
+    && cp /tmp/crispasr-linux-x86_64-cuda/libc2pa_c.so /usr/local/lib/libc2pa_c.so \
+    && rm -rf /tmp/crispasr-cuda.tar.gz /tmp/crispasr-linux-x86_64-cuda \
+    && ldconfig
 
 # Verify — OHNE Pipe: der Exit-Code von crispasr muss durchschlagen
 # (2026-08-16: `crispasr --help | head -5` maskierte den Crash — Build
