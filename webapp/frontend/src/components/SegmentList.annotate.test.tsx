@@ -197,7 +197,7 @@ describe("SegmentList — Change 077 Fixes", () => {
     expect(ta.selectionEnd).toBe(10);  // „Welt" = 4 Zeichen
   });
 
-  it("einfacher Klick räumt Markierung auf und startet Playback (Change 091)", () => {
+  it("einfacher Klick räumt Markierung auf und startet Playback (Change 091)", async () => {
     const onSeekTo = vi.fn();
     const { container } = renderList(undefined, { onSeekTo });
     const splitContainer = container.querySelector("[data-split-container]") as HTMLElement;
@@ -212,7 +212,9 @@ describe("SegmentList — Change 077 Fixes", () => {
     // Einfacher Klick auf die Zeile → Markierung weg + Playback startet
     const row = container.querySelector("[role=button]") as HTMLElement;
     fireEvent.click(row);
-    vi.waitFor(() => {
+    // await (Fix 2026-08-29): ohne await läuft das Promise nach Testende
+    // weiter und timeoutet als unhandled error im nachfolgenden Test.
+    await vi.waitFor(() => {
       expect(onSeekTo).toHaveBeenCalled();
       expect(sel?.isCollapsed).toBe(true);
     });
@@ -282,5 +284,88 @@ describe("SegmentList — Change 077 Fixes", () => {
     fireEvent.pointerDown(w1, { pointerType: "touch" });
     fireEvent.pointerUp(w1, { pointerType: "touch" });
     expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  // ── Change 153: Timing-Tab (readOnly) — native Textmarkierung hat Vorrang ──
+  // TimingEditor rendert SegmentList OHNE Split/Annotate-Handler (nur
+  // readOnly + onWordClick). Dort darf die Klick-Logik eine frische
+  // System-Markierung nicht wegwischen und kein Wort/Seek auslösen.
+  function renderTimingList(opts: {
+    onSeekTo?: (s: number) => void;
+    onWordClick?: (s: number, w: number) => void;
+    onActiveChange?: (i: number) => void;
+  } = {}) {
+    return render(
+      <LocaleProvider>
+        <SegmentList
+          segments={[SEG]}
+          activeIdx={0}
+          onActiveChange={opts.onActiveChange ?? (() => {})}
+          recordingId="r1"
+          onSeekTo={opts.onSeekTo}
+          readOnly
+          onWordClick={opts.onWordClick}
+        />
+      </LocaleProvider>,
+    );
+  }
+
+  it("Timing: Markierung + Zeilen-Klick → Markierung bleibt, kein Seek, kein Zeilenwechsel (Change 153)", async () => {
+    const onSeekTo = vi.fn();
+    const onActiveChange = vi.fn();
+    const { container } = renderTimingList({ onSeekTo, onActiveChange });
+    const splitContainer = container.querySelector("[data-split-container]") as HTMLElement;
+    // Native Markierung über beide Wörter (wie ein System-Drag)
+    const spans = splitContainer.querySelectorAll("[data-word-index]");
+    const range = document.createRange();
+    range.setStart(spans[0].firstChild!, 0);
+    range.setEnd(spans[1].firstChild!, 4);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    // Klick auf die Zeile — der 280-ms-Timer (scheduleClick) darf NICHTS tun
+    const row = container.querySelector("[role=button]") as HTMLElement;
+    fireEvent.click(row);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(onSeekTo).not.toHaveBeenCalled();
+    expect(onActiveChange).not.toHaveBeenCalled();
+    // Markierung bleibt für System-Kopieren (Ctrl+C) erhalten
+    expect(sel?.isCollapsed).toBe(false);
+    expect(sel?.rangeCount).toBeGreaterThan(0);
+  });
+
+  it("Timing: Markierung + Wort-Klick → kein Waveform-Load (Change 153)", async () => {
+    const onWordClick = vi.fn();
+    const { container } = renderTimingList({ onWordClick });
+    const splitContainer = container.querySelector("[data-split-container]") as HTMLElement;
+    // Teil-Markierung (nur „Welt")
+    const span = splitContainer.querySelectorAll("[data-word-index]")[1] as HTMLElement;
+    const range = document.createRange();
+    range.setStart(span.firstChild!, 0);
+    range.setEnd(span.firstChild!, 4);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    // Der Klick, der beim Loslassen der Markier-Geste entsteht
+    fireEvent.click(span);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(onWordClick).not.toHaveBeenCalled();
+    expect(sel?.isCollapsed).toBe(false);
+  });
+
+  it("Timing: Klick OHNE Markierung → Seek weiterhin (Regression Change 153)", async () => {
+    const onSeekTo = vi.fn();
+    const { container } = renderTimingList({ onSeekTo });
+    const row = container.querySelector("[role=button]") as HTMLElement;
+    fireEvent.click(row);
+    await vi.waitFor(() => expect(onSeekTo).toHaveBeenCalled());
+  });
+
+  it("Timing: Wort-Klick OHNE Markierung → lädt das Wort in die Waveform (Regression Change 153)", async () => {
+    const onWordClick = vi.fn();
+    const { container } = renderTimingList({ onWordClick });
+    const span = container.querySelectorAll("[data-word-index]")[0] as HTMLElement;
+    fireEvent.click(span);
+    await vi.waitFor(() => expect(onWordClick).toHaveBeenCalledWith(0, 0));
   });
 });

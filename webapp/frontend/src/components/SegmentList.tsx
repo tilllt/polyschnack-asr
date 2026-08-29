@@ -596,6 +596,10 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
 
   function handleClick(idx: number) {
     if (editingIdx !== null) return;  // don't seek while editing
+    // Change 153: im readOnly-Timing-Modus hat eine aktive native
+    // Textmarkierung Vorrang — kein Wegwischen, kein Seek, kein
+    // aktive-Zeile-Wechsel (System-Markieren/Kopieren).
+    if (readOnly && hasNativeSelection()) return;
     // Change 091 (User 2026-08-22): Einfacher Klick (ohne Drag, ohne
     // Doppelklick) räumt vorhandene Markierungen im Transkript weg und
     // startet Playback. Nur der Klick, der DIREKT aus einem Text-Drag
@@ -612,6 +616,9 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     // Change 137: im readOnly-Timing-Modus lädt der Wort-Klick das Wort in
     // die Waveform (statt nur zu seeken).
     if (readOnly && onWordClick) {
+      // Change 153: der Klick, der beim Loslassen einer Markier-Geste
+      // entsteht, lädt KEIN Wort — die System-Markierung bleibt erhalten.
+      if (hasNativeSelection()) return;
       onWordClick(idx, wordIdx);
       return;
     }
@@ -625,9 +632,21 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
 
   // Change 091: Markierungen im Transkript aufheben — Touch-Selection
   // (Split/Annotate-Anker) + native Browser-Textmarkierung.
+  // Change 153: im readOnly-Timing-Modus NICHT die native Selection löschen —
+  // dort soll die System-Markierung für Kopieren (Ctrl+C) erhalten bleiben.
   function clearTextSelection() {
     setTouchSel(null);
+    if (readOnly) return;
     window.getSelection()?.removeAllRanges();
+  }
+
+  // Change 153: aktive native Textmarkierung? Im readOnly-Timing-Modus haben
+  // die Klick-Handler keinen dragMadeRef-Schutz (die Split-Handler fehlen dort)
+  // — eine frische Markierung würde sonst weggewischt bzw. löste Seek/onWordClick
+  // aus. Solange eine Markierung aktiv ist, gewinnt der System-Default.
+  function hasNativeSelection(): boolean {
+    const sel = window.getSelection();
+    return !!sel && !sel.isCollapsed && sel.rangeCount > 0;
   }
 
   // Change 091: der Klick nach einem Text-Drag (MouseUp mit Range) ist
