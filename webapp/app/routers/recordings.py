@@ -553,15 +553,23 @@ def _queue_eta_s_for(rec_id: Optional[int]) -> Optional[int]:
         return None
 
 
+# Change 156: Nur diese Job-Kinds treiben den Recording-Status ("processing").
+# `peaks` ist ein Hintergrund-Detail (Wellenform) — die Karte würde sonst
+# nach jedem Upload/Import fälschlich "in Arbeit" zeigen (Import-Test-Fail).
+_WORK_KINDS = ("transcribe", "align", "rediarize")
+
+
 def _active_job_for_rec(session: Optional[Any], rec_id: Optional[int]) -> Optional[Job]:
-    """Change 156: aktiver Job (queued/running) einer Recording — die
-    ehrliche Statusquelle. Der Job trägt die Phase (kind); ein `rec.status`
-    OHNE Job wäre eine Pseudo-Info (Spinner ohne Prozess)."""
+    """Change 156: aktiver Verarbeitungs-Job (queued/running) einer
+    Recording — die ehrliche Statusquelle. Der Job trägt die Phase (kind);
+    ein `rec.status` OHNE Job wäre eine Pseudo-Info (Spinner ohne Prozess)."""
     if session is None or rec_id is None:
         return None
     rows = session.exec(
         select(Job).where(
-            Job.rec_id == rec_id, Job.status.in_(["queued", "running"])
+            Job.rec_id == rec_id,
+            Job.status.in_(["queued", "running"]),
+            Job.kind.in_(_WORK_KINDS),
         )
     ).all()
     if not rows:
@@ -577,7 +585,10 @@ def _reconcile_stale_statuses(session: Any) -> None:
     Spinner ohne Prozess. Entscheidung: Transkription vorhanden → done,
     sonst failed (der Job wurde nie zu Ende geführt)."""
     jobs = session.exec(
-        select(Job).where(Job.status.in_(["queued", "running"]))
+        select(Job).where(
+            Job.status.in_(["queued", "running"]),
+            Job.kind.in_(_WORK_KINDS),
+        )
     ).all()
     active = {j.rec_id for j in jobs}
     stale = session.exec(

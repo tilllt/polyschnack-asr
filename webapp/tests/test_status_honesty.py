@@ -78,3 +78,24 @@ def test_no_active_job_no_phase(db):
         d = _recording_to_dict(s.get(Recording, 5), session=s)
         assert d["status"] == "done"
         assert d["phase"] is None
+
+
+def test_peaks_job_does_not_drive_status(db):
+    """Der peaks-Job (Wellenform-Hintergrund) darf die Karte NICHT auf
+    processing stellen — Regression: test_import_backup_roundtrip
+    (Import enqueued peaks → fälschlich 'processing' statt 'done')."""
+    from app.routers.recordings import _recording_to_dict, _reconcile_stale_statuses
+
+    with Session(db) as s:
+        s.add(Recording(id=6, uid="r6", original_name="f.mp3", stored_path="x",
+                        status="done", text="fertig", duration_s=50.0))
+        s.add(Job(id=3, key="6", rec_id=6, kind="peaks", status="running"))
+        s.commit()
+
+    with Session(db) as s:
+        d = _recording_to_dict(s.get(Recording, 6), session=s)
+        assert d["status"] == "done"       # peaks ist kein Verarbeitungs-Job
+        assert d["phase"] is None
+        # Reconcile lässt die Recording ebenfalls unangetastet (kein
+        # queued/processing-Status → keine Änderung).
+        _reconcile_stale_statuses(s)
