@@ -1286,7 +1286,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             </>
           )}
         </div>
-        <StatusBadge status={r.status} t={t} />
+        <StatusBadge
+          status={r.status}
+          phase={(r as { phase?: string | null }).phase}
+          progressPct={r.progress_pct}
+          t={t}
+        />
         {isBroken && (
           <span
             className="flex-shrink-0 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-err bg-[rgba(248,81,73,.12)] border border-err/40 rounded-sm px-1.5 py-[2px]"
@@ -2341,7 +2346,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
 /* ──────────────────────────────────────────────────── */
 
-function StatusBadge({ status, t }: { status: Recording["status"]; t: (key: string) => string }) {
+function StatusBadge({
+  status,
+  phase,
+  progressPct,
+  t,
+}: {
+  status: Recording["status"];
+  // Change 156: laufende Phase (transcribe|align|rediarize|peaks|vad) —
+  // das Backend meldet sie nur, wenn wirklich ein Job läuft.
+  phase?: string | null;
+  progressPct?: number | null;
+  t: (key: string) => string;
+}) {
   if (status === "done") {
     return (
       <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(63,185,80,.15)] text-ok">
@@ -2366,10 +2383,13 @@ function StatusBadge({ status, t }: { status: Recording["status"]; t: (key: stri
       </span>
     );
   }
+  // Change 156: ehrliche Phase statt generischem "in Arbeit" — und echter
+  // Fortschritt nur, wenn es ihn gibt (align/sep melden keinen → kein %).
   return (
     <span className="flex-shrink-0 flex items-center gap-[5px] text-[11px] font-bold px-[9px] py-[3px] rounded-full uppercase tracking-[.05em] bg-[rgba(88,166,255,.15)] text-proc">
         <Loader2 size={11} className="animate-spin" />
-        {t("processing")}
+        {phase ? t(`phase_${phase}`) : t("processing")}
+        {typeof progressPct === "number" && progressPct > 0 ? ` ${Math.round(progressPct)}%` : ""}
     </span>
   );
 }

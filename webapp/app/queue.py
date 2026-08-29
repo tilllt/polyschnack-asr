@@ -24,10 +24,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from . import crud
 from . import db  # Change 155 (Schritt 2): db.engine zur Laufzeit lesen (Test-Mocks wirken)
+from .models import Recording
 from .service import process_recording
 from .service_registry import available_services, get_service
 
@@ -505,17 +506,37 @@ class QueueManager:
         with self._lock:
             jobs = list(self._jobs.values())
         avg_ms = 0.0
+        # Change 156: echter Fortschritt je Job aus der Recording-Zeile
+        # (der Worker schreibt progress_pct/progress_note dort) — die
+        # Queue-Anzeige zeigt damit Phase + Fortschritt statt nur Job-ID.
+        progress: Dict[int, Dict[str, Any]] = {}
         with Session(db.engine) as session:
             avg_ms = crud.avg_recent_processing_ms(session)
+            rec_ids = [j.rec_id for j in jobs]
+            if rec_ids:
+                for rid, pct, note in session.exec(
+                    select(Recording.id, Recording.progress_pct, Recording.progress_note).where(
+                        Recording.id.in_(rec_ids)
+                    )
+                ).all():
+                    progress[rid] = {"progress_pct": pct, "progress_note": note}
         out: List[Dict[str, Any]] = []
         for j in jobs:
             is_mine = is_admin or j.user_id == user_id
+            prog = progress.get(j.rec_id, {})
             out.append({
                 "job_id": j.rec_id,
                 "position": self.position(j.rec_id) if j.status == "queued" else 0,
                 "status": j.status,
+                # Change 156: Phase (transcribe|align|rediarize|peaks|vad) —
+                # vorher zeigte die UI nur rec_id + Backend des ERSTEN Jobs
+                # (irreführend, sobald Diarization/Alignment eines anderen
+                # Services läuft).
+                "kind": j.kind,
                 "backend": j.backend,
                 "eta_s": round(self.position(j.rec_id) * avg_ms / 1000) if avg_ms and j.status == "queued" else None,
+                "progress_pct": prog.get("progress_pct"),
+                "progress_note": prog.get("progress_note"),
                 "is_mine": is_mine,
             })
         out.sort(key=lambda d: d["job_id"])

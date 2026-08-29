@@ -41,19 +41,40 @@ export function QueueWatcher() {
         ⏳ {t("in_queue")} · {status.jobs.length} Jobs · {t("capacity")}: {status.concurrency}
       </div>
       <ul className="space-y-1">
-        {status.jobs.map((j) => (
+        {status.jobs.map((j) => {
+          // Change 156: ehrliche Phase + echter Fortschritt statt "in Arbeit…".
+          // Bei transcribe-Jobs mit laufender Diarization (progress_note)
+          // ist die Phase die Diarization, nicht die Transkription
+          // (Live-Befund: Queue zeigte "ps-pk-onnx Processing", während
+          // crispr-diar arbeitete).
+          const runningPhase =
+            j.status === "running" && j.progress_note === "diarization"
+              ? t("phase_rediarize")
+              : j.kind
+                ? t(`phase_${j.kind}`)
+                : t("processing");
+          const pct =
+            typeof j.progress_pct === "number" && j.progress_pct > 0
+              ? ` · ${Math.round(j.progress_pct)}%`
+              : "";
+          return (
           <li key={j.job_id} className="flex items-center gap-2 text-muted flex-wrap">
             <span className="text-txt font-semibold tabular-nums">#{j.job_id}</span>
-            <span className="bg-[rgba(46,160,67,.15)] text-accent px-[6px] py-[1px] rounded-full text-[10px] font-semibold">
-              {j.backend}
-            </span>
+            {j.status === "queued" && (
+              <span className="bg-[rgba(46,160,67,.15)] text-accent px-[6px] py-[1px] rounded-full text-[10px] font-semibold">
+                {j.backend}
+              </span>
+            )}
             {j.status === "queued" ? (
               <span>
                 {t("queued")} · Pos. {j.position}
                 {j.eta_s != null && <span className="text-muted2"> · ~{j.eta_s}s</span>}
               </span>
             ) : (
-              <span className="text-proc">{t("processing")}…</span>
+              <span className="text-proc">
+                {runningPhase}
+                {pct}
+              </span>
             )}
             {j.is_mine && j.status === "queued" && (
               <button
@@ -68,7 +89,8 @@ export function QueueWatcher() {
               </button>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

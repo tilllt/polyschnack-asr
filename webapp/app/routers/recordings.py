@@ -40,6 +40,7 @@ from ..crud import (
 from .. import crud
 from ..db import engine, get_session
 from ..models import (
+    Job,
     Recording,
     RecordingShare,
     TranscriptionResult,
@@ -552,6 +553,48 @@ def _queue_eta_s_for(rec_id: Optional[int]) -> Optional[int]:
         return None
 
 
+def _active_job_for_rec(session: Optional[Any], rec_id: Optional[int]) -> Optional[Job]:
+    """Change 156: aktiver Job (queued/running) einer Recording — die
+    ehrliche Statusquelle. Der Job trägt die Phase (kind); ein `rec.status`
+    OHNE Job wäre eine Pseudo-Info (Spinner ohne Prozess)."""
+    if session is None or rec_id is None:
+        return None
+    rows = session.exec(
+        select(Job).where(
+            Job.rec_id == rec_id, Job.status.in_(["queued", "running"])
+        )
+    ).all()
+    if not rows:
+        return None
+    rows.sort(key=lambda j: (0 if j.status == "running" else 1, j.id))
+    return rows[0]
+
+
+def _reconcile_stale_statuses(session: Any) -> None:
+    """Change 156: Recordings mit queued/processing-Status ohne aktiven Job
+    korrigieren (der Job ist die Wahrheit). Beispiele: Stack-Restart
+    verwirft laufende Jobs, aber `rec.status` blieb auf \"processing\" →
+    Spinner ohne Prozess. Entscheidung: Transkription vorhanden → done,
+    sonst failed (der Job wurde nie zu Ende geführt)."""
+    jobs = session.exec(
+        select(Job).where(Job.status.in_(["queued", "running"]))
+    ).all()
+    active = {j.rec_id for j in jobs}
+    stale = session.exec(
+        select(Recording).where(Recording.status.in_(["queued", "processing"]))
+    ).all()
+    changed = False
+    for rec in stale:
+        if rec.id in active:
+            continue
+        new_status = "done" if rec.text else "failed"
+        if rec.status != new_status:
+            rec.status = new_status
+            changed = True
+    if changed:
+        session.commit()
+
+
 def _recording_to_dict(
     rec: Recording,
     access_level: Optional[str] = None,
@@ -615,6 +658,18 @@ def _recording_to_dict(
         )
     else:
         eta = None
+    # Change 156: ehrlicher Zustand — der aktive Job (falls vorhanden) ist
+    # die Wahrheit. `rec.status` allein lügt nach Restarts (stale
+    # "processing") und blendet laufende Align/Diarize-Jobs aus.
+    active_job = _active_job_for_rec(session, rec.id)
+    if active_job is not None:
+        status = "processing"
+        phase = active_job.kind
+        job_status = active_job.status
+    else:
+        status = rec.status
+        phase = None
+        job_status = None
     return {
         "id": rec.id,
         "uid": uid,
@@ -627,7 +682,10 @@ def _recording_to_dict(
         "mime": rec.mime,
         "size_bytes": rec.size_bytes,
         "duration_s": rec.duration_s,
-        "status": rec.status,
+        "status": status,
+        # Change 156: laufende Phase (transcribe|align|rediarize|peaks|vad)
+        # — das Frontend zeigt daraus das ehrliche Label + Fortschritt.
+        "phase": phase,
         "text": None if lite else rec.text,
         "error": rec.error,
         # Self-Healing (Change 023): Datei weg → sichtbares Flag statt
@@ -659,9 +717,12 @@ def _recording_to_dict(
         "backend": rec.backend,
         # Change 011: Queue-Position + Warte-ETA auf der Recording-Karte
         # (Werte wie im Queue-Watcher, aber direkt an der Aufnahme).
-        "queue_position": _queue_position_for(rec.id) if rec.status == "queued" else None,
-        "queue_eta_s": _queue_eta_s_for(rec.id) if rec.status == "queued" else None,
-        "queue_backend": rec.backend if rec.status == "queued" else None,
+        # Change 156: Quelle ist der JOB (nicht rec.status — der kann stale sein).
+        "queue_position": _queue_position_for(rec.id) if job_status == "queued" else None,
+        "queue_eta_s": _queue_eta_s_for(rec.id) if job_status == "queued" else None,
+        "queue_backend": active_job.backend
+        if job_status == "queued" and active_job is not None
+        else None,
         "created_at": iso_utc(rec.created_at),
         "language": rec.language,
         "segments": None if lite else rec.segments,
@@ -1143,6 +1204,9 @@ def list_recordings_endpoint(
     if dir not in ("asc", "desc"):
         dir = "desc"
     uid = _current_user(request, session)
+    # Change 156: stale "processing"-Status ohne laufenden Job korrigieren
+    # (der Job ist die Wahrheit; ein Spinner ohne Prozess ist Pseudo-Info).
+    _reconcile_stale_statuses(session)
     rows = list_recordings(
         session, q=q, user_id=uid, include_shares=uid is not None,
         sort=sort, dir=dir, tags=tag or None,

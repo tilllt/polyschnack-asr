@@ -152,6 +152,11 @@ export interface QueueJob {
   backend: string;
   eta_s: number | null;
   is_mine: boolean;
+  // Change 156: Phase (transcribe|align|rediarize|peaks|vad) + echter
+  // Fortschritt — die Queue-Anzeige zeigt damit, was GENAU läuft.
+  kind?: string;
+  progress_pct?: number | null;
+  progress_note?: string | null;
 }
 
 export interface QueueStatus {
