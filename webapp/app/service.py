@@ -1122,7 +1122,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                                     )
                         stop.wait(3.0)
 
-                hb = threading.Thread(target=_heartbeat, daemon=True, name=f"align-hb-{gi}")
+                hb = threading.Thread(target=_heartbeat, daemon=True, name=f"align-hb-{gi}")  # thread:ok Aligner-Status-Poller (Zweck)
                 hb.start()
                 try:
                     # Rest-Budget: verbleibende Job-Zeit — ein hängender
@@ -1995,7 +1995,7 @@ def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0,
                 return
             stop.wait(interval_s)
 
-    t = threading.Thread(
+    t = threading.Thread(  # thread:ok Job-Heartbeat-Ticker (Event-gestoppt)
         target=_tick, daemon=True,
         name=f"job-heartbeat-{rec_id}",
     )

@@ -221,7 +221,7 @@ class QueueManager:
         target = sum(s["concurrency"] for s in available_services())
         with self._lock:
             while len(self._threads) < target:
-                t = threading.Thread(target=self._worker_loop, daemon=True)
+                t = threading.Thread(target=self._worker_loop, daemon=True)  # thread:ok Queue-Worker (einziger Job-Executor)
                 t.start()
                 self._threads.append(t)
 

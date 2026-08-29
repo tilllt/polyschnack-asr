@@ -1,6 +1,6 @@
-# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Gap-Analyse + Schritte 1+4+5+6)
+# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Schritte 1–7)
 
-**Status:** Proposed (Schritt 1 + Schritt 4 + Schritt 5 + Schritt 6 umgesetzt)
+**Status:** Proposed (Schritte 1, 4, 5, 6, 7 umgesetzt — Schritt 2/3 offen)
 
 ## Gap-Analyse (2026-08-29): Alle Programmteile vs. universelles Scheduling
 

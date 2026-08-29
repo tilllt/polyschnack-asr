@@ -159,7 +159,7 @@ def _post_diarize(
                     pass
                 progress_stop.wait(2.0)
 
-        threading.Thread(target=_poll_progress, daemon=True).start()
+        threading.Thread(target=_poll_progress, daemon=True).start()  # thread:ok Diar-Progress-Poller (Zweck)
 
     try:
         with httpx.Client(timeout=1800) as client:

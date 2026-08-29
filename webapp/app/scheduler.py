@@ -53,7 +53,7 @@ class Scheduler:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(
+        self._thread = threading.Thread(  # thread:ok Scheduler-Loop (stop-Event)
             target=self._loop, daemon=True, name="ps-scheduler",
         )
         self._thread.start()

@@ -34,6 +34,25 @@ test-core:
       changes:
         - approach-a/**/*
 
+# Change 155 (Schritt 7): Grep-Gate — keine nackten Scheduling-Threads.
+# Jeder threading.Thread() in webapp/app/ braucht den Marker "# thread:ok"
+# (Queue-Worker, Scheduler-Loop, Heartbeat-Ticker, Zweck-Poller).
+grep-gate:
+  stage: test
+  image: python:3.13-slim
+  tags:
+    - shared
+  script:
+    - |
+      BAD=$(grep -rn "threading\.Thread(" webapp/app/ | grep -v "# thread:ok" || true)
+      if [ -n "$BAD" ]; then
+        echo "Nackte Thread-Starts gefunden (Change 155 Schritt 7):"
+        echo "$BAD"
+        echo "Lösung: Job über die Queue (kind=...) oder Scheduler-Registry; nur Zweck-Threads mit '# thread:ok' erlauben."
+        exit 1
+      fi
+      echo "OK: keine nackten Threads"
+
 test-webapp:
   stage: test
   image: python:3.13-slim
