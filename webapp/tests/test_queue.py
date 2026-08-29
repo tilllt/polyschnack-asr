@@ -194,3 +194,64 @@ def test_cancel_processing_setzt_flag(qm, monkeypatch):
     deadline = time.time() + 5
     while qm.queued_count() > 0 and time.time() < deadline:
         time.sleep(0.02)
+
+
+# ---------------------------------------------------------------- Change 155
+
+
+class _FakeSessionCtx:
+    """Context-Manager-Session für _recover_queued (DB-frei)."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def query(self, model):
+        return self
+
+    def filter(self, *a, **k):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+class _FakeRec:
+    def __init__(self, rec_id, status):
+        self.id = rec_id
+        self.user_id = None
+        self.backend = "ps-pk-onnx"
+        self.status = status
+
+
+def test_recover_resumes_processing_zombies(monkeypatch):
+    """Change 155: processing-Zombies werden beim Start re-enqueued.
+
+    User-Befund 2026-08-29: Deploy während laufender Transkription → die
+    Recording klebte ewig auf 'processing' (RAM-Job weg). Beim Start müssen
+    queued UND processing-Recordings wieder aufgenommen werden, processing
+    zusätzlich via set_queued in einen konsistenten Zustand gebracht.
+    """
+    fake = _FakeCrud()
+    monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
+    monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
+    monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
+    monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+    rows = [_FakeRec(1, "processing"), _FakeRec(2, "queued")]
+    monkeypatch.setattr(queue_mod, "Session", lambda engine: _FakeSessionCtx(rows))
+
+    m = QueueManager(max_queue_len=5)
+    m._ensure_workers = lambda: None  # type: ignore[assignment] — kein echter Worker
+    m.start()
+
+    assert 1 in m._jobs, "processing-Zombie muss wieder aufgenommen werden"
+    assert 2 in m._jobs, "queued-Job muss weiterhin aufgenommen werden"
+    assert m._jobs[1].status == "queued"
+    assert (1, "ps-pk-onnx") in fake.queued, "Zombie muss via set_queued konsistent gemacht werden"
+    assert (2, "ps-pk-onnx") not in fake.queued, "queued-Job braucht kein set_queued"
+    m.stop()

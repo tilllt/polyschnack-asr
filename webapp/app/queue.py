@@ -105,12 +105,22 @@ class QueueManager:
         Manager geladen (Priorität 0, FIFO-Hinten). Vorsicht: Läuft ein
         Re-Enqueue gegen einen inzwischen manuell gecancelten Job, bricht
         der Cancel-Guard im Worker das Starten ab (kein Doppelstart).
+
+        Change 155: Auch `processing`-Zombies werden aufgenommen.
+        User-Befund 2026-08-29: Ein Deploy/Restart während einer laufenden
+        Transkription killte den Job — die Recording klebte ewig auf
+        „processing", obwohl kein Worker mehr lief (RAM-Job weg). Sie werden
+        wie queued re-enqueued und via set_queued in einen konsistenten
+        Zustand gebracht (frischer Heartbeat; Text/Segmente werden geleert —
+        sie waren beim Abbruch ohnehin noch nicht geschrieben).
         """
         try:
             from .models import Recording  # lokaler Import (Zyklus-Vermeidung)
 
             with Session(engine) as session:
-                rows = session.query(Recording).filter(Recording.status == "queued").all()
+                rows = session.query(Recording).filter(
+                    Recording.status.in_(["queued", "processing"])
+                ).all()
         except Exception:
             log.exception("QueueManager recover failed")
             return
@@ -128,8 +138,17 @@ class QueueManager:
         for rec in rows:
             if rec.id not in self._jobs:
                 continue
+            if rec.status == "processing":
+                # Change 155: processing-Zombie → konsistent queued setzen
+                # (gleicher Pfad wie enqueue), damit der Worker ihn normal
+                # verarbeitet und der Run-Status zusammenpasst.
+                try:
+                    with Session(engine) as session:
+                        crud.set_queued(session, rec.id, rec.backend or "")
+                except Exception:
+                    log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec.id)
             self._fifo.put((0, self._jobs[rec.id].seq, rec.id))
-        log.info("QueueManager: %d verwaiste queued-Jobs wieder aufgenommen", len(rows))
+        log.info("QueueManager: %d verwaiste queued/processing-Jobs wieder aufgenommen", len(rows))
 
     def stop(self) -> None:
         self._stop.set()
