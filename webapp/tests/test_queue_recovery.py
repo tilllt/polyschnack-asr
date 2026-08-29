@@ -60,7 +60,12 @@ def test_recover_queued_reloads_db_jobs(session, fresh_manager):
 
 
 def test_recover_queued_skips_processing(session, fresh_manager):
-    """Nur 'queued' wird wieder aufgenommen — 'processing'/'done' nicht."""
+    """Nur 'queued' wird wieder aufgenommen — 'processing'/'done' nicht.
+
+    Change 155: processing wird NUR übersprungen, solange der letzte
+    DB-Write frisch ist (updated_at < 2 min → läuft evtl. noch, kein
+    Doppelstart). Dieser Test legt ein frisches Recording an → skip.
+    """
     rec_q = _queued_recording(session)
     rec_p = Recording(
         uid="rec-recovery-proc", original_name="p.wav", status="processing",
@@ -71,6 +76,38 @@ def test_recover_queued_skips_processing(session, fresh_manager):
     fresh_manager._recover_queued()
     assert rec_q.id in fresh_manager._jobs
     assert rec_p.id not in fresh_manager._jobs
+
+
+def test_recover_processing_zombie_mit_altem_updated_at(session, fresh_manager):
+    """Change 155: processing-Zombie (updated_at > 2 min alt, Prozess tot
+    durch Crash/Deploy) wird wieder aufgenommen und via set_queued
+    konsistent gemacht. User-Befund 2026-08-29: Deploy während laufender
+    Transkription liess die Recording ewig auf 'processing' hängen.
+    """
+    import datetime as dt
+
+    from app import crud
+
+    rec = Recording(
+        uid="rec-recovery-zombie", original_name="z.wav", status="processing",
+        backend="pk", stored_path="/tmp/z.wav", duration_s=1.0,
+    )
+    session.add(rec)
+    session.commit()
+    session.refresh(rec)
+    # updated_at künstlich altern (1 h zurück)
+    rec.updated_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    session.add(rec)
+    session.commit()
+
+    fresh_manager._recover_queued()
+
+    assert rec.id in fresh_manager._jobs, "toter processing-Zombie muss wieder aufgenommen werden"
+    assert fresh_manager._jobs[rec.id].status == "queued"
+    # set_queued hat den DB-Zustand konsistent gemacht (queued statt processing)
+    session.refresh(rec)
+    assert rec.status == "queued"
+    assert not fresh_manager._fifo.empty()
 
 
 def test_abort_queued_run_rolls_back_pointer(session):

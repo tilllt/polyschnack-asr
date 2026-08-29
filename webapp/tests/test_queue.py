@@ -227,6 +227,10 @@ class _FakeRec:
         self.user_id = None
         self.backend = "ps-pk-onnx"
         self.status = status
+        # Change 155: stale updated_at (1 h alt) → sicher tot → re-enqueue
+        import datetime as _dt
+
+        self.updated_at = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=1)
 
 
 def test_recover_resumes_processing_zombies(monkeypatch):

@@ -14,7 +14,9 @@ is only possible while queued; a running transcription finishes its endpoint
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import os
 import queue
 import threading
 import time
@@ -37,6 +39,15 @@ class QueueError(RuntimeError):
 
 class QueueFullError(QueueError):
     """Raised when the queue is at capacity."""
+
+
+#: Change 155: processing-Recordings mit jüngerem updated_at gelten beim
+#: Start als „läuft evtl. noch" (Restart-Race) und werden NICHT wieder
+#: aufgenommen — der Stale-Watchdog übernimmt sie später. Ältere gelten
+#: als sicher tot (Crash/Deploy) → re-enqueue (Zombie-Fix).
+RECOVER_PROCESSING_STALE_S = int(
+    os.getenv("POLYSCHNACK_RECOVER_PROCESSING_STALE_S", "120")
+)
 
 
 @dataclass
@@ -106,13 +117,16 @@ class QueueManager:
         Re-Enqueue gegen einen inzwischen manuell gecancelten Job, bricht
         der Cancel-Guard im Worker das Starten ab (kein Doppelstart).
 
-        Change 155: Auch `processing`-Zombies werden aufgenommen.
-        User-Befund 2026-08-29: Ein Deploy/Restart während einer laufenden
-        Transkription killte den Job — die Recording klebte ewig auf
-        „processing", obwohl kein Worker mehr lief (RAM-Job weg). Sie werden
-        wie queued re-enqueued und via set_queued in einen konsistenten
-        Zustand gebracht (frischer Heartbeat; Text/Segmente werden geleert —
-        sie waren beim Abbruch ohnehin noch nicht geschrieben).
+        Change 155: Auch `processing`-Zombies werden aufgenommen — aber nur,
+        wenn der letzte DB-Write sicher alt ist (Prozess tot durch Crash oder
+        Deploy). User-Befund 2026-08-29: Ein Deploy/Restart während einer
+        laufenden Transkription killte den Job — die Recording klebte ewig auf
+        „processing", obwohl kein Worker mehr lief (RAM-Job weg). Frische
+        `updated_at`-Werte werden übersprungen (der alte Prozess könnte noch
+        schreiben — Restart-Race; der Stale-Watchdog übernimmt später).
+        Aufgenommene processing-Jobs werden via set_queued in einen
+        konsistenten Zustand gebracht (frischer Heartbeat; Text/Segmente werden
+        geleert — sie waren beim Abbruch ohnehin noch nicht geschrieben).
         """
         try:
             from .models import Recording  # lokaler Import (Zyklus-Vermeidung)
@@ -126,29 +140,43 @@ class QueueManager:
             return
         if not rows:
             return
+        now = dt.datetime.now(dt.timezone.utc)
+        processing_recovered: List[Any] = []
         with self._lock:
             for rec in rows:
                 if rec.id in self._jobs:
                     continue
+                if rec.status == "processing":
+                    updated = getattr(rec, "updated_at", None)
+                    if updated is not None:
+                        if updated.tzinfo is None:
+                            updated = updated.replace(tzinfo=dt.timezone.utc)
+                        if (now - updated).total_seconds() < RECOVER_PROCESSING_STALE_S:
+                            # läuft evtl. noch → nicht doppelt starten
+                            continue
+                    processing_recovered.append(rec)
                 self._seq += 1
                 self._jobs[rec.id] = Job(
                     rec_id=rec.id, user_id=rec.user_id, backend=rec.backend or "",
                     status="queued", seq=self._seq,
                 )
+        for rec in processing_recovered:
+            # Change 155: processing-Zombie → konsistent queued setzen
+            # (gleicher Pfad wie enqueue), damit der Worker ihn normal
+            # verarbeitet und der Run-Status zusammenpasst.
+            try:
+                with Session(engine) as session:
+                    crud.set_queued(session, rec.id, rec.backend or "")
+            except Exception:
+                log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec.id)
         for rec in rows:
             if rec.id not in self._jobs:
                 continue
-            if rec.status == "processing":
-                # Change 155: processing-Zombie → konsistent queued setzen
-                # (gleicher Pfad wie enqueue), damit der Worker ihn normal
-                # verarbeitet und der Run-Status zusammenpasst.
-                try:
-                    with Session(engine) as session:
-                        crud.set_queued(session, rec.id, rec.backend or "")
-                except Exception:
-                    log.exception("QueueManager recover: set_queued fehlgeschlagen (rec_id=%s)", rec.id)
             self._fifo.put((0, self._jobs[rec.id].seq, rec.id))
-        log.info("QueueManager: %d verwaiste queued/processing-Jobs wieder aufgenommen", len(rows))
+        log.info(
+            "QueueManager: %d verwaiste queued/processing-Jobs wieder aufgenommen (%d processing-Zombies)",
+            len([r for r in rows if r.id in self._jobs]), len(processing_recovered),
+        )
 
     def stop(self) -> None:
         self._stop.set()
