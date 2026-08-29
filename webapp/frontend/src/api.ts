@@ -299,6 +299,17 @@ export interface Annotation {
   updated_at: string | null;
 }
 
+/** Change 155 (Timing-Zoom): progressive Peaks — feinere Auflösung für
+ *  den Wort-Zoom (?length=N). Wird vom Browser-Cache bedient
+ *  (Cache-Control: public, max-age=86400 — Peaks sind deterministisch). */
+export async function fetchPeaks(rid: string, length: number): Promise<number[]> {
+  const res = await fetch(
+    `/api/recordings/${encodeURIComponent(rid)}/peaks?length=${length}`,
+  ).then(checkOk);
+  const body = (await res.json()) as { peaks: number[] };
+  return body.peaks;
+}
+
 /** Change 056: Annotationen einer Aufnahme laden (flach, nach Zeit sortiert). */
 export async function fetchAnnotations(rid: string): Promise<Annotation[]> {
   const res = await fetch(`/api/recordings/${encodeURIComponent(rid)}/annotations`).then(checkOk);

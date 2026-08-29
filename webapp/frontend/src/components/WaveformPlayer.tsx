@@ -4,13 +4,17 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import { useT } from "../useLocale";
+import { fetchPeaks } from "../api";
 import {
+  clampMoveWordTiming,
   clampWordTiming,
   fitPps,
+  markerPct,
   MIN_PPS,
   MIN_WORD_DURATION_S,
   timeFromClick,
   timingPps,
+  visibleWindow,
 } from "../waveformTime";
 
 export interface WaveSurferHandle {
@@ -78,6 +82,9 @@ interface Props {
    *  Gesetzt → Waveform zoomt auf das Wort (~30 % der Ansicht) und zeigt
    *  die Timing-Markierung mit Start-/Ende-Handles. null = normal. */
   timingWord?: TimingWord | null;
+  /** Change 155 (Timing-Zoom): Recording-UID für progressive Peaks
+   *  (GET /recordings/{rid}/peaks?length=N). Nur im Timing-Kontext nötig. */
+  recordingId?: string;
   /** Change 137: Live-Update während des Handle-Drags (Anzeige im
    *  Timing-Editor). */
   onTimingChange?: (start: number, end: number) => void;
@@ -234,7 +241,7 @@ export function toggleActivePlayback(): void {
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, onTimingChange, onTimingCommit }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, recordingId, onTimingChange, onTimingCommit }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     // Change 072 (User-Befund 2026-08-21, „Waveforms lade endlos“ trotz 070):
@@ -308,6 +315,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // füllt den Background des "Loading…"-Textes als temporären Progress-Bar.
     const [loadPct, setLoadPct] = useState(0);
 
+    // Change 155 (Timing-Zoom): progressive Peaks — Cache je Länge
+    // (pro Player-Instanz; die Peaks ändern sich nie).
+    const peaksCacheRef = useRef(new Map<number, Promise<number[] | null>>());
+    // Spiegelt updateTimingMarker für Listener außerhalb von React-Render
+    // (Scroll-Event, setPeaks-Fertigstellung).
+    const updateTimingMarkerRef = useRef<() => void>(() => {});
+
     // Change 056: Annotation-Marker als Overlay im Timeline-Container.
     // wavesurfer 7.x hat KEIN Markers-Plugin (erst 8.x) — ein 8er-Upgrade
     // wäre ein Breaking-Change-Risiko für Regions/Timeline/Hover/MediaElement.
@@ -354,12 +368,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // Drag-Handler den Marker DIREKT im DOM (kein React-Rebuild — der würde
     // Pointer-Capture und die laufende Geste zerstören).
     const onTimingPointerDown = (e: PointerEvent) => {
+      // Change 155: Body-Drag (Verschieben der ganzen Markierung) — die
+      // Handles (start/end) bleiben für das Ändern der Ränder.
       const target = (e.target as HTMLElement).closest("[data-timing-handle]") as HTMLElement | null;
       const tw = timingWordRef.current;
       const root = timingMarkerRef.current;
-      if (!target || !tw || !root) return;
+      if (!tw || !root) return;
       e.stopPropagation();
-      const handle = target.dataset.timingHandle as "start" | "end";
+      const evtTarget = target ?? root; // Change 155: Body-Drag (ganze Markierung)
+      const handle = (target?.dataset.timingHandle as "start" | "end" | undefined) ?? "move";
       const pps = ppsRef.current;
       const dur = wsRef.current?.getDuration?.() ?? duration;
       const startX = e.clientX;
@@ -372,7 +389,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         const next =
           handle === "start"
             ? clampWordTiming(origStart + dT, origEnd, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
-            : clampWordTiming(origStart, origEnd + dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S);
+            : handle === "end"
+              ? clampWordTiming(origStart, origEnd + dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
+              : clampMoveWordTiming(origStart, origEnd, dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S);
         live = next;
         if (root.isConnected && dur > 0) {
           root.style.left = `${(next.start / dur) * 100}%`;
@@ -383,11 +402,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       const onMove = (ev: PointerEvent) => apply(ev.clientX);
       const onUp = (ev: PointerEvent) => {
         timingDraggingRef.current = false;
-        target.removeEventListener("pointermove", onMove);
-        target.removeEventListener("pointerup", onUp);
-        target.removeEventListener("pointercancel", onUp);
+        evtTarget.removeEventListener("pointermove", onMove);
+        evtTarget.removeEventListener("pointerup", onUp);
+        evtTarget.removeEventListener("pointercancel", onUp);
         try {
-          target.releasePointerCapture(ev.pointerId);
+          evtTarget.releasePointerCapture(ev.pointerId);
         } catch {
           /* Capture bereits frei */
         }
@@ -395,13 +414,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         updateTimingMarker();
       };
       try {
-        target.setPointerCapture(e.pointerId);
+        evtTarget.setPointerCapture(e.pointerId);
       } catch {
         /* Pointer-Capture nicht verfügbar — Drag läuft ohne */
       }
-      target.addEventListener("pointermove", onMove);
-      target.addEventListener("pointerup", onUp);
-      target.addEventListener("pointercancel", onUp);
+      evtTarget.addEventListener("pointermove", onMove);
+      evtTarget.addEventListener("pointerup", onUp);
+      evtTarget.addEventListener("pointercancel", onUp);
     };
 
     const updateTimingMarker = useCallback(() => {
@@ -418,7 +437,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         const root = document.createElement("div");
         root.dataset.timingMarker = "1";
         root.style.cssText =
-          "position:absolute;top:0;bottom:0;pointer-events:none;z-index:6;" +
+          "position:absolute;top:0;bottom:0;pointer-events:auto;cursor:ew-resize;" +
+          "touch-action:none;z-index:6;" +
           "background:rgba(46,160,67,0.18);border-top:1px solid #2ea043;border-bottom:1px solid #2ea043;";
         root.innerHTML =
           '<div data-timing-handle="start" style="position:absolute;top:0;bottom:0;left:0;width:14px;pointer-events:auto;cursor:ew-resize;touch-action:none;background:rgba(255,255,255,0.12);border-left:2px solid #2ea043;border-radius:2px 0 0 2px;"></div>' +
@@ -431,9 +451,21 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       }
       const el = timingMarkerRef.current;
       if (!el) return;
-      el.style.left = `${(tw.start / duration) * 100}%`;
-      el.style.width = `${((tw.end - tw.start) / duration) * 100}%`;
+      // Change 155: relativ zum SICHTBAREN Fenster (nicht zur Gesamtdauer) —
+      // im Zoom lag der Marker vorher an der falschen Stelle.
+      const ws = wsRef.current;
+      const scrollPx = ws?.getScroll?.() ?? 0;
+      const win = visibleWindow(
+        container.clientWidth || 800,
+        scrollPx,
+        ppsRef.current,
+        duration,
+      );
+      const pct = markerPct(win, tw.start, tw.end);
+      el.style.left = `${pct.left}%`;
+      el.style.width = `${pct.width}%`;
     }, [ready, duration]);
+    updateTimingMarkerRef.current = updateTimingMarker;
 
     // Neu-Zeichnen bei Wort-/Zeit-Änderung (während eines Drags übernimmt
     // der Drag-Handler das DOM — updateTimingMarker kehrt dann früh zurück).
@@ -483,6 +515,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       zoomIdxRef.current = idx;
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
       updateMarkers();
+      // Change 155: Zoom verschiebt das sichtbare Fenster → Timing-Marker
+      // neu positionieren (Ref: keine dep-Kette).
+      updateTimingMarkerRef.current?.();
     }, [updateMarkers]);
 
     // Change 137: 30 %-Zoom beim WECHSEL des Timing-Wortes (nicht bei jeder
@@ -511,6 +546,40 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         }
         w.zoom(pps);
         setTimingZoom(true);
+        // Change 155: progressive Peaks — MediaElement-Backend (> 30 min)
+        // dekodiert NICHT → die 2000-Punkt-Basis begrenzt den Zoom hart.
+        // Feinere Peaks nachladen (einmal je Länge, Browser-Cache) →
+        // setPeaks + zoom, damit der 30-%-Wort-Zoom auch bei langen
+        // Aufnahmen greift. Schlägt der Fetch fehl, bleibt der bestehende
+        // Zoom (Basis-Auflösung) — optional.
+        const wDur = w.getDuration?.() ?? duration;
+        const needed = Math.min(
+          300000,
+          Math.max(2000, Math.ceil(pps * Math.max(wDur, 1))),
+        );
+        if (recordingId && needed > 2000) {
+          const cache = peaksCacheRef.current;
+          let prom = cache.get(needed);
+          if (!prom) {
+            prom = fetchPeaks(recordingId, needed).catch(() => null);
+            cache.set(needed, prom);
+          }
+          void prom.then((fine) => {
+            if (!fine || fine.length <= 2000 || !wsReadyRef.current) return;
+            try {
+              const cur = wsRef.current as unknown as {
+                setPeaks?: (p: Array<Float32Array | number[]>) => void;
+                zoom?: (pps: number) => void;
+              };
+              cur?.setPeaks?.([fine]);
+              cur?.zoom?.(ppsRef.current);
+            } catch {
+              /* setPeaks nicht verfügbar — Basis-Peaks bleiben */
+            }
+            updateTimingMarkerRef.current?.();
+          });
+        }
+        updateTimingMarkerRef.current?.();
         try {
           w.setTime(tw.start);
         } catch {
@@ -759,6 +828,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           setLoadPct(pct);
         });
       }
+
+      // Change 155: Scroll (gezoomte View) verschiebt das sichtbare Fenster
+      // → Timing-Marker neu positionieren (Ref, kein Render-Zyklus nötig).
+      ws.on("scroll", () => {
+        updateTimingMarkerRef.current?.();
+      });
 
       ws.on("timeupdate", (t) => {
         // Fix 2026-08-17 (Space-Stop-Sprung): WaveSurfer 7 feuert beim Pause

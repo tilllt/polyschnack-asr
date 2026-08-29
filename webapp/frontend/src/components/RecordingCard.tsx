@@ -1376,6 +1376,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             audioUrl={resolveAudioUrl(r, previewFailed)}
             peaks={detail?.waveform_peaks ?? r.waveform_peaks}
             durationHint={r.duration_s}
+            // Change 155: progressive Peaks für den Wort-Zoom (MediaElement
+            // > 30 min dekodiert nicht — feinere Peaks kommen vom Server).
+            recordingId={detail?.uid ?? r.uid}
             onTimeUpdate={handleTimeUpdate}
             onRegionChange={(s, e) => setCropRange({ start: s, end: e })}
             onLoadError={() => {
@@ -1703,7 +1706,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 </div>
                 {editorTab === "timing" ? (
                   <TimingEditor
-                    segments={displaySegments ?? segments}
+                    /* Change 155 (User-Vorgabe): Timing-Modus übernimmt die
+                       Segmente 1:1 aus der Transkription — NIE die
+                       re-segmentierte Anzeige-Vorschau (displaySegments).
+                       Der Timing-Modus ändert ausschließlich Wort-Timings. */
+                    segments={segments}
                     activeIdx={activeSegIdx}
                     onActiveChange={setActiveSegIdx}
                     currentTime={currentTime}

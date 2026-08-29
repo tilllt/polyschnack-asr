@@ -75,3 +75,50 @@ export function timeFromClick(
   const t = (scrollPx + Math.max(0, clickPx)) / Math.max(pps, MIN_PPS);
   return Math.max(0, Math.min(duration, t));
 }
+
+/** Change 155 (Timing-Zoom): sichtbares Zeitfenster des Containers.
+ *  Bei Fit (scrollPx=0, pps=fitPps) ist das Fenster = [0, duration]. */
+export function visibleWindow(
+  containerW: number,
+  scrollPx: number,
+  pps: number,
+  duration: number,
+): { start: number; end: number } {
+  const p = Math.max(pps, MIN_PPS);
+  const start = Math.max(0, scrollPx / p);
+  const end = Math.min(duration, start + Math.max(containerW, 1) / p);
+  return { start, end };
+}
+
+/** Change 155 (Timing-Zoom): Marker-Position relativ zum SICHTBAREN
+ *  Fenster (vorher: relativ zur Gesamtdauer — im Zoom lag der Marker
+ *  daneben). Liefert left/width in % des Containers. */
+export function markerPct(
+  win: { start: number; end: number },
+  start: number,
+  end: number,
+): { left: number; width: number } {
+  const span = Math.max(1e-6, win.end - win.start);
+  return {
+    left: ((start - win.start) / span) * 100,
+    width: (Math.max(0, end - start) / span) * 100,
+  };
+}
+
+/** Change 155 (Timing-Zoom): GANZE Markierung verschieben (Body-Drag) —
+ *  start UND end wandern gemeinsam, Länge bleibt, geclampt auf die
+ *  Nachbar-Grenzen (minStart/maxEnd) und die Mindestdauer. */
+export function clampMoveWordTiming(
+  start: number,
+  end: number,
+  dT: number,
+  minStart: number | undefined,
+  maxEnd: number | undefined,
+  minDur: number = MIN_WORD_DURATION_S,
+): { start: number; end: number } {
+  const len = Math.max(minDur, end - start);
+  const lo = minStart != null ? minStart : Number.NEGATIVE_INFINITY;
+  const hi = maxEnd != null ? maxEnd : Number.POSITIVE_INFINITY;
+  const s = Math.max(lo, Math.min(hi - len, start + dT));
+  return { start: s, end: Math.min(hi, s + len) };
+}

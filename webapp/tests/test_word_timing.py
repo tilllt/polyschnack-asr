@@ -79,8 +79,9 @@ def client(tmp_path, monkeypatch):
 
 
 def test_patch_word_timing_sets_timing_override_and_boundaries(client):
-    """Timing-Korrektur: start/end gesetzt, override=true, Segment-Ende folgt
-    dem letzten Wort, rec.text unverändert, Nachbarwort unangetastet."""
+    """Timing-Korrektur: start/end gesetzt, override=true, Segment-Grenzen
+    bleiben UNANGETASTET (Change 155: 1:1 aus der Transkription), rec.text
+    unverändert, Nachbarwort unangetastet."""
     r = client.patch(
         "/api/recordings/rec-timing-1/segments/0/words/1",
         json={"start": 1.2, "end": 1.9},
@@ -91,8 +92,8 @@ def test_patch_word_timing_sets_timing_override_and_boundaries(client):
     assert w["start"] == pytest.approx(1.2)
     assert w["end"] == pytest.approx(1.9)
     assert w["override"] is True
-    # Segment-Grenzen aus erstem/letztem Wort: end folgt dem korrigierten Wort
-    assert seg["end"] == pytest.approx(1.9)
+    # Change 155: Segment-Grenzen folgen dem Wort NICHT mehr
+    assert seg["end"] == pytest.approx(2.0)  # Grenze bleibt (vorher: 1.9)
     assert seg["start"] == pytest.approx(0.0)
     # Nachbarwort unverändert, Text unverändert
     assert seg["words"][0]["start"] == pytest.approx(0.0)
@@ -101,15 +102,17 @@ def test_patch_word_timing_sets_timing_override_and_boundaries(client):
     assert r.json()["text"] == "Hallo Welt zweiter Satz"
 
 
-def test_patch_word_timing_first_word_updates_segment_start(client):
-    """Erstes Wort korrigiert → Segment-Start folgt ihm (Grenzen-Ableitung)."""
+def test_patch_word_timing_first_word_keeps_segment_start(client):
+    """Change 155 (User-Vorgabe): Wort-Timing-Korrektur am Segmentanfang
+    lässt die Segment-Grenzen UNANGETASTET (1:1 aus der Transkription) —
+    nur das Wort-Timing ändert sich, kein Segment-Einfluss."""
     r = client.patch(
         "/api/recordings/rec-timing-1/segments/1/words/0",
         json={"start": 2.1, "end": 3.0},
     )
     assert r.status_code == 200
     seg = r.json()["segments"][1]
-    assert seg["start"] == pytest.approx(2.1)
+    assert seg["start"] == pytest.approx(2.0)  # Grenze bleibt (vorher: 2.1)
     assert seg["words"][0]["override"] is True
 
 
@@ -338,3 +341,31 @@ def test_align_words_keeps_override_flag():
     assert [w["word"] for w in out2] == ["Hallo", "schöne", "Welt"]
     assert out2[2]["override"] is True
     assert out2[2]["start"] == pytest.approx(1.2)
+
+
+def test_progressive_peaks_endpoint(client, monkeypatch):
+    """Change 155 (Timing-Zoom): GET /recordings/{rid}/peaks?length=N
+    liefert Peaks in der gewünschten Auflösung + Cache-Control."""
+    from app import peaks as peaks_mod
+
+    calls: dict = {}
+
+    def fake_compute(path, n_bins=2000):
+        calls["n_bins"] = n_bins
+        return [0.5] * n_bins
+
+    monkeypatch.setattr(peaks_mod, "compute_peaks_path", fake_compute)
+    r = client.get("/api/recordings/rec-timing-1/peaks?length=8000")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["peaks"]) == 8000
+    assert calls["n_bins"] == 8000
+    assert r.headers.get("cache-control") == "public, max-age=86400"
+    # Default (ohne Parameter): Basis-Auflösung 2000
+    r2 = client.get("/api/recordings/rec-timing-1/peaks")
+    assert r2.status_code == 200
+    assert calls["n_bins"] == 2000
+    # Nicht dekodierbares Audio → 422
+    monkeypatch.setattr(peaks_mod, "compute_peaks_path", lambda path, n_bins=2000: [])
+    r3 = client.get("/api/recordings/rec-timing-1/peaks")
+    assert r3.status_code == 422

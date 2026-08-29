@@ -87,15 +87,18 @@ def probe_sample_count_path(path: Path) -> Optional[int]:
     return None
 
 
-def peaks_from_s16le(chunks: Iterable[bytes], total_samples: int) -> List[float]:
+def peaks_from_s16le(chunks: Iterable[bytes], total_samples: int, n_bins: int = PEAK_COUNT) -> List[float]:
     """Pure Binning-Logik über s16le-Häppchen (testbar ohne ffmpeg).
 
     *chunks* liefert Roh-Samples (little-endian int16, mono), *total_samples*
     die erwartete Gesamtzahl (bestimmt die Bin-Breite). Liefert exakt
-    PEAK_COUNT Float-Werte in [0, 1].
+    *n_bins* Float-Werte in [0, 1] (Default PEAK_COUNT = 2000).
+    Change 155 (Timing-Zoom): n_bins ist der progressive-Peaks-Parameter —
+    der Timing-Tab lädt bei Bedarf feinere Peaks (?length=N).
     """
-    samples_per_bin = max(1, total_samples // PEAK_COUNT)
-    peaks = np.zeros(PEAK_COUNT, dtype=np.float32)
+    n_bins = max(1, int(n_bins))
+    samples_per_bin = max(1, total_samples // n_bins)
+    peaks = np.zeros(n_bins, dtype=np.float32)
     idx = 0
     for raw in chunks:
         if not raw:
@@ -104,7 +107,7 @@ def peaks_from_s16le(chunks: Iterable[bytes], total_samples: int) -> List[float]
         n = arr.size
         if n == 0:
             continue
-        bins = np.minimum((idx + np.arange(n)) // samples_per_bin, PEAK_COUNT - 1)
+        bins = np.minimum((idx + np.arange(n)) // samples_per_bin, n_bins - 1)
         vals = np.abs(arr)
         changes = np.flatnonzero(np.diff(bins)) + 1
         starts = np.concatenate(([0], changes))
@@ -174,7 +177,7 @@ def compute_peaks(audio_bytes: bytes) -> List[float]:
             proc.kill()
 
 
-def compute_peaks_path(path: Path) -> List[float]:
+def compute_peaks_path(path: Path, n_bins: int = PEAK_COUNT) -> List[float]:
     """Wie :func:`compute_peaks`, aber ffmpeg liest die Datei direkt von der
     Platte (``-i <pfad>``) statt via ``pipe:0`` + ``stdin.write``.
 
@@ -184,6 +187,9 @@ def compute_peaks_path(path: Path) -> List[float]:
     Transcribe-Worker das Container-RAM-Limit (OOM-Kill, „Broken pipe"-
     Flut, Job blieb auf processing). Der Pfad-Weg hält den Speicher konstant:
     ffmpeg streamt von Platte, Python liest stdout in 1-MiB-Häppchen.
+
+    Change 155 (Timing-Zoom): n_bins = progressive Peaks (?length=N) —
+    der Timing-Tab fordert beim Wort-Zoom feinere Peaks an.
     """
     total_samples = probe_sample_count_path(path)
     if not total_samples:
@@ -217,7 +223,7 @@ def compute_peaks_path(path: Path) -> List[float]:
             yield raw
 
     try:
-        peaks = peaks_from_s16le(_chunks(), total_samples)
+        peaks = peaks_from_s16le(_chunks(), total_samples, n_bins)
         proc.wait(timeout=30)
         if proc.returncode not in (0, None):
             log.warning("peaks: ffmpeg exit=%d — Peaks evtl. unvollständig",

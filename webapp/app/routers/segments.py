@@ -687,9 +687,10 @@ def update_word_timing(
         # Jede Timing-Änderung ist eine manuelle Korrektur → Override setzen
         # (unabhängig von einem expliziten override-Feld im selben Request).
         words[word_idx]["override"] = True
-        # Segment-Grenzen aus erstem/letztem Wort neu ableiten.
-        segments[idx]["start"] = float(words[0]["start"])
-        segments[idx]["end"] = float(words[-1]["end"])
+        # Change 155 (User-Vorgabe): Der Timing-Modus ändert AUSSCHLIESSLICH
+        # Wort-Timings — die Segment-Grenzen (start/end) bleiben unangetastet
+        # (1:1-Übernahme der Segmente aus der Transkription). Kein Ableiten
+        # der Segment-Grenzen aus erstem/letztem Wort mehr.
     elif body.override is not None:
         # Nur-Flag-Update (Reset): Timing unverändert.
         if body.override:

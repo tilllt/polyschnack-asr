@@ -113,17 +113,18 @@ def test_position_counts_same_backend_only(qm_no_worker):
     assert qm_no_worker.position(3) == 2
 
 
-def test_active_jobs_for(qm, monkeypatch):
-    # Worker blockieren → Jobs bleiben in der Queue (deterministisch)
-    def slow_process(rec_id, backend=None):
-        time.sleep(5)
-
-    monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "ps-pk-onnx")
-    qm.enqueue(2, None, "crispr-pk-cpp")
-    assert qm.active_jobs_for("ps-pk-onnx") == 1
-    assert qm.active_jobs_for("crispr-pk-cpp") == 1
-    assert qm.active_jobs_for("crispr-qwen3") == 0
+def test_active_jobs_for(qm_no_worker):
+    # Change 155 (Flake-Fix 2026-08-29): qm_no_worker — ohne Worker-
+    # Threads ist der Test deterministisch (der alte qm-Fixture ließ den
+    # echten Worker mitlaufen; bei Last holte er Jobs vor der Assertion
+    # ab und verarbeitete sie mit der ECHTEN process_recording →
+    # "queue worker failed for rec_id=1", active=0).
+    # active_jobs_for zählt queued+processing (Admin stop-guard).
+    qm_no_worker.enqueue(1, None, "ps-pk-onnx")
+    qm_no_worker.enqueue(2, None, "crispr-pk-cpp")
+    assert qm_no_worker.active_jobs_for("ps-pk-onnx") == 1
+    assert qm_no_worker.active_jobs_for("crispr-pk-cpp") == 1
+    assert qm_no_worker.active_jobs_for("crispr-qwen3") == 0
 
 
 def test_worker_processes_jobs_with_bound_backend(qm, monkeypatch):

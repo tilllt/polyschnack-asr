@@ -80,3 +80,22 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
 - [ ] Retry/Backoff + Dead-Letter + Admin-Retry-API (attempts ist vorbereitet)
 - [ ] ETA aus Job-Rows zentralisieren (statt Recording-Status-Ableitung)
 - [ ] Queue-Admin-UI (Historie aus jobs-Tabelle)
+
+## Timing-Editor: 1:1-Segmente + funktionierender Wort-Zoom (User-Vorgabe 2026-08-29)
+
+- [x] Timing-Tab rendert die ECHTEN Segmente (segments), nicht die
+      25-s-Re-Segmentierungs-Vorschau (displaySegments) — 1:1-Übernahme
+- [x] update_word_timing lässt die Segment-Grenzen UNANGETASTET (nur
+      Wort-Timings; vorher leitete der Server Grenzen aus dem 1./letzten
+      Wort neu ab — verbotener Segment-Einfluss)
+- [x] Root-Cause „⅓-Zoom funktioniert nicht": PEAK_COUNT=2000 + MediaElement-
+      Backend (> 30 min dekodiert nicht) → Wort-Zoom hart an die Peaks-
+      Auflösung geclamped. Fix: progressive Peaks
+      (GET /recordings/{rid}/peaks?length=N, n_bins parametrisiert;
+      Frontend lädt beim Wort-Zoom feinere Peaks → setPeaks → zoom)
+- [x] Marker-Position relativ zum SICHTBAREN Fenster (visibleWindow/markerPct)
+      statt Gesamtdauer — im Zoom lag die Markierung vorher daneben
+- [x] Body-Drag: ganze Markierung verschiebbar (clampMoveWordTiming),
+      Handles start/end bleiben für die Ränder
+- [x] Tests: n_bins-Binning, peaks-Endpoint, markerPct/visibleWindow/
+      clampMoveWordTiming, update_word_timing-Grenzen

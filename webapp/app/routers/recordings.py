@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
-from fastapi.responses import FileResponse, Response, RedirectResponse
+from fastapi.responses import FileResponse, Response, RedirectResponse, JSONResponse
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -1222,6 +1222,45 @@ def get_recording_endpoint(
         "total_words": sum(len(s.get("words") or []) for s in segs),
     }
     return d
+
+
+@router.get("/recordings/{rid}/peaks")
+def get_progressive_peaks(
+    rid: str,
+    request: Request,
+    length: int = Query(2000, ge=2000, le=300000),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Change 155 (Timing-Zoom): progressive Peaks mit wählbarer Auflösung.
+
+    Die Detail-Karte liefert 2000 Punkte (Basis-Auflösung) — für den
+    Wort-Zoom (~30 % sichtbar) fordert der Timing-Tab feinere Peaks an
+    (?length=N, bis 300000). Die Peaks sind deterministisch (nur vom Audio
+    abhängig) → Cache-Control für den Browser-Cache.
+    """
+    from pathlib import Path as _P
+
+    from ..peaks import compute_peaks_path
+
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+    src = _P(rec.stored_path)
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="audio missing")
+    try:
+        peaks = compute_peaks_path(src, n_bins=length)
+    except Exception:
+        log.exception("peaks: progressive compute failed for rid=%s", rid)
+        raise HTTPException(status_code=500, detail="peaks failed") from None
+    if not peaks:
+        raise HTTPException(status_code=422, detail="no audio decodable")
+    return JSONResponse(
+        {"peaks": peaks},
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 def _run_settings_dict(run: TranscriptionRun) -> Dict[str, Any]:

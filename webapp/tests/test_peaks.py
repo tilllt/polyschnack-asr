@@ -57,6 +57,26 @@ def test_peaks_leere_chunks_und_kurze_audios():
     assert all(0.0 <= p <= 1.0 for p in peaks)
 
 
+def test_peaks_n_bins_feinere_aufloesung():
+    """Change 155 (Timing-Zoom): n_bins-Parameter liefert exakt n_bins
+    Werte; ein Signalwechsel wird in feineren Bins korrekt abgebildet."""
+    total = 16000  # 1 s bei 16 kHz
+    # Erste Hälfte leise, zweite Hälfte laut → Wechsel bei Bin 1000/2000
+    samples = np.zeros(total, dtype=np.int16)
+    samples[total // 2:] = 20000
+    raw = samples.astype("<i2").tobytes()
+
+    coarse = peaks_from_s16le([raw], total, n_bins=2000)
+    assert len(coarse) == 2000
+    assert coarse[999] < 0.05  # leise
+    assert coarse[1000] > 0.5  # laut
+
+    fine = peaks_from_s16le([raw], total, n_bins=8000)
+    assert len(fine) == 8000
+    assert fine[3999] < 0.05
+    assert fine[4000] > 0.5
+
+
 def test_compute_peaks_ohne_ffmpeg_graceful(monkeypatch):
     """CI-Test-Container hat kein ffmpeg/ffprobe → [] statt Crash."""
     monkeypatch.setattr(peaks_mod, "probe_sample_count", lambda b: 16000)

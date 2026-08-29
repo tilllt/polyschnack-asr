@@ -4,10 +4,13 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_TIMING_PPS,
   MIN_PPS,
+  clampMoveWordTiming,
   clampWordTiming,
   fitPps,
+  markerPct,
   timeFromClick,
   timingPps,
+  visibleWindow,
 } from "./waveformTime";
 
 describe("timeFromClick (Change 083)", () => {
@@ -103,5 +106,58 @@ describe("clampWordTiming (Change 137)", () => {
     const c = clampWordTiming(100, 6, undefined, undefined);
     expect(c.end - c.start).toBeGreaterThanOrEqual(0.019);
     expect(c.end).toBe(6);
+  });
+});
+
+// ── Change 155: Timing-Zoom (Marker-Position + Verschieben) ──
+
+describe("visibleWindow (Change 155)", () => {
+  it("Fit: Fenster = [0, duration]", () => {
+    expect(visibleWindow(800, 0, fitPps(800, 600), 600)).toEqual({ start: 0, end: 600 });
+  });
+
+  it("gezoomt + gescrollt: Fenster folgt der Scroll-Position", () => {
+    const w = visibleWindow(800, 5000, 50, 600);
+    expect(w.start).toBeCloseTo(100, 0);
+    expect(w.end).toBeCloseTo(116, 0);
+  });
+});
+
+describe("markerPct (Change 155)", () => {
+  it("Fit: Position relativ zur Gesamtdauer (wie vorher)", () => {
+    const win = { start: 0, end: 1800 };
+    const pct = markerPct(win, 300, 301);
+    expect(pct.left).toBeCloseTo(300 / 18, 9);
+    expect(pct.width).toBeCloseTo(1 / 18, 9);
+  });
+
+  it("Zoom: Wort bei 300s liegt im sichtbaren Fenster [299,302.33] → 30%", () => {
+    const win = { start: 299, end: 302.33 };
+    const pct = markerPct(win, 300, 301);
+    expect(pct.left).toBeCloseTo((1 / 3.33) * 100, 1); // ≈ 30 %
+    expect(pct.width).toBeCloseTo((1 / 3.33) * 100, 1);
+  });
+
+  it("Wort vor dem Fenster: left negativ (geclampt durch CSS overflow)", () => {
+    expect(markerPct({ start: 100, end: 110 }, 90, 91).left).toBeLessThan(0);
+  });
+});
+
+describe("clampMoveWordTiming (Change 155)", () => {
+  it("Verschieben hält die Länge, beide Grenzen wandern", () => {
+    expect(clampMoveWordTiming(1.0, 2.0, 0.5, 0.0, 5.0)).toEqual({ start: 1.5, end: 2.5 });
+  });
+
+  it("Rückwärts-Verschieben an die Nachbar-Grenze geclampt", () => {
+    expect(clampMoveWordTiming(1.0, 2.0, -2.0, 0.5, 5.0)).toEqual({ start: 0.5, end: 1.5 });
+  });
+
+  it("Vorwärts-Verschieben nicht über maxEnd hinaus", () => {
+    // Länge 1s, maxEnd 2.5 → start darf max. 1.5 sein (sonst ragt end drüber)
+    expect(clampMoveWordTiming(1.0, 2.0, 5.0, 0.0, 2.5)).toEqual({ start: 1.5, end: 2.5 });
+  });
+
+  it("ohne Nachbarn: frei verschiebbar", () => {
+    expect(clampMoveWordTiming(10, 11, 3, undefined, undefined)).toEqual({ start: 13, end: 14 });
   });
 });
