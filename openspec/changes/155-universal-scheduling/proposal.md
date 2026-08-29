@@ -1,6 +1,6 @@
-# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Gap-Analyse + Schritte 1+4+5)
+# Change 155 — Universelles Scheduling: Umsetzung 109/110 (Gap-Analyse + Schritte 1+4+5+6)
 
-**Status:** Proposed (Schritt 1 + Schritt 4 + Schritt 5 umgesetzt)
+**Status:** Proposed (Schritt 1 + Schritt 4 + Schritt 5 + Schritt 6 umgesetzt)
 
 ## Gap-Analyse (2026-08-29): Alle Programmteile vs. universelles Scheduling
 
@@ -48,6 +48,15 @@ Cancel (queued+processing), Job-Timeout, Priorität 0/1, Rehydration nur
        Design-Hinweis: align/rediarize belegen einen Backend-Slot
        (Semaphore) — ein langes rediarize lässt Transkriptionen auf dem
        selben Backend warten (Preis des universellen Schedulings).
-5. [ ] Heartbeat-Muster vereinheitlichen (3 Kopien → 1)
-6. [ ] SCHEDULED_TASKS-Registry (sweep/peaks/health) + Router-Threads raus
+5. [x] Heartbeat-Muster vereinheitlichen (3 Kopien → 1): `_start_job_heartbeat`
+       trägt die `_start_heartbeat`-Semantik (pct-Fallback + note), `_start_heartbeat`
+       ist Dünn-Wrapper; `run_align_job` startet Job-Heartbeat über die Audio-
+       Vorbereitung (falsche Stall-Warnungen vermieden).
+6. [x] SCHEDULED_TASKS-Registry + Router-Threads raus: neuer `app/scheduler.py`
+       (ein Thread, N Tasks, Intervall-Fälligkeit, Fehler isoliert); main.py
+       registriert retention-sweep + peaks-backfill. Router-Trigger
+       `_schedule_peaks`/`download_vad` → Queue-Jobs kind=peaks/vad (eigene
+       Slots "peaks"/"ops", Kapazität 1; Key-Dedup). Inflight-Guard lebt im
+       Worker (run_peaks_job) — ein fehlgeschlagener enqueue hinterlässt kein
+       verwaistes Set (Review-Befund: rec_id klebte in _peaks_inflight).
 7. [ ] Grep-Gate in CI (keine nackten Threads in service.py)

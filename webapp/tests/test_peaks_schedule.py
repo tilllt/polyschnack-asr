@@ -29,7 +29,31 @@ def eng(tmp_path, monkeypatch):
     return engine
 
 
-def test_schedule_peaks_thread_auch_ohne_event_loop(tmp_path, eng, monkeypatch):
+@pytest.fixture()
+def _inline_peaks_queue(monkeypatch):
+    """Change 155 (Schritt 6): _schedule_peaks enqueued ins echte Singleton —
+    Tests isolieren das: der Fake führt run_peaks_job in einem eigenen Thread
+    aus (wie der Queue-Worker), ohne gestoppte Worker aus anderen Tests
+    (Cross-Test-DB-Pollution vermeiden)."""
+    import threading
+
+    from app.routers import recordings as rec_routes
+
+    class _InlinePeaksQueue:
+        def enqueue(self, rec_id, user_id=None, backend=None, priority=0,
+                    kind="transcribe", payload=None, key=None):
+            assert kind == "peaks" and key == f"peaks-{rec_id}"
+            t = threading.Thread(
+                target=rec_routes.run_peaks_job, args=(rec_id,), daemon=True
+            )
+            t.start()
+            return 1
+
+    monkeypatch.setattr("app.queue.queue_manager", _InlinePeaksQueue())
+
+
+def test_schedule_peaks_thread_auch_ohne_event_loop(tmp_path, eng, monkeypatch,
+                                                    _inline_peaks_queue):
     audio = tmp_path / "a.mp3"
     audio.write_bytes(b"fake")
     with Session(eng) as s:
@@ -72,7 +96,8 @@ def test_schedule_peaks_thread_auch_ohne_event_loop(tmp_path, eng, monkeypatch):
     assert r.waveform_peaks == [0.25, 0.5, 0.75]
 
 
-def test_schedule_peaks_inflight_guard_kein_doppelthread(tmp_path, eng, monkeypatch):
+def test_schedule_peaks_inflight_guard_kein_doppelthread(tmp_path, eng, monkeypatch,
+                                                         _inline_peaks_queue):
     """Inflight-Guard: zweiter Aufruf bei laufender Berechnung startet keinen
     zweiten Thread (erkennbar an der Anzahl der _compute_peaks-Aufrufe)."""
     audio = tmp_path / "a.mp3"

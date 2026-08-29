@@ -285,9 +285,28 @@ def download_vad() -> DownloadResponse:
         return DownloadResponse(status="ok", message="already installed")
     if _downloading.get("vad"):
         return DownloadResponse(status="running", message="already downloading")
-    thread = threading.Thread(target=_download_vad, daemon=True)
-    thread.start()
-    return DownloadResponse(status="started", message="VAD model download started")
+    _downloading["vad"] = True
+    # Change 155 (Schritt 6): statt nacktem Thread als Queue-Job
+    # (eigener "ops"-Slot; Key dedupliziert — nur ein Download gleichzeitig).
+    from ..queue import QueueError, queue_manager
+
+    try:
+        # rec_id=0: Sentinel — der vad-Job ist keinem Recording zugeordnet
+        # (Key "vad-download" dedupliziert, rec_id wird nicht genutzt).
+        queue_manager.enqueue(0, user_id=None, backend="ops", kind="vad",
+                              key="vad-download")
+        return DownloadResponse(status="started", message="VAD model download started")
+    except QueueError:
+        _downloading.pop("vad", None)
+        return DownloadResponse(status="running", message="already downloading")
+
+
+def run_vad_download_job() -> None:
+    """Change 155 (Schritt 6): Queue-Dispatch-Ziel für VAD-Downloads."""
+    try:
+        _download_vad()
+    finally:
+        _downloading.pop("vad", None)
 
 
 @router.post("/diarize/download")

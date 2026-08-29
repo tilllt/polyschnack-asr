@@ -146,51 +146,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # z.B. nach Container-OOM oder abgerissener SSE-Verbindung → failed)
     # und Recording-Health-Scan (Change 014: DB-Eintrag ohne gültige Datei
     # → failed, damit die GUI den Defekt zeigt und Delete funktioniert).
-    import threading
-    from .retention import sweep
-    from .stale_jobs import sweep_stale_processing
+    # Change 155 (Schritt 6): Zentrale Scheduler-Registry statt Einzel-Threads.
+    from .scheduler import scheduler
 
-    _sweep_stop = threading.Event()
+    def _run_sweep() -> None:
+        from .retention import sweep
+        from .stale_jobs import sweep_stale_processing
+        from .recording_health import run_health_scan
 
-    def _sweep_loop():
-        interval_s = max(60, settings.POLYSCHNACK_ANON_RETENTION_MINUTES * 60 // 3)
-        while not _sweep_stop.wait(interval_s):
-            try:
-                with Session(engine) as session:
-                    n = sweep(session)
-                    if n:
-                        log.info("retention sweep: %d anon user(s) deleted", n)
-                    stale = sweep_stale_processing(session)
-                    if stale:
-                        log.info("stale sweep: %d hängende Transkription(en) als failed markiert", stale)
-                    from .recording_health import run_health_scan
+        with Session(engine) as session:
+            n = sweep(session)
+            if n:
+                log.info("retention sweep: %d anon user(s) deleted", n)
+            stale = sweep_stale_processing(session)
+            if stale:
+                log.info("stale sweep: %d hängende Transkription(en) als failed markiert", stale)
+            broken = run_health_scan(session, settings.AUDIO_DIR)
+            if broken:
+                log.info("health scan: %d Recording(s) ohne gültige Datei als failed markiert", broken)
 
-                    broken = run_health_scan(session, settings.AUDIO_DIR)
-                    if broken:
-                        log.info("health scan: %d Recording(s) ohne gültige Datei als failed markiert", broken)
-            except Exception:
-                log.exception("retention sweep failed")
+    interval_s = max(60, settings.POLYSCHNACK_ANON_RETENTION_MINUTES * 60 // 3)
+    scheduler.register("retention-sweep", interval_s, _run_sweep,
+                       "retention/stale/health-Sweep")
 
-    threading.Thread(target=_sweep_loop, daemon=True, name="retention-sweep").start()
+    def _run_peaks_backfill() -> None:
+        from .routers.recordings import _backfill_peaks_batch
 
-    # --- Peaks-Backfill (2026-08-15): fehlende Waveform-Peaks über alle
-    # --- User seriell nachberechnen (2 pro Durchlauf, alle 30 s). Ersetzt
-    # --- das frühere Feuerwerk bei GET /recordings (Dutzende parallele
-    # --- ffmpeg-Decodes → CPU/RAM-Kollaps).
-    from .routers.recordings import _backfill_peaks_batch
+        n = _backfill_peaks_batch(limit=2)
+        if n:
+            log.info("peaks backfill: %d Aufnahme(n) nachgezogen", n)
 
-    _peaks_stop = threading.Event()
-
-    def _peaks_loop():
-        while not _peaks_stop.wait(30):
-            try:
-                n = _backfill_peaks_batch(limit=2)
-                if n:
-                    log.info("peaks backfill: %d Aufnahme(n) nachgezogen", n)
-            except Exception:
-                log.exception("peaks backfill failed")
-
-    threading.Thread(target=_peaks_loop, daemon=True, name="peaks-backfill").start()
+    scheduler.register("peaks-backfill", 30, _run_peaks_backfill,
+                       "fehlende Waveform-Peaks nachberechnen")
+    scheduler.start()
 
     # --- Change 053: Yjs-Sync-Server starten (falls pycrdt im Image) ---
     _yjs_task = None
@@ -208,8 +196,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
-    _sweep_stop.set()
-    _peaks_stop.set()
+    scheduler.stop()
     queue_manager.stop()
     try:
         from .yjs.rooms import get_server

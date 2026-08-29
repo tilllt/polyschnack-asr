@@ -411,6 +411,18 @@ class QueueManager:
                     from . import service as _svc
 
                     _svc.run_rediarize_job(job.rec_id, payload=job.payload, job=job)
+                elif job.kind == "peaks":
+                    # Change 155 (Schritt 6): Waveform-Peaks für EIN Recording
+                    # (Router-Trigger statt nacktem Thread).
+                    from .routers import recordings as _rec
+
+                    _rec.run_peaks_job(job.rec_id)
+                elif job.kind == "vad":
+                    # Change 155 (Schritt 6): VAD-Modell-Download (Router-
+                    # Trigger statt nacktem Thread).
+                    from .routers import models as _mod
+
+                    _mod.run_vad_download_job()
                 else:
                     with Session(engine) as session:
                         crud.set_processing(session, rec_id)

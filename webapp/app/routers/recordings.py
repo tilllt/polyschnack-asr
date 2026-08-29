@@ -415,10 +415,33 @@ def _schedule_peaks(rec_id: int) -> None:
     """
     if rec_id in _peaks_inflight:
         return
-    _peaks_inflight.add(rec_id)
-    import threading
+    # Change 155 (Schritt 6): statt nacktem Thread als Queue-Job (eigener
+    # "peaks"-Slot, Kapazität 1). Dedup doppelt: Queue-Key (Job in _jobs)
+    # + _peaks_inflight-Guard (Berechnung läuft bereits, s. run_peaks_job).
+    from ..queue import QueueError, queue_manager
 
-    threading.Thread(target=_compute_peaks_background, args=(rec_id,), daemon=True).start()
+    try:
+        queue_manager.enqueue(
+            rec_id, user_id=None, backend="peaks", kind="peaks",
+            key=f"peaks-{rec_id}",
+        )
+    except QueueError:
+        log.warning("peaks: Job für rec_id=%s bereits in der Queue", rec_id)
+
+
+def run_peaks_job(rec_id: int) -> None:
+    """Change 155 (Schritt 6): Queue-Dispatch-Ziel für peaks-Jobs.
+
+    Der Inflight-Guard lebt HIER (um die tatsächliche Berechnung), nicht im
+    Trigger: nur der wirklich laufende Job blockiert Doppel-Starts — ein
+    fehlgeschlagener/gemockter enqueue hinterlässt kein verwaistes Set."""
+    if rec_id in _peaks_inflight:
+        return
+    _peaks_inflight.add(rec_id)
+    try:
+        _compute_peaks_background(rec_id)
+    finally:
+        _peaks_inflight.discard(rec_id)
 
 
 def _compute_peaks_background(rec_id: int) -> None:

@@ -48,8 +48,12 @@ def qm(monkeypatch):
     """Gemockte Queue, damit enqueue keine echte DB/Threads braucht."""
     calls = []
     monkeypatch.setattr(recordings.queue_manager, "enqueue",
-                        lambda *a, **k: calls.append(a) or 1)
+                        lambda *a, **k: calls.append((a, k)) or 1)
     return calls
+
+
+def _has_kind(calls, kind):
+    return any(k.get("kind", "transcribe") == kind for _, k in calls)
 
 
 def test_stubs_pass_through():
@@ -165,7 +169,8 @@ def test_anon_local_punctuation_ok(db, qm, monkeypatch):
             enable_punctuation=True, enable_llm_enhance=None,
             prompt_template_id=None, delivery_target_id=None, llm_endpoint_id=None, backend="", session=s)
         assert r["status"] == "queued"
-    assert len(qm) == 1
+    # Change 155 (Schritt 6): transcribe-Job + peaks-Job (Sofort-Waveform)
+    assert _has_kind(qm, "transcribe") and _has_kind(qm, "peaks")
 
 
 def test_oidc_llm_enhance_ok(db, qm):
@@ -182,7 +187,8 @@ def test_oidc_llm_enhance_ok(db, qm):
         # Change 099: Settings liegen im Run (versionierte Wahrheit)
         run = s.get(TranscriptionRun, rec.current_run_id) if rec.current_run_id else None
         assert run is not None and run.enable_llm_enhance is True
-    assert len(qm) == 1
+    # Change 155 (Schritt 6): transcribe-Job + peaks-Job (Sofort-Waveform)
+    assert _has_kind(qm, "transcribe") and _has_kind(qm, "peaks")
 
 
 def test_retranscribe_sets_toggle_flags(db, qm):

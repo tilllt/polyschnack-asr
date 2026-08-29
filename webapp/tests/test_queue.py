@@ -325,3 +325,29 @@ def test_worker_dispatch_align_ohne_set_processing(qm, monkeypatch):
     assert seen == [("align", 9, "align")]
     assert fake.processing == [], "align-Job darf set_processing NICHT auslösen"
     qm.stop()
+
+
+def test_worker_dispatch_peaks_und_vad(qm, monkeypatch):
+    """Change 155 (Schritt 6): peaks/vad-Jobs laufen über die Router-
+    Dispatch-Ziele — set_processing (leert text/segments!) darf NICHT
+    aufgerufen werden."""
+    fake = _FakeCrud()
+    monkeypatch.setattr(queue_mod.crud, "set_queued", fake.set_queued)
+    monkeypatch.setattr(queue_mod.crud, "set_processing", fake.set_processing)
+    monkeypatch.setattr(queue_mod.crud, "get_recording", fake.get_recording)
+    monkeypatch.setattr(queue_mod.crud, "avg_recent_processing_ms", fake.avg_recent_processing_ms)
+
+    from app.routers import models as _models_mod
+    from app.routers import recordings as _rec_mod
+
+    seen_peaks = threading.Event()
+    seen_vad = threading.Event()
+    monkeypatch.setattr(_rec_mod, "run_peaks_job", lambda rec_id: seen_peaks.set())
+    monkeypatch.setattr(_models_mod, "run_vad_download_job", lambda: seen_vad.set())
+
+    qm.enqueue(11, None, "peaks", kind="peaks", key="peaks-11")
+    qm.enqueue(0, None, "ops", kind="vad", key="vad-download")
+    assert seen_peaks.wait(timeout=5), "peaks-Job kam nie im Worker an"
+    assert seen_vad.wait(timeout=5), "vad-Job kam nie im Worker an"
+    assert fake.processing == [], "peaks/vad dürfen set_processing NICHT auslösen"
+    qm.stop()
