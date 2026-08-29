@@ -403,3 +403,61 @@ def test_job_heartbeat_stops_on_event(db, monkeypatch):
 
     with Session(db) as s:
         assert s.get(Recording, rec_id).last_heartbeat_at == frozen
+
+
+def test_job_heartbeat_vereinheitlicht_note_und_pct(db, monkeypatch):
+    """Change 155 (Schritt 5): _start_job_heartbeat trägt die frühere
+    _start_heartbeat-Semantik — konfigurierbare note (konstant gehalten)
+    und pct-Fallback, wenn das Recording fehlt."""
+    from app import service as service_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    rec_id = _mk(db)
+    assert rec_id is not None
+
+    with Session(db) as s:
+        rec = s.get(Recording, rec_id)
+        rec.progress_pct = 21  # echter Stand
+        s.add(rec)
+        s.commit()
+
+    stop = service_mod._start_job_heartbeat(rec_id, interval_s=0.05, note="asr")
+
+    def _ticked():
+        with Session(db) as s:
+            rec = s.get(Recording, rec_id)
+            return rec.progress_note == "asr" and rec.last_heartbeat_at is not None
+
+    try:
+        assert _wait_for(_ticked), "vereinheitlichter Heartbeat tickte nicht"
+        with Session(db) as s:
+            rec = s.get(Recording, rec_id)
+            # pct kommt aus der DB (21), wird nicht zurückgesetzt
+            assert rec.progress_pct == 21
+            assert rec.progress_note == "asr"
+    finally:
+        stop.set()
+
+
+def test_job_heartbeat_pct_fallback_ohne_recording(db, monkeypatch):
+    """Change 155 (Schritt 5): Existiert das Recording nicht (gelöscht),
+    fällt der Heartbeat auf den pct-Parameter zurück statt auf 1."""
+    from app import service as service_mod
+
+    monkeypatch.setattr(service_mod, "engine", db)
+    calls: list = []
+
+    def _fake_set_progress(sess, rec_id, pct, note=None):
+        calls.append((rec_id, pct, note))
+
+    monkeypatch.setattr(service_mod, "set_progress", _fake_set_progress)
+    stop = service_mod._start_job_heartbeat(999_999, interval_s=0.05, pct=42)
+
+    def _ticked():
+        return any(c[1] == 42 for c in calls)
+
+    try:
+        assert _wait_for(_ticked), "Fallback-pct kam nie an"
+        assert all(c[2] is None for c in calls), "ohne note bleibt note=None"
+    finally:
+        stop.set()

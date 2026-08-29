@@ -1338,7 +1338,14 @@ def run_align_job(rec_id: int, job: Optional[Any] = None) -> None:
     separate_backend = "none"
     if job is not None and job.payload:
         separate_backend = job.payload.get("separate_backend") or "none"
-    _run_background_align(rec_id, job=job, separate_backend=separate_backend)
+    # Change 155 (Schritt 5): Job-Heartbeat über die Audio-Vorbereitung
+    # (Laden/VAD/Enhance/separate) — dort tickt sonst nichts, die UI
+    # würde eine falsche Stall-Warnung zeigen.
+    hb_stop = _start_job_heartbeat(rec_id)
+    try:
+        _run_background_align(rec_id, job=job, separate_backend=separate_backend)
+    finally:
+        hb_stop.set()
 
 
 def _run_background_align(rec_id: int, job: Optional[Any] = None,
@@ -1951,59 +1958,26 @@ def _abort_recording(rec_id: int, message: str) -> None:
 
 def _start_heartbeat(rec_id: int, pct: int, note: str,
                      interval_s: float = 5.0) -> threading.Event:
-    """Heartbeat-Thread: tickt last_heartbeat_at, bis das Event gesetzt wird.
-
-    Change 011 (2026-08-17): In Phasen ohne messbaren Fortschritt (Sync-ASR
-    bei 21%, Diarization bei 96%) ruft dieser Thread periodisch
-    ``set_progress`` mit DEMSELBEN pct/note auf — nur ``last_heartbeat_at``
-    bewegt sich. Die UI zeigt damit „läuft, aktiv seit Xs" statt eines
-    eingefrorenen Prozentwerts. Kein erfundener Fortschritt (pct bleibt
-    konstant), kein Fehler-Schlucken: Exceptions werden geloggt, der Thread
-    beendet sich dann.
+    """Change 155 (Schritt 5): Delegiert an ``_start_job_heartbeat`` —
+    die frühere eigene Tick-Kopie (Change 011) ist dort aufgegangen.
+    Semantik unverändert: pct/note werden konstant gehalten (Phasen ohne
+    messbaren Fortschritt, z. B. Sync-ASR bei 21 %, Diar bei 96 %).
     """
-    stop = threading.Event()
-
-    def _tick() -> None:
-        while not stop.is_set():
-            try:
-                with Session(engine) as s:
-                    # Change 035: aktuellen pct aus der DB übernehmen statt
-                    # fix den Start-pct zu schreiben — wenn on_progress einen
-                    # echten Zähler hochzieht, darf der Heartbeat ihn nicht
-                    # zurücksetzen (nur last_heartbeat_at soll ticken).
-                    from .models import Recording as _Rec
-
-                    rec = s.get(_Rec, rec_id)
-                    cur_pct = rec.progress_pct if rec is not None else pct
-                    set_progress(s, rec_id, cur_pct, note=note)
-            except Exception:
-                log.exception("heartbeat: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
-                return
-            stop.wait(interval_s)
-
-    t = threading.Thread(
-        target=_tick, daemon=True,
-        name=f"heartbeat-{rec_id}",  # eindeutig pro Recording
-    )
-    t.start()
-    return stop
+    return _start_job_heartbeat(rec_id, interval_s=interval_s, pct=pct, note=note)
 
 
-def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0) -> threading.Event:
-    """Job-weiter Heartbeat (Change 047): tickt last_heartbeat_at über den
+def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0,
+                         pct: Optional[int] = None,
+                         note: Optional[str] = None) -> threading.Event:
+    """Job-weiter Heartbeat (Change 047/155): tickt last_heartbeat_at über den
     GESAMTEN Job — auch in Phasen ohne eigenen Heartbeat (preparing/vad/
     enhance/16k-Konvertierung/Streaming-ASR).
 
-    Befund 2026-08-20: Die phasen-spezifischen Heartbeats (asr/diar/llm)
-    lassen Lücken — bei langen Audios (4h52m-YouTube) blockiert z. B. die
-    WAV-Konvertierung Minuten OHNE Heartbeat → UI zeigt nach 45 s eine
-    FALSCHE Stall-Warnung („keine Aktivität seit 120m"), obwohl der Job
-    läuft. Auch nach komplett neuem Start wiederholte sich das (lange
-    Datei → gleiche heartbeat-lose Phase).
-
-    Der Job-Heartbeat übergibt ``note=None`` an set_progress → er tickt
-    NUR last_heartbeat_at (+pct aus der DB) und überschreibt niemals die
-    Phasen-Note der phasen-spezifischen Heartbeats. Kein Konflikt.
+    Change 155 (Schritt 5): vereinheitlicht die frühere ``_start_heartbeat``-
+    Kopie (Change 011) — dieselbe Tick-Logik, konfigurierbar über ``pct``
+    (Fallback, wenn das Recording fehlt; Default 1) und ``note`` (Default
+    None → Phasen-Note wird nie überschrieben; mit note=... wird sie
+    konstant gehalten, z. B. „asr" bei 21 %).
     """
     stop = threading.Event()
 
@@ -2014,8 +1988,8 @@ def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0) -> threading.Even
                     from .models import Recording as _Rec
 
                     rec = s.get(_Rec, rec_id)
-                    cur_pct = rec.progress_pct if rec is not None else 1
-                    set_progress(s, rec_id, cur_pct, note=None)
+                    cur_pct = rec.progress_pct if rec is not None else (pct if pct is not None else 1)
+                    set_progress(s, rec_id, cur_pct, note=note)
             except Exception:
                 log.exception("job-heartbeat: set_progress fehlgeschlagen (rec_id=%s)", rec_id)
                 return
