@@ -47,6 +47,8 @@ RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPAS
     && tar xzf /tmp/crispasr-cuda.tar.gz -C /tmp \
     && cp /tmp/crispasr-linux-x86_64-cuda/crispasr /usr/local/bin/crispasr-cuda \
     && cp /tmp/crispasr-linux-x86_64-cuda/*.so* /usr/local/lib/ \
+    && cp /tmp/crispasr-linux-x86_64-cuda/libggml-cpu.so /usr/local/bin/libggml-cpu.so \
+    && cp /tmp/crispasr-linux-x86_64-cuda/libggml-cuda.so /usr/local/bin/libggml-cuda.so \
     && rm -rf /tmp/crispasr-cuda.tar.gz /tmp/crispasr-linux-x86_64-cuda \
     && wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPASR_VERSION}/crispasr-linux-x86_64.tar.gz" \
     -O /tmp/crispasr-cpu.tar.gz \
@@ -69,8 +71,15 @@ RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPAS
 # (Wrapper-Verify deckt in CI nur den CPU-Pfad ab — libcrispasr.so.1
 # fehlte im Image → Crash 127 auf der Box mit GPU-Overlay). Invariante:
 # NUR libcuda.so.1 darf "not found" sein (kommt vom NVIDIA-Runtime).
+# 2026-08-30 (2): ggml laedt Backend-Plugins aus dem EXE-Verzeichnis
+# (/usr/local/bin) — ohne libggml-cpu/cuda.so dort: 0 Backends →
+# GGML_ASSERT(backend) + SIGSEGV beim Modell-Init (Box, GPU-Overlay).
 RUN missing=$(ldd /usr/local/bin/crispasr-cuda | grep "not found" | grep -v "libcuda.so.1" || true); \
     if [ -n "$missing" ]; then echo "FEHLENDE LIBS: $missing"; exit 1; fi; \
+    test -f /usr/local/bin/libggml-cpu.so && test -f /usr/local/bin/libggml-cuda.so || { echo "FEHLT: ggml-Backend-Libs im exe-dir"; exit 1; }; \
+    n=$(crispasr-cuda --diagnostics 2>&1 | grep -o "registered backends: [0-9]*" | head -1 | grep -o "[0-9]*"); \
+    if [ "${n:-0}" = "0" ]; then echo "ggml registriert keine Backends"; exit 1; fi; \
+    echo "ggml backends OK (n=$n)"; \
     crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
 
 # ------------------------------------------------------------------
