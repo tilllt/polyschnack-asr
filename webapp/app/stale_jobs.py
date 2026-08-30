@@ -14,7 +14,8 @@ Dieser Sweep markiert Recordings, deren letztes Progress-Update (updated_at)
 verständlichen Meldung — der User kann dann einfach erneut transkribieren,
 statt auf einen Geist zu starren.
 
-Aktive Diarization wird übersprungen (progress_note == "diarization"): diese
+Aktive Diarization wird übersprungen (progress_note beginnt mit
+"diarization", inkl. Prozentwert "diarization 42%", Change 162): diese
 Phase feuert lange keine Progress-Updates, kann aber durchaus Minuten bis
 Stunden dauern — der User sieht den „erkenne Sprecher…"-Hinweis.
 """
@@ -57,7 +58,11 @@ def sweep_stale_processing(session: Session) -> int:
     for rec in rows:
         # Diarization läuft ohne Progress-Updates, kann aber lange dauern —
         # den sichtbaren Hinweis nicht als Hang interpretieren.
-        if rec.progress_note == "diarization":
+        # Change 162: progress_note trägt seit Change 150/151 den
+        # Prozentwert ("diarization 42%") — Präfix-Vergleich statt exaktem
+        # Match, sonst wird eine laufende Diarization fälschlich als stale
+        # markiert (gleicher Bug wie in der Queue-Anzeige).
+        if rec.progress_note and rec.progress_note.startswith("diarization"):
             continue
         rec.status = "failed"
         rec.error = _STALE_MESSAGE

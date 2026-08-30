@@ -7,6 +7,37 @@ import { useT } from "../useLocale";
    Fremde Jobs sind anonymisiert (keine Namen), Cancel nur für eigene.
    ============================================================ */
 
+/** Change 162: progress_note → Phase-Key für ALLE Job-Kinds.
+
+ *  Die Note ist die einzige zuverlässige Phasenquelle (Change 035) und
+ *  trägt seit Change 150/151 Details: "diarization 42%", "asr Chunk 3/8",
+ *  "alignment 2/5". Erstes Wort = Phasenname (Präfix-Logik), unbekannte
+ *  Noten → null (Fallback auf job.kind im Aufrufer).
+ *
+ *  Live-Befund 2026-08-30: Queue zeigte "Transcription", während die
+ *  Diarization lief — exakter Vergleich ("=== diarization") scheiterte an
+ *  "diarization 42%". */
+export function noteToPhaseKey(note: string | null | undefined): string | null {
+  const first = (note ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  switch (first) {
+    case "preparing":
+    case "vad":
+    case "enhance":
+    case "separate":
+    case "asr":
+      return "transcribe";
+    case "diarization":
+      return "rediarize";
+    case "alignment":
+      return "align";
+    case "postprocessing":
+    case "finalizing":
+      return "transcribe";
+    default:
+      return null; // z. B. "Re-Diarize läuft …" → kind="rediarize"
+  }
+}
+
 export function QueueWatcher() {
   const { t } = useT();
   const [status, setStatus] = useState<QueueStatus | null>(null);
@@ -43,13 +74,15 @@ export function QueueWatcher() {
       <ul className="space-y-1">
         {status.jobs.map((j) => {
           // Change 156: ehrliche Phase + echter Fortschritt statt "in Arbeit…".
-          // Bei transcribe-Jobs mit laufender Diarization (progress_note)
-          // ist die Phase die Diarization, nicht die Transkription
-          // (Live-Befund: Queue zeigte "ps-pk-onnx Processing", während
-          // crispr-diar arbeitete).
+          // Change 162: progress_note → Phase für ALLE Kinds (noteToPhaseKey),
+          // Fallback auf job.kind. Vorher prüfte die Queue nur den exakten
+          // String "diarization" — seit Change 150/151 trägt die Note den
+          // Prozentwert ("diarization 42%"), der Match schlug fehl und die
+          // Queue zeigte wieder "Transcription" (User-Befund 2026-08-30).
+          const notePhase = noteToPhaseKey(j.progress_note);
           const runningPhase =
-            j.status === "running" && j.progress_note === "diarization"
-              ? t("phase_rediarize")
+            j.status === "running" && notePhase
+              ? t(`phase_${notePhase}`)
               : j.kind
                 ? t(`phase_${j.kind}`)
                 : t("processing");

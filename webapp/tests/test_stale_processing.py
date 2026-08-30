@@ -74,3 +74,25 @@ def test_sweep_grenze_konfigurierbar(eng, monkeypatch):
         s.commit()
     with Session(eng) as s:
         assert sweep_stale_processing(s) == 1
+
+
+def test_sweep_ueberspringt_diar_mit_prozentnote(eng):
+    """Change 162: progress_note trägt seit Change 150/151 den Prozentwert
+    ('diarization 42%'). Der alte Exakt-Vergleich ('== \"diarization\"')
+    hätte die laufende Diarization als stale markiert — Präfix-Vergleich
+    lässt sie laufen."""
+    with Session(eng) as s:
+        s.add(_rec("diar42", "processing", 5.0, note="diarization 42%"))
+        s.add(_rec("diar0", "processing", 5.0, note="diarization 0%"))
+        s.add(_rec("alt", "processing", 5.0))  # ohne Note → failed
+        s.commit()
+
+    with Session(eng) as s:
+        assert sweep_stale_processing(s) == 1
+        s.commit()
+
+    with Session(eng) as s:
+        rows = {r.uid: r for r in s.query(Recording).all()}
+    assert rows["diar42"].status == "processing"
+    assert rows["diar0"].status == "processing"
+    assert rows["alt"].status == "failed"
