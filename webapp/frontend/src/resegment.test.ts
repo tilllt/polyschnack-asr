@@ -255,6 +255,43 @@ describe("moveBoundary", () => {
     ]);
   });
 
+  it("Change 160: Grenz-Drag erhält Wort-Timings exakt (User-Beispiel)", () => {
+    // User-Szenario (2026-08-30): Segment 1 „eins zwei drei vier. Ich kaufe",
+    // Segment 2 „drei Bier" — alle Wörter mit exakten Zeiten. Der User
+    // verschiebt die Grenze so, dass „Ich kaufe" zu Segment 2 gehört.
+    // REGEL: Das Wort behält seine exakte Zeit, es gehört nur zu einem
+    // anderen Segment.
+    const w = (word: string, start: number, end: number) => ({ word, start, end });
+    const segs = [
+      {
+        start: 0, end: 2.4, text: "eins zwei drei vier. Ich kaufe",
+        words: [w("eins", 0, 0.4), w("zwei", 0.4, 0.8), w("drei", 0.8, 1.2),
+                w("vier.", 1.2, 1.6), w("Ich", 1.6, 2.0), w("kaufe", 2.0, 2.4)],
+      },
+      {
+        start: 3.0, end: 3.8, text: "drei Bier",
+        words: [w("drei", 3.0, 3.4), w("Bier", 3.4, 3.8)],
+      },
+    ];
+    const origTimes = new Map(
+      segs.flatMap((s) => (s.words ?? []).map((x) => [`${x.word}|${x.start}|${x.end}`, true]))
+    );
+    const out = moveBoundary(segs, 0, -2); // „Ich kaufe" → Segment 2
+    expect(out[0].text).toBe("eins zwei drei vier.");
+    expect(out[1].text).toBe("Ich kaufe drei Bier");
+    const all = out.flatMap((s) => s.words ?? []);
+    expect(all.length).toBe(8); // keine Duplikate, keine Verluste
+    for (const x of all) {
+      // JEDE Wort-Zeit bleibt exakt erhalten (nur die Segment-Zuordnung ändert sich)
+      expect(origTimes.has(`${x.word}|${x.start}|${x.end}`)).toBe(true);
+    }
+    // Das verschobene Wort „kaufe" hat weiterhin seine Original-Zeit
+    const kaufe = all.find((x) => x.word === "kaufe");
+    expect(kaufe).toBeDefined();
+    expect(kaufe!.start).toBe(2.0);
+    expect(kaufe!.end).toBe(2.4);
+  });
+
   it("REPRO 2026-08-17: ZWEI Grenzen nacheinander — zweiter Drag auf dem Ergebnis des ersten (keine Duplikate)", () => {
     // UI-Ablauf nach dem 16.08.-Fix: Drag 1 (Grenze 0) → onBoundaryDragEnd
     // speichert `d.currentList`; der NÄCHSTE Drag beginnt auf DER GESPEICHERTEN
