@@ -427,6 +427,19 @@ describe("RecordingCard — Change 118 Options-Kategorie-Disabled", () => {
     expect(screen.queryByTestId("bg-align-r1")).toBeNull();
   });
 
+  test("Change 157: Warn-Badge bei done + diar_status failed (Run degradiert, Text bleibt)", () => {
+    renderCard(
+      makeRec({
+        status: "done",
+        diar_status: "failed",
+        error: "Der Diarization-Service ist nicht erreichbar.",
+      }),
+      false,
+    );
+    const badge = screen.getByTestId("diar-failed-r1");
+    expect(badge.textContent).toContain("nicht erreichbar");
+  });
+
   test("Change 127: bg-diar-Hinweis zeigt ETA (eta_low/high_s)", () => {
     renderCard(
       makeRec({

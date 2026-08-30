@@ -2127,6 +2127,9 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
     language = None
     segments: List[Dict[str, Any]] = []
     error = None
+    # Change 157: Diar-Fehler degradieren statt Run abbrechen — die
+    # Transkription bleibt, der Fehler wird ehrlich angezeigt.
+    diar_error: Optional[str] = None
     peaks = None
     alignment_pending = False
     hb_job: Optional[threading.Event] = None
@@ -2365,9 +2368,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 )
                 log.info("Diarization returned %d segments for rec_id=%s", len(diar or []), rec_id)
             except DiarizationError as exc_d:
-                # Kein stilles Verschlucken: gated/Token-Fehler müssen als
-                # failed mit Admin-Hinweis beim User ankommen.
-                raise
+                # Change 157: Ein Diar-Fehler (z.B. Service nicht erreichbar,
+                # gated/Token) darf die fertige Transkription nicht vernichten.
+                # Degradieren: Run bleibt done (Text+Segmente), der Fehler wird
+                # sichtbar auf dem Recording angezeigt (diar_status=failed +
+                # error). Kein stilles Verschlucken — der Hinweis ist da.
+                log.warning(
+                    "process_recording rec_id=%d diarization degraded (%s): %s",
+                    rec_id, exc_d.code, exc_d.message,
+                )
+                diar = None
+                diar_error = exc_d.message
             except ImportError as exc_d:
                 # Programmierfehler (z. B. falscher relativer Import) — NICHT
                 # als "diar=None" verschlucken, sonst wirkt Diarize deaktiviert
@@ -2554,6 +2565,17 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             waveform_peaks=peaks,
             phase_times_ms=phase_times or None,
         )
+        # Change 157: Diar-Fehler degradieren statt Run abbrechen — die
+        # fertige Transkription bleibt (status done), der Fehler wird auf dem
+        # Recording sichtbar (diar_status=failed + error-Hinweis auf der
+        # Karte). Kein stiller Fehler.
+        if status == "done" and diar_error:
+            rec3 = crud.get_recording(session, rec_id)
+            if rec3 is not None:
+                rec3.diar_status = "failed"
+                rec3.error = diar_error[:500]
+                session.add(rec3)
+                session.commit()
         # Change 094 (runs → results): Run/Result-Abschluss — bei done
         # hängt das Ergebnis am Run (TranscriptionResult), Zeiger auf dem
         # Recording; bei failed/Fehler wird der aktive Run markiert.

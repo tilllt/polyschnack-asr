@@ -1654,6 +1654,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             </button>
           </div>
         )}
+        {/* Change 157: Diar-Fehler degradiert — der Run ist done (Text
+            bleibt), aber die Speaker-Zuordnung schlug fehl (z.B. Diar-
+            Container nicht erreichbar). Ehrlicher, sichtbarer Hinweis. */}
+        {r.status === "done" && r.diar_status === "failed" && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-err"
+            data-testid={`diar-failed-${r.uid}`}
+            title={r.error || undefined}
+          >
+            <span aria-hidden>⚠️</span>
+            <span className="font-semibold">{t("diar_failed")}</span>
+            {r.error && (
+              <span className="text-muted2 truncate max-w-[55%]">{r.error}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Transcript / Segments / Error ── */}
