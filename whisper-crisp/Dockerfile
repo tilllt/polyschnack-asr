@@ -5,13 +5,17 @@
 # Change 029: CrispASR-basierte Whisper-Option für PolySchnack
 # (zusätzlich zu faster-whisper build-whisper; nutzt Whisper-GGUF
 # im whisper.cpp-Format, z. B. ggml-large-v3-turbo-q5_0.bin).
+# 2026-08-30: auf v0.8.30 angehoben (wie diar/aligner) — v0.8.29-Tarball
+# ist monolithisch (keine libggml-*-Trennung), die Hybrid-Verify-
+# Invarianten (ldd + exe-dir-Backend-Libs + diagnostics) gelten nur für
+# die v0.8.30-Lib-Struktur.
 # ==============================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
-ARG CRISPASR_VERSION=v0.8.29
+ARG CRISPASR_VERSION=v0.8.30
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates wget libopenblas0 curl \
