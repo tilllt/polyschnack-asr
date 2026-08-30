@@ -1472,7 +1472,17 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
                 log.info("bg-align: Segmente geändert während des Laufs (rec_id=%s) — Ergebnis verworfen", rec_id)
                 rec.alignment = "skipped"
             else:
+                # Change 158: Aligner-Fehler (z.B. Container down) — skipped
+                # mit ehrlichem Grund statt still (symmetrisch zum
+                # 0-Wörter-Fall oben). Transkription bleibt done.
+                from .aligner_client import AlignerClient as _AlignCl
+                if _AlignCl().health():
+                    reason = "Aligner-Fehler"
+                else:
+                    reason = "Aligner nicht erreichbar"
                 rec.alignment = "skipped"
+                rec.error = f"Alignment übersprungen: {reason}"
+                log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
             session.add(rec)
             session.commit()
     except Exception as exc:
