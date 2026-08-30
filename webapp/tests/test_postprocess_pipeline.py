@@ -284,10 +284,12 @@ def test_service_delivery_failure_marks_failed(db, monkeypatch):
         assert "SMTP down" in (rec.delivery_error or "")
 
 
-def test_service_diarize_gated_marks_failed(db, monkeypatch):
-    """Wenn das Diarization-Modell gated ist (Lizenz fehlt), wird die
-    Aufnahme NICHT still ohne Speaker fertig — sondern failed mit einer
-    Meldung, die den Admin-Hinweis enthält."""
+def test_service_diarize_gated_degrades_run(db, monkeypatch):
+    """Change 157: Ein DiarizationError (auch gated/Token) DEGRADIERT den
+    Run — die fertige Transkription bleibt (status done), der Fehler wird
+    ehrlich auf dem Recording angezeigt (diar_status=failed + error mit
+    der Meldung, die den Admin-Hinweis enthält). Vorher: kompletter Run
+    failed, Transkription verworfen."""
     from app import service as service_mod
     from app import queue as queue_mod
     from app.diarize import DiarizationError
@@ -326,7 +328,8 @@ def test_service_diarize_gated_marks_failed(db, monkeypatch):
 
     with Session(db) as s:
         rec = s.get(Recording, 1)
-        assert rec.status == "failed"
+        assert rec.status == "done"          # Transkription bleibt erhalten
+        assert rec.diar_status == "failed"   # Diar-Fehler ehrlich markiert
         assert "Administrator" in (rec.error or "")
         assert "lizenzgeschützt" in (rec.error or "")
 
