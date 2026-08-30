@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 from typing import Any, Dict
 
@@ -13,6 +14,8 @@ from ..config import settings
 from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..permissions import ensure_access
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -777,6 +780,18 @@ def replace_segments(
     import json as _json
 
     stored = _json.loads(_json.dumps(segs))
+    # Change 160 (User-Regel 2026-08-30): Ein reiner Grenz-Drag (Text ==
+    # join(words)) darf Wort-Timings NIE anfassen — reconcile ist dort ein
+    # No-Op. Wurde aber der TEXT manuell geändert (Text-Edits laufen seit
+    # Change 125 über diesen vollen Listen-PUT), werden die Wörter per LCS
+    # an die Texte angeglichen (Matches behalten ihre akustischen Zeiten,
+    # neue Text-Wörter interpoliert, Fremdwörter entfernt) — sonst
+    # divergieren Text und Wörter (Live-Befund Recording 297: deutsche
+    # Texte + russische Wörter + linear verteilte Zeiten).
+    try:
+        stored = reconcile_words_to_text(stored)
+    except Exception:
+        log.warning("replace_segments: reconcile_words_to_text übersprungen (rid=%s)", rid, exc_info=True)
     rec.segments = stored
     # Change 009: jede Segment-Struktur-Operation (Grenz-Drag, +/−, Split,
     # Re-Segmentierung) markiert die Aufteilung als manuell — die Anzeige

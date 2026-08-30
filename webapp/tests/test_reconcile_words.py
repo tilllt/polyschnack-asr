@@ -98,3 +98,46 @@ def test_reconcile_skips_segments_without_words_or_text():
     out = reconcile_words_to_text(segs)
     assert out[0] == segs[0]
     assert out[1] == segs[1]
+
+
+def test_reconcile_leaves_consistent_words_untouched():
+    """Change 160 (User-Regel): Ein konsistentes Segment (text ==
+    join(words)) — wie beim reinen Grenz-Drag — wird von reconcile ohne
+    Zeit-Änderung durchgereicht: jedes Wort behält start/end exakt.
+    Der Drag fasst Wort-Timings nie an."""
+    words = [
+        _word("Das", 0.0, 0.4),
+        _word("ist", 0.4, 0.7),
+        _word("korrekt.", 0.7, 1.2),
+    ]
+    seg = {"start": 0.0, "end": 1.2, "text": "Das ist korrekt.", "words": words}
+    out = reconcile_words_to_text([seg])[0]
+    for orig, new in zip(words, out["words"]):
+        assert new["start"] == orig["start"] and new["end"] == orig["end"]
+        assert new["word"] == orig["word"]
+
+
+def test_reconcile_heals_language_mixed_desync():
+    """Change 160: Desync wie Recording 297 (deutscher Text + fremd-
+    sprachige Wörter) wird geheilt: join(words) == text, der Text bleibt
+    unantastbar, Matches behalten ihre Zeiten."""
+    seg = {
+        "start": 350.4,
+        "end": 383.83,
+        "text": "Ein weiterer Weg führt von der Panzerkaserne raus",
+        "words": [
+            _word("Мы", 350.405, 351.99),
+            _word("сразу", 351.99, 353.58),
+            _word("Ein", 353.58, 355.18),
+            _word("weiterer", 355.18, 356.77),
+        ],
+    }
+    out = reconcile_words_to_text([seg])[0]
+    joined = " ".join(w["word"] for w in out["words"])
+    assert joined == seg["text"]
+    assert seg["text"] == "Ein weiterer Weg führt von der Panzerkaserne raus"
+    # Bei <50% Matches (fremdsprachige Wörter) greift der Gleichverteilungs-
+    # Fallback (Change 010) — die Invariante (join==text, gültige Zeiten)
+    # zählt, nicht die Match-Zeit-Erhaltung (die gilt erst ab 50% Matches).
+    assert all(isinstance(w.get("start"), (int, float)) for w in out["words"])
+    assert all(w["end"] > w["start"] for w in out["words"])
