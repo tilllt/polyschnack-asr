@@ -455,6 +455,109 @@ def _shift_segments(segments: list, offset_s: float) -> None:
             _shift_one(w)
 
 
+def dedupe_repeated_word_runs(segments: list, text: Optional[str] = None,
+                              min_run: int = 2,
+                              time_tol_s: float = 1.0) -> tuple:
+    """Entfernt Chunk-Overlap-Dopplungen präventiv aus ASR-Segmenten.
+
+    Change 161 (2026-08-30): ps-pk-onnx verarbeitet lange Audios in
+    120-s-Chunks; an Chunk-Grenzen wird dieselbe Wortfolge doppelt
+    transkribiert. Live-Befund Recording 8976aa1b (8:40): „Im anliegenden
+    Ort Im anliegenden Ort erzählt man sich…" — die erste Kopie hat Zeiten
+    in der Stille (kein akustisches Signal), die zweite die echten Zeiten.
+    Bisher wurde der doppelte Text 1:1 übernommen und erst post-hoc
+    repariert; dieser Fix stoppt die Entstehung an der Eingangsstufe.
+
+    Erkennung (deterministisch, auf dem globalen Wort-Stream):
+    - zwei DIREKT aufeinanderfolgende Wortfolgen mit identischem Text
+      (n >= min_run Wörter)
+    - zeitlicher Chunk-Overlap: die zweite Kopie beginnt innerhalb der
+      ersten oder unmittelbar danach (start_2 < end_1 + time_tol_s) —
+      echte rhetorische Wiederholungen sind zeitlich getrennt und bleiben
+      erhalten
+    - ohne Wort-Zeiten (Fallback): identische benachbarte Folge mit
+      n >= 3 (Sicherheitsmarge gegen „ja ja"-Fälle)
+
+    Entfernt wird NUR die zweite Kopie (Wörter + Segment-Text); der
+    Gesamttext wird aus den Segment-Texten neu gebaut.
+
+    Returns: (segments, text) — bereinigte Listen; unverändert, wenn keine
+    Dopplung gefunden wurde.
+    """
+    # Globaler Wort-Stream mit Segment-/Wort-Referenz: (word, start, end, seg_idx, word_key)
+    stream: List[tuple] = []
+    for si, seg in enumerate(segments):
+        seg_words = seg.get("words") or []
+        if seg_words:
+            for wi, w in enumerate(seg_words):
+                ws, we = _pick_ts(w)
+                stream.append((str(w.get("word") or ""), ws, we, si, ("w", wi)))
+        else:
+            for wi, w in enumerate((seg.get("text") or "").split()):
+                stream.append((w, None, None, si, ("t", wi)))
+    if len(stream) < min_run * 2:
+        return segments, text if text is not None else " ".join(
+            (s.get("text") or "").strip() for s in segments
+        ).strip()
+
+    removed: set = set()  # seg_idx → Wort-Keys der ZWEITEN Kopie
+    i = 0
+    while i < len(stream) - min_run:
+        n = 0
+        max_cand = min(30, (len(stream) - i) // 2)
+        for cand in range(max_cand, min_run - 1, -1):
+            a = [w[0] for w in stream[i:i + cand]]
+            b = [w[0] for w in stream[i + cand:i + 2 * cand]]
+            if a != b:
+                continue
+            # Zeit-Check nur wenn BEIDE Folgen durchgehend Zeiten haben
+            ts_a = [w[2] for w in stream[i:i + cand]]
+            ts_b = [w[1] for w in stream[i + cand:i + 2 * cand]]
+            if all(t is not None for t in ts_a) and all(t is not None for t in ts_b):
+                # Chunk-Overlap: zweite Kopie beginnt innerhalb/nach Ende der ersten
+                if ts_b[0] < ts_a[-1] + time_tol_s:
+                    n = cand
+                    break
+            elif cand >= 3:
+                # Fallback ohne verwertbare Zeiten (Sicherheitsmarge)
+                n = cand
+                break
+        if n:
+            for w in stream[i + n:i + 2 * n]:
+                removed.add((w[3], w[4]))
+            i += n  # erste Kopie behalten, dahinter weitersuchen
+        else:
+            i += 1
+
+    if not removed:
+        return segments, text
+
+    # Segmente neu bauen: Wörter der zweiten Kopie entfernen, Text = join(words)
+    by_seg: dict = {}
+    for si, key in removed:
+        by_seg.setdefault(si, set()).add(key)
+    out: List[dict] = []
+    for si, seg in enumerate(segments):
+        ns = dict(seg)
+        keys = by_seg.get(si)
+        seg_words = seg.get("words") or []
+        if seg_words:
+            kept = [w for wi, w in enumerate(seg_words) if keys is None or ("w", wi) not in keys]
+            ns["words"] = kept
+            ns["text"] = " ".join(str(w.get("word") or "") for w in kept)
+        else:
+            kept = [w for wi, w in enumerate((seg.get("text") or "").split())
+                    if keys is None or ("t", wi) not in keys]
+            ns["text"] = " ".join(kept)
+        out.append(ns)
+    text = " ".join((s.get("text") or "").strip() for s in out).strip()
+    log.warning(
+        "Change 161: Chunk-Overlap-Dopplung entfernt (rec=%d segs=%d wortpaare=%d)",
+        -1, len(out), len(removed),
+    )
+    return out, text
+
+
 def _build_word_stream(segments: list, total_duration: Optional[float]) -> Optional[list]:
     """Einheitlicher Wort-Stream [{word,start,end}] in Sekunden.
 
@@ -2300,6 +2403,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         duration = result["duration"]
         language = result["language"]
         segments = result["segments"]
+
+        # Change 161: Chunk-Overlap-Dopplungen präventiv entfernen — direkt
+        # nach der ASR, VOR Diarization/Aligner/DB. ps-pk-onnx transkribiert
+        # an 120-s-Chunk-Grenzen dieselbe Wortfolge doppelt (Live-Befund
+        # Recording 8976aa1b bei 8:40); ohne diesen Schritt würde der doppelte
+        # Text 1:1 persistiert und müsste später post-hoc repariert werden.
+        segments, text = dedupe_repeated_word_runs(segments, text)
         phase_times[f"asr:{backend}"] = (time.perf_counter() - _t_asr0) * 1000
 
         # Change 147: Marker prüfen + Marker-Segmente entfernen. Die
