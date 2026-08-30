@@ -46,7 +46,7 @@ RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPAS
     -O /tmp/crispasr-cuda.tar.gz \
     && tar xzf /tmp/crispasr-cuda.tar.gz -C /tmp \
     && cp /tmp/crispasr-linux-x86_64-cuda/crispasr /usr/local/bin/crispasr-cuda \
-    && cp /tmp/crispasr-linux-x86_64-cuda/libc2pa_c.so /usr/local/lib/libc2pa_c.so \
+    && cp /tmp/crispasr-linux-x86_64-cuda/*.so* /usr/local/lib/ \
     && rm -rf /tmp/crispasr-cuda.tar.gz /tmp/crispasr-linux-x86_64-cuda \
     && wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPASR_VERSION}/crispasr-linux-x86_64.tar.gz" \
     -O /tmp/crispasr-cpu.tar.gz \
@@ -65,7 +65,13 @@ RUN wget -q "https://github.com/CrispStrobe/CrispASR/releases/download/${CRISPAS
     && ldconfig
 
 # Verify — OHNE Pipe: der Exit-Code von crispasr muss durchschlagen.
-RUN crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
+# 2026-08-30: CUDA-Binary zusaetzlich auf fehlende Shared Libs pruefen
+# (Wrapper-Verify deckt in CI nur den CPU-Pfad ab — libcrispasr.so.1
+# fehlte im Image → Crash 127 auf der Box mit GPU-Overlay). Invariante:
+# NUR libcuda.so.1 darf "not found" sein (kommt vom NVIDIA-Runtime).
+RUN missing=$(ldd /usr/local/bin/crispasr-cuda | grep "not found" | grep -v "libcuda.so.1" || true); \
+    if [ -n "$missing" ]; then echo "FEHLENDE LIBS: $missing"; exit 1; fi; \
+    crispasr --help >/dev/null 2>&1 && echo "crispasr: libraries OK"
 
 # ------------------------------------------------------------------
 # Modell-Pfade (Volume /models, Entrypoint laedt fehlende nach)
