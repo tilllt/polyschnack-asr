@@ -212,6 +212,31 @@ def _resolve_zero_duration(words: list[dict]) -> list[dict]:
             e = nxt if (nxt is not None and nxt > s) else s + 0.08
         item["start"], item["end"] = s, e
         out.append(item)
+    # Change 159 (2026-08-30): ZWEI Invarianten für die Karaoke-Sicht.
+    # (1) Monotonie: kein Wort startet vor dem Vorgänger-Ende; Wörter mit
+    # kollabierten/identischen Zeiten (0-Dauer-Ketten, z.B. 4x „ja" auf
+    # derselben 80-ms-Klasse — live in Prod gemessen) werden auseinander-
+    # gezogen, damit Karaoke sie SEQUENZIELL statt gleichzeitig markiert
+    # („doppelt erscheinende Textpassagen").
+    for i in range(1, len(out)):
+        pe = out[i - 1]["end"]
+        if out[i]["start"] < pe:
+            out[i]["start"] = pe
+        if out[i]["end"] <= out[i]["start"]:
+            out[i]["end"] = out[i]["start"] + 0.08
+    # (2) Das LETZTE Wort nie unter eine Mindestdauer kollabieren lassen.
+    # Der Forced-Aligner quetscht das letzte Wort an die Audio-Kante
+    # (0-Dauer / minimale Restzeit) → Karaoke überspringt es. Live
+    # gemessen: 207/1809 Prod-Segmente (11,4 %) mit exakter 0,08-s-
+    # Kollaps-Signatur. Fix: Start rückwärts ziehen; Überlappung mit dem
+    # Vorgänger ist akzeptabel (das Wort wird im Karaoke sichtbar statt
+    # übersprungen).
+    if out:
+        last = out[-1]
+        _MIN_DUR = 0.30
+        if last["end"] - last["start"] < _MIN_DUR:
+            lo = out[-2]["start"] if len(out) > 1 else 0.0
+            last["start"] = max(lo, last["end"] - _MIN_DUR)
     return out
 
 

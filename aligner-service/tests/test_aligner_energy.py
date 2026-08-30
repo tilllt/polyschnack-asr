@@ -103,6 +103,43 @@ class TestEnergyRefine(unittest.TestCase):
     def test_empty_words_returns_empty(self):
         self.assertEqual(_energy_refine([], self.wav), [])
 
+    def test_last_word_never_collapses(self):
+        """Change 159: Letztes Wort mit 80-ms-Kollaps wird auf >= 0,3 s
+        ausgedehnt (Start rückwärts gezogen), statt im Karaoke übersprungen
+        zu werden. Regression: 207/1809 Prod-Segmente (11,4 %)."""
+        words = [
+            {"word": "A", "start": 0.35, "end": 0.70},
+            {"word": "B", "start": 1.05, "end": 1.40},
+            {"word": "C", "start": 1.75, "end": 1.83},  # 80-ms-Kollaps
+        ]
+        out = _resolve_zero_duration(_energy_refine(words, self.wav))
+        last = out[-1]
+        self.assertGreaterEqual(last["end"] - last["start"], 0.29)
+        # Start nicht vor den Vorgänger-START ziehen (keine absurde Überlappung)
+        self.assertGreaterEqual(last["start"], out[-2]["start"])
+
+    def test_zero_duration_chain_decollides(self):
+        """Change 159: 0-Dauer-Kette (mehrere Wörter auf derselben
+        80-ms-Klasse — z.B. 4x 'ja' mit identischen Zeiten, live in Prod)
+        wird auseinandergezogen: Starts monoton steigend, jedes Wort hat
+        ein eigenes Fenster (Karaoke markiert sequenziell statt
+        gleichzeitig — „doppelt erscheinende Textpassagen")."""
+        words = [
+            {"word": "ja,", "start": 1.0, "end": 1.08},
+            {"word": "ja,", "start": 1.0, "end": 1.08},
+            {"word": "ja,", "start": 1.0, "end": 1.08},
+            {"word": "ja.", "start": 1.0, "end": 1.08},
+        ]
+        out = _resolve_zero_duration(words)
+        # Monotonie für alle außer dem letzten Paar — die Mindestdauer-
+        # Regel (letztes Wort sichtbar statt übersprungen) darf das letzte
+        # Paar bewusst überlappen.
+        for i in range(1, len(out) - 1):
+            self.assertGreaterEqual(out[i]["start"], out[i - 1]["end"] - 1e-6)
+            self.assertGreater(out[i]["end"], out[i]["start"])
+        spans = [(round(w["start"], 3), round(w["end"], 3)) for w in out]
+        self.assertEqual(len(set(spans)), 4)
+
     def test_full_pipeline_with_resolve(self):
         """Gesamtkette wie im Handler: resolve=False → refine → resolve."""
         words = [

@@ -84,10 +84,15 @@ class TestResolveZeroDuration(unittest.TestCase):
         out = _resolve_zero_duration(words)
         self.assertEqual(out[0]["end"], 2.0)  # nächste Wortgrenze
 
-    def test_zero_duration_last_word_gets_80ms(self):
+    def test_zero_duration_last_word_min_duration(self):
+        """Change 159: Ein-Wort-Segment mit 0-Dauer kollabiert NICHT mehr
+        auf 80 ms — das letzte Wort bekommt mindestens 0,3 s (Karaoke
+        überspränge es sonst; vorher end=start+0,08 ohne Start-Rückzug)."""
         words = [{"start": 3.0, "end": 3.0, "word": "last"}]
         out = _resolve_zero_duration(words)
-        self.assertAlmostEqual(out[0]["end"], 3.08, places=2)
+        self.assertAlmostEqual(out[0]["end"], 3.08, places=2)  # end bleibt s+0,08
+        self.assertAlmostEqual(out[0]["start"], 2.78, places=2)  # Start rückwärts
+        self.assertGreaterEqual(out[0]["end"] - out[0]["start"], 0.29)
 
     def test_none_start_gets_zero(self):
         words = [{"start": None, "end": None, "word": "x"}]
