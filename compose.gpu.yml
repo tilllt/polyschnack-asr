@@ -57,10 +57,17 @@ services:
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-sep:latest
     runtime: nvidia
     environment:
-      # Change 175: htdemucs GPU-Graph aktivieren (crispasr nutzt den
-      # FUSED-GPU-forward nur mit diesem Flag; Default ist CPU → RTF ~7,4
-      # auf der 3090 Ti statt ~0,3. Live-Befund 2026-08-31.)
+      # Change 175+177: htdemucs GPU-Pfad — DREI Flags nötig (CrispASR
+      # src/htdemucs.cpp:647/968-981):
+      #   _GPU  = Backend-Wahl (crispasr_init_gpu_backend)
+      #   _GGML = Graph-Pfad aktivieren (default OFF — ohne das läuft
+      #           alles auf CPU, Live-Befund 2026-08-31: 0% GPU-Util)
+      #   _FUSED = Encoder+Transformer+Decoder in EINEM Graph (keine
+      #           host<->device-Roundtrips; ohne FUSED ist der Graph-
+      #           Pfad teils LANGSAMER als CPU)
       CRISPASR_HTDEMUCS_GPU: "1"
+      CRISPASR_HTDEMUCS_GGML: "1"
+      CRISPASR_HTDEMUCS_FUSED: "1"
 
   crispr-pk-cpp:
     runtime: nvidia
