@@ -76,6 +76,15 @@ def _job_beat(line: str) -> None:
 def _job_finish(error: str | None = None) -> None:
     with _JOB_LOCK:
         _JOB_STATUS.update(active=False, backend=None, error=error)
+    # Change 174: Job-Lock freigeben — ohne release() ist der Server nach
+    # dem ERSTEN Job für immer blockiert (409 auf alle Folge-Jobs, bis zum
+    # Container-Neustart). Live-Befund 2026-08-31: Webapp-Methode A/B
+    # konnte nie erfolgreich laufen; der htdemucs-Job nach dem Restart
+    # blockte alle weiteren.
+    try:
+        _lock.release()
+    except RuntimeError:
+        pass  # bereits frei (kein aktiver Job)
 
 
 def _job_snapshot() -> dict:
