@@ -103,6 +103,10 @@ export interface Recording {
   queue_eta_s?: number | null;
   /** Change 011: Backend-Name (nur status="queued"). */
   queue_backend?: string | null;
+  /** Change 183: der aktive Job (eine Quelle der Wahrheit) — die
+   *  einheitliche Job-Status-UI liest Status/Phase/pct/Zeiten/Cancel
+   *  direkt daraus (statt der abgeleiteten Recording-Felder). */
+  job?: JobStatusData | null;
   waveform_peaks: number[] | null;
   /** Change 057: Status der Diarization (done|pending|running|failed|skipped). */
   diar_status?: string;
@@ -145,6 +149,21 @@ export interface UserInfo {
   groups?: string[];
 }
 
+export interface JobStatusData {
+  /** Change 183: normiertes Job-Objekt — identisch im Recording-Response
+   *  (r.job) und in der Queue-API (QueueJob) — damit BEIDE Anzeigen
+   *  dieselbe <JobStatus>-Komponente rendern können. */
+  kind?: string;
+  status?: string;
+  phase?: string | null;
+  pct?: number | null;
+  started_at?: string | null;
+  phase_started_at?: string | null;
+  heartbeat_at?: string | null;
+  cancel_requested?: boolean;
+  error?: string | null;
+}
+
 export interface QueueJob {
   job_id: number;
   position: number;
@@ -157,6 +176,13 @@ export interface QueueJob {
   kind?: string;
   progress_pct?: number | null;
   progress_note?: string | null;
+  // Change 183: Job-Row-Felder (eine Quelle der Wahrheit)
+  phase?: string | null;
+  pct?: number | null;
+  phase_started_at?: string | null;
+  heartbeat_at?: string | null;
+  cancel_requested?: boolean;
+  error?: string | null;
 }
 
 export interface QueueStatus {

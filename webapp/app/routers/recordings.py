@@ -606,6 +606,27 @@ def _reconcile_stale_statuses(session: Any) -> None:
         session.commit()
 
 
+def _job_to_dict(job: Optional[Any]) -> Optional[Dict[str, Any]]:
+    """Change 183 Phase 2: aktiver Job als strukturiertes Objekt.
+
+    Die UI (Phase 3) liest Status/Phase/pct/Zeiten/Cancel direkt daraus —
+    eine Quelle der Wahrheit statt der abgeleiteten Recording-Felder.
+    """
+    if job is None:
+        return None
+    return {
+        "kind": job.kind,
+        "status": job.status,
+        "phase": job.phase,
+        "pct": job.pct,
+        "started_at": iso_utc(job.started_at) if job.started_at else None,
+        "phase_started_at": iso_utc(job.phase_started_at) if job.phase_started_at else None,
+        "heartbeat_at": iso_utc(job.heartbeat_at) if job.heartbeat_at else None,
+        "cancel_requested": bool(job.cancel_requested),
+        "error": job.error,
+    }
+
+
 def _recording_to_dict(
     rec: Recording,
     access_level: Optional[str] = None,
@@ -734,6 +755,9 @@ def _recording_to_dict(
         "queue_backend": active_job.backend
         if job_status == "queued" and active_job is not None
         else None,
+        # Change 183 Phase 2: der aktive Job als Objekt (kind/status/phase/
+        # pct/Zeiten/cancel) — Quelle für die einheitliche Job-Status-UI.
+        "job": _job_to_dict(active_job),
         "created_at": iso_utc(rec.created_at),
         "language": rec.language,
         "segments": None if lite else rec.segments,

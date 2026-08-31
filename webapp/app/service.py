@@ -1949,12 +1949,13 @@ def run_rediarize_job(rec_id: int, payload: Optional[Dict[str, Any]] = None,
                 audio_bytes = enhance_audio(audio_bytes, level=run.enable_enhance)
             except Exception as exc:
                 log.warning("rediarize: enhance failed rec_id=%s: %s", rec_id, exc)
-    _run_background_rediarize(rec_id, audio_bytes, vad_meta, payload)
+    _run_background_rediarize(rec_id, audio_bytes, vad_meta, payload, job)
 
 
 def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
                               vad_meta: Optional[Dict[str, Any]] = None,
-                              opts: Optional[Dict[str, Any]] = None) -> None:
+                              opts: Optional[Dict[str, Any]] = None,
+                              job: Optional[Any] = None) -> None:
     """Change 057: Hintergrund-Worker für Re-Diarize.
 
     - Führt die Diarization auf den verarbeiteten Bytes aus (Zeitbasis wie

@@ -8,6 +8,7 @@ import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
+import JobStatus from "./JobStatus";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate, parseUtcMs } from "../format";
 import { WaveformPlayer, type WaveSurferHandle, type TimingWord } from "./WaveformPlayer";
 import { TimingEditor } from "./TimingEditor";
@@ -1131,6 +1132,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // „verarbeitet seit Xs" bzw. „aktiv seit Xs" — nie mehr „…".
   const hb = heartbeatState(r);
   const etaRange = fmtEtaRange(r.eta_low_s, r.eta_high_s);
+  // Change 183: pct für die Bar — der Job hat die Wahrheit; Fallback auf
+  // das Recording-Feld nur bei transcribe (bis Phase 3 abgeschlossen).
+  const pctForBar: number | null =
+    r.job?.pct != null ? r.job.pct : r.status === "processing" ? (r.progress_pct ?? null) : null;
 
   // ── Change 137: Timing-Tab (Wort laden, Marker-Drag, PATCH, Reset) ──
   function handleTimingWordSelect(segIdx: number, wordIdx: number) {
@@ -1968,89 +1973,31 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           r.diar_status === "running" ||
           r.diar_status === "pending") && (
           <div className="px-4 pb-2">
-            <div className="flex flex-wrap items-center gap-1 text-[12px] mb-[6px]">
-              {/* Change 035: Phasen-Chips statt nur Text — jede Phase hat
-                  einen Status (erledigt/aktiv/übersprungen/offen); die
-                  Prozent-Zahl bleibt als Zusatzinfo, wo sie real ist.
-                  Change 180: auch bei align/diarize-Jobs sichtbar; ohne
-                  aktiven Lauf (active<0) bleiben alle Chips gedimmt. */}
-              <span className="flex flex-wrap items-center gap-1 min-w-0">
-                {PHASES.map((p, i) => {
-                  const active = activePhaseIndex(r);
-                  const skipped = p.key === "diarization" && !r.enable_diarize;
-                  let chip = "text-muted2 border-border";
-                  if (skipped) chip = "text-muted2/40 border-border line-through";
-                  else if (active >= 0 && i < active) chip = "text-ok/80 border-ok/30";
-                  else if (active >= 0 && i === active) chip = "text-accent border-accent/50 bg-accent/10 animate-pulse";
-                  return (
-                    <span
-                      key={p.key}
-                      className={`text-[10px] px-[6px] py-[1px] rounded-full border font-semibold uppercase tracking-wide shrink-0 ${chip}`}
-                    >
-                      {t(p.labelKey)}
-                      {i === active && hb.sincePhase > 0 && (
-                        <span className="normal-case font-normal ml-1">
-                          {t("phase_running_since")} {fmtTime(hb.sincePhase)}
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-              </span>
-            </div>
-            {/* Live-Details (Alignment: Gruppe 3/12 · CLI 45%) */}
-            {phaseDetail && (
-              <div className="text-[11px] text-accent truncate mb-1" title={note}>
-                ⚙ {phaseDetail}
+            {/* Change 183 Phase 3: EINE Job-Status-Darstellung — oben
+                (QueueWatcher) und hier identisch: Was läuft · Seit wann ·
+                ETA · Heartbeat (nur graphisch) · Cancel · echter %.
+                Quelle: r.job (der aktive Job aus der DB-Zustandsmaschine). */}
+            <JobStatus
+              job={r.job}
+              eta={{ total: r.eta_total_s, low: r.eta_low_s, high: r.eta_high_s }}
+              onCancel={() => cancelMut.mutate({ id: r.uid })}
+              cancelDisabled={cancelMut.isPending}
+            />
+            {/* Progress-Bar — nur bei echten pct-Daten */}
+            {pctForBar != null && (
+              <div className="w-full h-1.5 bg-border rounded-full overflow-hidden mt-[6px]">
+                <div
+                  className={`h-full bg-accent rounded-full transition-[width] duration-700 ease-out ${
+                    hb.fresh && hb.sinceBeat > 0 && !hb.stalled ? "animate-pulse" : ""
+                  }`}
+                  style={{ width: `${pctForBar}%` }}
+                />
               </div>
             )}
-            <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-              <div
-                className={`h-full bg-accent rounded-full transition-[width] duration-700 ease-out ${
-                  hb.fresh && hb.sinceBeat > 0 && !hb.stalled
-                    ? "animate-pulse"
-                    : ""
-                }`}
-                style={{ width: `${r.progress_pct}%` }}
-              />
-            </div>
-            {/* Change 092b (User 2026-08-22): Heartbeat-Ampel + echter
-                ETA-Rest UNTER dem Progress-Bar (nicht neben den Chips) —
-                auf schmalen Screens blieb die Zeile sonst unter den
-                Chips hängen. ETA aus Dauer × RTF; Fallbacks „verarbeitet
-                seit" / „aktiv seit". */}
-            <div className="mt-[5px] flex items-center justify-between gap-2 text-[11px]">
-              <span className="text-muted2 tabular-nums shrink-0 flex items-center gap-1.5">
-                <span
-                  title={hb.level === "fresh" ? "Heartbeat aktiv" : hb.level === "warn" ? "Heartbeat langsam" : "kein Heartbeat"}
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    hb.level === "fresh"
-                      ? "bg-ok animate-pulse"
-                      : hb.level === "warn"
-                        ? "bg-warn"
-                        : "bg-red-500"
-                  }`}
-                />
-                {hb.sinceBeat > 0 && (
-                  <span className="text-muted2">{t("heartbeat_ago")} {hb.sinceBeat}s</span>
-                )}
-                <span>{r.progress_pct}%</span>
-              </span>
-              <span className="text-muted2 tabular-nums truncate">
-                {etaRange
-                  ? `${t("eta_estimated")} ${etaRange}`
-                  : hb.sinceStart > 0
-                    ? `${t("processing_since")} ${fmtSince(hb.sinceStart)}`
-                    : hb.sincePhase > 0
-                      ? fmtSince(hb.sincePhase)
-                      : ""}
-              </span>
-            </div>
-            {/* Change 011/035: Stall-Warnung nur bei totem Job (kein Heartbeat);
-                Text präzisiert — „möglicherweise hängend" statt kryptisch. */}
+            {/* Stall-Warnung nur bei totem Job (kein Heartbeat) */}
             {hb.stalled && (
               <div className="mt-[6px] text-[12px] text-warn">
-                ⚠ möglicherweise hängend · keine Aktivität {fmtSince(hb.sinceBeat)}
+                ⚠ {t("maybe_stalled")} {t("heartbeat_ago")} {fmtSince(hb.sinceBeat)}
               </div>
             )}
           </div>

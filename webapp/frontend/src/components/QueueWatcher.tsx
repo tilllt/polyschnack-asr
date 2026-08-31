@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { cancelQueueJob, fetchQueue, type QueueStatus } from "../api";
 import { useT } from "../useLocale";
+import JobStatus from "./JobStatus";
 
 /* ============================================================
    QueueWatcher (Task 7/10) — zeigt aktive Transkriptions-Queue.
@@ -73,23 +74,10 @@ export function QueueWatcher() {
       </div>
       <ul className="space-y-1">
         {status.jobs.map((j) => {
-          // Change 156: ehrliche Phase + echter Fortschritt statt "in Arbeit…".
-          // Change 162: progress_note → Phase für ALLE Kinds (noteToPhaseKey),
-          // Fallback auf job.kind. Vorher prüfte die Queue nur den exakten
-          // String "diarization" — seit Change 150/151 trägt die Note den
-          // Prozentwert ("diarization 42%"), der Match schlug fehl und die
-          // Queue zeigte wieder "Transcription" (User-Befund 2026-08-30).
-          const notePhase = noteToPhaseKey(j.progress_note);
-          const runningPhase =
-            j.status === "running" && notePhase
-              ? t(`phase_${notePhase}`)
-              : j.kind
-                ? t(`phase_${j.kind}`)
-                : t("processing");
-          const pct =
-            typeof j.progress_pct === "number" && j.progress_pct > 0
-              ? ` · ${Math.round(j.progress_pct)}%`
-              : "";
+          // Change 183 Phase 3: laufende Jobs zeigen DIESELBE
+          // <JobStatus>-Komponente wie die RecordingCard (Was läuft ·
+          // Seit wann · ETA · Heartbeat graphisch · Cancel · %). Queued-
+          // Jobs behalten die Warteschlangen-Info (Position + Warte-ETA).
           return (
           <li key={j.job_id} className="flex items-center gap-2 text-muted flex-wrap">
             <span className="text-txt font-semibold tabular-nums">#{j.job_id}</span>
@@ -104,22 +92,17 @@ export function QueueWatcher() {
                 {j.eta_s != null && <span className="text-muted2"> · ~{j.eta_s}s</span>}
               </span>
             ) : (
-              <span className="text-proc">
-                {runningPhase}
-                {pct}
-              </span>
-            )}
-            {j.is_mine && j.status === "queued" && (
-              <button
-                onClick={async () => {
-                  await cancelQueueJob(j.job_id).catch(() => {});
-                  setStatus(await fetchQueue().catch(() => status));
-                }}
-                className="text-err hover:underline ml-auto"
-                title="Cancel"
-              >
-                ✕
-              </button>
+              <JobStatus
+                job={j}
+                onCancel={
+                  j.is_mine
+                    ? async () => {
+                        await cancelQueueJob(j.job_id).catch(() => {});
+                        setStatus(await fetchQueue().catch(() => status));
+                      }
+                    : undefined
+                }
+              />
             )}
           </li>
           );

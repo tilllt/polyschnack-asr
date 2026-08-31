@@ -534,10 +534,32 @@ class QueueManager:
                     )
                 ).all():
                     progress[rid] = {"progress_pct": pct, "progress_note": note}
+        # Change 183: Job-Row-Felder (phase/pct/Zeiten/cancel) als
+        # einheitliche Quelle — die Recording-Felder (progress_*) werden
+        # in Phase 3 abgelöst; bis dahin liefern beide (job-Row gewinnt).
+        jobrows: Dict[int, Dict[str, Any]] = {}
+        with Session(db.engine) as session:
+            rec_ids = [j.rec_id for j in jobs]
+            if rec_ids:
+                for row in session.exec(
+                    select(Job).where(
+                        Job.rec_id.in_(rec_ids),
+                        Job.status.in_(("queued", "running")),
+                    )
+                ).all():
+                    jobrows[row.rec_id] = {
+                        "phase": row.phase,
+                        "pct": row.pct,
+                        "phase_started_at": row.phase_started_at,
+                        "heartbeat_at": row.heartbeat_at,
+                        "cancel_requested": bool(row.cancel_requested),
+                        "error": row.error,
+                    }
         out: List[Dict[str, Any]] = []
         for j in jobs:
             is_mine = is_admin or j.user_id == user_id
             prog = progress.get(j.rec_id, {})
+            jr = jobrows.get(j.rec_id, {})
             out.append({
                 "job_id": j.rec_id,
                 "position": self.position(j.rec_id) if j.status == "queued" else 0,
@@ -551,6 +573,13 @@ class QueueManager:
                 "eta_s": round(self.position(j.rec_id) * avg_ms / 1000) if avg_ms and j.status == "queued" else None,
                 "progress_pct": prog.get("progress_pct"),
                 "progress_note": prog.get("progress_note"),
+                # Change 183: Job-Row-Felder (eine Quelle der Wahrheit)
+                "phase": jr.get("phase"),
+                "pct": jr.get("pct"),
+                "phase_started_at": jr.get("phase_started_at"),
+                "heartbeat_at": jr.get("heartbeat_at"),
+                "cancel_requested": jr.get("cancel_requested", False),
+                "error": jr.get("error"),
                 "is_mine": is_mine,
             })
         out.sort(key=lambda d: d["job_id"])
