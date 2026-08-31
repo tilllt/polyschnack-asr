@@ -54,7 +54,7 @@ cd "$(dirname "$0")"
 # aenderte (wird beim Committen mitgefuehrt). Basis fuer den Update-Check
 # (jeder Lauf) und den selfupdate-Changelog. Deaktivieren des Checks:
 # POLYSCHNACK_SELFUPDATE_CHECK=off in der .env.
-SELFUPDATE_SHA="65c7636f11cfe62a5a86c501204b879b094e43f6"
+SELFUPDATE_SHA="557c5b4d5e4176e17f16833de494650c90b61d33"
 
 # --- Projekt-Basis ----------------------------------------------------------
 # compose.backends.yml ist IMMER Teil des Projekts: die Overlays
@@ -457,7 +457,13 @@ sync_compose() {
         fi
         rm -f "$tmp"
     done
-    [ "$changed" = "0" ] && echo "-> Alle compose-Dateien aktuell."
+    if [ "$changed" = "0" ]; then
+        echo "-> Alle compose-Dateien aktuell."
+    fi
+    # Invariante (Change 164): sync_compose meldet Abweichungen, bricht aber
+    # nie ab. Vorher war die letzte Zeile ein Test — Exit 1 bei compose-Diff
+    # liess `set -e` das Skript VOR pull/models/start abbrechen.
+    return 0
 }
 
 case "$CMD" in
