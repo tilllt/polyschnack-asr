@@ -1646,7 +1646,31 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
     log.info("bg-align: rec_id=%s fertig (alignment=%s)", rec_id, _align_state)
 
 
-def recover_stale_alignments(session: Session) -> int:
+def recover_stale_processing(session) -> int:
+    """Change 182: verwaiste processing-Jobs einer vorherigen Sitzung auflösen.
+
+    Die Job-Queue ist In-Memory — nach einem Webapp-Restart ist kein Worker
+    mehr am Job, aber status=processing blieb stehen (User-Befund 2026-08-31:
+    re-transcribe hing in 'separate', Cancel wirkungslos, kein Recovery).
+    Ehrlich auf failed setzen, damit der User neu starten kann.
+    """
+    from .models import Recording as _Rec
+
+    recs = session.query(_Rec).filter(_Rec.status == "processing").all()
+    n = 0
+    for r in recs:
+        r.status = "failed"
+        r.error = "Abgebrochen: Webapp-Neustart während des Laufs (kein Worker mehr)"
+        r.progress_note = None
+        r.progress_pct = 0
+        session.add(r)
+        n += 1
+    if n:
+        session.commit()
+    return n
+
+
+def recover_stale_alignments(session) -> int:
     """Change 048: Boot-Recovery — hängende Hintergrund-Alignments auflösen.
 
     Ein Background-Align-Worker (Change 045/046) stirbt mit dem Prozess
@@ -2398,6 +2422,13 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             except Exception as exc:
                 log.warning("separate: Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
             phase_times[f"separate:{separate_backend}"] = (time.perf_counter() - _t_sep0) * 1000
+
+        # Change 182: Cancel direkt NACH der Prep (VAD/Enhance/Separation) —
+        # diese Calls sind blockierend (crispr-sep httpx bis zu 300 s idle);
+        # der bisherige Cancel-Check kam erst NACH dem ASR (User-Befund:
+        # Cancel wirkungslos während der Separation, Job hing in 'separate').
+        if _abort_if_cancelled(job, rec_id):
+            return
 
         with Session(engine) as session:
             set_progress(session, rec_id, 0, note="asr")

@@ -35,7 +35,10 @@ SEP_BACKENDS = ("htdemucs", "mel-band-roformer")
 class SeparateClient:
     """HTTP-Client für POST /v1/audio/separate (multipart file+backend)."""
 
-    def __init__(self, url: Optional[str] = None, timeout: float = 3600.0):
+    def __init__(self, url: Optional[str] = None, timeout: float = 300.0):
+        # Change 182: read = IDLE-Timeout (3600 s → 300 s). Der alte Wert
+        # ließ hängende Antwort-Transfers ewig blockieren (Live-Befund:
+        # sep-Server fertig, Worker hing im HTTP-Call, Cancel wirkungslos).
         self.url = (url or SEP_URL).rstrip("/")
         self._timeout = httpx.Timeout(connect=5.0, read=timeout, write=timeout, pool=5.0)
 

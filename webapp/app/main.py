@@ -94,6 +94,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if n:
             log.warning("boot-recovery: %d hängende(s) Alignment(s) bereinigt", n)
 
+    # --- Change 182: verwaiste processing-Jobs auflösen (Queue ist In-Memory
+    # --- → nach Restart kein Worker mehr; status=processing würde ewig hängen).
+    from .service import recover_stale_processing
+
+    with _Session(_engine) as session:
+        n2 = recover_stale_processing(session)
+        if n2:
+            log.warning("boot-recovery: %d verwaiste(s) processing-Job(s) auf failed gesetzt", n2)
+
     # --- Task 6: start the queue and re-enqueue jobs that were still queued
     # --- when the previous process exited.
     from . import crud
