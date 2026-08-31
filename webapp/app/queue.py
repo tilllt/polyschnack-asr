@@ -414,6 +414,14 @@ class QueueManager:
             # bereits belegt ist.
             key = rec_id if kind == "transcribe" else f"{kind}-{rec_id}"
         with self._lock:
+            # Change 173: max. EIN Job pro Recording. transcribe (Key=rec_id),
+            # align ("align-{rec_id}") und rediarize haben verschiedene Keys und
+            # liefen deshalb parallel (Live-Befund 2026-08-31: re-transcribe +
+            # realign gleichzeitig → crispr-sep-409, Aligner skipped). Parallele
+            # transcribe+align ist destruktiv (transcribe leert text/segments)
+            # und die Source-Separation hat nur einen globalen Job-Lock.
+            if any(j.rec_id == rec_id for j in self._jobs.values()):
+                raise QueueError(f"recording {rec_id} already has an active job (queued/processing)")
             if key in self._jobs:
                 raise QueueError(f"recording {rec_id} is already queued/processing")
             if len(self._jobs) >= self._max_queue_len:
