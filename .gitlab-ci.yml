@@ -445,24 +445,44 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    # Change 165: IMMER eine explizite Manifest-Digest auflösen und per
+    # Digest spiegeln. Kein `docker pull src:tag`-Fallback — ein stale
+    # Daemon-Tag (älterer Multi-Arch-Index) würde sonst gepusht und von
+    # GHCR abgelehnt (NotFound: fehlendes Child-Manifest, 2026-08-31).
+    resolve_digest() {
+      local src="$1" ref="$2" out=""
+      out=$(docker manifest inspect "${src}:${ref}" 2>/dev/null | python3 -c "
+    import json,sys
+    try: d=json.load(sys.stdin)
+    except Exception: sys.exit(0)
+    ms=d.get('manifests')
+    if ms:
+        for m in ms:
+            p=m.get('platform',{})
+            if p.get('os')=='linux' and p.get('architecture')=='amd64':
+                print(m['digest']); break
+    " 2>/dev/null || true)
+      if [ -n "$out" ]; then echo "$out"; return 0; fi
+      # Single-Plattform-Manifest: eigene Digest aus dem Descriptor.
+      docker manifest inspect --verbose "${src}:${ref}" 2>/dev/null | python3 -c "
+    import json,sys
+    try: d=json.load(sys.stdin)
+    except Exception: sys.exit(0)
+    if isinstance(d,list): d=d[0] if d else {}
+    print((d.get('Descriptor') or {}).get('digest') or '')
+    " 2>/dev/null || true
+    }
     mirror_one() {
       local src="$1" ref="$2" dst="$3"
       local digest=""
-      # Harbor kann einen Multi-Arch-INDEX liefern (docker-built amd64
-      # + evtl. arm64). Den amd64-Digest aus dem Index auflösen und per
-      # Digest pullen → lokaler Tag ist ein Plattform-Manifest (Push
-      # mit --platform scheitert sonst am Runner-Client).
-      if docker manifest inspect "${src}:${ref}" >/dev/null 2>&1; then
-        digest=$(docker manifest inspect "${src}:${ref}" | python3 -c "import json,sys; d=json.load(sys.stdin); ms=[m['digest'] for m in d.get('manifests') or [] if m.get('platform',{}).get('os')=='linux' and m.get('platform',{}).get('architecture')=='amd64']; print(ms[0] if ms else '')" 2>/dev/null || true)
+      digest=$(resolve_digest "${src}" "${ref}")
+      if [ -z "$digest" ]; then
+        echo "[mirror-ghcr] FEHLER: keine aufloesbare Digest fuer ${src}:${ref}" >&2
+        return 1
       fi
-      if [ -n "$digest" ]; then
-        docker pull "${src}@${digest}" >/dev/null 2>&1
-        docker tag "${src}@${digest}" "${dst}:${ref}"
-        echo "[mirror-ghcr] ${src##*/}:${ref} → amd64 ${digest:0:12}"
-      else
-        docker pull "${src}:${ref}" >/dev/null 2>&1
-        docker tag "${src}:${ref}" "${dst}:${ref}"
-      fi
+      docker pull "${src}@${digest}" >/dev/null 2>&1
+      docker tag "${src}@${digest}" "${dst}:${ref}"
+      echo "[mirror-ghcr] ${src##*/}:${ref} → amd64 ${digest:0:12}"
       docker push "${dst}:${ref}"
     }
     for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
