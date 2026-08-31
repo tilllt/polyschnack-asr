@@ -2104,6 +2104,24 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     <span>{fmt.name}</span>
                   </a>
                 ))}
+                {/* Change 169: Original-Aufnahme herunterladen — get_audio
+                    liefert die Original-Datei mit original_name (attachment);
+                    für alle read-Zugriffe (der Player streamt sie ebenso). */}
+                <a
+                  href={r.audio_url}
+                  download
+                  onClick={() => setDlOpen(false)}
+                  className="
+                    flex items-center gap-2 px-[10px] py-[7px] rounded-[5px]
+                    text-txt text-[13px] no-underline cursor-pointer
+                    hover:bg-panel2 transition-colors duration-[120ms]
+                  "
+                >
+                  <span className="font-semibold text-[11px] text-accent w-[26px]">
+                    AUD
+                  </span>
+                  <span>{t("download_original")}</span>
+                </a>
                 {/* Change 015: vollständiger Backup-Download (ZIP) — nur
                     Owner/Share-full (Backend verlangt full, 403 sonst). */}
                 {(r.access_level === "full" || r.access_level === "owner") && (

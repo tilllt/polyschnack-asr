@@ -441,6 +441,10 @@ mirror-github:
 mirror-ghcr:
   stage: build
   image: ${HARBOR_REGISTRY}/public/ci-tools
+  # Change 165: 13 Images pullen/pushen dauert auf der Leitung > 1 h —
+  # das GitLab-Default-Timeout (60 min) killte den Job (2026-08-31,
+  # Pipeline 4769: "execution took longer than 1h0m0s").
+  timeout: 2 hours
   script: |
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
