@@ -50,6 +50,13 @@ services:
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-aligner:latest
     runtime: nvidia
 
+  crispr-sep:
+    # Change 172: Source-Separation (htdemucs/mel-band-roformer) läuft auf
+    # CUDA — ohne runtime: nvidia crasht jeder Job mit "libcuda.so.1 not
+    # found" (409), vocals fehlen, Aligner skipped auf Musik-Aufnahmen.
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-sep:latest
+    runtime: nvidia
+
   crispr-pk-cpp:
     runtime: nvidia
 
