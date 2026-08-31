@@ -31,6 +31,10 @@
 4. Pull-Fehler sind NICHT mehr verschluckt: fehlgeschlagener Pull bricht
    den Job laut mit Meldung ab (kein stiller Push eines unvollständigen
    Daemons).
+5. `docker rmi` nach jedem Push — die Runner-Disk reicht nicht für alle
+   13 Backend-Images gleichzeitig (Befund: 12/13 gepusht, das letzte
+   scheiterte an fehlendem Layer `de44b265`). `docker system df` vor der
+   Loop macht den Disk-Zustand im Log sichtbar.
 
 ## Tests
 

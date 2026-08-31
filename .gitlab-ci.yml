@@ -447,11 +447,10 @@ mirror-ghcr:
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
     # Change 165: Daemon-Zustand deterministisch machen — unbenutzte
     # Images/Caches raeumen (Runner-Daemon sammelt ueber alle Pipelines
-    # des Tages; voller Daemon → docker pull laedt Blobs unvollstaendig,
-    # docker push scheitert dann mit NotFound auf Layer-Digests, z. B.
-    # 5cc4a07 am 2026-08-31). Laufende Jobs anderer Pipelines bleiben
-    # unberuehrt (prune -af fasst nur unbenutzte Images an).
+    # des Tages; volle Disk → docker pull speichert Layer unvollstaendig,
+    # docker push scheitert dann mit NotFound auf Layer-Digests).
     docker system prune -af >/dev/null 2>&1 || true
+    echo "[mirror-ghcr] Disk vor Loop:" && docker system df 2>/dev/null || true
     # Change 165: IMMER eine explizite Manifest-Digest auflösen und per
     # Digest spiegeln. Kein `docker pull src:tag`-Fallback — ein stale
     # Daemon-Tag (älterer Multi-Arch-Index) würde sonst gepusht.
@@ -496,6 +495,11 @@ mirror-ghcr:
       docker tag "${src}@${digest}" "${dst}:${ref}"
       echo "[mirror-ghcr] ${src##*/}:${ref} → amd64 ${digest:0:12}"
       docker push "${dst}:${ref}"
+      # Disk klein halten: Image nach dem Push freigeben. Die Runner-Disk
+      # reicht nicht fuer ALLE 13 Backend-Images gleichzeitig (Befund
+      # 2026-08-31: 12/13 gepusht, das letzte scheiterte an fehlendem
+      # Layer de44b265 — der Daemon hatte die Disk voll).
+      docker rmi "${src}@${digest}" "${dst}:${ref}" >/dev/null 2>&1 || true
     }
     for img in "" -webapp -qwen3 -ark -diar -aligner -sep -cpp -moonshine-de -canary -whisper -voxtral -whisper-crisp; do
       src="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}${img}"
