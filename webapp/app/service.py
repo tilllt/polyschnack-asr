@@ -1795,6 +1795,13 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
             log.warning("realign: Audio fehlt für rec_id=%s", rec_id)
             return False
         rec.alignment = "pending"
+        # Change 180: Fortschritt SOFORT setzen — ohne das zeigt die UI
+        # zwischen POST und Worker-Start den Restzustand (leere note +
+        # alte phase_started_at → „preparing blinkt mit 8:30", User-Befund
+        # 2026-08-31).
+        rec.progress_note = "alignment"
+        rec.progress_pct = 0
+        rec.phase_started_at = datetime.now(timezone.utc)
         user_id = rec.user_id
         backend = rec.backend or ""
         session.add(rec)
@@ -1851,6 +1858,11 @@ def _schedule_rediarize(rec_id: int, opts: Optional[Dict[str, Any]] = None) -> b
             log.warning("rediarize: Audio fehlt für rec_id=%s", rec_id)
             return False
         rec.diar_status = "pending"
+        # Change 180: Fortschritt SOFORT setzen (wie realign) — sonst
+        # zeigt die UI den Restzustand mit alter phase_started_at.
+        rec.progress_note = "diarization"
+        rec.progress_pct = 0
+        rec.phase_started_at = datetime.now(timezone.utc)
         user_id = rec.user_id
         backend = rec.backend or ""
         session.add(rec)

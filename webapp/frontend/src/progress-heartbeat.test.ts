@@ -158,13 +158,29 @@ describe("activePhaseIndex (Change 035 — Phasen-Chips)", () => {
     expect(activePhaseIndex({ progress_note: "finalizing" })).toBe(4);
   });
 
-  it("ohne Note: pct-Fallback (Streaming-ASR, Lücken)", () => {
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 1 })).toBe(0);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 20 })).toBe(0);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 50 })).toBe(1);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 80 })).toBe(1);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 94 })).toBe(1);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 95 })).toBe(4);
-    expect(activePhaseIndex({ progress_note: null, progress_pct: 99 })).toBe(4);
+  it("ohne Note: pct-Fallback NUR bei status=processing", () => {
+    const proc = (pct: number) => ({ progress_note: null, progress_pct: pct, status: "processing" });
+    expect(activePhaseIndex(proc(1))).toBe(0);
+    expect(activePhaseIndex(proc(20))).toBe(0);
+    expect(activePhaseIndex(proc(50))).toBe(1);
+    expect(activePhaseIndex(proc(80))).toBe(1);
+    expect(activePhaseIndex(proc(94))).toBe(1);
+    expect(activePhaseIndex(proc(95))).toBe(4);
+    expect(activePhaseIndex(proc(99))).toBe(4);
+  });
+
+  it("Change 180: align/diarize-STATUS bestimmt die Phase (laufen ohne status=processing)", () => {
+    expect(activePhaseIndex({ alignment: "running" })).toBe(3);
+    expect(activePhaseIndex({ alignment: "pending", progress_note: null, progress_pct: 0 })).toBe(3);
+    expect(activePhaseIndex({ diar_status: "running" })).toBe(2);
+    expect(activePhaseIndex({ diar_status: "pending" })).toBe(2);
+  });
+
+  it("Change 180: ohne aktiven Lauf → -1 (Chips gedimmt, kein Blinken/Zeit)", () => {
+    expect(activePhaseIndex({})).toBe(-1);
+    expect(activePhaseIndex({ progress_note: null, progress_pct: 0 })).toBe(-1);
+    expect(activePhaseIndex({ alignment: "done" })).toBe(-1);
+    expect(activePhaseIndex({ alignment: "skipped" })).toBe(-1);
+    expect(activePhaseIndex({ status: "done" })).toBe(-1);
   });
 });

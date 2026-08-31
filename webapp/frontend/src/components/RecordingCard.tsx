@@ -128,17 +128,31 @@ export const PHASES = [
 export function activePhaseIndex(r: {
   progress_note?: string | null;
   progress_pct?: number;
+  status?: string;
+  alignment?: string | null;
+  diar_status?: string | null;
 }): number {
   const n = r.progress_note ?? "";
+  // Noten haben Vorrang (Backend setzt sie beim Job-Start sofort, Change 180)
   if (n === "preparing" || n === "vad" || n === "enhance") return 0;
   if (n === "asr" || n.startsWith("asr ")) return 1;
   if (n === "diarization" || n.startsWith("diarization ")) return 2;
   if (n.startsWith("alignment")) return 3;
   if (n === "postprocessing" || n === "finalizing") return 4;
-  const pct = r.progress_pct ?? 0;
-  if (pct <= 20) return 0;
-  if (pct < 95) return 1; // Streaming-ASR schreibt pct ohne note
-  return 4; // 95+ ohne note → Nachbearbeitung/Ende
+  // Change 180: Job-STATUS-Felder als Quelle — align/diarize laufen OHNE
+  // status=processing; ohne sie fällt die Anzeige auf den pct-Fallback
+  // (preparing) mit alter phase_started_at zurück.
+  const align = r.alignment;
+  const diar = r.diar_status;
+  if (align === "running" || align === "pending") return 3;
+  if (diar === "running" || diar === "pending") return 2;
+  if (r.status === "processing") {
+    const pct = r.progress_pct ?? 0;
+    if (pct <= 20) return 0;
+    if (pct < 95) return 1; // Streaming-ASR schreibt pct ohne note
+    return 4; // 95+ ohne note → Nachbearbeitung/Ende
+  }
+  return -1; // kein Lauf — Chips bleiben gedimmt (kein Blinken, keine Zeit)
 }
 
 /** Serverseitige progress_note → i18n-Key: entfällt mit Change 035 — die
@@ -1946,20 +1960,26 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             {r.error ?? t("unknown_error")}
           </div>
         )}
-        {r.status === "processing" && (
+        {(r.status === "processing" ||
+          r.alignment === "running" ||
+          r.alignment === "pending" ||
+          r.diar_status === "running" ||
+          r.diar_status === "pending") && (
           <div className="px-4 pb-2">
             <div className="flex flex-wrap items-center gap-1 text-[12px] mb-[6px]">
               {/* Change 035: Phasen-Chips statt nur Text — jede Phase hat
                   einen Status (erledigt/aktiv/übersprungen/offen); die
-                  Prozent-Zahl bleibt als Zusatzinfo, wo sie real ist. */}
+                  Prozent-Zahl bleibt als Zusatzinfo, wo sie real ist.
+                  Change 180: auch bei align/diarize-Jobs sichtbar; ohne
+                  aktiven Lauf (active<0) bleiben alle Chips gedimmt. */}
               <span className="flex flex-wrap items-center gap-1 min-w-0">
                 {PHASES.map((p, i) => {
                   const active = activePhaseIndex(r);
                   const skipped = p.key === "diarization" && !r.enable_diarize;
                   let chip = "text-muted2 border-border";
                   if (skipped) chip = "text-muted2/40 border-border line-through";
-                  else if (i < active) chip = "text-ok/80 border-ok/30";
-                  else if (i === active) chip = "text-accent border-accent/50 bg-accent/10 animate-pulse";
+                  else if (active >= 0 && i < active) chip = "text-ok/80 border-ok/30";
+                  else if (active >= 0 && i === active) chip = "text-accent border-accent/50 bg-accent/10 animate-pulse";
                   return (
                     <span
                       key={p.key}
