@@ -486,10 +486,21 @@ mirror-ghcr:
         return 1
       fi
       echo "[mirror-ghcr] pull ${src}@${digest:0:19} ..."
-      # Pull-Fehler NICHT schlucken — sonst pusht der naechste Push einen
-      # Daemon mit fehlenden Layer-Blobs (NotFound, 2026-08-31).
-      if ! docker pull "${src}@${digest}"; then
-        echo "[mirror-ghcr] FEHLER: pull ${src}@${digest:0:19} fehlgeschlagen" >&2
+      # Pull-Fehler NICHT schlucken; transienter Fehler möglich, weil der
+      # Runner-Daemon von parallelen Jobs geteilt wird (containerd verwirft
+      # Ingests, wenn der Platz knapp wird: "rename ... no such file",
+      # 2026-08-31) — mit Retry überleben.
+      ok=""
+      for attempt in 1 2 3; do
+        if docker pull "${src}@${digest}"; then
+          ok=1
+          break
+        fi
+        echo "[mirror-ghcr] WARNUNG: pull ${src}@${digest:0:19} Versuch ${attempt} fehlgeschlagen — retry in 15s" >&2
+        sleep 15
+      done
+      if [ -z "$ok" ]; then
+        echo "[mirror-ghcr] FEHLER: pull ${src}@${digest:0:19} nach 3 Versuchen fehlgeschlagen" >&2
         return 1
       fi
       docker tag "${src}@${digest}" "${dst}:${ref}"
