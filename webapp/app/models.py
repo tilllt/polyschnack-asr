@@ -451,6 +451,15 @@ class Job(SQLModel, table=True):
     backend: str = ""
     priority: int = 0  # 0 = registriert, 1 = anonym
     status: str = "queued"  # queued | running | done | failed | cancelled
+    # Change 183 (Job-Zustandsmaschine): Phase + Fortschritt + Zeiten
+    # leben AM JOB (eine Quelle der Wahrheit). Die Recording-Ableitungs-
+    # felder werden in Phase 3 darauf umgestellt. (started_at/error
+    # existieren weiter unten im Model.)
+    phase: Optional[str] = None  # preparing | separate | asr | diarization | alignment | finalizing | postprocessing
+    pct: Optional[float] = None
+    phase_started_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    cancel_requested: Optional[int] = 0  # 0/1 — persistent (überlebt Restarts)
     payload: Optional[str] = None  # JSON-String
     error: Optional[str] = None
     attempts: int = 0

@@ -82,27 +82,23 @@ def _insert_job_row(key: Any, rec_id: int, kind: str, backend: str,
 
 
 def _update_job_status(row_id: Optional[int], status: str,
-                       error: Optional[str] = None) -> None:
-    """Change 155 (Schritt 2): Job-Row-Status fortschreiben (defensiv)."""
+                       error: Optional[str] = None,
+                       phase: Optional[str] = None,
+                       pct: Optional[float] = None) -> None:
+    """Change 155+183: Job-Row fortschreiben — via ``job_transition``
+    (atomar: status + phase + pct + Zeiten; eine Quelle der Wahrheit)."""
     if row_id is None:
         return
     try:
-        from .models import Job  # lokaler Import (Zyklus-Vermeidung)
+        from .job_state import job_transition  # lokaler Import
 
-        now = dt.datetime.now(dt.timezone.utc)
         with Session(db.engine) as session:
-            row = session.get(Job, row_id)
-            if row is None:
-                return
-            row.status = status
-            if status == "running" and row.started_at is None:
-                row.started_at = now
-            if status in ("done", "failed", "cancelled"):
-                row.finished_at = now
-            if error:
-                row.error = error
-            session.add(row)
-            session.commit()
+            job_transition(
+                session, row_id,
+                status=status, phase=phase, pct=pct, error=error,
+            )
+    except Exception:
+        log.exception("Job-Row-UPDATE fehlgeschlagen (row=%s)", row_id)
     except Exception:
         log.exception("Job-Row-Update fehlgeschlagen (row_id=%s, status=%s)",
                       row_id, status)
@@ -475,6 +471,16 @@ class QueueManager:
                 return True
             if job.status == "processing":
                 job.cancel_requested = True
+                # Change 183: Cancel persistent (überlebt Restarts — die
+                # In-Memory-Queue stirbt mit dem Prozess, die DB nicht).
+                if getattr(job, "_row_id", None):
+                    try:
+                        from .job_state import job_request_cancel
+
+                        with Session(db.engine) as session:
+                            job_request_cancel(session, job._row_id)
+                    except Exception:
+                        log.exception("Cancel-Persistenz fehlgeschlagen (row=%s)", job._row_id)
                 return True
             return False
 

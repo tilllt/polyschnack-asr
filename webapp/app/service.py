@@ -1170,6 +1170,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     if not background:
         with Session(engine) as session:
             set_progress(session, rec_id, 0, note="alignment")
+        _job_progress(job, phase="alignment", pct=0)
 
     tmp_audio = ""
     aligned_any = False
@@ -1303,6 +1304,7 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                             96 + int((gi + 1) / len(groups) * 3.99),
                             note=f"alignment {gi + 1}/{len(groups)}",
                         )
+                    _job_progress(job, phase="alignment", pct=round((gi + 1) / max(1, len(groups)) * 100))
             except Exception as exc_g:
                 log.warning("align: Gruppe %d/%d übersprungen (rec_id=%s): %s",
                             gi + 1, len(groups), rec_id, exc_g)
@@ -2017,6 +2019,7 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
             diar_path = _tmp_wav.name
             _t_diar0 = time.perf_counter()
             set_progress(session, rec_id, 0, note="diarization")
+            _job_progress(job, phase="diarization", pct=0)
             diar = _run_diarization(
                 diar_path,
                 num_speakers=num_speakers,
@@ -2114,6 +2117,24 @@ def _same_segments(a, b) -> bool:
         return False
 
 
+def _job_progress(job, *, phase: Optional[str] = None, pct: Optional[float] = None) -> None:
+    """Change 183: Job-Row parallel zur Recording-Anzeige fortschreiben.
+
+    Phase 1: beide Welten schreiben (die UI liest bis Phase 2 die
+    Recording-Felder); danach wird der Job die einzige Quelle.
+    """
+    row_id = getattr(job, "_row_id", None) if job is not None else None
+    if not row_id:
+        return
+    try:
+        from .job_state import job_transition
+
+        with Session(engine) as session:
+            job_transition(session, row_id, phase=phase, pct=pct)
+    except Exception:
+        pass
+
+
 def _cancelled(job, rec_id: int) -> bool:
     """True, wenn der Job abgebrochen werden soll (Cancel oder Timeout).
 
@@ -2124,6 +2145,18 @@ def _cancelled(job, rec_id: int) -> bool:
         return False
     if getattr(job, "cancel_requested", False):
         return True
+    # Change 183: persistenter Cancel-Check (DB) — der In-Memory-Flag
+    # stirbt mit dem Prozess; die DB-Row überlebt.
+    row_id = getattr(job, "_row_id", None)
+    if row_id:
+        try:
+            from .job_state import job_cancelled
+
+            with Session(engine) as session:
+                if job_cancelled(session, row_id):
+                    return True
+        except Exception:
+            pass
     max_s = getattr(job, "_max_processing_s", None)
     if max_s is None:
         # Fallback: Modul-Konstante (nicht perfekt, aber sicher)
@@ -2373,6 +2406,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         # 100, sobald sie laufen — kein global skaliertes Fake-Splitting.
         with Session(engine) as session:
             set_progress(session, rec_id, 100, note="preparing")
+            _job_progress(job, phase="preparing", pct=100)
 
         # Optional VAD silence trimming (Change 114: vad_mode off|edges|all,
         # User-konfigurierbar, kein Env-Gate mehr)
@@ -2380,6 +2414,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             _t_vad0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 100, note="vad")
+                _job_progress(job, phase="vad", pct=100)
             audio_bytes, vad_meta = _apply_vad(audio_bytes, vad_mode)
             if vad_meta:
                 log.info("vad: rec_id=%s mode=%s", rec_id, vad_meta["type"])
@@ -2392,6 +2427,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             _t_enh0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 100, note="enhance")
+                _job_progress(job, phase="enhance", pct=100)
             log.info("Enhance: rec_id=%s level=%s", rec_id, enable_enhance)
             enhanced = enhance_audio(audio_bytes, level=enable_enhance)
             if len(enhanced) != len(audio_bytes):
@@ -2406,6 +2442,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             _t_sep0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 100, note="separate")
+                _job_progress(job, phase="separate", pct=100)
             try:
                 from .separate_client import SeparateClient
                 sc = SeparateClient()
@@ -2432,6 +2469,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
 
         with Session(engine) as session:
             set_progress(session, rec_id, 0, note="asr")
+            _job_progress(job, phase="asr", pct=0)
 
         # Run ASR (batched sync or SSE streaming)
         _t_asr0 = time.perf_counter()
@@ -2475,6 +2513,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 # — 100 = die Nachbearbeitung läuft; der Balken ist voll,
                 # die Chips zeigen die Phase als aktiv.
                 set_progress(session, rec_id, 100, note="finalizing")
+                _job_progress(job, phase="finalizing", pct=100)
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None
@@ -2512,6 +2551,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                     hb_stop.set()
             with Session(engine) as session:
                 set_progress(session, rec_id, 100, note="finalizing")
+                _job_progress(job, phase="finalizing", pct=100)
                 rec2 = crud.get_recording(session, rec_id)
                 if rec2 is not None and rec2.progress_note is not None:
                     rec2.progress_note = None
@@ -2583,6 +2623,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             # Sichtbares Feedback: ASR ist fertig, Diarization läuft (kann Minuten dauern)
             with Session(engine) as session:
                 set_progress(session, rec_id, 0, note="diarization")
+            _job_progress(job, phase="diarization", pct=0)
             # Change 011/151: Heartbeat tickt last_heartbeat_at; der echte
             # Fortschritt kommt via /progress (Change 150, on_progress unten).
             hb_stop_d = _start_heartbeat(rec_id, 0, "diarization")
@@ -2733,6 +2774,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             _t_punc0 = time.perf_counter()
             with Session(engine) as session:
                 set_progress(session, rec_id, 95, note="postprocessing")
+                _job_progress(job, phase="postprocessing", pct=95)
             hb_stop_llm = _start_heartbeat(rec_id, 95, "postprocessing")
         try:
             if enable_punctuation and not native_punct and settings.POLYSCHNACK_PUNCTUATION_MODE != "off":
