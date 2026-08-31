@@ -56,6 +56,11 @@ services:
     # found" (409), vocals fehlen, Aligner skipped auf Musik-Aufnahmen.
     image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-sep:latest
     runtime: nvidia
+    environment:
+      # Change 175: htdemucs GPU-Graph aktivieren (crispasr nutzt den
+      # FUSED-GPU-forward nur mit diesem Flag; Default ist CPU → RTF ~7,4
+      # auf der 3090 Ti statt ~0,3. Live-Befund 2026-08-31.)
+      CRISPASR_HTDEMUCS_GPU: "1"
 
   crispr-pk-cpp:
     runtime: nvidia
