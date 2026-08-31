@@ -15,7 +15,7 @@ import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
 import { useNearViewport } from "../hooks";
 import { activeSegmentIndex } from "../karaoke";
-import { deriveSegments, deleteSegment, splitSegmentAtRange, cleanSegments } from "../resegment";
+import { deriveSegments, deleteSegment, splitSegmentAtRange, cleanSegments, ensureSegmentBounds } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
 import { OptionsPanel, type ActionId } from "./OptionsPanel";
@@ -785,7 +785,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // „segment N: empty text" ab. Gilt für Delete, Split UND Grenzen.
   async function handleBoundaryDragEnd(next: Segment[]) {
     if (!next || !r.uid) return;
-    const cleaned = cleanSegments(next);
+    const cleaned = ensureSegmentBounds(cleanSegments(next));
     if (cleaned.length === 0) return;
     const seq = ++persistSeq.current;
     const prevSegments = segments; // Rollback-Ziel (Modell vor dem Commit)
@@ -821,7 +821,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!r.uid) return;
     // Change 144: leere Anzeige-Segmente vor dem PUT entfernen (siehe
     // cleanSegments) — statt den 400 „segment N: empty text" zu provozieren.
-    const cleaned = cleanSegments(next);
+    const cleaned = ensureSegmentBounds(cleanSegments(next));
     if (cleaned.length === 0) return; // alles leer — nichts zu speichern
     const seq = ++persistSeq.current;
     const prevSegments = segments;
@@ -860,7 +860,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   function handleSplitSegment(idx: number, charStart: number, charEnd: number, speaker: string) {
     if (!r.uid || !displaySegments) return;
     const next = splitSegmentAtRange(displaySegments, idx, charStart, charEnd, speaker) as Segment[];
-    if (next === displaySegments || next.length === displaySegments.length) return; // nichts geändert
+    if (next === displaySegments || next.length === displaySegments.length) {
+      // Change 168: No-Op sichtbar machen — Markierung trifft kein Wort
+      // oder umfasst das ganze Segment (Split ohne Rest). Vorher stille.
+      toast(t("split_noop"), "info");
+      return;
+    }
     void persistSegmentList(next);
   }
 

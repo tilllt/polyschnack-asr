@@ -528,17 +528,19 @@ mirror-ghcr:
   tags:
     - shared
   needs:
-    - job: test-core
-      optional: true
+    # Change 165: erst NACH test-webapp/build-webapp starten — der
+    # Runner-Daemon wird von parallelen Jobs geteilt; gleichzeitig
+    # laufende große Jobs verwerten Layer-Ingests (containerd "rename ...
+    # no such file", 2026-08-31) und lassen den mirror rot werden.
     - job: test-webapp
+      optional: true
+    - job: build-webapp
       optional: true
     - job: test-frontend
       optional: true
     - job: compose-validate
       optional: true
     - job: build-asr
-      optional: true
-    - job: build-webapp
       optional: true
     - job: build-qwen3
       optional: true

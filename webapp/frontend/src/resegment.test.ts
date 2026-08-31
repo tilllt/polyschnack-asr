@@ -2,7 +2,7 @@
    RESEGMENT-Tests: Segmentlängen-Auswahl (Feature 2026-08-15)
    ============================================================ */
 import { describe, it, expect } from "vitest";
-import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments, wordRangeToCharRange, cleanSegments } from "./resegment.ts";
+import { resegmentByDuration, moveBoundary, insertSegment, deleteSegment, splitSegmentAtRange, deriveSegments, wordRangeToCharRange, cleanSegments, ensureSegmentBounds } from "./resegment.ts";
 
 function seg(start: number, end: number, words: [string, number, number][], speaker?: string) {
   return {
@@ -763,5 +763,32 @@ describe("Change 102: kurze unmarkierte Segmente werden NICHT verschmolzen", () 
     expect(out.length).toBe(2);
     expect(out.map((s) => s.text)).toEqual(["Hallo", "Welt"]);
     expect(cleanSegments(withEmpty)).not.toBe(withEmpty); // neues Array
+  });
+});
+
+describe("ensureSegmentBounds (Change 168)", () => {
+  it("repariert fehlendes start aus dem ersten Wort", () => {
+    const out = ensureSegmentBounds([{ text: "a b", words: [{ word: "a", start: 1.5, end: 2.0 }, { word: "b", start: 2.0, end: 2.5 }] } as never]);
+    expect(out[0].start).toBe(1.5);
+    expect(out[0].end).toBe(2.5);
+  });
+
+  it("repariert fehlendes end aus dem letzten Wort", () => {
+    const out = ensureSegmentBounds([{ text: "a b", start: 0, words: [{ word: "a", start: 1.5, end: 2.0 }, { word: "b", start: 2.0, end: 2.5 }] } as never]);
+    expect(out[0].start).toBe(0);
+    expect(out[0].end).toBe(2.5);
+  });
+
+  it("Nachbar-Fallback ohne Wörter", () => {
+    const segs = [{ text: "x", start: 0, end: 1 }, { text: "y", words: [] }] as never;
+    const out = ensureSegmentBounds(segs);
+    expect(out[1].start).toBe(1);
+    expect(out[1].end).toBe(1);
+  });
+
+  it("intakte Segmente bleiben unverändert (Referenz)", () => {
+    const s = { text: "a", start: 0, end: 1 } as never;
+    const out = ensureSegmentBounds([s]);
+    expect(out[0]).toBe(s);
   });
 });

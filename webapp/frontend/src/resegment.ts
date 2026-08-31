@@ -340,6 +340,35 @@ export function cleanSegments<T extends { text?: string | null }>(segs: readonly
   return segs.filter((s) => String(s.text ?? "").trim() !== "");
 }
 
+/** Change 168: Segmente mit fehlendem/`undefined` start|end reparieren.
+ *
+ * Nach Drag/Insert kann ein Segment im Frontend-Zustand ein `undefined`-
+ * Feld tragen (Grenzwort ohne sauberes Timestamp). `JSON.stringify` lässt
+ * `undefined`-Keys komplett weg → das Backend lehnt die Liste mit
+ * „missing start/end" ab (Live-Befund 2026-08-31). Quelle der Reparatur:
+ * erstes Wort mit `start` bzw. letztes mit `end`, sonst Nachbar-/0-Fallback.
+ * Intakte Segmente bleiben referenzidentisch.
+ */
+export function ensureSegmentBounds(segs: readonly ResegSegment[]): ResegSegment[] {
+  return segs.map((s, i) => {
+    const words = (s.words ?? []) as ResegWord[];
+    let start = s.start;
+    let end = s.end;
+    if (typeof start !== "number") {
+      const w = words.find((x) => typeof x.start === "number");
+      start = typeof w?.start === "number" ? w.start
+        : i > 0 && typeof segs[i - 1].end === "number" ? (segs[i - 1].end as number)
+        : 0;
+    }
+    if (typeof end !== "number") {
+      const w = [...words].reverse().find((x) => typeof x.end === "number");
+      end = typeof w?.end === "number" ? w.end : start;
+    }
+    if (start !== s.start || end !== s.end) return { ...s, start, end };
+    return s;
+  });
+}
+
 export function deleteSegment(
   segments: ResegmentInput,
   idx: number,

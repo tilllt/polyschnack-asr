@@ -293,7 +293,116 @@ def reconcile_words_to_text(
         seg_start = float(s.get("start") or 0.0)
         seg_end = float(s.get("end") or seg_start + 1.0)
         s["words"] = _align_words(words, text, seg_start, seg_end)
+        # Change 168 (User-Vorgabe): Jedes Wort bekommt start+end — auch
+        # wenn der Aligner/ASR Lücken lässt (nie Wörter ohne Timing
+        # speichern; Karaoke/Split/Timing-Edits brauchen die Basis).
+        s["words"] = ensure_word_timings(s["words"], seg_start, seg_end)
     return segments
+
+
+#: Geschätzte Wortdauer pro Zeichen (Change 168 — Interpolationsbasis).
+_WORD_S_PER_CHAR = 0.09
+_WORD_MIN_DURATION_S = 0.15
+
+
+def _estimate_word_duration(word) -> float:
+    """Geschätzte Wortdauer aus der Wortlänge (min. 0,15 s)."""
+    n = max(1, len(str(word or "")))
+    return max(_WORD_MIN_DURATION_S, _WORD_S_PER_CHAR * n)
+
+
+def ensure_word_timings(
+    words: list[dict[str, Any]],
+    seg_start: float | None,
+    seg_end: float | None,
+) -> list[dict[str, Any]]:
+    """Change 168 (User-Vorgabe): Jedes Wort bekommt start+end — als
+    REINER FALLBACK. Echte Timings (Aligner, ASR, manueller Timing-Modus)
+    werden NIE überschrieben; der Mechanismus greift nur bei Wörtern ohne
+    Timing.
+
+    Ablauf:
+    1. Wort mit GENAU EINEM echten Wert: der fehlende Wert wird aus der
+       geschätzten Wortlänge ergänzt (start → end = start + Dauer;
+       end → start = end − Dauer) — der echte Wert bleibt unangetastet.
+       Randbedingungen (User-Vorgabe): geschätztes end NIE über den start
+       des nächsten Wortes hinaus; geschätzter start NIE vor dem end des
+       vorigen Wortes (Clamp auf die Nachbarn).
+    2. Vollständig zeitlose Wörter: Interpolation aus den Nachbarn —
+       Lücken zwischen verankerten Wörtern proportional zur Wortlänge
+       verteilt (per Konstruktion lückenlos: end₁ ≤ start₂ für alle
+       benachbarten Wörter), Rand-Wörter an die Segmentgrenzen gehängt,
+       ganz ohne Anker wird die Segmentdauer verteilt.
+
+    Verankerte Wörter (inkl. manuell gesetzter Timing-Modus-Werte) werden
+    in keinem Fall verändert. Invariante: keine Wörter ohne Timing
+    speichern.
+    """
+    if not words:
+        return words
+
+    s0 = float(seg_start) if isinstance(seg_start, (int, float)) else 0.0
+    s1 = float(seg_end) if isinstance(seg_end, (int, float)) and seg_end > s0 else s0 + 1.0
+
+    out = [dict(w) for w in words]
+
+    # Phase 1: halb-verankerte Wörter ergänzen (geschätzte Länge) — der
+    # vorhandene echte Wert bleibt, nur das fehlende Feld wird gefüllt.
+    # Randbedingungen (User-Vorgabe): geschätztes end NIE über den start
+    # des nächsten Wortes; geschätzter start NIE vor dem end des vorigen.
+    for i, w in enumerate(out):
+        if isinstance(w.get("start"), (int, float)) and not isinstance(w.get("end"), (int, float)):
+            est_end = w["start"] + _estimate_word_duration(w.get("word"))
+            nxt = out[i + 1] if i + 1 < len(out) else None
+            if nxt is not None and isinstance(nxt.get("start"), (int, float)):
+                est_end = min(est_end, nxt["start"])
+            w["end"] = est_end
+        elif isinstance(w.get("end"), (int, float)) and not isinstance(w.get("start"), (int, float)):
+            est_start = w["end"] - _estimate_word_duration(w.get("word"))
+            prv = out[i - 1] if i > 0 else None
+            if prv is not None and isinstance(prv.get("end"), (int, float)):
+                est_start = max(est_start, prv["end"])
+            w["start"] = est_start
+
+    anchored = [
+        i for i, w in enumerate(out)
+        if isinstance(w.get("start"), (int, float)) and isinstance(w.get("end"), (int, float))
+    ]
+    if len(anchored) == len(out):
+        return out  # alles verankert — nichts zu tun
+
+    anchored_set = set(anchored)
+
+    def fill(lo_idx: int, lo_time: float, hi_idx: int, hi_time: float) -> None:
+        """Wörter lo_idx..hi_idx (komplett zeitlos) zwischen lo_time und
+        hi_time proportional zur Wortlänge verteilen."""
+        if hi_idx < lo_idx:
+            return
+        span = hi_time - lo_time
+        if span <= 0:
+            span = 0.1
+        lens = [max(1, len(str(out[i].get("word") or ""))) for i in range(lo_idx, hi_idx + 1)]
+        total = float(sum(lens))
+        t = lo_time
+        for i, l in zip(range(lo_idx, hi_idx + 1), lens):
+            dur = span * l / total if total else span / max(1, len(lens))
+            # Nur komplett zeitlose Wörter landen hier — Werte nie
+            # überschreiben (Fallback-only).
+            if i not in anchored_set:
+                out[i]["start"] = t
+                out[i]["end"] = t + dur
+            t += dur
+
+    for a, b in zip(anchored, anchored[1:]):
+        if b - a > 1:
+            fill(a + 1, float(out[a]["end"]), b - 1, float(out[b]["start"]))
+    if anchored and anchored[0] > 0:
+        fill(0, s0, anchored[0] - 1, float(out[anchored[0]]["start"]))
+    if anchored and anchored[-1] < len(words) - 1:
+        fill(anchored[-1] + 1, float(out[anchored[-1]]["end"]), len(words) - 1, s1)
+    if not anchored:
+        fill(0, s0, len(words) - 1, s1)
+    return out
 
 
 @router.post("/recordings/{rid}/speaker-rename")
