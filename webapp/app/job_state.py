@@ -29,8 +29,11 @@ PHASES = (
 TERMINAL = ("done", "failed", "cancelled")
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _now() -> datetime:
+    # DateTime-Spalten (started_at/phase_started_at/heartbeat_at/
+    # finished_at) verlangen datetime-Objekte — ISO-Strings lehnt
+    # SQLite ab (TypeError; Test-Befund 2026-08-31).
+    return datetime.now(timezone.utc)
 
 
 def job_transition(
