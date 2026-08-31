@@ -1538,6 +1538,15 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
             rec.alignment = "running"
             session.add(rec)
             session.commit()
+            # Change 170: Phasen-Note + phase_started_at für die UI —
+            # sonst zeigen die Chips den Zustand des alten Transcribe-
+            # Laufs („finalizing läuft seit 180m", Live-Befund 2026-08-31).
+            # Defensiv: ein UI-Status-Update darf den Job nie brechen.
+            try:
+                from . import crud as _crud
+                _crud.set_progress(session, rec_id, 1, "alignment")
+            except Exception:
+                log.warning("bg-align: status note update failed (rec_id=%s)", rec_id, exc_info=True)
     except Exception as exc:
         # Defensiv: Worker-Fehler nie als unhandled Thread-Exception enden
         # (Tests/Isolation, DB weg) — still aufräumen, Backend-Timestamps
@@ -1935,11 +1944,18 @@ def _run_background_rediarize(rec_id: int, audio_bytes: bytes,
             if opts.get("method"):
                 method = opts["method"]
         rec.diar_status = "running"
-        # Ehrlicher Status-Hinweis (kein Fake-Progress); wird am Ende
-        # (done/skipped/failed) wieder geräumt.
-        rec.progress_note = "Re-Diarize läuft …"
+        # Change 170: Phasen-Note + phase_started_at für die UI — die
+        # Chips müssen „diarizing" zeigen (activePhaseIndex), nicht den
+        # pct-Fallback des alten Laufs (Live-Befund 2026-08-31: blinkende
+        # „finalizing"-Kachel mit „läuft seit 180m" während re-diarize).
+        # Defensiv: ein UI-Status-Update darf den Job nie brechen.
         session.add(rec)
         session.commit()
+        try:
+            from . import crud as _crud
+            _crud.set_progress(session, rec_id, 1, "diarization")
+        except Exception:
+            log.warning("rediarize: status note update failed (rec_id=%s)", rec_id, exc_info=True)
 
     # Change 115: Job-Heartbeat für die UI („aktiv seit Xs") — tickt
     # last_heartbeat_at via set_progress(note=None); die Note bleibt stehen.
