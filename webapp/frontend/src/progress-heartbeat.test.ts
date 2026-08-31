@@ -150,6 +150,7 @@ describe("activePhaseIndex (Change 035 — Phasen-Chips)", () => {
     expect(activePhaseIndex({ progress_note: "preparing" })).toBe(0);
     expect(activePhaseIndex({ progress_note: "vad" })).toBe(0);
     expect(activePhaseIndex({ progress_note: "enhance" })).toBe(0);
+    expect(activePhaseIndex({ progress_note: "separate", progress_pct: 100 })).toBe(0); // Change 181
     expect(activePhaseIndex({ progress_note: "asr" })).toBe(1);
     expect(activePhaseIndex({ progress_note: "diarization" })).toBe(2);
     expect(activePhaseIndex({ progress_note: "alignment" })).toBe(3);

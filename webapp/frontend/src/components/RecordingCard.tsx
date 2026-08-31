@@ -134,7 +134,9 @@ export function activePhaseIndex(r: {
 }): number {
   const n = r.progress_note ?? "";
   // Noten haben Vorrang (Backend setzt sie beim Job-Start sofort, Change 180)
-  if (n === "preparing" || n === "vad" || n === "enhance") return 0;
+  // Change 181: "separate" (Musik-Entfernung im re-transcribe) gehört zu
+  // preparing — ohne das Mapping zeigte die Phase "finalizing" (pct=100).
+  if (n === "preparing" || n === "vad" || n === "enhance" || n === "separate") return 0;
   if (n === "asr" || n.startsWith("asr ")) return 1;
   if (n === "diarization" || n.startsWith("diarization ")) return 2;
   if (n.startsWith("alignment")) return 3;
