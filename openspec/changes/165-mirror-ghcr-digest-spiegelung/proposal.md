@@ -2,35 +2,35 @@
 
 **Status:** Proposed
 
-## Befund (2026-08-31, Pipeline 4752 + Retry 16948)
+## Befund (2026-08-31, Pipelines 4752/4754 + Retry)
 
-- `mirror-ghcr` schlug zweimal fehl beim Spiegeln von
-  `polyschnack-asr-webapp:latest`:
+- `mirror-ghcr` schlug wiederholt beim Spiegeln von
+  `polyschnack-asr-webapp:latest` fehl:
   `manifest list/index references multiple platform specific manifests …
   NotFound: content digest sha256:5cc4a07…: not found`.
-- Ursache: Bei Single-Plattform-Images (`polyschnack-asr`, `-webapp`;
-  Harbor liefert `application/vnd.docker.distribution.manifest.v2+json`)
-  hat `docker manifest inspect` kein `manifests`-Feld → die
-  amd64-Auflösung bleibt leer → Fallback `docker pull src:tag` +
-  Tag-Push. Ist der Runner-Daemon-Tag stale (älterer Multi-Arch-Index
-  mit attestation/unknown-Child), pusht das Skript diesen Index; GHCR
-  lehnt ab, weil ein Child-Manifest dort fehlt. Der eigentliche Inhalt
-  war bereits korrekt gespiegelt (GHCR-config `8e5c2b44` == Harbor).
-- Gleiche Klasse wie Change 164: stiller Fallback verdeckt den
-  Ist-Zustand und pusht ggf. veralteten Stand.
+- Nach dem Digest-Fix (resolve_digest → `sha256:42c9bc…`) blieb der Fehler:
+  `5cc4a07` ist KEIN Index-Child, sondern ein **Layer-BLOB** des
+  Single-Manifests (12 Layer). Der Runner-Daemon (extern, shared) sammelt
+  über den Tag hinweg Images aller Pipelines; ein voller Daemon lässt
+  `docker pull` Blobs unvollständig laden (Fehler wurde mit
+  `>/dev/null 2>&1` verschluckt), und `docker push` scheitert dann mit
+  NotFound auf dem fehlenden Layer. Der GHCR-Inhalt selbst war bereits
+  korrekt (config `8e5c2b44` == Harbor).
 
 ## Lösung
 
-1. Neue Helper-Funktion `resolve_digest <src> <ref>`: liefert IMMER eine
-   explizite Manifest-Digest —
-   - Index (Multi-Arch): `linux/amd64`-Child-Digest;
-   - Single-Plattform-Manifest: eigene Descriptor-Digest
-     (`docker manifest inspect --verbose`).
-2. `mirror_one` pullt/taggt/pusht ausschließlich per Digest
-   (`src@digest`). Kein `docker pull src:tag`-Fallback mehr — ein stale
-   Daemon-Tag kann nie mehr gepusht werden.
-3. Keine auflösbare Digest → Job bricht laut mit Fehlermeldung ab
-   (statt still weiterzulaufen).
+1. `docker system prune -af` vor der Loop — Daemon-Zustand deterministisch
+   (unbenutzte Images/Caches weg; laufende Jobs anderer Pipelines bleiben
+   unberührt).
+2. `resolve_digest <src> <ref>`: IMMER eine explizite Manifest-Digest —
+   Index (Multi-Arch) → `linux/amd64`-Child; Single-Plattform-Manifest →
+   eigene Descriptor-Digest (`--verbose`).
+3. `mirror_one` pullt/taggt/pusht ausschließlich per Digest
+   (`src@digest`). Kein Tag-Fallback — ein stale Daemon-Tag kann nie mehr
+   gepusht werden.
+4. Pull-Fehler sind NICHT mehr verschluckt: fehlgeschlagener Pull bricht
+   den Job laut mit Meldung ab (kein stiller Push eines unvollständigen
+   Daemons).
 
 ## Tests
 

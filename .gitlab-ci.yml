@@ -445,10 +445,16 @@ mirror-ghcr:
     mkdir ~/.docker
     cp ${CONFIG_JSON} ~/.docker/config.json
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    # Change 165: Daemon-Zustand deterministisch machen — unbenutzte
+    # Images/Caches raeumen (Runner-Daemon sammelt ueber alle Pipelines
+    # des Tages; voller Daemon → docker pull laedt Blobs unvollstaendig,
+    # docker push scheitert dann mit NotFound auf Layer-Digests, z. B.
+    # 5cc4a07 am 2026-08-31). Laufende Jobs anderer Pipelines bleiben
+    # unberuehrt (prune -af fasst nur unbenutzte Images an).
+    docker system prune -af >/dev/null 2>&1 || true
     # Change 165: IMMER eine explizite Manifest-Digest auflösen und per
     # Digest spiegeln. Kein `docker pull src:tag`-Fallback — ein stale
-    # Daemon-Tag (älterer Multi-Arch-Index) würde sonst gepusht und von
-    # GHCR abgelehnt (NotFound: fehlendes Child-Manifest, 2026-08-31).
+    # Daemon-Tag (älterer Multi-Arch-Index) würde sonst gepusht.
     resolve_digest() {
       local src="$1" ref="$2" out=""
       out=$(docker manifest inspect "${src}:${ref}" 2>/dev/null | python3 -c "
@@ -480,7 +486,13 @@ mirror-ghcr:
         echo "[mirror-ghcr] FEHLER: keine aufloesbare Digest fuer ${src}:${ref}" >&2
         return 1
       fi
-      docker pull "${src}@${digest}" >/dev/null 2>&1
+      echo "[mirror-ghcr] pull ${src}@${digest:0:19} ..."
+      # Pull-Fehler NICHT schlucken — sonst pusht der naechste Push einen
+      # Daemon mit fehlenden Layer-Blobs (NotFound, 2026-08-31).
+      if ! docker pull "${src}@${digest}"; then
+        echo "[mirror-ghcr] FEHLER: pull ${src}@${digest:0:19} fehlgeschlagen" >&2
+        return 1
+      fi
       docker tag "${src}@${digest}" "${dst}:${ref}"
       echo "[mirror-ghcr] ${src##*/}:${ref} → amd64 ${digest:0:12}"
       docker push "${dst}:${ref}"
