@@ -145,6 +145,10 @@ if timeout 5 docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"
 else
     echo "-> Keine NVIDIA-Runtime (oder Docker nicht erreichbar) - Stack startet CPU-only"
 fi
+# OIDC-Flag aus .env lesen (wie REGISTRY weiter oben) — Env-Variable gewinnt.
+if [ -z "${POLYSCHNACK_OIDC:-}" ] && [ -f .env ]; then
+    POLYSCHNACK_OIDC="$(grep -E '^POLYSCHNACK_OIDC=' .env | head -1 | cut -d= -f2- | tr -d '"' || true)"
+fi
 if [ "${POLYSCHNACK_OIDC:-0}" = "1" ]; then
     if [ -f compose.oidc.yml ] && ! grep -qE 'dummy|auth\.example\.com|example\.com' compose.oidc.yml; then
         OVERLAYS+=(-f compose.oidc.yml)
