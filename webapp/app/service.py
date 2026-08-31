@@ -1624,13 +1624,15 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
                 rec.alignment = "skipped"
                 rec.error = f"Alignment übersprungen: {reason}"
                 log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
-            # Change 178: Nach skipped/done die Fortschritts-Metadaten
+            # Change 178+179: Nach skipped/done die Fortschritts-Metadaten
             # räumen — note/pct vom Lauf würden als Restzustand stehen
             # bleiben und die Chips einen Lauf vortäuschen (Live-Befund
             # 2026-08-31: note='alignment', pct=1 nach skipped).
+            # Change 179: progress_pct ist NOT NULL (sqlite3.IntegrityError
+            # beim None — Live-Befund) → 0 statt None; note darf NULL sein.
             if rec.alignment != "running":
                 rec.progress_note = None
-                rec.progress_pct = None
+                rec.progress_pct = 0
             session.add(rec)
             session.commit()
     except Exception as exc:
