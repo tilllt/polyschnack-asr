@@ -11,8 +11,9 @@
 #               Backends mit --no-start (Admin-GUI startet sie on demand).
 #               GPU-Overlay automatisch, wenn die NVIDIA-Container-Runtime
 #               verfügbar ist, sonst CPU-only (Hybrid-Binaries).
-#               OIDC-Overlay, sobald echte Credentials in compose.oidc.yml
-#               stehen (Dummy-Werte werden erkannt und übersprungen).
+#               OIDC-Overlay NUR mit POLYSCHNACK_OIDC=1 in der .env
+#               (Opt-in; Default aus. Auto-Erkennung der Credentials
+#               entfernt — Change 171).
 #   stop        Stoppt alle Container des Stacks (inkl. Backends).
 #   restart     stop + start.
 #   down        Entfernt die Container (Volumes bleiben erhalten).
@@ -144,11 +145,15 @@ if timeout 5 docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -qi '"
 else
     echo "-> Keine NVIDIA-Runtime (oder Docker nicht erreichbar) - Stack startet CPU-only"
 fi
-if [ -f compose.oidc.yml ] && ! grep -qE 'dummy|auth\.example\.com|example\.com' compose.oidc.yml; then
-    OVERLAYS+=(-f compose.oidc.yml)
-    echo "-> OIDC-Overlay aktiv (echte Credentials gefunden)"
-elif [ -f compose.oidc.yml ]; then
-    echo "! compose.oidc.yml enthaelt Dummy-Werte - OIDC uebersprungen"
+if [ "${POLYSCHNACK_OIDC:-0}" = "1" ]; then
+    if [ -f compose.oidc.yml ] && ! grep -qE 'dummy|auth\.example\.com|example\.com' compose.oidc.yml; then
+        OVERLAYS+=(-f compose.oidc.yml)
+        echo "-> OIDC-Overlay aktiv (POLYSCHNACK_OIDC=1)"
+    else
+        echo "! POLYSCHNACK_OIDC=1, aber compose.oidc.yml fehlt/hat Dummy-Werte - OIDC uebersprungen"
+    fi
+else
+    echo "-> OIDC-Overlay uebersprungen (POLYSCHNACK_OIDC nicht gesetzt)"
 fi
 
 # --- Modelle: nur fuer konfigurierte Backends -------------------------------
