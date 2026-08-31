@@ -1624,6 +1624,13 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
                 rec.alignment = "skipped"
                 rec.error = f"Alignment übersprungen: {reason}"
                 log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
+            # Change 178: Nach skipped/done die Fortschritts-Metadaten
+            # räumen — note/pct vom Lauf würden als Restzustand stehen
+            # bleiben und die Chips einen Lauf vortäuschen (Live-Befund
+            # 2026-08-31: note='alignment', pct=1 nach skipped).
+            if rec.alignment != "running":
+                rec.progress_note = None
+                rec.progress_pct = None
             session.add(rec)
             session.commit()
     except Exception as exc:
