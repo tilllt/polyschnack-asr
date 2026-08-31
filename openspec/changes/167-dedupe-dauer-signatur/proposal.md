@@ -1,6 +1,6 @@
 # Change 167 — Dedup: Dauer-Signatur (Parakeet-Alignment) für Stille-Kopien
 
-**Status:** Proposed
+**Status:** Implemented (2026-08-31, Live-Check auf der KI-Box)
 
 ## Befund (2026-08-31, Recording 297 „Tragende Wände", Ergebnis 130 / Run 140)
 
