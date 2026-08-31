@@ -15,6 +15,17 @@ from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api")
 
+# Change 163: Neustart-Kinds = vollständig neue Basis (Transkription aus
+# einem neuen ASR-Lauf bzw. Restore). Ein Auto-Diff gegen die Vorgängerin
+# ergibt bei ihnen keinen Sinn (Live-Befund: Re-Transcribe V189→V190 zeigte
+# „alles gelöscht + alles neu" inkl. Sprachwechsel) — nur Edits/Post-Process
+# sind inkrementell und werden gegen die vorige Version gedifft.
+RESTART_KINDS = {"transcribe", "retranscribe", "restore"}
+
+
+def is_restart_kind(kind: str) -> bool:
+    return kind in RESTART_KINDS
+
 
 def _current_user(request, session=None) -> Optional[int]:
     from ..identity import current_identity
@@ -73,6 +84,9 @@ def list_versions_endpoint(rid: str, request: Request,
             "language": v.language,
             "created_at": iso_utc(v.created_at),
             "created_by_user_id": v.created_by_user_id,
+            # Change 163: Neustart (transcribe/retranscribe/restore) = neue
+            # Basis ohne Diff zur Vorgängerin — die UI kennzeichnet sie so.
+            "restart": is_restart_kind(v.kind),
         }
         for v in list_versions(session, rec.id, since=since)
     ]
@@ -82,7 +96,14 @@ def list_versions_endpoint(rid: str, request: Request,
 def diff_endpoint(rid: str, v_no: int, request: Request,
                   session: Session = Depends(get_session),
                   frm: Optional[int] = None) -> dict:
-    """Diff zwischen zwei Versionen (Standard: *v_no* gegen ihre Vorgängerin)."""
+    """Diff zwischen zwei Versionen (Standard: *v_no* gegen ihre Vorgängerin).
+
+    Change 163: Ohne explizites ``frm`` wird bei Neustart-Kinds
+    (transcribe/retranscribe/restore) KEIN Diff gegen die Vorgängerin
+    geliefert — die Version ist eine vollständig neue Basis (Live-Befund:
+    Re-Transcribe zeigte „alles gelöscht + alles neu" inkl. Sprachwechsel).
+    Mit explizitem ``frm`` bleibt der gezielte Vergleich möglich.
+    """
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -94,6 +115,9 @@ def diff_endpoint(rid: str, v_no: int, request: Request,
     if b is None:
         raise HTTPException(status_code=404, detail="version not found")
     if frm is None:
+        if is_restart_kind(b.kind):
+            # Neustart: kein Auto-Diff gegen die Vorgängerin
+            return {"from": None, "to": v_no, "diff": [], "restart": True}
         a = next((v for v in versions if v.version_no < v_no), None)
         if a is None:
             return {"from": None, "to": v_no, "diff": []}

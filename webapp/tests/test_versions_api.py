@@ -77,6 +77,64 @@ def test_diff_first_version_empty(db):
         assert d["diff"] == []
 
 
+def test_diff_restart_kind_has_no_auto_diff(db):
+    """Change 163: Neustart-Kinds (transcribe/retranscribe/restore) liefern
+    ohne explizites frm KEINEN Diff gegen die Vorgängerin — die Version ist
+    eine vollständig neue Basis (Live-Befund: Re-Transcribe zeigte „alles
+    gelöscht + alles neu" inkl. Sprachwechsel)."""
+    with Session(db) as s:
+        # v1 = transcribe (Neustart), v2 = edit, v3 = retranscribe (Neustart)
+        rec = s.get(Recording, 1)
+        rec.text = "Komplett andere Transkription\nmit neuem Inhalt"
+        s.add(rec)
+        s.commit()
+        snapshot(s, rec, "retranscribe", user_id=1)
+
+    with Session(db) as s:
+        d = versions_router.diff_endpoint("r1", 3, _req(1), s)
+        assert d["from"] is None
+        assert d["diff"] == []
+        assert d["restart"] is True
+        # Edit bleibt inkrementell: Diff gegen Vorgängerin
+        d2 = versions_router.diff_endpoint("r1", 2, _req(1), s)
+        assert d2["from"] == 1
+        assert len(d2["diff"]) > 0
+        assert "restart" not in d2
+
+
+def test_diff_restart_with_explicit_frm_still_diffs(db):
+    """Change 163: Mit explizitem frm bleibt der gezielte Vergleich über
+    einen Neustart hinweg möglich (z. B. „vorher/nachher")."""
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        rec.text = "Komplett andere Transkription\nmit neuem Inhalt"
+        s.add(rec)
+        s.commit()
+        snapshot(s, rec, "retranscribe", user_id=1)
+
+    with Session(db) as s:
+        d = versions_router.diff_endpoint("r1", 3, _req(1), s, frm=1)
+        assert d["from"] == 1
+        assert {"type": "del", "text": "Zeile eins"} in d["diff"]
+
+
+def test_list_versions_marks_restart_kinds(db):
+    """Change 163: Die Versionsliste kennzeichnet Neustart-Kinds, damit die
+    UI sie ohne Raten von Edits unterscheiden kann."""
+    with Session(db) as s:
+        rec = s.get(Recording, 1)
+        rec.text = "Neuer Lauf"
+        s.add(rec)
+        s.commit()
+        snapshot(s, rec, "retranscribe", user_id=1)
+
+    with Session(db) as s:
+        lst = versions_router.list_versions_endpoint("r1", _req(1), s)
+        assert lst[0]["restart"] is True   # transcribe
+        assert lst[1]["restart"] is False  # edit
+        assert lst[2]["restart"] is True   # retranscribe
+
+
 def test_diff_unknown_version_404(db):
     with Session(db) as s:
         with pytest.raises(HTTPException):

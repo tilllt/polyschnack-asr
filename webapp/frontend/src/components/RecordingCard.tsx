@@ -427,6 +427,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [diffFrom, setDiffFrom] = useState<number | null>(null);
   const [diffTo, setDiffTo] = useState<number | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  // Change 163: ausgewählte Version ist ein Neustart (transcribe/
+  // retranscribe/restore) — kein Diff zur Vorgängerin, nur Hinweis.
+  const [restartInfo, setRestartInfo] = useState<number | null>(null);
 
   // Dropdown-Flip für Download/Share/Versionen (Mobile: nach oben klappen)
   const dlFlip = useFlipUp(dlOpen);
@@ -571,9 +574,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       setDiffData([]);
       setDiffFrom(null);
       setDiffTo(null);
+      setRestartInfo(null);
       if (vs.length >= 2) {
-        // Sofort der Diff der letzten gegen die vorletzte Version (GitHub-Stil)
         const last = vs[vs.length - 1];
+        // Change 163: Auto-Diff nur, wenn die letzte Version KEIN Neustart
+        // ist (Edit/Post-Process). Re-Transcribe/Transcribe/Restore sind
+        // vollständig neue Basen — der Diff gegen die Vorgängerin wäre nur
+        // „alles gelöscht + alles neu" (Live-Befund 8976aa1b V189→V190).
+        if (last.restart) {
+          setRestartInfo(last.version_no);
+          return;
+        }
+        // Sofort der Diff der letzten gegen die vorletzte Version (GitHub-Stil)
         const prev = vs[vs.length - 2];
         setDiffLoading(true);
         try {
@@ -591,9 +603,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   }
 
   async function showDiff(v: VersionItem) {
+    // Change 163: Neustart-Versionen haben keinen Diff zur Vorgängerin.
+    if (v.restart) {
+      setDiffData([]);
+      setDiffFrom(null);
+      setDiffTo(null);
+      setRestartInfo(v.version_no);
+      return;
+    }
     try {
       setDiffLoading(true);
       setDiffData([]);
+      setRestartInfo(null);
       const d = await fetchVersionDiff(r.uid, v.version_no);
       setDiffFrom(d.from);
       setDiffTo(d.to);
@@ -2246,11 +2267,20 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                       <button
                         onClick={() => void showDiff(v)}
                         className="font-mono font-semibold text-accent hover:underline"
-                        title={t("show_diff")}
+                        title={v.restart ? t("version_restart") : t("show_diff")}
                       >
                         V{v.version_no}
                       </button>
-                      <span className="text-muted2 text-[10px] uppercase w-[80px] truncate">{KIND_LABEL[v.kind] ?? v.kind}</span>
+                      {/* Change 163: Neustart-Versionen (transcribe/
+                          retranscribe/restore) klar von Edits unterscheiden —
+                          sie sind keine Diffs zur Vorgängerin. */}
+                      {v.restart ? (
+                        <span className="text-accent text-[10px] uppercase w-[80px] truncate font-semibold">
+                          ↻ {t("version_restart")}
+                        </span>
+                      ) : (
+                        <span className="text-muted2 text-[10px] uppercase w-[80px] truncate">{KIND_LABEL[v.kind] ?? v.kind}</span>
+                      )}
                       <span className="text-muted2 text-[10px] flex-1 truncate">{new Date(v.created_at).toLocaleString()}</span>
                       <button
                         onClick={() => void doRestore(v)}
@@ -2262,11 +2292,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     </div>
                   ))}
                 </div>
-                {(diffLoading || diffData.length > 0) && (
+                {(diffLoading || diffData.length > 0 || restartInfo !== null) && (
                   <div className="mb-1">
                     {diffLoading ? (
                       <p className="text-[10px] text-muted2 px-1 py-1 animate-pulse">
                         {t("diff_loading")}
+                      </p>
+                    ) : restartInfo !== null ? (
+                      // Change 163: Neustart-Versionen (transcribe/
+                      // retranscribe/restore) sind vollständig neue Basen —
+                      // es gibt keinen Diff zur Vorgängerin.
+                      <p className="text-[10px] text-muted2 px-1 py-1 border border-border2 rounded-sm">
+                        ↻ V{restartInfo} · {t("version_restart_hint")}
                       </p>
                     ) : (
                       <VersionDiff

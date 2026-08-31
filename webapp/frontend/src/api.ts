@@ -1035,6 +1035,9 @@ export interface VersionItem {
   backend: string | null;
   language: string | null;
   created_at: string;
+  /** Change 163: Neustart (transcribe/retranscribe/restore) = vollständig
+   *  neue Basis ohne Diff zur Vorgängerin. */
+  restart?: boolean;
 }
 
 export async function fetchVersions(recUid: string): Promise<VersionItem[]> {
