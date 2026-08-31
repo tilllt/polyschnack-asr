@@ -330,22 +330,20 @@ def test_recover_align_und_rediarize_zombies(monkeypatch):
 
 
 def test_enqueue_align_mit_eigenem_key_kein_konflikt(qm_no_worker):
-    """Change 155 (Schritt 4): align-Job nutzt String-Key — die Recording
-    kann parallel als transcribe-Job (int-Key) in der Queue sein.
-
-    qm_no_worker: ohne Worker bleibt Job 7 queued → position deterministisch.
-    """
+    """Change 155+173/183: align nutzt einen String-Key — ABER max. EIN
+    Job pro Recording: align auf DIESELBE Recording wird vom Guard
+    abgelehnt (die parallele transcribe+align-Kollision war der
+    Live-Befund 2026-08-31), auf eine ANDERE ist ok."""
     qm_no_worker.enqueue(7, None, "ps-pk-onnx")                     # transcribe: key=7
-    pos = qm_no_worker.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
-    assert pos >= 1
-    assert 7 in qm_no_worker._jobs and qm_no_worker._jobs[7].kind == "transcribe"
-    assert "align-7" in qm_no_worker._jobs and qm_no_worker._jobs["align-7"].kind == "align"
-    # Doppel-Enqueue desselben align-Jobs → QueueError
+    # align auf DIESELBE Recording → Guard (Change 173/183)
     try:
         qm_no_worker.enqueue(7, None, "ps-pk-onnx", kind="align", key="align-7")
-        assert False, "Doppel-Enqueue desselben Keys muss QueueError werfen"
+        assert False, "align auf laufende Recording muss QueueError werfen"
     except queue_mod.QueueError:
         pass
+    # align auf ANDERE Recording ist ok (String-Key-Semantik bleibt)
+    qm_no_worker.enqueue(8, None, "ps-pk-onnx", kind="align", key="align-8")
+    assert "align-8" in qm_no_worker._jobs and qm_no_worker._jobs["align-8"].kind == "align"
     qm_no_worker.cancel(7, user_id=None)  # transcribe-Job räumen
 
 
