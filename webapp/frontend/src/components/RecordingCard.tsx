@@ -785,7 +785,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // „segment N: empty text" ab. Gilt für Delete, Split UND Grenzen.
   async function handleBoundaryDragEnd(next: Segment[]) {
     if (!next || !r.uid) return;
-    const cleaned = ensureSegmentBounds(cleanSegments(next));
+    // Change 168: ensureSegmentBounds garantiert start/end (number) —
+    // Cast wie in persistSegmentList.
+    const cleaned = ensureSegmentBounds(cleanSegments(next)) as Segment[];
     if (cleaned.length === 0) return;
     const seq = ++persistSeq.current;
     const prevSegments = segments; // Rollback-Ziel (Modell vor dem Commit)
@@ -821,7 +823,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     if (!r.uid) return;
     // Change 144: leere Anzeige-Segmente vor dem PUT entfernen (siehe
     // cleanSegments) — statt den 400 „segment N: empty text" zu provozieren.
-    const cleaned = ensureSegmentBounds(cleanSegments(next));
+    // Change 168: ensureSegmentBounds garantiert start/end (number) —
+    // der Intersection-Typ ist an Segment[] nicht direkt assignierbar,
+    // daher der Cast (Laufzeit-Garantie durch die Funktion + Tests).
+    const cleaned = ensureSegmentBounds(cleanSegments(next)) as Segment[];
     if (cleaned.length === 0) return; // alles leer — nichts zu speichern
     const seq = ++persistSeq.current;
     const prevSegments = segments;

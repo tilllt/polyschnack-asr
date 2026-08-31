@@ -10,7 +10,7 @@ import React, {
    TYPES
    ============================================================ */
 
-export type ToastType = "ok" | "err";
+export type ToastType = "ok" | "err" | "info";
 
 interface ToastItem {
   id: number;
@@ -79,7 +79,9 @@ function ToastContainer({ toasts }: { toasts: ToastItem[] }) {
 
 function ToastEl({ item }: { item: ToastItem }) {
   const borderColor =
-    item.type === "ok" ? "border-l-ok" : "border-l-err";
+    item.type === "ok" ? "border-l-ok"
+    : item.type === "err" ? "border-l-err"
+    : "border-border2"; // info: neutral
 
   return (
     <div

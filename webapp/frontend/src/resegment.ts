@@ -348,9 +348,13 @@ export function cleanSegments<T extends { text?: string | null }>(segs: readonly
  * „missing start/end" ab (Live-Befund 2026-08-31). Quelle der Reparatur:
  * erstes Wort mit `start` bzw. letztes mit `end`, sonst Nachbar-/0-Fallback.
  * Intakte Segmente bleiben referenzidentisch.
+ *
+ * Typ: bewusst `any` — wie der Rest dieses UI-Helpers (kein API-Vertrag);
+ * die Laufzeit-Garantie (start/end number nach dem Aufruf) belegen die
+ * Tests (resegment.test.ts).
  */
-export function ensureSegmentBounds(segs: readonly ResegSegment[]): ResegSegment[] {
-  return segs.map((s, i) => {
+export function ensureSegmentBounds(segs: readonly any[]): any[] {
+  return segs.map((s: any, i: number) => {
     const words = (s.words ?? []) as ResegWord[];
     let start = s.start;
     let end = s.end;
