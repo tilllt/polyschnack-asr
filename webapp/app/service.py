@@ -457,7 +457,8 @@ def _shift_segments(segments: list, offset_s: float) -> None:
 
 def dedupe_repeated_word_runs(segments: list, text: Optional[str] = None,
                               min_run: int = 2,
-                              time_tol_s: float = 1.0) -> tuple:
+                              time_tol_s: float = 1.0,
+                              duration_anomaly_s: float = 2.5) -> tuple:
     """Entfernt Chunk-Overlap-Dopplungen präventiv aus ASR-Segmenten.
 
     Change 161 (2026-08-30): ps-pk-onnx verarbeitet lange Audios in
@@ -471,14 +472,22 @@ def dedupe_repeated_word_runs(segments: list, text: Optional[str] = None,
     Erkennung (deterministisch, auf dem globalen Wort-Stream):
     - zwei DIREKT aufeinanderfolgende Wortfolgen mit identischem Text
       (n >= min_run Wörter)
-    - zeitlicher Chunk-Overlap: die zweite Kopie beginnt innerhalb der
+    - (1) zeitlicher Chunk-Overlap: die zweite Kopie beginnt innerhalb der
       ersten oder unmittelbar danach (start_2 < end_1 + time_tol_s) —
       echte rhetorische Wiederholungen sind zeitlich getrennt und bleiben
       erhalten
+    - (2) Change 167 — Dauer-Signatur aus dem Parakeet-Alignment: genau
+      EINE Kopie enthält ein Wort mit Dauer > duration_anomaly_s (Default
+      2,5 s). Echte Sprache hat Wort-Dauern von ~0,3–0,9 s; ein 3–6-s-Wort
+      ist die Stille-Halluzination am Chunk-Rand (der Decoder streckt die
+      Wörter über die Lücke). Die gestreckte Kopie wird entfernt —
+      unabhängig davon, ob sie die erste oder zweite ist. Echte
+      rhetorische Wiederholungen haben in beiden Kopien normale Dauern →
+      unberührt.
     - ohne Wort-Zeiten (Fallback): identische benachbarte Folge mit
       n >= 3 (Sicherheitsmarge gegen „ja ja"-Fälle)
 
-    Entfernt wird NUR die zweite Kopie (Wörter + Segment-Text); der
+    Entfernt wird die Overlap-/Stille-Kopie (Wörter + Segment-Text); der
     Gesamttext wird aus den Segment-Texten neu gebaut.
 
     Returns: (segments, text) — bereinigte Listen; unverändert, wenn keine
@@ -500,10 +509,11 @@ def dedupe_repeated_word_runs(segments: list, text: Optional[str] = None,
             (s.get("text") or "").strip() for s in segments
         ).strip()
 
-    removed: set = set()  # seg_idx → Wort-Keys der ZWEITEN Kopie
+    removed: set = set()  # seg_idx → Wort-Keys der ZU ENTFERNENDEN Kopie
     i = 0
     while i < len(stream) - min_run:
         n = 0
+        remove_second = True  # Change 167: bei Dauer-Signatur auch Kopie 1 möglich
         max_cand = min(30, (len(stream) - i) // 2)
         for cand in range(max_cand, min_run - 1, -1):
             a = [w[0] for w in stream[i:i + cand]]
@@ -514,18 +524,37 @@ def dedupe_repeated_word_runs(segments: list, text: Optional[str] = None,
             ts_a = [w[2] for w in stream[i:i + cand]]
             ts_b = [w[1] for w in stream[i + cand:i + 2 * cand]]
             if all(t is not None for t in ts_a) and all(t is not None for t in ts_b):
-                # Chunk-Overlap: zweite Kopie beginnt innerhalb/nach Ende der ersten
+                # (1) Chunk-Overlap: zweite Kopie beginnt innerhalb/nach Ende
+                # der ersten
                 if ts_b[0] < ts_a[-1] + time_tol_s:
                     n = cand
+                    remove_second = True
+                    break
+                # (2) Change 167: Dauer-Signatur — genau EINE Kopie enthält
+                # ein Wort mit unnatürlich langer Dauer (Stille-Halluzination
+                # am Chunk-Rand, Wörter über die Lücke gestreckt). Die
+                # gestreckte Kopie fällt — egal ob erste oder zweite.
+                durs_a = [w[2] - w[1] for w in stream[i:i + cand]]
+                durs_b = [w[2] - w[1] for w in stream[i + cand:i + 2 * cand]]
+                anom_a = max(durs_a) > duration_anomaly_s
+                anom_b = max(durs_b) > duration_anomaly_s
+                if anom_a != anom_b:
+                    n = cand
+                    remove_second = anom_b
                     break
             elif cand >= 3:
                 # Fallback ohne verwertbare Zeiten (Sicherheitsmarge)
                 n = cand
+                remove_second = True
                 break
         if n:
-            for w in stream[i + n:i + 2 * n]:
-                removed.add((w[3], w[4]))
-            i += n  # erste Kopie behalten, dahinter weitersuchen
+            if remove_second:
+                for w in stream[i + n:i + 2 * n]:
+                    removed.add((w[3], w[4]))
+            else:
+                for w in stream[i:i + n]:
+                    removed.add((w[3], w[4]))
+            i += n  # behaltene Kopie überspringen, dahinter weitersuchen
         else:
             i += 1
 
@@ -2116,6 +2145,28 @@ def _start_job_heartbeat(rec_id: int, interval_s: float = 5.0,
     return stop
 
 
+def _backend_image_digest(backend: Optional[str]) -> Optional[str]:
+    """ImageID des Backend-Containers (stabil pro Image) — Change 166.
+
+    Liefert die Docker-ImageID (config-Digest) des Containers, dessen
+    compose-Service dem Backend-Namen entspricht. Wechselt die ImageID,
+    invalidiert der rtf_learner die gelernte Historie (Change-085-Regel:
+    Backend-Image-Update ⇒ alte Stichproben verwerfen). None bei
+    fehlendem Backend/Container oder Proxy-Fehler — dann bleibt der
+    Digest-Pfad aus (keine Invalidation, kein Fehler; nie raten).
+    """
+    if not backend:
+        return None
+    try:
+        from . import docker_proxy as _dp
+        for c in _dp.get_docker_client().list_containers():
+            if (c.get("Labels") or {}).get("com.docker.compose.service") == backend:
+                return c.get("ImageID") or None
+    except Exception:
+        return None
+    return None
+
+
 def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> None:
     """Load row → read audio → call ASR → persist result.
 
@@ -2781,7 +2832,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
     if status == "done" and phase_times:
         try:
             from . import learner_store
-            learner_store.ingest_job_sample(rec_id, phase_times, duration)
+            digest = None
+            if any(k.startswith("asr:") for k in phase_times):
+                digest = _backend_image_digest(backend)
+            learner_store.ingest_job_sample(rec_id, phase_times, duration,
+                                            digest=digest)
         except Exception:
             log.warning("rtf_learner: ingest failed for rec_id=%s", rec_id,
                         exc_info=True)

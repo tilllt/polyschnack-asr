@@ -161,3 +161,65 @@ def test_dedup_removes_only_second_copy_keeps_first():
     out, _ = dedupe_repeated_word_runs(segs, segs[0]["text"])
     joined = " ".join(w["word"] for w in out[0]["words"])
     assert joined == "a b c d"
+
+
+# ----------------------------------------------------- Change 167: Dauer-Signatur
+
+def test_dedup_real_297_stretched_first_copy_with_gap():
+    """ECHTER Fall 297 (Ergebnis 130 / Run 140, 2026-08-31, DB-Wort-Zeiten):
+    Kopie 1 liegt in der Stille („anliegenden" 6,0 s, „Ort" 3,27 s), Kopie 2
+    (echt, ab 533,64) beginnt 4,2 s nach Kopie-1-Ende → Zeit-Overlap-Signatur
+    verfehlt (533,64 > 529,43 + 1,0). Die Dauer-Signatur (Change 167) muss
+    die gestreckte Kopie 1 entfernen."""
+    segs = [
+        {
+            "start": 467.68,
+            "end": 522.0,
+            "text": "Die Nebel. Im anliegenden",
+            "words": [
+                _word("Die", 517.2, 517.6),
+                _word("Nebel.", 517.6, 519.36),
+                _word("Im", 519.6, 520.16),       # Kopie 1: normal
+                _word("anliegenden", 520.16, 526.16),  # 6,0 s — Stille!
+            ],
+        },
+        {
+            "start": 534.16,
+            "end": 565.48,
+            "text": "Ort Im anliegenden Ort erzählt man sich dass",
+            "words": [
+                _word("Ort", 526.16, 529.43),     # 3,27 s — Stille!
+                _word("Im", 533.64, 534.44),      # Kopie 2: echte Zeiten
+                _word("anliegenden", 534.44, 534.84),
+                _word("Ort", 534.84, 535.64),
+                _word("erzählt", 535.64, 536.12),
+                _word("man", 536.12, 536.84),
+                _word("sich", 536.84, 537.56),
+                _word("dass", 537.56, 537.88),
+            ],
+        },
+    ]
+    out, text = dedupe_repeated_word_runs(
+        segs, "Die Nebel. Im anliegenden Ort Im anliegenden Ort erzählt man sich dass")
+    joined = " ".join(w["word"] for s in out for w in (s.get("words") or []))
+    assert joined == "Die Nebel. Im anliegenden Ort erzählt man sich dass"
+    assert text == joined
+    assert "Ort Im anliegenden Ort" not in text
+
+
+def test_dedup_stretched_second_copy_symmetric():
+    """Symmetrie: Die gestreckte (Stille-)Kopie ist die ZWEITE → sie fällt,
+    die erste (echte) bleibt. Lücke > 1 s, damit die Zeit-Signatur nicht greift."""
+    segs = [{
+        "start": 0.0,
+        "end": 8.0,
+        "text": "a b c a b c d",
+        "words": [
+            _word("a", 0.0, 0.4), _word("b", 0.4, 0.8), _word("c", 0.8, 1.2),   # echt
+            _word("a", 3.0, 3.5), _word("b", 3.5, 6.5), _word("c", 6.5, 7.0),   # b=3,0 s — Stille!
+            _word("d", 7.0, 7.4),
+        ],
+    }]
+    out, _ = dedupe_repeated_word_runs(segs, segs[0]["text"])
+    joined = " ".join(w["word"] for w in out[0]["words"])
+    assert joined == "a b c d"
