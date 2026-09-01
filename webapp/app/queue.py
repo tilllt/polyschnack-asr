@@ -537,14 +537,16 @@ class QueueManager:
         # Change 183: Job-Row-Felder (phase/pct/Zeiten/cancel) als
         # einheitliche Quelle — die Recording-Felder (progress_*) werden
         # in Phase 3 abgelöst; bis dahin liefern beide (job-Row gewinnt).
+        from .models import Job as JobRow  # lokaler Import (wie Z. 224)
+
         jobrows: Dict[int, Dict[str, Any]] = {}
         with Session(db.engine) as session:
             rec_ids = [j.rec_id for j in jobs]
             if rec_ids:
                 for row in session.exec(
-                    select(Job).where(
-                        Job.rec_id.in_(rec_ids),
-                        Job.status.in_(("queued", "running")),
+                    select(JobRow).where(
+                        JobRow.rec_id.in_(rec_ids),
+                        JobRow.status.in_(("queued", "running")),
                     )
                 ).all():
                     jobrows[row.rec_id] = {
