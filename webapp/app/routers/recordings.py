@@ -611,19 +611,22 @@ def _job_to_dict(job: Optional[Any]) -> Optional[Dict[str, Any]]:
 
     Die UI (Phase 3) liest Status/Phase/pct/Zeiten/Cancel direkt daraus —
     eine Quelle der Wahrheit statt der abgeleiteten Recording-Felder.
+    Defensiv (getattr): active_job kann ein In-Memory-Job sein, der die
+    Change-183-Felder (phase/pct/...) nicht trägt — Live-Befund 2026-08-31
+    (500 auf /api/recordings nach dem Phase-2-Deploy).
     """
     if job is None:
         return None
     return {
-        "kind": job.kind,
-        "status": job.status,
-        "phase": job.phase,
-        "pct": job.pct,
-        "started_at": iso_utc(job.started_at) if job.started_at else None,
-        "phase_started_at": iso_utc(job.phase_started_at) if job.phase_started_at else None,
-        "heartbeat_at": iso_utc(job.heartbeat_at) if job.heartbeat_at else None,
-        "cancel_requested": bool(job.cancel_requested),
-        "error": job.error,
+        "kind": getattr(job, "kind", None),
+        "status": getattr(job, "status", None),
+        "phase": getattr(job, "phase", None),
+        "pct": getattr(job, "pct", None),
+        "started_at": iso_utc(job.started_at) if getattr(job, "started_at", None) else None,
+        "phase_started_at": iso_utc(job.phase_started_at) if getattr(job, "phase_started_at", None) else None,
+        "heartbeat_at": iso_utc(job.heartbeat_at) if getattr(job, "heartbeat_at", None) else None,
+        "cancel_requested": bool(getattr(job, "cancel_requested", False)),
+        "error": getattr(job, "error", None),
     }
 
 
