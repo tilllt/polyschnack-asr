@@ -45,6 +45,16 @@ def test_transition_setzt_zeiten_und_phase(tmp_path, monkeypatch):
         assert row.started_at is not None
         assert row.phase_started_at is not None
         assert row.heartbeat_at is not None
+        # Change 184 (Regression, Live-Befund 03.09.): phase_started_at/
+        # heartbeat_at waren als str deklariert — der DB-Read lieferte str
+        # statt datetime → iso_utc() → AttributeError → 500 auf
+        # /api/recordings, sobald ein Job lief. `is not None` blieb für str
+        # grün; der Typ ist der eigentliche Vertrag (wie started_at).
+        import datetime as _dt
+
+        assert isinstance(row.started_at, _dt.datetime)
+        assert isinstance(row.phase_started_at, _dt.datetime)
+        assert isinstance(row.heartbeat_at, _dt.datetime)
 
 
 def test_terminal_raeumt_heartbeat_und_setzt_finished(tmp_path, monkeypatch):

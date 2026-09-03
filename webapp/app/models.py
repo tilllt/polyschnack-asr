@@ -457,8 +457,8 @@ class Job(SQLModel, table=True):
     # existieren weiter unten im Model.)
     phase: Optional[str] = None  # preparing | separate | asr | diarization | alignment | finalizing | postprocessing
     pct: Optional[float] = None
-    phase_started_at: Optional[str] = None
-    heartbeat_at: Optional[str] = None
+    phase_started_at: Optional[dt.datetime] = None
+    heartbeat_at: Optional[dt.datetime] = None
     cancel_requested: Optional[int] = 0  # 0/1 — persistent (überlebt Restarts)
     payload: Optional[str] = None  # JSON-String
     error: Optional[str] = None
