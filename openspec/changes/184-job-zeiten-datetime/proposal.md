@@ -54,10 +54,18 @@ ist deshalb flüchtig; nach jedem Job-Start reproduzierbar.
 
 1. `models.py`: `phase_started_at`/`heartbeat_at` → `Optional[dt.datetime]`
    (symmetrisch zu `started_at`/`finished_at`; SQLAlchemy übernimmt den
-   Roundtrip, SQLite-TEXT-Spalte bleibt physisch, alle Werte NULL → keine
-   Datenmigration nötig).
+   Roundtrip, SQLite-TEXT-Spalte bleibt physisch).
 2. Regressionstest: `test_job_state.py` — nach DB-Roundtrip
    `isinstance(row.heartbeat_at, dt.datetime)` (rot vor Fix, grün danach).
+3. **Datenmigration (prod):** `phase_started_at` liegt in allen 89
+   `jobs`-Zeilen als ISO-Text MIT `+00:00`-Suffix vor (Befund 03.09.:
+   sqlite3-String-Adapter schrieb `datetime.isoformat(sep=' ')` inkl.
+   Zeitzone; SQLAlchemy-DateTime-Parser erwartet `%Y-%m-%d %H:%M:%S.%f`
+   ohne Suffix → ValueError beim ersten Read nach dem Fix). Migration
+   vor + nach dem Deploy (idempotent): `fromisoformat` → naive UTC →
+   `strftime('%Y-%m-%d %H:%M:%S.%f')`. `started_at`/`finished_at` sind
+   bereits suffixfrei (SQLAlchemy-DateTime-Bindung), `heartbeat_at` ist
+   NULL (Terminal räumt) — nur `phase_started_at` ist betroffen.
 
 Kein zusätzlicher Guard in `iso_utc` — die Invariante (datetime|None) wird
 am Modell erzwungen; str-Handling würde Typfehler nur maskieren.
