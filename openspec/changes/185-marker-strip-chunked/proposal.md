@@ -1,6 +1,6 @@
 # Change 185 — End-Marker im Transkript/Export (Strip läuft nicht für chunked Streams)
 
-**Status:** Proposed (User-Befund 2026-09-05, Fix + Tests folgen im Commit)
+**Status:** Deployed (2026-09-05, ba54e93, CI 4917 grün; Migration auf KI-Box ausgeführt + verifiziert)
 
 ## Befund (Live, prod KI-Box — DB-Beleg 2026-09-05)
 
