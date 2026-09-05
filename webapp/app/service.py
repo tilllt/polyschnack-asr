@@ -194,33 +194,120 @@ _MARKER_WORDS = {
 }
 
 
+_MARKER_MIN_RUN = 4  # Change 185: Mindest-Lauf an Ziffern-Tokens am Textende
+
+
+def _is_marker_token(word: str) -> bool:
+    """Change 185: Ist ein (Wort-)Token ein Marker-Ziffern-Token?
+    Großschreibung/Interpunktion tolerant („Seven,", „42")."""
+    core = word.strip(" \t\n\r.,;:!?\u2026\"'()[]\u2013\u2014\u2011-")
+    return bool(core) and (core.isdigit() or core.lower() in _MARKER_WORDS)
+
+
+def _trim_marker_word_run(words: Optional[List[Dict[str, Any]]]) -> Tuple[Optional[List[Dict[str, Any]]], bool]:
+    """Change 185: Entfernt am ENDE einer Word-Liste einen Lauf aus
+    >=_MARKER_MIN_RUN Marker-Ziffern-Tokens (Wort-Timings). Echte Wörter
+    davor bleiben. Rückgabe (words, found). Wörter existieren erst NACH
+    dem Align/_build_word_stream — Bestands-Daten aus fehlerhaften Runs
+    (Marker vor dem Build nicht gestrippt) tragen sie noch."""
+    if not words:
+        return words, False
+    run = 0
+    for w in reversed(words):
+        wd = w.get("word") if isinstance(w, dict) else None
+        if wd is not None and _is_marker_token(wd):
+            run += 1
+        else:
+            break
+    if run < _MARKER_MIN_RUN:
+        return words, False
+    return words[: len(words) - run], True
+
+
+def _marker_suffix_trim(text: str) -> Tuple[str, bool]:
+    """Change 185: Entfernt am TEXT-ENDE einen Lauf aus >=_MARKER_MIN_RUN
+    Ziffern-Tokens (Zahlwörter engl./dt./pt. oder Ziffern, case-insensitiv,
+    Leerzeichen/Interpunktion dazwischen tolerant). Echter Text davor bleibt
+    unangetastet — anders als der Ganz-Segment-Pop über _marker_ratio, der
+    gemischte End-Segmente (echter Text + Marker, z.B. „Okay. Dankeschön.
+    Tschüss. Seven, four, …") komplett gelöscht hätte (User-Befund 2026-09-05:
+    Marker landet bei chunked Streams im Transkript/Export, dort als Suffix
+    eines gemischten Segments ODER mit Großschreibung/Interpunktion).
+    Rückgabe (getrimmter Text, found). Einzelne Zahlen am Ende (z.B.
+    „die Antwort ist 42") bleiben — Lauf < _MARKER_MIN_RUN."""
+    if not text:
+        return text, False
+    toks = "|".join(sorted(_MARKER_WORDS, key=len, reverse=True))
+    token = rf"(?:[0-9]+|{toks})"
+    sep = r"[\s.,;:!?\u2026\"'()\[\]\u2013\u2014\u2011-]*"
+    run_re = re.compile(
+        rf"(?i){token}(?:{sep}{token}){{{_MARKER_MIN_RUN - 1},}}{sep}$"
+    )
+    m = run_re.search(text)
+    if not m:
+        return text, False
+    # Nur Whitespace abziehen — die echte End-Interpunktion des Texts
+    # („…nicht mehr. Seven, four, …") gehört zum Satz und bleibt.
+    clean = text[: m.start()].rstrip(" \t\n\r")
+    return clean, True
+
+
 def _strip_transcript_marker(
     segments: List[Dict[str, Any]], text: str, audio_total_s: Optional[float],
 ) -> Tuple[List[Dict[str, Any]], str, bool]:
-    """Change 147: Entfernt Marker-Segmente (zeitbasiert: Segmente nach
-    der echten Audiodauer ODER überwiegend aus Ziffern) und meldet, ob
-    der Marker transkribiert wurde. Rückgabe (segments, text, found).
-    found=True → die ASR hat das Audio-Ende erreicht (vollständig)."""
-    if not segments:
-        return segments, text, False
-    clean = list(segments)
-    removed = 0
-    while clean and removed < 4:
-        last = clean[-1]
-        last_start = float(last.get("start") or 0)
-        is_tail = (
-            audio_total_s is not None
-            and last_start >= audio_total_s - _TRANSCRIPT_MARKER_S - 1.0
-        )
-        if is_tail or _marker_ratio(last.get("text") or "") >= 0.5:
-            clean.pop()
-            removed += 1
-        else:
-            break
-    if not removed:
-        return segments, text, False
-    new_text = " ".join(str(s.get("text") or "").strip() for s in clean).strip()
-    return clean, new_text, True
+    """Change 147/185: Entfernt Marker-Inhalt am Transkript-Ende
+    (zeitbasiert: Segmente nach der echten Audiodauer ODER als
+    Ziffern-Suffix von End-Segmenten) und meldet, ob der Marker
+    transkribiert wurde. Rückgabe (segments, text, found).
+    found=True → die ASR hat das Audio-Ende erreicht (vollständig).
+
+    Change 185: Statt Ganz-Segment-Pop über _marker_ratio wird das
+    Marker-Suffix aus gemischten End-Segmenten getrimmt (echter Text wie
+    „Okay. Dankeschön. Tschüss." bleibt erhalten); Ganz-Pop nur noch für
+    die Zeit-Tail-Region (kein echtes Audio) bzw. reine Marker-Segmente.
+    Der Gesamt-Text wird suffix-getrimmt statt aus Segmenten neu
+    zusammengesetzt (der akkumulierte Streaming-Text bleibt sonst
+    unangetastet)."""
+    found = False
+    if segments:
+        clean = list(segments)
+        processed = 0
+        while clean and processed < 4:
+            last = clean[-1]
+            last_start = float(last.get("start") or 0)
+            seg_text = str(last.get("text") or "").strip()
+            is_tail = (
+                audio_total_s is not None
+                and last_start >= audio_total_s - _TRANSCRIPT_MARKER_S - 1.0
+            )
+            trimmed, hit = _marker_suffix_trim(seg_text)
+            if is_tail:
+                # Marker-Region hinter dem echten Audio — ganzes Segment
+                # fällt (auch wenn die ASR dort Wörter halluziniert hat).
+                clean.pop()
+                processed += 1
+                found = True
+            elif hit:
+                processed += 1
+                found = True
+                if trimmed.strip():
+                    last["text"] = trimmed.strip()
+                    # Wort-Timings konsistent halten (falls der Backend-
+                    # Segment-Rohbau schon words trägt — bei Align-Runs
+                    # werden words erst NACH dem Strip gebaut).
+                    last_words, _w_found = _trim_marker_word_run(
+                        last.get("words") if isinstance(last.get("words"), list) else None
+                    )
+                    if last_words is not None:
+                        last["words"] = last_words
+                    clean[-1] = last
+                else:
+                    clean.pop()  # reines Marker-Segment
+            else:
+                break
+        segments = clean
+    new_text, text_found = _marker_suffix_trim(text)
+    return segments, new_text, (found or text_found)
 
 
 def _transcript_complete(
@@ -2590,16 +2677,18 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 f"transkribieren."
             )
             status = "failed"
-        elif marker_active and not result.get("chunked") and status == "done":
-            # Fallback: Marker-Zeitprüfung (Audio-Dauer MIT Marker vs.
-            # letztes Segment-Ende — kein Abspann-Risiko).
+        elif marker_active and status == "done":
+            # Change 185: Marker-Strip läuft IMMER bei aktivem Marker —
+            # auch für chunked Streams (bisher nur im nicht-chunked
+            # Fallback; User-Befund 2026-09-05: Marker-Text persistiert und
+            # landet in Transkript + Export). Die Vollständigkeits-Erkennung
+            # per Zeit bleibt der Fallback für Backends OHNE Chunk-Zählung.
             audio_total_s = _probe_audio_duration(audio_bytes)
             segments, text, marker_found = _strip_transcript_marker(
                 segments, text, audio_total_s,
             )
-            if not marker_found and not _transcript_complete(
-                segments, audio_total_s,
-            ):
+            if (not result.get("chunked") and not marker_found
+                    and not _transcript_complete(segments, audio_total_s)):
                 log.warning(
                     "Change 147: ASR-Marker fehlt — Stream vorzeitig "
                     "beendet? rec_id=%s segments=%d audio_total=%.1fs",

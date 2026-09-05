@@ -12,8 +12,10 @@ import subprocess as sp
 from app.service import (
     _append_transcript_marker,
     _marker_ratio,
+    _marker_suffix_trim,
     _strip_transcript_marker,
     _transcript_complete,
+    _trim_marker_word_run,
     _TRANSCRIPT_MARKER_S,
     _MARKER_TAIL_S,
 )
@@ -100,6 +102,140 @@ def test_marker_ratio_ziffern_und_woerter():
     assert _marker_ratio("seven four two eight one six zero three nine") == 1.0
     assert _marker_ratio("das ist das ende") == 0.0
     assert _marker_ratio("die antwort ist 42") == 1 / 4
+
+
+# ——— Change 185: Suffix-Trim (chunked-Leak, gemischte End-Segmente) ———
+
+_MARKER_EN = "Seven, four, two, eight, one, six, zero, three, nine"
+
+
+def test_strip_chunked_langer_echter_text_mit_marker_suffix():
+    """Change-185-Leak (Prod-Beleg REC 322, 941453a8): Chunked-Stream, das
+    Marker-Suffix sitzt am Ende eines langen echten Segments (Ratio weit
+    unter 0,5, Start lange vor dem Audio-Ende) — der alte Code hat hier
+    NICHTS entfernt. Fix: Suffix-Trim, echter Text bleibt."""
+    long_text = (
+        "…klusive der Bildung komplett durchdringt und dadurch halt auch "
+        "immer stattfinden muss und nicht optional ist. Das kann es nur sein, "
+        "wenn man davon ausgeht, dass es irgendwann wieder verschwindet. Und "
+        f"an dem Punkt sind wir, glaube ich, nicht mehr. {_MARKER_EN}."
+    )
+    segs = [_seg(0, 100, "Einleitung"), _seg(1575.6, 1643.9, long_text)]
+    # audio_total_s inkl. Marker (8,1 s); Segment-Start liegt weit davor →
+    # kein Zeit-Tail; nur der Suffix-Trim kann greifen.
+    clean, text, found = _strip_transcript_marker(segs, long_text, 1644.2)
+    assert found is True
+    assert len(clean) == 2
+    assert clean[-1]["start"] == 1575.6  # Timing unangetastet
+    assert clean[-1]["end"] == 1643.9
+    assert "nicht mehr." in clean[-1]["text"]
+    assert "Seven" not in clean[-1]["text"]
+    assert text.endswith("nicht mehr.")
+    assert "nine" not in text.lower()
+
+
+def test_strip_gemischtes_kurzes_segment_behaelt_echte_worte():
+    """Prod-Beleg REC 318 (ec98bfdf): Kurzes gemischtes Segment mit Ratio
+    >= 0,5 — der alte Code hätte es GANZ gepoppt („Okay. Dankeschön.
+    Tschüss." verloren). Fix: nur das Marker-Suffix fällt, der Abschied
+    bleibt im Segment."""
+    seg_text = f"Okay. Dankeschön. Tschüss. {_MARKER_EN}."
+    segs = [_seg(0, 100, "Gut, das waren die Fragen, die ich erstmal hatte."),
+            _seg(393.48, 418.44, seg_text)]
+    clean, text, found = _strip_transcript_marker(segs, "…Fragen. " + seg_text, None)
+    assert found is True
+    assert len(clean) == 2
+    assert clean[-1]["text"] == "Okay. Dankeschön. Tschüss."
+    assert clean[-1]["start"] == 393.48
+    assert "seven" not in text.lower()
+
+
+def test_suffix_trim_grossschreibung_und_interpunktion():
+    """Marker wird mit Großschreibung/Interpunktion transkribiert
+    („Seven, four, …") — Token-Match case-insensitiv + Satzzeichen-tolerant."""
+    for phrase in (
+        f"Das war es. {_MARKER_EN}.",
+        f"Das war es. {_MARKER_EN.lower()}",
+        "Das war es. 7 4 2 8 1 6 0 3 9",
+        "Das war es. sieben vier zwei acht eins sechs null drei neun",
+        "Das war es. Seven, Four, TWO, eight, ONE, six, zero, three, nine",
+    ):
+        clean, found = _marker_suffix_trim(phrase)
+        assert found is True, phrase
+        assert clean == "Das war es.", repr(clean)
+
+
+def test_suffix_trim_keine_falschtreffer():
+    """Einzelne Zahlen / kurze Läufe / Phrase nicht am Ende bleiben."""
+    for keep in (
+        "Die Antwort ist 42.",
+        "Wir treffen uns um vier.",
+        "Eins zwei drei, fertig los",          # 3er-Lauf < _MARKER_MIN_RUN
+        "7 4 2 8 1 6 0 3 9 ist die Losnummer",  # nicht am Ende
+        "und dann kamen sieben, vier, zwei Gäste",
+    ):
+        out, found = _marker_suffix_trim(keep)
+        assert found is False, repr(keep)
+        assert out == keep
+
+
+def test_suffix_trim_reiner_marker_text():
+    clean, found = _marker_suffix_trim(_MARKER_EN)
+    assert found is True
+    assert clean == ""
+
+
+def test_strip_text_only_ohne_segmente():
+    clean, text, found = _strip_transcript_marker([], f"ende {_MARKER_EN}", None)
+    assert found is True
+    assert text == "ende"
+
+
+def test_trim_marker_word_run_entfernt_nur_marker_woerter():
+    """Wort-Timing-Listen tragen den Marker (Bestands-Runs) — die
+    Marker-Einträge fallen, echte Wörter + Timings der Wörter bleiben."""
+    words = [
+        {"start": 0.0, "end": 1.0, "word": "Okay."},
+        {"start": 1.0, "end": 2.0, "word": "Dankeschön."},
+        {"start": 2.0, "end": 3.0, "word": "Tschüss."},
+    ] + [{"start": 10.0 + i, "end": 11.0 + i, "word": w}
+         for i, w in enumerate(_MARKER_EN.split(", "))]
+    clean, found = _trim_marker_word_run(words)
+    assert found is True
+    assert [x["word"] for x in clean] == ["Okay.", "Dankeschön.", "Tschüss."]
+    assert clean[-1]["end"] == 3.0  # Timings der echten Wörter unangetastet
+
+
+def test_trim_marker_word_run_keine_kurzen_laeufe():
+    words = [{"start": 0.0, "end": 1.0, "word": "vier"},
+             {"start": 1.0, "end": 2.0, "word": "Uhr"}]
+    clean, found = _trim_marker_word_run(words)
+    assert found is False
+    assert clean == words
+    assert _trim_marker_word_run([]) == ([], False)
+    assert _trim_marker_word_run(None) == (None, False)
+
+
+def test_strip_mischt_segment_words_werden_konsistent_getrimmt():
+    """Segment-Rohbau mit words (Wort-Einträge unter 'word') — Text UND
+    words-Liste werden getrimmt, echte Wörter bleiben."""
+    seg_text = f"Okay. Dankeschön. Tschüss. {_MARKER_EN}."
+    words = (
+        [{"start": 393.5, "end": 395.0, "word": "Okay."},
+         {"start": 395.5, "end": 397.0, "word": "Dankeschön."},
+         {"start": 397.5, "end": 399.0, "word": "Tschüss."}]
+        + [{"start": 400.0 + i, "end": 401.0 + i, "word": w}
+           for i, w in enumerate(_MARKER_EN.split(", "))]
+    )
+    segs = [_seg(0, 100, "Einleitung"),
+            {"start": 393.48, "end": 418.44, "text": seg_text, "words": words}]
+    clean, _text, found = _strip_transcript_marker(segs, seg_text, None)
+    assert found is True
+    assert clean[-1]["text"] == "Okay. Dankeschön. Tschüss."
+    assert [x["word"] for x in clean[-1]["words"]] == [
+        "Okay.", "Dankeschön.", "Tschüss."
+    ]
+    assert clean[-1]["words"][-1]["end"] == 399.0
 
 
 # ——— _append_transcript_marker (ffmpeg, echte Bytes) ———
