@@ -3,13 +3,12 @@ Prod-Belege (REC 318/322-Muster, Versionen, Nicht-Fälle, Idempotenz)."""
 import importlib.util
 import json
 import sqlite3
-import sys
 from pathlib import Path
 
-sys.path.insert(0, "/opt/data/pk-asr/webapp")
+_WEBAPP = Path(__file__).resolve().parent.parent
 
 spec = importlib.util.spec_from_file_location(
-    "ps185", "/opt/data/pk-asr/webapp/scripts/ps185_marker_migration.py"
+    "ps185", _WEBAPP / "scripts" / "ps185_marker_migration.py"
 )
 assert spec and spec.loader
 mod = importlib.util.module_from_spec(spec)
