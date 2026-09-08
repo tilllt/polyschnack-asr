@@ -1,26 +1,2 @@
-.hermes/
-__pycache__/
-*.pyc
-.env
-
-# Host-Mounts (Modelle, Benchmarks, Uploads) — gehören nicht ins Repo
-DATA/
-
-# MkDocs-Build (GitLab Pages generiert das im CI)
-public/
-
-# Lokale Arbeits-Artefakte (nicht versionieren)
-sketches/
-businessplan/
-.dev-data
-benchmark/aligner/run_poc/audio_16k.wav
-benchmark/aligner/run_team/audio_16k.wav
-benchmark/aligner/run_*.log
-benchmark/aligner/run_team/
-benchmark/aligner/ref_teamtreffen90.txt
-
-# VAD-/Diar-Testset-Artefakte — gehören NICHT ins Repo (GitHub-Releases:
-# tilllt/vad-benchmark-data bzw. tilllt/polyschnack-benchmark-data).
-benchmarks/vad/vad-benchmark-v4-public.zip
-benchmarks/vad/vad-benchmark-v4-public.zip.sha256
-benchmarks/diar/assets/
+# Fremdes Audio/Transkript aus Vergleichstests — nie versionieren
+canary-test/

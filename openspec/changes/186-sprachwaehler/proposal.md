@@ -13,6 +13,33 @@ Konkret betroffen: **ps-pk-onnx** (approach-a, `parakeet-tdt-0.6b-v3`) — das
 Default-Backend der Webapp. Deutsche Aufnahmen werden teils als englischer
 Text transkribiert.
 
+## Vergleichstest Canary vs. parakeet (verifiziert 2026-09-08) ✅
+
+**Fragestellung (offen aus der Analyse):** Löst Canary + forced `language=de`
+die Englisch-Kontamination nachweislich? → **JA, eindeutig.**
+
+**Testaufbau:** Dieselbe 172-s-M4A (Recording ae7435ca…, id 328, Prod-KI-Box,
+Deutsche Rede über die 271.000-Todesfälle-Behauptung), 2 Läufe:
+
+| | ps-pk-onnx (AUTO, alt) | crispr-canary + `language=de` (Test) |
+|---|---|---|
+| Backend | parakeet-tdt-0.6b-v3 ONNX | canary-1b-v2-q4_k (CrispASR, GPU) |
+| EN-Stopwort-Anteil | **32,8 %** (274 Wörter) | **2,7 %** (488 Wörter; Rest = Eigennamen/False-Positives wie „am/also/amazon/black“) |
+| Ergebnis | englisch-kontaminiert, teils Halluzination („Todes **of** Frau … **will one here, which is super often**“) | durchgehend sauberes Deutsch („Anlässlich des Todes **von** Frau Ursula Haverbeck würde ich gerne eine Frage … beantworten“) |
+
+**Neben-Befund:** parakeet liefert nur 274 Wörter vs. 488 bei Canary — die
+englische Kontamination verschluckt zusätzlich Text (Wiederholungs-Artefakte
+wie „worden ist. worden ist.“ im Canary-Text sind Decoder-Duplikate, kein
+Sprachproblem; separat zu beobachten).
+
+**Konsequenz für das Change:** Sprach-Forcing ist der reale Hebel, aber NUR
+auf Canary-/Whisper-Familie-Backends. Für deutsche Aufnahmen ist
+`parakeet-tdt` (AUTO-Detect) nachweislich das falsche Modell → Canary
+(multilingual [de,en,fr,es], Forcing-fähig, ~2 GB VRAM laut requires) als
+produktives Backend aktivieren + Sprachwähler bauen. Test-Artefakte liegen
+lokal unter `canary-test/` (Quell-M4A + verbose_json-Ergebnis; **nicht
+versioniert** — fremdes Audio/Transkript), Container danach gestoppt.
+
 ## Ist-Zustand (verifiziert 2026-09-08)
 
 1. **UI:** Das Transkriptions-Options-Panel (`RecordingCard.tsx`,
@@ -118,9 +145,10 @@ So verschwindet die falsche englische Sprach-Anzeige in der UI
 
 - **parakeet-tdt kann kein echtes Sprach-Forcing** (TDT-Architektur) — der
   Sprachwähler verbessert die Erkennung bei ps-pk-onnx NICHT direkt. Der
-  reale Hebel für „erkennt Englisch": (a) korrekte Sprach-Anzeige (Fix oben),
-  (b) für Forcing auf ein Canary-/Whisper-Backend wechseln, (c) prüfen, ob
-  eine deutsch-spezifische Modellvariante (parakeet-tdt-0.6b-v2-de o.ä.)
+  reale Hebel für „erkennt Englisch“: (a) korrekte Sprach-Anzeige (Fix oben),
+  (b) **für Forcing auf Canary wechseln — im Vergleichstest 2026-09-08 als
+  Lösung BELEGT** (s. o.: 32,8 % → 2,7 % EN-Anteil), (c) prüfen, ob eine
+  deutsch-spezifische Modellvariante (parakeet-tdt-0.6b-v2-de o.ä.)
   existiert und als eigenes Backend angeboten werden soll. → Dem User im
   Ergebnisbericht transparent machen.
 - UI-Sprachenliste muss zur Backend-Liste passen (de-Display „Deutsch").
