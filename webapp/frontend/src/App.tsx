@@ -29,6 +29,7 @@ import { fetchMe, fetchMyCredits, formatCents, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
+import { LogIn, LogOut } from "lucide-react";
 import { AdminPanel } from "./components/AdminPanel";
 import { UserSettingsPage } from "./components/UserSettingsPage";
 import { SearchBar } from "./components/SearchBar";
@@ -38,7 +39,8 @@ import { InstallBanner } from "./components/InstallBanner";
 function AppContent() {
   const [query, setQuery] = useState("");
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [view, setView] = useState<"main" | "settings">("main");
+  // Change 191: vier Ansichten in einem Top-Menü (Transkribieren ist Default).
+  const [view, setView] = useState<"main" | "settings" | "benchmark" | "admin">("main");
   const { t, lang, setLang } = useT();
   // Change 054: Sort-Badges (null = Default Date desc) + Tag-Filter (ODER).
   const [sort, setSort] = useState<SortState>(null);
@@ -49,6 +51,9 @@ function AppContent() {
 
   // Benchmark-Seite: /benchmark → öffentliche BenchmarkPage
   const isBenchmark = parseBenchmarkPath(window.location.pathname);
+  // Change 191: Benchmark ist zusätzlich ein Menüpunkt — der Pfad /benchmark
+  // bleibt gültig (alte Links), die Ansicht schaltet derselbe Zustand.
+  const showBenchmark = isBenchmark || view === "benchmark";
   const [benchMeta, setBenchMeta] = useState<BenchmarkMeta | null>(null);
   const [benchData, setBenchData] = useState<BenchmarkSamplesResponse | null>(null);
   const [benchResults, setBenchResults] = useState<BenchmarkResults | null>(null);
@@ -58,7 +63,7 @@ function AppContent() {
   const [benchTick, setBenchTick] = useState(0);
 
   useEffect(() => {
-    if (!isBenchmark) return;
+    if (!showBenchmark) return;
     fetchBenchmarkMeta().then(setBenchMeta).catch(() => setBenchMeta(null));
     fetchBenchmarkSamples().then(setBenchData).catch(() => setBenchData(null));
     fetchBenchmarkResults().then(setBenchResults).catch(() => setBenchResults(null));
@@ -67,7 +72,7 @@ function AppContent() {
     fetchVadSamples().then(setBenchVad).catch(() => setBenchVad(null));
     // Change 136: Diar-Testset-Calls (anhörbar) — eigener Fetch, 404 = kein Paket.
     fetchDiarSamples().then(setBenchDiar).catch(() => setBenchDiar(null));
-  }, [isBenchmark, benchTick]);
+  }, [showBenchmark, benchTick]);
 
   const onBenchReject = async (sampleId: string) => {
     try {
@@ -173,21 +178,40 @@ function AppContent() {
               PolySchnack
             </h1>
           </a>
-            <a
-              href="/benchmark"
-              className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
-                isBenchmark
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
-              }`}
-            >
-              Benchmark
-            </a>
+          {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
+          <nav className="flex flex-wrap items-center gap-1" aria-label="Hauptmenü">
+            {([
+              ["main", t("transcribe")],
+              ["settings", t("settings")],
+              ["benchmark", t("benchmark")],
+              ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key as typeof view)}
+                aria-current={view === key ? "page" : undefined}
+                className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
+                  view === key
+                    ? "bg-accent/20 text-accent"
+                    : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+            {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
             {user && user.oidc_enabled && !user.authenticated && (
-              <a href="/auth/login" className="btn-ghost-sm text-[12px]">
-                Login
+              <a
+                href="/auth/login"
+                className="btn-ghost-sm text-[12px] inline-flex items-center"
+                title={t("login")}
+                aria-label={t("login")}
+              >
+                <LogIn size={14} />
               </a>
             )}
             {user?.authenticated && (
@@ -202,14 +226,13 @@ function AppContent() {
                     💰 {formatCents(credits.credits_cents)}
                   </button>
                 )}
-                <button
-                  className="btn-ghost-sm text-[12px]"
-                  onClick={() => setView(view === "settings" ? "main" : "settings")}
+                <a
+                  href="/auth/logout"
+                  className="btn-ghost-sm text-[12px] inline-flex items-center"
+                  title={t("logout")}
+                  aria-label={t("logout")}
                 >
-                  {view === "settings" ? "← " + t("back") : "⚙️ " + t("settings")}
-                </button>
-                <a href="/auth/logout" className="btn-ghost-sm text-[12px]">
-                  Logout
+                  <LogOut size={14} />
                 </a>
               </div>
             )}
@@ -248,7 +271,7 @@ function AppContent() {
 
       {/* ── Main content ── */}
       <main className="max-w-[960px] mx-auto px-3 sm:px-5 py-4 sm:py-6 overflow-x-hidden">
-        {isBenchmark ? (
+        {showBenchmark ? (
           <BenchmarkPageContent
             meta={benchMeta}
             data={benchData}
@@ -268,8 +291,6 @@ function AppContent() {
             <UploadZone user={user} />
 
             <QueueWatcher />
-
-            {user?.is_admin && <AdminPanel />}
 
             <SearchBar
               value={query}
@@ -295,6 +316,8 @@ function AppContent() {
               onToggleTag={onToggleTag}
             />
           </>
+        ) : view === "admin" && user?.is_admin ? (
+          <AdminPanel />
         ) : (
           <UserSettingsPage user={user} />
         )}
