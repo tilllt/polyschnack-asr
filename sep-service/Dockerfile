@@ -7,10 +7,16 @@
 # (--separate), GGUF-Modelle von cstr auf HuggingFace.
 #
 # Basis: aligner-service/Dockerfile-Muster (Builder mit CUDA,
-# Runtime schlank) + CrispASR aus dem ORIGINAL-Repo CrispStrobe/CrispASR
-# (Stand 81595d17 — inkl. unserem gemergten /progress-Fix PR #408 +
-# Maintainer-Härtung 87670dd; der bisher genutzte Fork tilllt/CrispASR
-# ist ein veralteter Upstream-Stand, 0 eigene Commits).
+# Runtime schlank) + CrispASR aus dem ORIGINAL-Repo CrispStrobe/CrispASR.
+# Ref ueber --build-arg CRISPASR_REF waehlbar (Default s. ARG unten); der
+# Fork tilllt/CrispASR ist ein veralteter Upstream-Stand, 0 eigene Commits.
+#
+# GPU-Pfad Mel-Band-RoFormer: unser Upstream-Port (#422, Commits vom 03./04.09.)
+# liegt in main, aber NICHT im Release v0.8.32 — v0.8.32 ist 11 Commits
+# AELTER als 7458ce24f ("fix(c-api,#422): forward use_gpu to
+# mel-band-roformer"). Der alte Pin 81595d17 (29.08., v0.8.30) kannte den
+# GPU-Pfad fuer MBR nicht: gemessen 10 s Audio = 1 min 54 s Wall /
+# 16 min 46 s CPU-Zeit, kein ggml_cuda_init (htdemucs dagegen backend=CUDA0).
 #
 # HYBRID (wie aligner): Der CUDA-Build enthält den CPU-Backend
 # (ggml_backend_init_best = CUDA > Metal > Vulkan > CPU). GPU-Zugriff
@@ -26,9 +32,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git cmake build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# CrispASR-Ref: enthaelt den Mel-Band-RoFormer-GPU-Port (#422) inkl. der
+# use_gpu-Weiterleitung an der C-API (7458ce24f, 04.09.).
+ARG CRISPASR_REF=7458ce24fbb3ee3516327b85db372798f1cec337
+
 WORKDIR /src
 RUN git clone --recursive https://github.com/CrispStrobe/CrispASR.git . \
-    && git checkout 81595d17f72e36380bc455a09b63757e82cd0da2
+    && git checkout ${CRISPASR_REF}
 # CUDA-Backend explizit aktivieren (gleiches Muster wie aligner):
 # -DGGML_CUDA=ON, arch 86 für RTX 3090 (sm_86), Linker-Flags für die
 # Driver-Stub-Library (-lcuda) wegen BUILD_SHARED_LIBS=ON.
