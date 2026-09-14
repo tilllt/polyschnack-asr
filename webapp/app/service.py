@@ -30,6 +30,7 @@ from .word_anchors import (
     assign_words_by_index,
     enforce_word_anchored_bounds,
     glue_words_after,
+    enforce_min_word_durations,
     resolve_zero_durations,
 )
 import os
@@ -1443,6 +1444,8 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     prev_end = float(own_end) if prev_end is None else max(prev_end, float(own_end))
                 continue
             words_new = resolve_zero_durations(words_new)
+            # Change 190: harte Untergrenze (kein Wort < 80 ms)
+            words_new = enforce_min_word_durations(words_new)
             words_new, delta = glue_words_after(prev_end, words_new)
             if delta:
                 log.info("align: rec_id=%s Segment %d an der Naht um %.3fs verschoben",

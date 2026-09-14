@@ -140,3 +140,61 @@ def test_live_fall_328_grenzen_aus_woertern():
         else:
             assert seg["end"] == seg["words"][-1]["end"]
     assert sum(len(s["words"]) for s in out) == sum(counts)
+
+
+# --------------------------------------------------------------------------- #
+# Change 190: Mindestdauer für Wortzeiten
+# --------------------------------------------------------------------------- #
+from app.word_anchors import enforce_min_word_durations, MIN_WORD_DURATION_S
+
+
+def test_mindestdauer_hebt_null_dauer_an():
+    """Live-Fall 328: Wort mit end == start (Segment 6, 'ist') bekommt >= 80 ms."""
+    words = [
+        {"word": "die", "start": 156.0, "end": 156.4},
+        {"word": "ist", "start": 156.48, "end": 156.48},
+        {"word": "verlinkt", "start": 156.48, "end": 156.8},
+    ]
+    out = enforce_min_word_durations(words)
+    ist = out[1]
+    assert ist["end"] - ist["start"] >= MIN_WORD_DURATION_S
+    assert ist["start"] == 156.48          # Start bleibt
+    assert out[0]["end"] == 156.4          # echte Dauer unangetastet
+    # Monotonie: kein Wort beginnt vor dem Ende des Vorgängers
+    for a, b in zip(out, out[1:]):
+        assert b["start"] >= a["end"] - 1e-9
+
+
+def test_mindestdauer_folgewort_am_gleichen_start():
+    """Beide Wörter am selben Start: beide >= 80 ms, Kaskade statt Überlappung."""
+    words = [
+        {"word": "und", "start": 10.0, "end": 10.0},
+        {"word": "das", "start": 10.0, "end": 10.0},
+        {"word": "ist", "start": 10.0, "end": 10.0},
+    ]
+    out = enforce_min_word_durations(words)
+    assert [round(w["end"] - w["start"], 3) for w in out] == [0.08, 0.08, 0.08]
+    assert out[0]["end"] == 10.08 and out[1]["start"] == 10.08
+    assert out[1]["end"] == 10.16 and out[2]["start"] == 10.16
+
+
+def test_mindestdauer_laesst_lange_woerter_unveraendert():
+    words = [{"word": "Weltprinzipien", "start": 13.0, "end": 14.2}]
+    out = enforce_min_word_durations(words)
+    assert out[0] == {"word": "Weltprinzipien", "start": 13.0, "end": 14.2}
+
+
+def test_mindestdauer_begrenzt_auf_segmentende_aber_nie_unter_floor():
+    words = [{"word": "Ende", "start": 9.95, "end": 9.95}]
+    out = enforce_min_word_durations(words, seg_end=9.97)
+    assert out[0]["end"] - out[0]["start"] >= MIN_WORD_DURATION_S
+    assert out[0]["end"] >= 10.03
+
+
+def test_mindestdauer_erzeugt_keine_ueberlappung_bei_engem_raster():
+    """48 Wörter in 4,5 s (komprimiertes Segment 6) bleiben monoton."""
+    words = [{"word": f"w{i}", "start": 153.0 + i * 0.02, "end": 153.0 + i * 0.02} for i in range(48)]
+    out = enforce_min_word_durations(words)
+    assert all(w["end"] - w["start"] >= MIN_WORD_DURATION_S - 1e-9 for w in out)
+    for a, b in zip(out, out[1:]):
+        assert b["start"] >= a["end"] - 1e-9

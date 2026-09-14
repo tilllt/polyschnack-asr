@@ -182,6 +182,50 @@ def plan_bound_correction(segments: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     return report
 
 
+#: Harte Untergrenze für gespeicherte Wortdauern (Change 190, Nutzer-Vorgabe):
+#: Karaoke-Timeline und Timing-Editor brauchen eine sichtbare Breite.
+MIN_WORD_DURATION_S = 0.08
+
+
+def enforce_min_word_durations(
+    words: List[Dict[str, Any]],
+    floor: float = MIN_WORD_DURATION_S,
+    seg_end: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """Change 190: Kein Wort mit Dauer < `floor` (Default 80 ms).
+
+    Letzte Instanz nach `ensure_word_timings` (Change 168, nur fehlende Werte)
+    und `resolve_zero_durations` (Change 152, end==start → Start des
+    Folgeworts): hat das Folgewort **denselben** Start, bleibt dort die Dauer
+    0 — hier wird sie auf `floor` gehoben.
+
+    Regeln:
+    - Reihenfolge bleibt monoton: ein Wort beginnt nie vor dem Ende des
+      Vorgängers (Kaskade: das Wort wird nach hinten geschoben, nicht
+      überlappt).
+    - Ein bereits längeres Wort behält seine echten Zeiten.
+    - `seg_end` begrenzt nur nach oben und NIE unter `floor` (die
+      Segmentgrenze wird aus den Wörtern abgeleitet — Change 187).
+    Eingabe bleibt unverändert.
+    """
+    out = [dict(w) for w in words]
+    cursor: Optional[float] = None
+    for w in out:
+        start = _word_time(w, "start")
+        end = _word_time(w, "end")
+        if start is None:
+            continue
+        if cursor is not None and start < cursor:
+            start = cursor
+        if end is None or end < start + floor:
+            end = start + floor
+        if seg_end is not None and end > float(seg_end):
+            end = max(float(seg_end), start + floor)
+        w["start"], w["end"] = start, end
+        cursor = end
+    return out
+
+
 def resolve_zero_durations(
     words: Sequence[Dict[str, Any]], cap: float = 1.0
 ) -> List[Dict[str, Any]]:

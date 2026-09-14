@@ -14,7 +14,7 @@ from ..config import settings
 from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..permissions import ensure_access
-from ..word_anchors import enforce_word_anchored_bounds
+from ..word_anchors import enforce_min_word_durations, enforce_word_anchored_bounds
 
 log = logging.getLogger(__name__)
 
@@ -298,6 +298,8 @@ def reconcile_words_to_text(
         # wenn der Aligner/ASR Lücken lässt (nie Wörter ohne Timing
         # speichern; Karaoke/Split/Timing-Edits brauchen die Basis).
         s["words"] = ensure_word_timings(s["words"], seg_start, seg_end)
+        # Change 190: keine Wortdauer unter 80 ms (letzte Instanz).
+        s["words"] = enforce_min_word_durations(s["words"], seg_end=seg_end)
     # Change 187: Anker-Invariante erzwingen — hat ein Segment Wörter, sind
     # seine Grenzen aus den Wörtern ABGELEITET (start = erstes Wort,
     # end = Start des ersten Wortes des Folgesegments). Damit wandern die
