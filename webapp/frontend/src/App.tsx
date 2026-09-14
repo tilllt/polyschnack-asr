@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useDebouncedValue, useRecordings, useStats, useModelStatus } from "./hooks";
 import { toggleActivePlayback } from "./components/WaveformPlayer";
 import { ToastProvider } from "./components/Toasts";
-import { useT, type Lang, LocaleProvider } from "./useLocale";
+import { useT, LocaleProvider } from "./useLocale";
 import { parseSharePath } from "./share";
 import { parseBenchmarkPath } from "./benchmark";
 import { nextSortState, sortParams, type SortState } from "./sortState";
@@ -30,6 +30,8 @@ import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
 import { LogIn, LogOut } from "lucide-react";
+
+import { LangMenu } from "./components/LangMenu";
 import { AdminPanel } from "./components/AdminPanel";
 import { UserSettingsPage } from "./components/UserSettingsPage";
 import { SearchBar } from "./components/SearchBar";
@@ -41,7 +43,7 @@ function AppContent() {
   const [user, setUser] = useState<UserInfo | null>(null);
   // Change 191: vier Ansichten in einem Top-Menü (Transkribieren ist Default).
   const [view, setView] = useState<"main" | "settings" | "benchmark" | "admin">("main");
-  const { t, lang, setLang } = useT();
+  const { t } = useT();
   // Change 054: Sort-Badges (null = Default Date desc) + Tag-Filter (ODER).
   const [sort, setSort] = useState<SortState>(null);
   const [activeTags, setActiveTags] = useState<string[]>([]);
@@ -161,7 +163,7 @@ function AppContent() {
           px-3 sm:px-6 py-3 sm:py-[14px]
         "
       >
-        {/* Row 1: Brand + Lang/Login */}
+        {/* Row 1: Logo · Menü · Sprache — Nutzerbereich (Guthaben/Name/Symbol) rechtsbündig */}
         <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 mb-2 sm:mb-0">
           <a
             href="/"
@@ -201,6 +203,9 @@ function AppContent() {
               </button>
             ))}
           </nav>
+
+          {/* Change 192: Sprachwahl als Flaggen-Dropdown, direkt neben dem Menü. */}
+          <LangMenu />
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
             {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
@@ -244,21 +249,6 @@ function AppContent() {
                 🎭 {user.name}
               </span>
             )}
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value as Lang)}
-              className="
-                bg-panel border border-border2 rounded-sm
-                text-[12px] text-txt px-2 py-1
-                outline-none cursor-pointer
-                focus:border-accent
-                shrink-0
-              "
-            >
-              <option value="en">🇬🇧 English</option>
-              <option value="de">🇩🇪 Deutsch</option>
-              <option value="pt-BR">🇧🇷 Português</option>
-            </select>
           </div>
         </div>
 
