@@ -32,9 +32,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git cmake build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# CrispASR-Ref: enthaelt den Mel-Band-RoFormer-GPU-Port (#422) inkl. der
-# use_gpu-Weiterleitung an der C-API (7458ce24f, 04.09.).
-ARG CRISPASR_REF=7458ce24fbb3ee3516327b85db372798f1cec337
+# CrispASR-Ref: main-HEAD 97cea0919 (14.09., CI gruen) — enthaelt den
+# Mel-Band-RoFormer-GPU-Port (#422, 03./04.09.) inkl. use_gpu-Weiterleitung
+# (7458ce24f) und den ggml-v0.23-Fix (0028a260e).
+# 7458ce24f selbst baut NICHT: examples/talk-llama/llama-model-loader.cpp
+# passt dort nicht zur ggml_ssm_scan-Signatur (9 Argumente) -> exit 2.
+ARG CRISPASR_REF=97cea0919f1b5abfa2395f5791f88a05a0151223
 
 WORKDIR /src
 RUN git clone --recursive https://github.com/CrispStrobe/CrispASR.git . \
