@@ -97,14 +97,37 @@ class DockerProxyClient:
         resp = self._request("GET", path)
         return resp.json()
 
+    def resolve_container(self, name: str) -> Optional[str]:
+        """Physischen Container zu einem logischen Service-Namen finden.
+
+        Change 188 (Root Cause „Backends nicht startbar/auswählbar"): Compose
+        benennt Container ``<projekt>-<service>-<index>``
+        (z. B. ``polyschnack-crispr-canary-1``). Der kurze Service-Name aus der
+        Registry existiert nur, wenn compose ein explizites ``container_name``
+        setzt. Deshalb: exakter Name → sonst Suche über das Label
+        ``com.docker.compose.service``. Rückgabe: Container-Name/ID oder None.
+        """
+        try:
+            self._request("GET", f"/containers/{name}/json")
+            return name
+        except DockerProxyError as exc:
+            if "not created" not in str(exc):
+                raise
+        try:
+            rows = self.list_containers(label=f"com.docker.compose.service={name}")
+        except DockerProxyError:
+            return None
+        if not rows:
+            return None
+        entry = rows[0]
+        return entry.get("Id") or entry.get("Names", [None])[0]
+
     def container_state(self, name: str) -> Optional[Dict[str, Any]]:
         """Return {status, health, running} or None when the container does not exist."""
-        try:
-            resp = self._request("GET", f"/containers/{name}/json")
-        except DockerProxyError as exc:
-            if "not created" in str(exc):
-                return None
-            raise
+        resolved = self.resolve_container(name)
+        if resolved is None:
+            return None
+        resp = self._request("GET", f"/containers/{resolved}/json")
         data = resp.json()
         state = data.get("State", {})
         return {
@@ -133,17 +156,34 @@ class DockerProxyClient:
     # ------------------------------------------------------------ actions
 
     def start(self, name: str) -> None:
-        self._request("POST", f"/containers/{name}/start")
+        # Change 188: logischen Service-Namen erst auf den echten Container
+        # (Projekt-Präfix) auflösen — sonst 404 trotz laufendem Service.
+        self._request("POST", f"/containers/{self._action_target(name)}/start")
 
     def stop(self, name: str) -> None:
-        self._request("POST", f"/containers/{name}/stop")
+        self._request("POST", f"/containers/{self._action_target(name)}/stop")
 
     def restart(self, name: str) -> None:
-        self._request("POST", f"/containers/{name}/restart")
+        self._request("POST", f"/containers/{self._action_target(name)}/restart")
 
     def logs(self, name: str, tail: int = 200) -> str:
-        resp = self._request("GET", f"/containers/{name}/logs?stdout=1&stderr=1&tail={tail}")
+        resp = self._request(
+            "GET",
+            f"/containers/{self._action_target(name)}/logs?stdout=1&stderr=1&tail={tail}",
+        )
         return resp.text
+
+    def _action_target(self, name: str) -> str:
+        """Ziel-Container für Aktionen: aufgelöst, sonst der rohe Name.
+
+        Der rohe Name wird beibehalten, wenn er nicht existiert — dann liefert
+        die Aktion den ehrlichen 404 („container not created") statt eines
+        irreführenden Fehlers.
+        """
+        try:
+            return self.resolve_container(name) or name
+        except DockerProxyError:
+            return name
 
 
 # Singleton per settings (cheap to recreate; kept for API symmetry with asr_client)

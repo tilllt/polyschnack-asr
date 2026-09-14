@@ -43,7 +43,7 @@ def test_align_fehler_skipped_mit_grund(db, monkeypatch):
     )
     monkeypatch.setattr(
         service_mod, "_prepare_align_audio",
-        lambda rec_id, separate_backend="none": (b"MP3", None),
+        lambda rec_id, separate_backend="none", **kw: (b"MP3", None),
     )
 
     def _boom(*a, **k):

@@ -84,6 +84,8 @@ export interface Recording {
   progress_pct: number;
   /** Phasen-Hinweis während der Verarbeitung, z. B. "diarization" */
   progress_note?: string | null;
+  /** Change 187: neutrale Notiz zum Align-Lauf (z.B. Music-Removal nicht möglich). */
+  align_note?: string | null;
   /** Change 045: Status des präzisen Alignments (done|pending|running|skipped). */
   alignment?: string;
   /** Change 011: Beginn der aktuellen Phase (ISO) — "Phase läuft seit Xs". */
@@ -176,6 +178,8 @@ export interface QueueJob {
   kind?: string;
   progress_pct?: number | null;
   progress_note?: string | null;
+  /** Change 187: neutrale Notiz zum Align-Lauf (z.B. Music-Removal nicht möglich). */
+  align_note?: string | null;
   // Change 183: Job-Row-Felder (eine Quelle der Wahrheit)
   phase?: string | null;
   pct?: number | null;

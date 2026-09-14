@@ -26,6 +26,12 @@ from .config import settings
 from .crud import get_or_create_user, get_user, set_progress
 from .db import engine
 from .diarize import DiarizationError
+from .word_anchors import (
+    assign_words_by_index,
+    enforce_word_anchored_bounds,
+    glue_words_after,
+    resolve_zero_durations,
+)
 import os
 
 # Heavy optional deps (onnxruntime/pyannote/torch) are imported lazily inside
@@ -1052,32 +1058,23 @@ def run_llm_enhance(text: str, segments: List[Dict[str, Any]]):
 MAX_ALIGN_GROUP_S = 120.0  # Sicherheitsmarge unter dem 400-s-Modell-Limit
 
 
-def _split_long_segment(
-    seg: Dict[str, Any], max_s: float = MAX_ALIGN_GROUP_S
+def _split_long_segment_plan(
+    seg: Dict[str, Any], seg_index: int, max_s: float = MAX_ALIGN_GROUP_S
 ) -> List[tuple]:
-    """Change 078: Ein EINZELNES Segment länger als max_s in Zeit-Chunks teilen.
+    """Change 078/187: ein Segment LÄNGER als max_s in technische Chunks.
 
-    User-Vorgabe (2026-08-21): GUI-Segmente und Align-Chunks sind
-    entkoppelt — der Aligner bekommt technisch optimierte Chunks (Text
-    proportional mitschneiden), die Wort-Timestamps werden danach über
-    apply_aligned_words wieder den ORIGINAL-Segmenten zugeordnet.
-
-    Text-Aufteilung: die Wortfolge (seg.words-Reihenfolge bzw.
-    seg.text.split()) gleichmäßig über die Chunks — NICHT anhand der
-    alten Wortzeiten (die sind bei langen Aufnahmen das Problem).
+    Returns: Liste von ``(start, end, text, spans)`` mit
+    ``spans = [(seg_index, wortzahl)]`` — der Text jedes Chunks enthält genau
+    die Wörter dieses Spans (Textaufteilung = Wortaufteilung).
     """
     start = float(seg.get("start") or 0.0)
     end = float(seg.get("end") or start)
     dur = end - start
+    words = _segment_word_strings(seg)
     if dur <= max_s:
-        return [(start, end, seg.get("text") or "")]
+        return [(start, end, " ".join(words) if words else (seg.get("text") or ""),
+                 [(seg_index, len(words))])]
     n = max(2, math.ceil(dur / max_s))
-    # Wortfolge: bevorzugt seg.words (Reihenfolge = Textfolge), sonst Text-Wörter.
-    raw_words = seg.get("words") or []
-    if raw_words:
-        words = [str(w.get("word") or "") for w in raw_words]
-    else:
-        words = (seg.get("text") or "").split()
     chunk_dur = dur / n
     out: List[tuple] = []
     for c in range(n):
@@ -1085,8 +1082,77 @@ def _split_long_segment(
         c_end = start + (c + 1) * chunk_dur if c + 1 < n else end
         lo = round(len(words) * c / n)
         hi = round(len(words) * (c + 1) / n)
-        out.append((c_start, c_end, " ".join(words[lo:hi])))
+        out.append((c_start, c_end, " ".join(words[lo:hi]), [(seg_index, hi - lo)]))
     return out
+
+
+def _split_long_segment(
+    seg: Dict[str, Any], max_s: float = MAX_ALIGN_GROUP_S
+) -> List[tuple]:
+    """Wie ``_split_long_segment_plan``, aber ohne Spans (Alt-Vertrag)."""
+    return [(s, e, t) for (s, e, t, _spans) in _split_long_segment_plan(seg, 0, max_s)]
+
+
+def _segment_word_strings(seg: Dict[str, Any]) -> List[str]:
+    """Wortfolge eines Segments (bevorzugt Wortliste, sonst Text)."""
+    raw = seg.get("words") or []
+    if raw:
+        return [str(w.get("word") or "") for w in raw]
+    return (seg.get("text") or "").split()
+
+
+def build_align_plan(
+    segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_GROUP_S
+) -> List[tuple]:
+    """Align-Gruppen inkl. Wort-Spans (Change 187).
+
+    Returns: Liste von ``(start, end, text, spans)``; ``spans`` = Liste
+    ``(segment_index, wortzahl)`` in Textreihenfolge. Damit ordnet der Align-Pfad
+    die zurückgelieferten Wörter PER WORTINDEX zu (Wortzahl rein = Wortzahl
+    raus) — Zeitfenster und Textähnlichkeit werden nicht gebraucht.
+
+    Gruppen entstehen aus aufsteigenden Zeitbereichen der Segmente und
+    überlappen nicht (der Schnitt zwischen zwei Gruppen liegt am Segmentende).
+    Change 078: einzelne Segmente länger als max_s werden intern gechunkt.
+    """
+    groups: List[tuple] = []
+    cur: Optional[Dict[str, Any]] = None
+
+    def _flush(acc: Dict[str, Any]) -> tuple:
+        spans: List[tuple] = []
+        parts: List[str] = []
+        for (text, sp) in acc["parts"]:
+            parts.append(text)
+            spans.extend(sp)
+        return (acc["start"], acc["end"], " ".join(p for p in parts if p).strip(), spans)
+
+    for idx, s in enumerate(segments):
+        start, end = s.get("start"), s.get("end")
+        if start is None or end is None:
+            continue
+        start, end = float(start), float(end)
+        if (end - start) > max_s:
+            if cur is not None:
+                groups.append(_flush(cur))
+                cur = None
+            groups.extend(_split_long_segment_plan(s, idx, max_s))
+            continue
+        words = _segment_word_strings(s)
+        part = ((s.get("text") or "").strip() if not words else " ".join(words),
+                [(idx, len(words))])
+        if cur is None:
+            cur = {"start": start, "end": end, "parts": [part]}
+        else:
+            span = max(cur["end"], end) - cur["start"]
+            if span > max_s:
+                groups.append(_flush(cur))
+                cur = {"start": start, "end": end, "parts": [part]}
+            else:
+                cur["end"] = max(cur["end"], end)
+                cur["parts"].append(part)
+    if cur is not None:
+        groups.append(_flush(cur))
+    return groups
 
 
 def build_align_groups(segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_GROUP_S) -> List[tuple]:
@@ -1098,91 +1164,11 @@ def build_align_groups(segments: List[Dict[str, Any]], max_s: float = MAX_ALIGN_
     Change 078: Einzelne Segmente LÄNGER als max_s werden intern in
     gleich große Chunks geteilt (_split_long_segment) — die Align-
     Gruppen sind dann kleiner als das GUI-Segment; die Wörter landen
-    über apply_aligned_words trotzdem wieder im Original-Segment.
+    über die Wortindex-Zuordnung (Change 187) trotzdem wieder im
+    Original-Segment.
     """
-    groups: List[tuple] = []
-    cur: Optional[list] = None
-    for s in segments:
-        start, end = s.get("start"), s.get("end")
-        if start is None or end is None:
-            continue
-        # Change 078: langes Einzel-Segment → technische Chunks.
-        if (float(end) - float(start)) > max_s:
-            if cur is not None:
-                groups.append((cur[0], cur[1], " ".join(cur[2])))
-                cur = None
-            groups.extend(_split_long_segment(s, max_s))
-            continue
-        if cur is None:
-            cur = [start, end, [s.get("text") or ""]]
-        else:
-            span = max(cur[1], end) - cur[0]
-            if span > max_s:
-                groups.append((cur[0], cur[1], " ".join(cur[2])))
-                cur = [start, end, [s.get("text") or ""]]
-            else:
-                cur[1] = max(cur[1], end)
-                cur[2].append(s.get("text") or "")
-    if cur is not None:
-        groups.append((cur[0], cur[1], " ".join(cur[2])))
-    return groups
+    return [(s, e, t) for (s, e, t, _spans) in build_align_plan(segments, max_s)]
 
-
-def apply_aligned_words(segments: List[Dict[str, Any]], words: List[Dict[str, Any]],
-                        group_start: float) -> List[Dict[str, Any]]:
-    """Weist alignierte Wörter (relativ zu group_start) den Segmenten zu.
-
-    Ein Wort gehört zum Segment, in dessen Zeitbereich sein Start fällt.
-    Nur Segmente mit Treffern bekommen words — Segmente ohne Treffer
-    behalten ihre Backend-Timestamps.
-    """
-    by_time = sorted(words, key=lambda w: w.get("start") or 0.0)
-    # Change 152 (User-Befund 2026-08-28): Der Aligner liefert für die
-    # meisten Wörter end=start (Dauer 0) oder unplausibel kurze Werte
-    # (≤ 50 ms) — dadurch wird das Wort auf der Timeline nie markiert.
-    # Dauer aus dem Start des Folgeworts ableiten — aber NIE über eine
-    # Stille-Lücke hinweg: nur wenn die Lücke klein ist (≤ 0.5 s), wird
-    # sie als Wortdauer übernommen; bei langer Stille (Satz-Ende) endet
-    # das Wort nach einer harten Maximaldauer von 1 s. Das letzte Wort
-    # der Datei bekommt ebenfalls diese Maximaldauer.
-    cap = 1.0
-    for i in range(len(by_time) - 1):
-        w = by_time[i]
-        ws = float(w.get("start") or 0.0)
-        we = float(w.get("end") or ws)
-        if we - ws <= 0.05:
-            nxt = float(by_time[i + 1].get("start") or ws)
-            if nxt - ws <= 0.5:
-                by_time[i] = {**w, "end": nxt}
-            else:
-                by_time[i] = {**w, "end": ws + cap}
-    if by_time:
-        w = by_time[-1]
-        ws = float(w.get("start") or 0.0)
-        we = float(w.get("end") or ws)
-        if we - ws <= 0.05:
-            by_time[-1] = {**w, "end": ws + cap}
-    out: List[Dict[str, Any]] = []
-    wi = 0
-    for s in segments:
-        ns = dict(s)
-        s0, s1 = s.get("start", 0.0), s.get("end")
-        seg_words: List[Dict[str, Any]] = []
-        for w in by_time[wi:]:
-            ws = (w.get("start") or 0.0) + group_start
-            we = (w.get("end") or ws) + group_start
-            if s1 is not None and ws >= s1:
-                break
-            if ws >= s0 - 1e-3:
-                item: Dict[str, Any] = {"word": w.get("word") or "", "start": ws, "end": we}
-                if w.get("confidence") is not None:
-                    item["confidence"] = w.get("confidence")
-                seg_words.append(item)
-        if seg_words:
-            ns["words"] = seg_words
-        out.append(ns)
-        wi += len(seg_words)
-    return out
 
 
 def restore_override_words(
@@ -1228,7 +1214,8 @@ def restore_override_words(
 
 def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: bytes,
                      audio_name: str, language: Optional[str], job=None,
-                     background: bool = False) -> List[Dict[str, Any]]:
+                     background: bool = False,
+                     outcome: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Forced-Alignment-Phase: ersetzt Word-Timestamps durch akustisch
     verifizierte Grenzen (crispr-align). Failt der Aligner (Container down,
     Chunk > 400 s), bleiben die Backend-Timestamps — nie ein Job-Fail.
@@ -1245,6 +1232,13 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     progress_pct-Schreibzugriffe (der Job ist fertig, 96 % wäre Fake) und
     kein Heartbeat auf progress. Der Worker pflegt stattdessen das
     ``alignment``-Feld des Recordings.
+
+    ``outcome`` (Change 187): optionale Meldetasche — der Aufrufer bekommt
+    ``{"status": "done"|"skipped"|"failed", "reason": <code|None>}``.
+    Unterscheidet EHRLICH: Aligner lieferte nichts (`skipped`,
+    reason=no_aligner_words / aligner_unreachable) vs. Aligner lieferte, aber
+    die Zuordnung ist nicht aufgegangen (`failed`,
+    reason=word_count_mismatch) vs. erfolgreich ersetzt (`done`).
     """
     from .aligner_client import AlignerClient
     from .models import Recording as _Rec
@@ -1252,6 +1246,8 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     client = AlignerClient()
     if not client.health():
         log.info("align: crispr-align nicht erreichbar (rec_id=%s) — Backend-Timestamps behalten", rec_id)
+        if outcome is not None:
+            outcome.update(status="skipped", reason="aligner_unreachable")
         return segments
 
     if not background:
@@ -1268,6 +1264,11 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
     # Gruppe) hätte die words des Segments mit der letzten Gruppe
     # überschrieben.
     all_aligned_words: List[Dict[str, Any]] = []
+    # Change 187: Zuordnung PER WORTINDEX (Wortzahl rein = Wortzahl raus) —
+    # kein Zeitfenster, keine Textähnlichkeit. `by_segment` sammelt die Wörter
+    # je Segment-Index (ein gechunktes Segment kann aus mehreren Gruppen kommen).
+    by_segment: Dict[int, List[Dict[str, Any]]] = {}
+    align_error: Optional[str] = None
     try:
         # Zeitbasis: die VERARBEITETE Audio (nach VAD-Trim/Enhance/Konvertierung)
         # — die Segment-Zeiten beziehen sich auf sie.
@@ -1276,18 +1277,22 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
             tfh.write(audio_bytes)
 
         _t_align0 = time.perf_counter()
-        groups = build_align_groups(segments)
-        for gi, (g_start, g_end, g_text) in enumerate(groups):
+        groups = build_align_plan(segments)
+        for gi, (g_start, g_end, g_text, spans) in enumerate(groups):
             # Change 124: BG-Align (job=None) ist gegen _cancelled immun —
             # zusätzlich die Cancel-Registry prüfen. Kein _abort_recording:
             # der Job ist längst done, nur die Align-Ergebnisse entfallen.
             if background and _align_cancelled(rec_id):
                 log.info("bg-align: Cancel für rec_id=%s — Ergebnis verworfen", rec_id)
+                if outcome is not None:
+                    outcome.update(status="skipped", reason="cancelled")
                 return segments
             # Cancel/Timeout zwischen den Gruppen prüfen — nicht erst nach
             # dem letzten align()-Call (der bis zu 15 min blockieren kann).
             if _cancelled(job, rec_id):
                 _abort_recording(rec_id, "Abgebrochen (User-Cancel)")
+                if outcome is not None:
+                    outcome.update(status="skipped", reason="cancelled")
                 return segments
             try:
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tfh2:
@@ -1366,20 +1371,27 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     hb.join(timeout=1.0)
 
                 if words:
-                    # Change 078: Wörter GLOBAL sammeln (Offset + g_start),
-                    # nicht pro Gruppe anwenden — ein in mehrere Chunks
-                    # geteiltes Segment bekommt Wörter aus MEHREREN
-                    # Gruppen; die Zuordnung passiert NACH der Schleife
-                    # einmal über apply_aligned_words(…, group_start=0).
-                    for w in words:
-                        item = dict(w)
-                        ws = float(item.get("start") or 0.0) + g_start
-                        we = float(item.get("end") or ws) + g_start
-                        item["start"], item["end"] = ws, we
-                        all_aligned_words.append(item)
-                    aligned_any = True
-                    log.info("align: rec_id=%s Gruppe %d/%d (%ds–%ds) → %d Wörter",
-                             rec_id, gi + 1, len(groups), g_start, g_end, len(words))
+                    # Change 187: per Wortindex zuordnen (Textreihenfolge der
+                    # Gruppe) — der Aligner liefert ein Wort je Eingabewort.
+                    assigned, err = assign_words_by_index(spans, words)
+                    if err:
+                        align_error = err
+                        log.warning(
+                            "align: rec_id=%s Gruppe %d/%d — %s (%d Align-Wörter für %d Textwörter)",
+                            rec_id, gi + 1, len(groups), err, len(words),
+                            sum(int(n) for _i, n in spans),
+                        )
+                    else:
+                        for seg_idx, ws in assigned.items():
+                            for item in ws:
+                                rel_s = float(item.get("start") or 0.0)
+                                rel_e = float(item.get("end") or rel_s)
+                                item["start"] = rel_s + g_start
+                                item["end"] = rel_e + g_start
+                            by_segment.setdefault(seg_idx, []).extend(ws)
+                        aligned_any = True
+                        log.info("align: rec_id=%s Gruppe %d/%d (%ds–%ds) → %d Wörter",
+                                 rec_id, gi + 1, len(groups), g_start, g_end, len(words))
                 # Echter Gruppenfortschritt (96–99): die Phase kann bei langen
                 # Audios 10–25 min dauern — kein starrer 96-Hinweis. Der note
                 # traegt den Gruppen-Zaehler, die UI zeigt "Alignment…".
@@ -1393,9 +1405,11 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                         )
                     _job_progress(job, phase="alignment", pct=round((gi + 1) / max(1, len(groups)) * 100))
             except Exception as exc_g:
+                align_error = align_error or "group_failed"
                 log.warning("align: Gruppe %d/%d übersprungen (rec_id=%s): %s",
                             gi + 1, len(groups), rec_id, exc_g)
     except Exception as exc_a:
+        align_error = align_error or "align_phase_error"
         log.warning("align: Phase übersprungen (rec_id=%s): %s", rec_id, exc_a)
     finally:
         if tmp_audio and os.path.exists(tmp_audio):
@@ -1411,25 +1425,50 @@ def _run_align_phase(rec_id: int, segments: List[Dict[str, Any]], audio_bytes: b
                     session.add(rec2)
                     session.commit()
 
-    # Change 078: EINMAL alle gesammelten (globalen) Wörter den
-    # ORIGINAL-Segmenten zuordnen — GUI-Segmentgrenzen bleiben exakt,
-    # egal wie viele technische Align-Chunks nötig waren.
-    if all_aligned_words:
+    # Change 187: Wörter je Segment installieren, Naht verkleben, DANN die
+    # Grenzen aus den Wörtern ableiten (reconcile_words_to_text ruft dafür
+    # enforce_word_anchored_bounds auf). Kein _distribute_words-Fallback nach
+    # einem erfolgreichen Align.
+    if by_segment:
         # Change 137: Baseline VOR dem Anwenden merken — nach dem Align
         # werden manuell korrigierte Wörter (override=true) wiederhergestellt
         # (Re-Align überschreibt sie nicht, User-Entscheid 2026-08-28).
         baseline_segments = segments
-        segments = apply_aligned_words(segments, all_aligned_words, 0.0)
+        prev_end: Optional[float] = None
+        for idx, seg in enumerate(segments):
+            words_new = by_segment.get(idx)
+            if not words_new:
+                own_end = seg.get("end")
+                if isinstance(own_end, (int, float)):
+                    prev_end = float(own_end) if prev_end is None else max(prev_end, float(own_end))
+                continue
+            words_new = resolve_zero_durations(words_new)
+            words_new, delta = glue_words_after(prev_end, words_new)
+            if delta:
+                log.info("align: rec_id=%s Segment %d an der Naht um %.3fs verschoben",
+                         rec_id, idx, delta)
+            seg["words"] = words_new
+            last_end = words_new[-1].get("end")
+            if isinstance(last_end, (int, float)):
+                prev_end = float(last_end)
         segments = restore_override_words(baseline_segments, segments)
-        # Change 140 (Wurzel-Fix): Text/Wort-Invariante erzwingen — die
-        # Aligner-Wörter werden per LCS an den Segment-Text angeglichen
-        # (nichts wird verschluckt, keine Fremdwörter; unveränderte Wörter
-        # behalten ihre Zeiten). User-Befund ec98bfdf: 8/28 Segmente
-        # desynct → Export/Anzeige unvollständig.
+        # Change 140 (Wurzel-Fix): Text/Wort-Invariante erzwingen; Change 187:
+        # Grenzen werden aus den Wörtern abgeleitet (Anker-Invariante).
         from .routers.segments import reconcile_words_to_text
 
         segments = reconcile_words_to_text(segments)
         aligned_any = True
+
+    if outcome is not None:
+        # Change 187: ehrlicher Status — „skipped" nur, wenn der Aligner nichts
+        # geliefert hat; ein VERWORFENE Zuordnung (Wortzahl-Mismatch) ist
+        # „failed" mit Grund.
+        if align_error == "word_count_mismatch":
+            outcome.update(status="failed", reason=align_error)
+        elif by_segment:
+            outcome.update(status="done", reason=None)
+        else:
+            outcome.update(status="skipped", reason=align_error or "no_aligner_words")
 
     if aligned_any:
         log.info("align: Word-Timestamps für rec_id=%s ersetzt", rec_id)
@@ -1592,7 +1631,9 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
     if not ALIGN_WORDS_ENABLED:
         return
 
-    prepared = _prepare_align_audio(rec_id, separate_backend=separate_backend)
+    prep_note: Dict[str, Any] = {}
+    prepared = _prepare_align_audio(rec_id, separate_backend=separate_backend,
+                                    note_out=prep_note)
     if prepared is None:
         try:
             with Session(engine) as session:
@@ -1644,16 +1685,24 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
         _AlignmentCache.delete(rec_id)
         return
 
+    # Change 187: ehrlicher Status — der Align-Pfad meldet zurück, OB der
+    # Aligner geliefert hat (skipped) oder die Zuordnung nicht aufging (failed).
+    outcome: Dict[str, Any] = {"status": "skipped", "reason": "not_run"}
     try:
+        # Change 187: der Arbeitskopie eine eigene Liste geben — die
+        # Anker-Ableitung mutiert Segmente IN PLACE; `segments` bleibt die
+        # unveränderte Baseline für den Versions-Guard unten.
         new_segments = _run_align_phase(
-            rec_id, segments, audio_bytes,
+            rec_id, _json_deepcopy(segments), audio_bytes,
             f"{rec_id}.wav", language, job=None, background=True,
+            outcome=outcome,
         )
         if vad_meta:
             _shift_or_remap(new_segments, vad_meta)
     except Exception as exc:
         log.warning("bg-align: rec_id=%s failed: %s", rec_id, exc)
         new_segments = None
+        outcome.update(status="failed", reason="align_phase_error")
 
     # Change 124: User-Cancel während des Laufs → Ergebnis verwerfen,
     # alignment=skipped (die Transkription selbst bleibt done).
@@ -1686,33 +1735,49 @@ def _run_background_align(rec_id: int, job: Optional[Any] = None,
                     rec.alignment = "done"
                     rec.error = None
                 else:
-                    # Change 101: Der Aligner hat NICHTS ersetzt — „done“
-                    # wäre eine stille Lüge (User-Befund 2026-08-23:
-                    # „Re-Align bringt nichts“, Karaoke rast im 80-ms-Raster
-                    # der Backend-Platzhalter). Grund sichtbar machen.
-                    from .aligner_client import AlignerClient as _AlignCl
-                    if _AlignCl().health():
-                        reason = "Aligner lieferte keine Wort-Timestamps"
+                    # Change 187: Der Aligner HAT geliefert, das Ergebnis war
+                    # nur schon identisch (z.B. zweiter Lauf auf einem bereits
+                    # alignten Transkript) → „done". Die frühere Meldung
+                    # „Aligner lieferte keine Wort-Timestamps" war hier eine
+                    # Falschaussage (Live-Befund 2026-09-14, Recording 328).
+                    status = str(outcome.get("status") or "done")
+                    reason = str(outcome.get("reason") or "")
+                    if status == "failed":
+                        rec.alignment = "failed"
+                        rec.error = f"Alignment fehlgeschlagen: {_align_reason_text(reason)}"
+                        log.warning("bg-align: rec_id=%s — failed (%s)", rec_id, reason)
+                    elif status == "skipped":
+                        rec.alignment = "skipped"
+                        rec.error = f"Alignment übersprungen: {_align_reason_text(reason)}"
+                        log.warning("bg-align: rec_id=%s — skipped (%s)", rec_id, reason)
                     else:
-                        reason = "Aligner nicht erreichbar"
-                    rec.alignment = "skipped"
-                    rec.error = f"Re-Align ohne Effekt: {reason}"
-                    log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
+                        rec.alignment = "done"
+                        rec.error = None
+                        log.info("bg-align: rec_id=%s — Wort-Timestamps bereits aktuell (unverändert)", rec_id)
             elif new_segments is not None:
                 log.info("bg-align: Segmente geändert während des Laufs (rec_id=%s) — Ergebnis verworfen", rec_id)
                 rec.alignment = "skipped"
+                rec.error = f"Alignment übersprungen: {_align_reason_text('superseded')}"
             else:
-                # Change 158: Aligner-Fehler (z.B. Container down) — skipped
-                # mit ehrlichem Grund statt still (symmetrisch zum
-                # 0-Wörter-Fall oben). Transkription bleibt done.
+                # Change 158/187: keine anwendbaren Wörter — ehrlicher Grund
+                # statt still. Transkription bleibt done. Ist der Aligner
+                # erreichbar, war es ein Zuordnungs-/Gruppenproblem.
                 from .aligner_client import AlignerClient as _AlignCl
-                if _AlignCl().health():
-                    reason = "Aligner-Fehler"
-                else:
-                    reason = "Aligner nicht erreichbar"
+
+                reason = str(outcome.get("reason") or "align_phase_error")
+                if reason in ("group_failed", "align_phase_error", "not_run") and not _AlignCl().health():
+                    reason = "aligner_unreachable"
                 rec.alignment = "skipped"
-                rec.error = f"Alignment übersprungen: {reason}"
+                rec.error = f"Alignment übersprungen: {_align_reason_text(reason)}"
                 log.warning("bg-align: rec_id=%s — %s (alignment=skipped)", rec_id, reason)
+            # Change 187: angefragtes Music-Removal, das nicht laufen konnte,
+            # sichtbar machen (Spec postprocessing) — neutrale Notiz, kein error.
+            _sep_reason = prep_note.get("separate_reason")
+            # Code statt Prosa: die UI übersetzt (DE/EN/PT).
+            rec.align_note = f"separate_{_sep_reason}" if _sep_reason else None
+            if rec.align_note:
+                log.warning("bg-align: rec_id=%s — Music-Removal nicht möglich (%s), auf Original alignt",
+                            rec_id, _sep_reason)
             # Change 178+179: Nach skipped/done die Fortschritts-Metadaten
             # räumen — note/pct vom Lauf würden als Restzustand stehen
             # bleiben und die Chips einen Lauf vortäuschen (Live-Befund
@@ -1814,9 +1879,33 @@ def _current_run(session, rec):
         _Run.rec_id == rec.id).order_by(_Run.id.desc())).first()
 
 
+#: Change 187: Gründe des Align-Pfads → sichtbarer Text (DE).
+_ALIGN_REASON_TEXT: Dict[str, str] = {
+    "aligner_unreachable": "Aligner nicht erreichbar",
+    "no_aligner_words": "Aligner lieferte keine Wort-Timestamps",
+    "word_count_mismatch": "Aligner-Ergebnis passt nicht zum Text (Wortzahl) — Zuordnung verworfen",
+    "group_failed": "Align-Gruppe fehlgeschlagen",
+    "align_phase_error": "Align-Phase fehlgeschlagen",
+    "cancelled": "abgebrochen",
+    "superseded": "Segmente während des Laufs geändert — Ergebnis verworfen",
+    "not_run": "nicht ausgeführt",
+    "unavailable": "Separation liefert keine Vocals",
+    "service_down": "Separations-Service nicht erreichbar",
+    "error": "Fehler in der Separation",
+}
+
+
+def _align_reason_text(reason: str) -> str:
+    """Change 187: Grund-Code → Klartext (unbekannte Codes bleiben roh)."""
+    if not reason:
+        return "unbekannter Grund"
+    return _ALIGN_REASON_TEXT.get(reason, reason)
+
+
 def _prepare_align_audio(rec_id: int,
                          separate_backend: Optional[str] = None,
-                         run: Optional[Any] = None) -> Optional[Tuple[bytes, Optional[Dict[str, Any]]]]:
+                         run: Optional[Any] = None,
+                         note_out: Optional[Dict[str, Any]] = None) -> Optional[Tuple[bytes, Optional[Dict[str, Any]]]]:
     """Change 155 (Schritt 4): Audio fürs Forced-Alignment vorbereiten.
 
     Aus ``_schedule_realign`` verschoben — die Vorverarbeitung (Audio laden,
@@ -1868,10 +1957,19 @@ def _prepare_align_audio(rec_id: int,
                                  rec_id, separate_backend, len(audio_bytes), len(vocals))
                         audio_bytes = vocals
                     else:
+                        # Change 187: Nichterfüllung sichtbar machen (Spec
+                        # postprocessing „Angefragtes Music-Removal meldet
+                        # Nichterfüllung") — nicht nur ins Log.
+                        if note_out is not None:
+                            note_out["separate_reason"] = "unavailable"
                         log.warning("align: separate rec_id=%s lieferte keine vocals — weiter mit Original", rec_id)
                 else:
+                    if note_out is not None:
+                        note_out["separate_reason"] = "service_down"
                     log.warning("align: separate crispr-sep nicht erreichbar — weiter mit Original (rec_id=%s)", rec_id)
             except Exception as exc:
+                if note_out is not None:
+                    note_out["separate_reason"] = "error"
                 log.warning("align: separate Fehler rec_id=%s — weiter mit Original: %s", rec_id, exc)
         return audio_bytes, vad_meta
 

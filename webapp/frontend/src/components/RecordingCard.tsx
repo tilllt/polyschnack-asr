@@ -1663,6 +1663,30 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             <span>{t("align_skipped")}</span>
           </div>
         )}
+        {/* Change 187: Der Aligner HAT geliefert, die Zuordnung ist aber nicht
+            aufgegangen (z. B. Wortzahl-Mismatch) — eigener Status statt
+            „skipped", Grund im Tooltip. */}
+        {r.status === "done" && r.alignment === "failed" && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-err/90"
+            data-testid={`bg-align-failed-${r.uid}`}
+            title={r.error ?? undefined}
+          >
+            <span aria-hidden>⛔</span>
+            <span>{t("align_failed")}</span>
+          </div>
+        )}
+        {/* Change 187: angefragtes Music-Removal, das nicht laufen konnte —
+            sichtbarer Hinweis (Spec postprocessing), kein Fehlerzustand. */}
+        {r.align_note && (
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-300/90"
+            data-testid={`bg-align-note-${r.uid}`}
+          >
+            <span aria-hidden>ℹ️</span>
+            <span>{t(r.align_note)}</span>
+          </div>
+        )}
         {/* Change 057/115: Re-Diarize läuft — Live-Heartbeat („läuft seit
             Xs") statt statischem Hinweis; verschwindet beim nächsten
             Polling. */}

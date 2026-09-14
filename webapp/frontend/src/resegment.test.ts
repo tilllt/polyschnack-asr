@@ -773,9 +773,11 @@ describe("ensureSegmentBounds (Change 168)", () => {
     expect(out[0].end).toBe(2.5);
   });
 
-  it("repariert fehlendes end aus dem letzten Wort", () => {
+  it("repariert fehlendes end aus dem letzten Wort (und zieht start auf die Wortkante)", () => {
+    // Change 187: die Wortliste ist der Anker — start wird auf das erste Wort
+    // gezogen (vorher blieb der übergebene Wert 0 stehen).
     const out = ensureSegmentBounds([{ text: "a b", start: 0, words: [{ word: "a", start: 1.5, end: 2.0 }, { word: "b", start: 2.0, end: 2.5 }] } as never]);
-    expect(out[0].start).toBe(0);
+    expect(out[0].start).toBe(1.5);
     expect(out[0].end).toBe(2.5);
   });
 
@@ -788,6 +790,26 @@ describe("ensureSegmentBounds (Change 168)", () => {
 
   it("intakte Segmente bleiben unverändert (Referenz)", () => {
     const s = { text: "a", start: 0, end: 1 } as never;
+    const out = ensureSegmentBounds([s]);
+    expect(out[0]).toBe(s);
+  });
+
+  // Change 187: Wort-verankerte Segmentgrenzen — die Wortliste ist der Anker.
+  it("zieht gedriftete Grenzen auf die Wortkanten (Anker-Invariante)", () => {
+    const segs = [
+      { text: "a b", start: 0, end: 30, words: [
+        { word: "a", start: 0.2, end: 0.8 }, { word: "b", start: 0.8, end: 1.4 }] },
+      { text: "c", start: 30, end: 40, words: [{ word: "c", start: 9.0, end: 9.5 }] },
+    ] as never;
+    const out = ensureSegmentBounds(segs);
+    expect(out[0].start).toBe(0.2);   // erstes Wort
+    expect(out[0].end).toBe(9.0);     // Start des ersten Wortes des Folgesegments
+    expect(out[1].start).toBe(9.0);
+    expect(out[1].end).toBe(9.5);     // letztes Segment → letztes Wort
+  });
+
+  it("konsistente Grenzen bleiben referenzgleich (kein Churn)", () => {
+    const s = { text: "a", start: 1, end: 2, words: [{ word: "a", start: 1, end: 2 }] } as never;
     const out = ensureSegmentBounds([s]);
     expect(out[0]).toBe(s);
   });

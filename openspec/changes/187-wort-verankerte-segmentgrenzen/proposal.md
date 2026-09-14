@@ -1,6 +1,8 @@
 # Change 187 — Wort-verankerte Segmentgrenzen
 
-**Status:** Proposed (Warte auf Umsetzungs-Freigabe — 2026-09-14)
+**Status:** Implemented (2026-09-14; alle Vorschläge von der User-Freigabe
+gedeckt: Pause → vorheriges Segment, Überlappungen unmöglich, Migration als
+explizite Admin-Aktion mit Dry-Run)
 
 ## Warum
 

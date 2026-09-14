@@ -21,7 +21,12 @@ def test_start_posts_to_container_endpoint():
 
     c = _client(handler)
     c.start("crispr-pk-cpp")
-    assert calls == [("POST", "/containers/crispr-pk-cpp/start")]
+    # Change 188: vor der Aktion wird der echte Container aufgelöst
+    # (exakter Name → sonst Compose-Label); hier greift der exakte Name.
+    assert calls == [
+        ("GET", "/containers/crispr-pk-cpp/json"),
+        ("POST", "/containers/crispr-pk-cpp/start"),
+    ]
 
 
 def test_stop_and_restart():
@@ -35,9 +40,57 @@ def test_stop_and_restart():
     c.stop("crispr-qwen3")
     c.restart("crispr-ark")
     assert calls == [
+        ("GET", "/containers/crispr-qwen3/json"),
         ("POST", "/containers/crispr-qwen3/stop"),
+        ("GET", "/containers/crispr-ark/json"),
         ("POST", "/containers/crispr-ark/restart"),
     ]
+
+
+def test_resolve_container_faellt_auf_compose_label_zurueck():
+    """Change 188: Compose-Container heißen <projekt>-<service>-<index>
+    (polyschnack-crispr-canary-1). Der kurze Registry-Name liefert 404 —
+    dann wird über das Label com.docker.compose.service gesucht, sonst
+    meldet die Matrix „nicht erreichbar" und die GUI kann das Backend
+    nicht starten (Live-Befund 2026-09-14: crispr-canary lief, aber
+    reachable=false)."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, str(request.url)))
+        if request.url.path == "/containers/crispr-canary/json":
+            return httpx.Response(404, json={"message": "No such container"})
+        if request.url.path == "/containers/json":
+            return httpx.Response(200, json=[
+                {"Id": "abc123", "Names": ["/polyschnack-crispr-canary-1"]},
+            ])
+        if request.url.path == "/containers/abc123/json":
+            return httpx.Response(200, json={
+                "State": {"Status": "running", "Running": True,
+                          "Health": {"Status": "healthy"}},
+            })
+        if request.url.path == "/containers/abc123/start":
+            return httpx.Response(204)
+        return httpx.Response(500, json={"message": "unerwartet"})
+
+    c = _client(handler)
+    assert c.resolve_container("crispr-canary") == "abc123"
+    state = c.container_state("crispr-canary")
+    assert state == {"status": "running", "health": "healthy", "running": True}
+    c.start("crispr-canary")
+    assert ("POST", "/containers/abc123/start", "http://proxy:2375/containers/abc123/start") in calls
+    assert any("com.docker.compose.service=crispr-canary" in url for _m, _p, url in calls)
+
+
+def test_resolve_container_unbekannt_gibt_none():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/containers/json":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={"message": "No such container"})
+
+    c = _client(handler)
+    assert c.resolve_container("gibt-es-nicht") is None
+    assert c.container_state("gibt-es-nicht") is None
 
 
 def test_container_state_parses_health():

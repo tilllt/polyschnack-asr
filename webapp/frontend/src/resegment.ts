@@ -354,7 +354,7 @@ export function cleanSegments<T extends { text?: string | null }>(segs: readonly
  * Tests (resegment.test.ts).
  */
 export function ensureSegmentBounds(segs: readonly any[]): any[] {
-  return segs.map((s: any, i: number) => {
+  const withBounds = segs.map((s: any, i: number) => {
     const words = (s.words ?? []) as ResegWord[];
     let start = s.start;
     let end = s.end;
@@ -370,6 +370,32 @@ export function ensureSegmentBounds(segs: readonly any[]): any[] {
     }
     if (start !== s.start || end !== s.end) return { ...s, start, end };
     return s;
+  });
+  // Change 187: Anker-Invariante — hat ein Segment Wörter, sind seine Grenzen
+  // daraus ABGELEITET (start = erstes Wort, end = Start des ersten Wortes des
+  // Folgesegments). Die Wortliste ist der Anker; ein Re-Align verschiebt die
+  // Grenzen damit automatisch. Segmente ohne Wörter bleiben unangetastet.
+  return withBounds.map((s: any, i: number) => {
+    const words = (s.words ?? []) as ResegWord[];
+    const first = words.find((w) => typeof w.start === "number");
+    if (!words.length || !first || typeof first.start !== "number") return s;
+    const nextWords = ((withBounds[i + 1]?.words ?? []) as ResegWord[]);
+    const nextFirst = nextWords.find((w) => typeof w.start === "number");
+    const last = [...words].reverse().find((w) => typeof w.end === "number");
+    const newStart = first.start;
+    const newEnd =
+      nextFirst && typeof nextFirst.start === "number"
+        ? nextFirst.start
+        : typeof last?.end === "number"
+          ? last.end
+          : s.end;
+    if (
+      Math.abs((s.start ?? 0) - newStart) < 1e-6 &&
+      Math.abs((s.end ?? 0) - newEnd) < 1e-6
+    ) {
+      return s;
+    }
+    return { ...s, start: newStart, end: newEnd };
   });
 }
 

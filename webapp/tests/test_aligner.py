@@ -20,9 +20,9 @@ from app.aligner_client import AlignerClient
 from app.service import (
     MAX_ALIGN_GROUP_S,
     _run_align_phase,
-    apply_aligned_words,
     build_align_groups,
 )
+from app.word_anchors import resolve_zero_durations
 
 REPO = Path(__file__).resolve().parents[2]  # webapp/tests/ → Repo-Root (pk-asr)
 WRAPPER = REPO / "app" / "aligner_client.py"  # nicht genutzt — nur Guard
@@ -136,19 +136,19 @@ def test_build_align_groups_einzelnes_langes_segment_wird_gechunkt():
     assert joined == "eins zwei drei vier fünf"
 
 
-def test_apply_aligned_words_ableitet_dauer_aus_folgewort():
-    """Change 152: Wörter mit end=start (Dauer 0) bekommen die Dauer aus
+def test_resolve_zero_durations_ableitet_dauer_aus_folgewort():
+    """Change 152/187: Wörter mit end=start (Dauer 0) bekommen die Dauer aus
     dem Start des Folgeworts — aber NIE über eine Stille-Lücke (> 0.5 s)
-    hinweg (Satz-Ende); das letzte Wort bekommt die typische Dauer."""
-    segs = [{"start": 0.0, "end": 6.0, "text": "eins zwei drei vier"}]
+    hinweg (Satz-Ende); das letzte Wort bekommt die typische Dauer.
+    (Die Logik lag früher in apply_aligned_words, das Change 187 durch die
+    Wortindex-Zuordnung ersetzt hat.)"""
     words = [
         {"word": "eins", "start": 0.10, "end": 0.10},   # Dauer 0
         {"word": "zwei", "start": 0.40, "end": 0.40},   # Dauer 0
         {"word": "drei", "start": 0.70, "end": 0.70},   # Dauer 0
         {"word": "vier", "start": 5.00, "end": 5.00},   # nach langer Stille
     ]
-    out = apply_aligned_words(segs, words, group_start=0.0)
-    ws = out[0]["words"]
+    ws = resolve_zero_durations(words)
     assert ws[0]["end"] == pytest.approx(0.40)      # kleine Lücke → Folgewort
     assert ws[1]["end"] == pytest.approx(0.70)
     cap = 1.0  # harte Maximaldauer (User 2026-08-28)
@@ -157,15 +157,13 @@ def test_apply_aligned_words_ableitet_dauer_aus_folgewort():
     assert ws[3]["end"] > ws[3]["start"]
 
 
-def test_apply_aligned_words_behaelt_echte_dauer():
-    """Change 152: Wörter mit plausibler Dauer (> 50 ms) bleiben unberührt."""
-    segs = [{"start": 0.0, "end": 3.0, "text": "eins zwei"}]
+def test_resolve_zero_durations_behaelt_echte_dauer():
+    """Change 152/187: Wörter mit plausibler Dauer (> 50 ms) bleiben unberührt."""
     words = [
         {"word": "eins", "start": 0.10, "end": 0.40},
         {"word": "zwei", "start": 0.50, "end": 0.90},
     ]
-    out = apply_aligned_words(segs, words, group_start=0.0)
-    ws = out[0]["words"]
+    ws = resolve_zero_durations(words)
     assert ws[0]["end"] == pytest.approx(0.40)
     assert ws[1]["end"] == pytest.approx(0.90)
 
@@ -186,38 +184,68 @@ def test_build_align_groups_leere_segmente():
     assert build_align_groups([{"text": "noch ohne zeit"}]) == []
 
 
-def test_apply_aligned_words_offset_und_zuordnung():
+def test_align_plan_span_und_wortindex_zuordnung():
+    """Change 187: Gruppen tragen Wort-Spans; die Align-Wörter werden per
+    Wortindex (Textreihenfolge) zugeordnet und der Gruppen-Offset
+    aufgeschlagen — keine Zeitfenster-Zuordnung mehr."""
+    from app.service import build_align_plan
+    from app.word_anchors import assign_words_by_index
+
     segs = [
         {"start": 10, "end": 20, "text": "erste zweite"},
         {"start": 20, "end": 30, "text": "dritte"},
     ]
+    groups = build_align_plan(segs)
+    assert len(groups) == 1
+    g_start, g_end, g_text, spans = groups[0]
+    assert (g_start, g_end) == (10.0, 30.0)
+    assert g_text == "erste zweite dritte"
+    assert spans == [(0, 2), (1, 1)]
+
     words = [
         {"start": 1.0, "end": 1.5, "word": "erste"},
         {"start": 1.6, "end": 2.0, "word": "zweite"},
-        {"start": 12.0, "end": 12.5, "word": "dritte"},  # global 22.0 → Segment 2
+        {"start": 12.0, "end": 12.5, "word": "dritte"},
     ]
-    out = apply_aligned_words(segs, words, group_start=10.0)
-    assert out[0]["words"][0] == {"word": "erste", "start": 11.0, "end": 11.5}
-    assert out[0]["words"][1]["start"] == 11.6
-    assert out[0]["words"][1]["end"] == 12.0
-    assert out[1]["words"][0] == {"word": "dritte", "start": 22.0, "end": 22.5}
+    assigned, err = assign_words_by_index(spans, words)
+    assert err is None
+    for ws in assigned.values():
+        for w in ws:
+            w["start"] += g_start
+            w["end"] += g_start
+    assert assigned[0][0] == {"word": "erste", "start": 11.0, "end": 11.5}
+    assert assigned[0][1] == {"word": "zweite", "start": 11.6, "end": 12.0}
+    assert assigned[1][0] == {"word": "dritte", "start": 22.0, "end": 22.5}
     # Ursprungs-Segmente unangetastet (Kopie)
     assert segs[0].get("words") is None
 
 
-def test_apply_aligned_words_mehrere_chunks_zu_einem_segment():
-    """Change 078: Wörter aus MEHREREN Align-Chunks (global, Offset 0)
-    landen ALLE im Segment — die alte Pro-Gruppe-Anwendung hätte sie mit
-    der letzten Gruppe überschrieben."""
-    segs = [{"start": 0, "end": 500, "text": "eins zwei drei"}]
-    words = [
-        {"start": 1.0, "end": 1.5, "word": "eins"},    # Chunk 1 (0–250)
-        {"start": 250.0, "end": 250.5, "word": "zwei"},  # Chunk 2 (250–500)
-        {"start": 300.0, "end": 300.5, "word": "drei"},
-    ]
-    out = apply_aligned_words(segs, words, group_start=0.0)
-    assert len(out[0]["words"]) == 3
-    assert [w["word"] for w in out[0]["words"]] == ["eins", "zwei", "drei"]
+def test_align_plan_chunks_landen_im_selben_segment():
+    """Change 078/187: Wort-Spans MEHRERER Align-Chunks summieren sich auf
+    die Wortzahl des GUI-Segments — alle Wörter landen dort (kein
+    Überschreiben durch die letzte Gruppe)."""
+    from app.service import build_align_plan
+    from app.word_anchors import assign_words_by_index
+
+    segs = [{"start": 0, "end": 500, "text": " ".join(f"w{i}" for i in range(10))}]
+    groups = build_align_plan(segs, max_s=120.0)
+    assert len(groups) == 5
+    collected: dict = {}
+    cursor = 0
+    for (_gs, _ge, _txt, spans) in groups:
+        n = sum(int(k) for _i, k in spans)
+        # Aligner liefert die Wörter DIESES Chunks (hier: fortlaufend nummeriert)
+        words = [
+            {"word": f"w{cursor + i}", "start": float(i), "end": float(i) + 0.5}
+            for i in range(n)
+        ]
+        cursor += n
+        assigned, err = assign_words_by_index(spans, words)
+        assert err is None
+        for idx, ws in assigned.items():
+            collected.setdefault(idx, []).extend(ws)
+    assert len(collected[0]) == 10
+    assert [w["word"] for w in collected[0]] == [f"w{i}" for i in range(10)]
 
 
 # ============================================================
@@ -432,15 +460,18 @@ def test_background_align_ohne_effekt_ist_skipped_nicht_done(tmp_path, monkeypat
     assert rec.segments[0]["words"][0]["word"] == "Hallo"
 
 
-def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch):
-    """Change 101: Aligner erreichbar, liefert aber keine Wörter → skipped
-    mit passendem Grund (nicht „done“)."""
+def test_background_align_leere_woerter_skipped_mit_grund(aligner_server, wav_bytes, tmp_path, monkeypatch):
+    """Change 101/187: Aligner erreichbar, liefert aber keine Wörter → skipped
+    mit passendem Grund (nicht „done“, nicht „failed“)."""
     from app import service as svc
     from app import aligner_client as ac
 
     class _FakeClient:
         def health(self):
             return True
+
+        def status(self):
+            return {}
 
         def align(self, audio, text, lang="de", timeout_s=None):
             return []
@@ -450,7 +481,7 @@ def test_background_align_leere_woerter_skipped_mit_grund(tmp_path, monkeypatch)
 
     rec = _FakeRecording([{"start": 0, "end": 1, "text": "Hallo Welt"}])
     monkeypatch.setattr(svc, "Session", lambda engine: _FakeSession(rec))
-    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (b"x", None))
+    monkeypatch.setattr(svc, "_prepare_align_audio", lambda *a, **k: (wav_bytes, None))
 
     svc._run_background_align(7)
     assert rec.alignment == "skipped"

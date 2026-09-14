@@ -734,6 +734,9 @@ def _recording_to_dict(
         "reserved_cents": rec.reserved_cents,
         # Change 045: Status des präzisen Alignments (done|pending|running|skipped).
         "alignment": getattr(rec, "alignment", "done"),
+        # Change 187: neutrale Notiz zum Align-Lauf (z.B. Music-Removal
+        # nicht möglich) — sichtbar, ohne „error" zu sein.
+        "align_note": getattr(rec, "align_note", None),
         # Change 057: Status der Diarization (done|pending|running|failed|skipped).
         "diar_status": getattr(rec, "diar_status", "done"),
         "progress_pct": rec.progress_pct,

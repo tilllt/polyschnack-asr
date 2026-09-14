@@ -71,6 +71,9 @@ class Recording(SQLModel, table=True):
     # "done" (Default: aligniert/synchron) | "pending" (läuft im Hintergrund) |
     # "running" (Worker aktiv) | "skipped" (Aligner down / deaktiviert)
     alignment: str = "done"
+    # Change 187: neutrale, sichtbare Notiz zum letzten Align-Lauf (z.B.
+    # „Music-Removal nicht möglich (…)" — NICHT `error`, weil nichts kaputt ist.
+    align_note: Optional[str] = None
     # --- Change 057: Status der Diarization (Re-Diarize) ---
     # "done" (Default: Sprecher zugeordnet) | "pending" | "running" |
     # "failed" (Diar-Dienst down/Fehler) | "skipped" (Ergebnis verworfen)

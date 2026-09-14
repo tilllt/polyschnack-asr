@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlmodel import Session
 
 from .. import app_config
 from ..config import settings
@@ -567,3 +568,38 @@ def learner_reset(req: LearnerResetRequest, request: Request) -> Dict[str, Any]:
 
     _learner_cache["ts"] = 0.0
     return {"deleted": deleted, "phase_key": req.phase_key}
+
+
+# ---------------------------------------------------------------------------
+# Change 187: Segmentgrenzen aus den Wortlisten ableiten (Migration, Dry-Run)
+# ---------------------------------------------------------------------------
+
+
+class BoundsFromWordsRequest(BaseModel):
+    """Change 187: Dry-Run/Apply der Wortkanten-Migration."""
+
+    uid: Optional[str] = None
+    limit: Optional[int] = None
+    dry_run: bool = True
+
+
+@router.post("/bounds-from-words")
+def admin_bounds_from_words(
+    req: BoundsFromWordsRequest,
+    request: Request,
+    session: "Session" = Depends(get_session),
+) -> Dict[str, Any]:
+    """Grenzen auf Wortkanten ziehen (Dry-Run-Bericht oder Schreiben).
+
+    Change 187: Wortlisten sind der Anker der Segmentgrenzen. Die Migration
+    zieht freie Zeitwerte einmalig auf die Wortkanten, löst Überlappungen auf
+    und legt je Recording einen Version-Snapshot an (kind=edit). Text und
+    Wortlisten bleiben unverändert; Segmente ohne Wörter bleiben unangetastet.
+    """
+    from ..bounds_migration import apply as _apply
+    from ..bounds_migration import plan as _plan
+
+    user_id = _admin_user_id(request, session)
+    if req.dry_run:
+        return _plan(session, uid=req.uid, limit=req.limit)
+    return _apply(session, uid=req.uid, limit=req.limit, user_id=user_id)

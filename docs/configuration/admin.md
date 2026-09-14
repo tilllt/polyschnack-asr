@@ -33,5 +33,24 @@ Erstellt alle Container, startet aber nichts — die GUI startet dann
 on demand:
 
 ```
-docker compose -f compose.yml -f compose.backends.yml --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
+docker compose -f compose.yml -f compose.backends.yml -f compose.gpu.yml \
+  --profile crispr-pk-cpp --profile crispr-qwen3 --profile crispr-ark \
+  --profile crispr-moonshine-de --profile crispr-canary up -d --no-start
 ```
+
+**Wichtig (Change 188):** Läuft die Installation mit GPU, gehört
+`-f compose.gpu.yml` dazu — **nur dieses Overlay vergibt `runtime: nvidia`**;
+ohne es starten alle Backends auf der CPU. Bei aktiver OIDC-Anmeldung zusätzlich
+`-f compose.oidc.yml`. Am einfachsten das Set gar nicht selbst bauen:
+
+```
+./polyschnack-manage.sh start     # Kern + alle Backends, richtige Overlays, --no-start
+./polyschnack-manage.sh status    # was liegt an Containern da
+```
+
+Das Skript nimmt genau die Overlays der Installation, kennt die Profile aus
+`backends.yaml` und erzeugt die Backend-Container mit `--no-start`; gestartet
+werden sie dann on demand über die Admin-GUI (oder gezielt per
+`docker compose -f compose.yml -f compose.backends.yml -f compose.gpu.yml
+--profile crispr-canary start crispr-canary`). Die Modell-Matrix zeigt ein
+Backend erst als auswählbar (`reachable: true`), wenn sein Container läuft.
