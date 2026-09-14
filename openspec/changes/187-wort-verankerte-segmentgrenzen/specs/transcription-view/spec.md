@@ -113,6 +113,19 @@
 - **Ergebnis:** Alle Segmente erhalten echte akustische Wortzeiten (nicht nur die
   zufällig passenden); die Grenzen folgen den Wörtern; der Lauf endet `done`.
 
+#### Scenario: Handkorrektur mit anderem Wortlaut und anderer Wortzahl
+
+- **Akteure:** Besitzer.
+- **Eingaben:** Segment 1 wird von „Hund Katze Maus" auf „Pfund Tatze Haus
+  Lastwagen" korrigiert, Segment 2 von „Hut Auto Fahrrad" auf „Gut Auto Tier
+  Maschine" (kein Wort stimmt mit dem ASR-Ergebnis überein, die Wortzahl ändert
+  sich), danach Re-Align.
+- **Ergebnis:** Der Aligner bekommt den korrigierten Gruppentext (8 Wörter) und
+  liefert 8 Wort-Timings; Segment 1 bekommt die ersten 4, Segment 2 die
+  folgenden 4; die Grenze zwischen beiden sitzt am Start des ersten Wortes von
+  Segment 2. Kein Rückfall auf eine Gleichverteilung, kein Textverlust, die
+  Zuordnung hängt nicht am ASR-Wortlaut.
+
 #### Scenario: Wiederholter Align-Lauf ohne Änderung
 
 - **Akteure:** Besitzer.

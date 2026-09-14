@@ -128,6 +128,46 @@ Heute kollabieren Fall 2 und 3 in dieselbe irreführende Meldung
 - Keine doppelten Wortzeiten (heute 43 Wörter doppelt).
 - Zweiter Align-Lauf: „done, unverändert" statt skipped.
 
+## Verhalten bei stark abweichender Handkorrektur (Beispiel)
+
+Frage aus dem Review (2026-09-14): ASR erkennt in Segment 1 „Hund Katze Maus",
+in Segment 2 „Hut Auto Fahrrad"; der User korrigiert auf „Pfund Tatze Haus
+Lastwagen" und „Gut Auto Tier Maschine" — **weder Wortzahl noch Wortlaut** stimmen
+mit dem ASR-Ergebnis überein. Funktioniert die Wortindex-Zuordnung dann?
+
+Ja, und zwar weil die Zuordnung **nie gegen das ASR-Ergebnis** arbeitet:
+
+1. Der Aligner bekommt den **korrigierten** Gruppentext (hier 8 Wörter:
+   „Pfund Tatze Haus Lastwagen Gut Auto Tier Maschine") und liefert dazu ein
+   Wort-Timing **je Eingabewort** — er transkribiert nicht. Eingabewortzahl =
+   Rückgabewortzahl (im Live-Fall gemessen: 242 → 242, 172 → 172, beide auf
+   korrigiertem Text).
+2. Die Wortzahl je Segment kommt aus dem **korrigierten Segmenttext**
+   (`reconcile_words_to_text` hält Wortliste und Text synchron), nicht aus dem
+   ASR. Beispiel: Segment 1 hat nach der Korrektur 4 Wörter → bekommt die ersten
+   4 Align-Wörter, Segment 2 die folgenden 4.
+3. Die Segmentgrenze fällt damit an den Start des ersten Wortes des Folgesegments
+   (hier: Start von „Gut") — unabhängig davon, wie das ASR dort vorher
+   segmentiert hatte. Die manuelle Aufteilung überlebt den Align.
+4. LCS/Textähnlichkeit wird zur Zuordnung **nicht** mehr gebraucht (das war der
+   Bruch im alten Pfad: fremde Wörter im Zeitfenster → LCS fand nichts →
+   `_distribute_words` → Karaoke-Metronom). `reconcile_words_to_text` prüft
+   danach nur noch die Invariante (Wortreihenfolge = Textreihenfolge).
+
+**Grenzen (ehrlich):**
+
+- Der Text muss in **Sprechreihenfolge** stehen (immer der Fall, wenn im
+  Transkript editiert wird).
+- Der Text muss **in etwa dem Gesprochenen entsprechen**. Der Aligner kann nur
+  verteilen, was da ist: erfundener oder weggelassener Text erzeugt gestauchte/
+  gedehnte Zeiten (Wörter rutschen zusammen oder auseinander) — die Grenzen
+  folgen dann dem Text. Qualität der Zeiten = Qualität der Korrektur.
+- **Wortreduktion ist nicht möglich:** ein als ein Wort geschriebener Satzteil
+  bekommt ein Timing, der Aligner teilt Wörter nie auf.
+- Liefert der Aligner für einen Abschnitt **kein** Ergebnis (Musik, Stille,
+  unbrauchbares Audio), meldet Change 187 `failed` mit Grund statt still zu
+  verteilen.
+
 ## Offene Punkte
 
 1. Pause an der Grenze: Vorschlag „gehört zum vorherigen Segment"
