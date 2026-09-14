@@ -41,6 +41,11 @@ export function useYjsTranscription<T extends { text: string }>(
   // Change 067-Fix: true nur bei geteilten Aufnahmen (has_shares ||
   // is_anon_shared || shared_with_me) — sonst keine Yjs-Verbindung.
   enabled = true,
+  // Change 189: Stand (`updated_at`), den dieser Client geladen hat. Der Raum
+  // hängt daran — ein Client mit altem Stand landet in einem neuen, leeren
+  // Raum und befüllt ihn aus dem Serverstand. Damit kann alter Text nicht mehr
+  // über frisch geänderte Daten gelegt werden (Vorfall 14.09.2026).
+  roomStamp?: string | null,
 ) {
   const [conn, setConn] = useState<YjsConnState>("solo");
   // Change 067-Fix (User-Befund 2026-08-21): NUR ANDERE Clients, die
@@ -137,7 +142,11 @@ export function useYjsTranscription<T extends { text: string }>(
 
     const doc = new Y.Doc();
     const segmentsMap = doc.getMap<Y.Text>("segments");
-    const provider = new WebsocketProvider(wsBase, recordingId, doc, {
+    // Change 189: Raum = uid + Stand-Suffix (bereinigt, damit der Name in der
+    // URL bleibt); ohne Stand-Suffix wie bisher nur die uid.
+    const stamp = roomStamp ? String(roomStamp).replace(/[^0-9A-Za-z]/g, "") : "";
+    const roomName = stamp ? `${recordingId}:${stamp}` : recordingId;
+    const provider = new WebsocketProvider(wsBase, roomName, doc, {
       connect: true,
     });
     docRef.current = doc;
@@ -227,7 +236,7 @@ export function useYjsTranscription<T extends { text: string }>(
       provRef.current = null;
       initedRef.current = false;
     };
-  }, [recordingId, enabled, save, scheduleAutosave]);
+  }, [recordingId, enabled, roomStamp, save, scheduleAutosave]);
 
   /** Eigene Bearbeitungs-Aktivität melden; beim Verlassen des Edit-Mode
    *  (aktiv → inaktiv) genau EINE Version anlegen (Change 068).

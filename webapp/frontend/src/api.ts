@@ -257,7 +257,15 @@ async function checkOk(res: Response): Promise<Response> {
     } catch {
       // kein JSON-Body — ignoriere
     }
-    throw new Error(detail ? `${res.status}: ${detail}` : `HTTP ${res.status}`);
+    // Change 189: Status und Serverstand mitgeben, damit die UI einen
+    // Konflikt (409) erkennen und „neu laden" anbieten kann.
+    const err = new Error(detail ? `${res.status}: ${detail}` : `HTTP ${res.status}`) as Error & {
+      status?: number;
+      currentUpdatedAt?: string | null;
+    };
+    err.status = res.status;
+    err.currentUpdatedAt = res.headers.get("X-Current-Updated-At");
+    throw err;
   }
   return res;
 }
@@ -531,18 +539,32 @@ export async function updateRecordingTitle(
  *  / verschobene Grenzen) — Export nutzt danach dieselben Segmente wie die
  *  Preview. Change 068: createVersion=false (Autosave) → nur DB-Write ohne
  *  TranscriptVersion; die Version entsteht beim Verlassen des Edit-Mode. */
+/**
+ * Change 189: `expectedUpdatedAt` ist der Stand, den der Client geladen hat.
+ * Passt er nicht mehr, antwortet der Server 409 (`stale_write`) und schreibt
+ * nichts — der Aufrufer muss den Konflikt sichtbar machen statt blind erneut
+ * zu senden.
+ */
 export async function replaceSegments(
   recordingId: string,
   segments: Segment[],
   createVersion = true,
-): Promise<{ segments: Segment[]; text: string; segments_manual: boolean }> {
+  expectedUpdatedAt?: string | null,
+): Promise<{ segments: Segment[]; text: string; segments_manual: boolean; updated_at?: string }> {
   const qs = createVersion ? "" : "?create_version=false";
+  const body: Record<string, unknown> = { segments };
+  if (expectedUpdatedAt) body.expected_updated_at = expectedUpdatedAt;
   const res = await fetch(`/api/recordings/${recordingId}/segments${qs}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ segments }),
+    body: JSON.stringify(body),
   }).then(checkOk);
   return res.json();
+}
+
+/** Change 189: 409 = „zwischenzeitlich geändert"; Aufrufer laden neu. */
+export function isStaleWriteError(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { status?: number }).status === 409;
 }
 
 export interface SpeakerRenameResult {

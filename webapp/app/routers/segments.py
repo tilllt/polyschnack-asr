@@ -843,6 +843,31 @@ class SegmentListUpdate(BaseModel):
     """
 
     segments: list[dict[str, Any]]
+    # Change 189: Stand, den der Client geladen hat (optimistische Sperre).
+    # Fehlt das Feld, wird wie bisher geschrieben (Skripte/Tests), aber
+    # protokolliert.
+    expected_updated_at: str | None = None
+
+
+def _parse_ts(value: Any) -> dt.datetime | None:
+    """ISO-Zeitstempel (oder datetime) → aware datetime; None bei Unbrauchbarem."""
+    if value is None:
+        return None
+    if isinstance(value, dt.datetime):
+        return value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+
+
+def _timestamps_match(expected: Any, actual: Any, tol_s: float = 0.001) -> bool:
+    """Change 189: gleicher Stand (Toleranz 1 ms) — sonst „stale write"."""
+    e, a = _parse_ts(expected), _parse_ts(actual)
+    if e is None or a is None:
+        return False
+    return abs((e - a).total_seconds()) <= tol_s
 
 
 @router.put("/recordings/{rid}/segments")
@@ -867,10 +892,30 @@ def replace_segments(
     Change 068: ``create_version=False`` (Autosave) schreibt nur den
     DB-Stand ohne TranscriptVersion; ``True`` (Default, Edit-Mode-Ende)
     legt zusätzlich eine Version an.
+
+    Change 189: ``expected_updated_at`` ist der Stand, den der Client geladen
+    hat. Passt er nicht, antwortet der Endpunkt 409 (``stale_write``) und
+    schreibt nichts — kein stilles Überschreiben serverseitiger Änderungen.
     """
     rec = get_recording_by_uid(session, rid)
     if rec is None:
         raise HTTPException(status_code=404, detail="not found")
+
+    if body.expected_updated_at:
+        if not _timestamps_match(body.expected_updated_at, rec.updated_at):
+            current = (
+                rec.updated_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+                if isinstance(rec.updated_at, dt.datetime) else ""
+            )
+            raise HTTPException(
+                status_code=409, detail="stale_write",
+                headers={"X-Current-Updated-At": current},
+            )
+    else:
+        log.warning(
+            "PUT /recordings/%s/segments ohne Versionspruefung (Change 189) — "
+            "Aufrufer sollte expected_updated_at mitschicken", rid,
+        )
 
     from ..identity import current_identity
 

@@ -383,6 +383,8 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Tempo da palavra salvo",
     timing_save_error: "Falha ao salvar o tempo da palavra",
     edit_save_error: "Não foi possível salvar a edição — tente novamente",
+    stale_write_error: "Gravação alterada entretanto — recarregue a página (a sua edição não foi enviada)",
+    stale_write_reload: "Recarregar",
     // Change 141: „Folgen"-Toggle
     follow_on: "Seguindo",
     undo_btn: "Undo",
@@ -775,6 +777,8 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Wort-Timing gespeichert",
     timing_save_error: "Wort-Timing speichern fehlgeschlagen",
     edit_save_error: "Bearbeitung konnte nicht gespeichert werden — bitte erneut versuchen",
+    stale_write_error: "Aufnahme wurde zwischenzeitlich geändert — bitte neu laden (deine Änderung wurde nicht gesendet)",
+    stale_write_reload: "Neu laden",
     // Change 141: „Folgen"-Toggle
     follow_on: "Folgen",
     undo_btn: "Undo",
@@ -1167,6 +1171,8 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Word timing saved",
     timing_save_error: "Failed to save word timing",
     edit_save_error: "Could not save the edit — please try again",
+    stale_write_error: "Recording changed in the meantime — please reload (your change was not sent)",
+    stale_write_reload: "Reload",
     // Change 141: "Follow" toggle
     follow_on: "Following",
     undo_btn: "Undo",

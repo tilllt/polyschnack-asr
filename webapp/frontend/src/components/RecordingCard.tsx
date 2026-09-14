@@ -269,6 +269,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     };
   }, []);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Change 189: Server meldete 409 (Stand veraltet) — Konflikt sichtbar machen.
+  const [staleWrite, setStaleWrite] = useState(false);
   // Change 014: Titel-Inline-Edit (Owner/full). Guard gegen doppeltes
   // Speichern (Enter + nachfolgender Blur beim Unmount des Inputs).
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1913,6 +1915,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     <Search size={13} />
                   </button>
                 </div>
+                {/* Change 189: Konflikt beim Speichern sichtbar machen —
+                    der Serverstand ist neuer, wir schreiben NICHT zurück. */}
+                {staleWrite && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2 rounded-sm border border-warn/40 bg-warn/10 px-3 py-2 text-[12.5px]">
+                    <span className="flex-1 min-w-[220px]">{t("stale_write_error")}</span>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="rounded-sm border border-border px-2 py-[3px] text-[12px] font-semibold hover:bg-accent/10"
+                    >
+                      {t("stale_write_reload")}
+                    </button>
+                  </div>
+                )}
                 <SegmentList
                   segments={displaySegments}
                   // Change 102: Der Yjs-Autosave persistiert NIE die
@@ -1925,6 +1940,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
                   onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
                   recordingId={r.uid}
+                  expectedUpdatedAt={r.updated_at ?? null}
+                  onStaleWrite={() => setStaleWrite(true)}
                   onEdited={handleEdited}
                   currentTime={currentTime}
                   isPlaying={isPlaying}

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Segment } from "../api";
-import { updateSegment, renameSpeaker, replaceSegments } from "../api";
+import { isStaleWriteError, updateSegment, renameSpeaker, replaceSegments } from "../api";
 import { useYjsTranscription } from "../hooks/useYjsTranscription";
 import { abbreviateMid, fmtTimecode } from "../format";
 import { activeWordIndex, confidenceClass, hasConfidence, nextWordTarget } from "../karaoke";
@@ -23,6 +23,12 @@ interface Props {
   activeIdx: number;
   onActiveChange: (idx: number) => void;
   recordingId?: string;
+  /** Change 189: `updated_at`-Stand, den der Parent geladen hat — wird beim
+   *  vollen Listen-PUT mitgeschickt (optimistische Sperre). */
+  expectedUpdatedAt?: string | null;
+  /** Change 189: Server meldet 409 (Stand veraltet) → Parent zeigt den
+   *  Konflikt an; kein automatischer Retry. */
+  onStaleWrite?: (err: unknown) => void;
   onEdited?: (segments: Segment[], text: string, manual?: boolean) => void;
   currentTime?: number;
   /** Fix 2026-08-17: Play-Zustand — Karaoke-Vorlauf (KARAOKE_LEAD_S) gilt
@@ -163,7 +169,8 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest,
+ expectedUpdatedAt, onStaleWrite, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -189,7 +196,9 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       texts.map((text, i) => ({ ...(segmentsProp[i] ?? {}), text })),
       texts.join(" "),
     );
-  }, collabEnabled);
+  }, collabEnabled,
+    // Change 189: Raum an den geladenen Stand binden.
+    expectedUpdatedAt ?? null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -290,9 +299,15 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       // Change 144: leere Anzeige-Segmente vor dem PUT entfernen.
       setLocalTexts(changed);
       localPendingRef.current = true;
-      void replaceSegments(recordingId, cleanSegments(changed), false).then((result) => {
-        if (result && result.segments) onEdited?.(result.segments, result.text);
-      });
+      void replaceSegments(recordingId, cleanSegments(changed), false, expectedUpdatedAt)
+        .then((result) => {
+          if (result && result.segments) onEdited?.(result.segments, result.text);
+        })
+        .catch((err) => {
+          // Change 189: kein stiller Fehlschlag — Konflikt sichtbar machen.
+          if (isStaleWriteError(err)) onStaleWrite?.(err);
+          else toast(t("edit_save_error"), "err");
+        });
     }
     onEdited?.(changed, changed.map((s) => s.text).join(" "));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -838,7 +853,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
       // als Wahrheit (segments_manual=true), atomar, ohne Index-Mapping.
       // createVersion=false = Autosave-Semantik (Version entsteht beim
       // Verlassen des Edit-Mode über setEditingActive, Change 068).
-      const result = await replaceSegments(recordingId, cleaned, false);
+      const result = await replaceSegments(recordingId, cleaned, false, expectedUpdatedAt);
       if (commitSeqRef.current !== seq) {
         // Change 084: ein neuerer Commit hat gewonnen — Antwort verwerfen,
         // die neuere Liste ist die Wahrheit.
@@ -859,7 +874,15 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
         localPendingRef.current = false;
         setLocalTexts(null);
       }
-    } catch {
+    } catch (err) {
+      // Change 189: Konflikt (409) ist kein normaler Fehler — der Serverstand
+      // ist NEUER. Der Edit-Inhalt bleibt sichtbar, wird aber nicht erneut
+      // gesendet; der Parent zeigt „zwischenzeitlich geändert — neu laden".
+      if (isStaleWriteError(err)) {
+        onStaleWrite?.(err);
+        toast(t("stale_write_error"), "err");
+        return;
+      }
       // Change 139: kein stilles Zurückkippen — ehrlicher Rollback auf den
       // Stand VOR dem Edit + sichtbarer Fehler (kein Fake-Erfolg, keine
       // stillen Fehler). Der User sieht sofort, dass nicht gespeichert wurde.

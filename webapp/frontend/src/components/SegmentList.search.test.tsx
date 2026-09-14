@@ -123,10 +123,12 @@ describe("SegmentList — Suche/Ersetzen (Change 124)", () => {
     await waitFor(() => {
       // Change 125: KEIN PATCH mit Anzeige-Index gegen das Original-Array
       // (404 bei Re-Segmentierung) — ein PUT mit der kompletten Liste.
+      // Change 189: vierter Parameter = geladener Stand (hier nicht gesetzt).
       expect(replaceSegments).toHaveBeenCalledWith(
         "r1",
         expect.arrayContaining([expect.objectContaining({ text: "a0 Z" })]),
         false,
+        undefined,
       );
       expect(updateSegment).not.toHaveBeenCalled();
     });
