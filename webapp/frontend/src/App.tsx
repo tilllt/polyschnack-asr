@@ -169,7 +169,7 @@ function AppContent() {
             href="/"
             title={t("home")}
             aria-label={t("home")}
-            className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline"
+            className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline order-1"
           >
             <img
               src="/logo.svg"
@@ -193,7 +193,7 @@ function AppContent() {
                 type="button"
                 onClick={() => setView(key as typeof view)}
                 aria-current={view === key ? "page" : undefined}
-                className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
+                className={`text-[12px] px-2 py-1 rounded-sm transition-colors order-3 ${
                   view === key
                     ? "bg-accent/20 text-accent"
                     : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
@@ -207,7 +207,7 @@ function AppContent() {
           {/* Change 192: Sprachwahl als Flaggen-Dropdown, direkt neben dem Menü. */}
           <LangMenu />
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto order-2">
             {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
             {user && user.oidc_enabled && !user.authenticated && (
               <a

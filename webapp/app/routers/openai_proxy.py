@@ -179,7 +179,7 @@ async def create_transcription(
         client = get_client(target)
 
         def _do_transcribe():
-            return client.transcribe(raw, filename, mime)
+            return client.transcribe(raw, filename, mime, language=language)
 
         result = await asyncio.to_thread(_do_transcribe)
     except HTTPException:

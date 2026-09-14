@@ -167,7 +167,7 @@ def test_sync_asr_heartbeat_during_blocking_transcribe(db, monkeypatch):
         capabilities = _FakeCaps()
 
         def transcribe_async(self, audio_bytes, filename, mime,
-                             noise_reduce=True, on_progress=None):
+                             noise_reduce=True, language=None, on_progress=None):
             started.set()
             # blockiert 1.2 s — währenddessen muss der Heartbeat ticken
             end = time.monotonic() + 1.2
@@ -230,7 +230,7 @@ def test_heartbeat_ticks_trotz_async_jobs_true(db, monkeypatch):
         capabilities = _FakeCaps()
 
         def transcribe_async(self, audio_bytes, filename, mime,
-                             noise_reduce=True, on_progress=None):
+                             noise_reduce=True, language=None, on_progress=None):
             # blockiert wie der Sync-Fallback — Heartbeat muss ticken
             end = time.monotonic() + 1.2
             while time.monotonic() < end:

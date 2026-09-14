@@ -123,7 +123,7 @@ class _FakeClient:
     capabilities = _Caps()
 
     def transcribe_async(self, audio_bytes, filename, mime, noise_reduce=True,
-                         on_progress=None):
+                         language=None, on_progress=None):
         return {"text": "Rohtext", "duration": 1.0, "language": "de",
                 "segments": [{"start": 0.0, "end": 1.0, "text": "Rohtext"}]}
 

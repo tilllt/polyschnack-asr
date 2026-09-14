@@ -69,7 +69,7 @@ def _mk_client(text="Hallo", duration=1.0, language="de", segments=None,
         capabilities = _FakeCaps()
 
         def transcribe_async(self, audio_bytes, filename, mime,
-                             noise_reduce=True, on_progress=None):
+                             noise_reduce=True, language=None, on_progress=None):
             if fail is not None:
                 raise RuntimeError(fail)
             return {

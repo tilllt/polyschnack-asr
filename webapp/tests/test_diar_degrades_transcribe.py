@@ -43,7 +43,7 @@ def _mk_client(text="Hallo", duration=1.0, segments=None):
         capabilities = _FakeCaps()
 
         def transcribe_async(self, audio_bytes, filename, mime,
-                             noise_reduce=True, on_progress=None):
+                             noise_reduce=True, language=None, on_progress=None):
             return {
                 "text": text,
                 "duration": duration,
