@@ -494,7 +494,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           cropRegionRef.current = null;
         }
       } else if (!cropRegionRef.current) {
-        // Selection erst beim User-Drag, nicht automatisch auf volle Dauer
+        // Invisible region with drag handles — enables mobile touch selection
+        // without showing a distracting green overlay over everything.
+        const dur = wsRef.current?.getDuration?.() ?? 0;
+        if (dur > 0) {
+          cropRegionRef.current = regions.addRegion({
+            start: 0,
+            end: dur,
+            color: "rgba(46,160,67,0.03)",
+            drag: true,
+            resize: true,
+          });
+        }
       }
     }, [timingWord, ready]);
 
