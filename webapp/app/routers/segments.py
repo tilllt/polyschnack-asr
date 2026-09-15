@@ -903,10 +903,11 @@ def replace_segments(
 
     if body.expected_updated_at:
         if not _timestamps_match(body.expected_updated_at, rec.updated_at):
-            current = (
-                rec.updated_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
-                if isinstance(rec.updated_at, dt.datetime) else ""
-            )
+            # iso_utc: eindeutige UTC-Serialisierung (Change 081) — kein naives
+            # .isoformat(), das ohne Zeitzonen-Suffix in die Antwort fliegt.
+            from ..timeutil import iso_utc
+
+            current = iso_utc(rec.updated_at) if isinstance(rec.updated_at, dt.datetime) else ""
             raise HTTPException(
                 status_code=409, detail="stale_write",
                 headers={"X-Current-Updated-At": current},

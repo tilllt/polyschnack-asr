@@ -20,7 +20,7 @@ class _FakeClient:
     def __init__(self, *args, **kwargs):
         pass
 
-    def transcribe(self, audio_bytes, filename, mime):
+    def transcribe(self, audio_bytes, filename, mime, language=None):
         return {
             "text": "Hallo Welt",
             "language": "de",
