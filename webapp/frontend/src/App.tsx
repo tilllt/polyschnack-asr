@@ -181,32 +181,50 @@ function AppContent() {
                   </h1>
                 </a>
 
-                {/* GPU/CPU-Icon (inline SVG) */}
+                {/* GPU/CPU-Icon (inline SVG) — erkennbare Grafikkarte/Chip-Form */}
                 {modelStatusQuery.data?.asr_device && (
                   <span
-                    className="inline-flex items-center"
+                    className="inline-flex items-center gap-1"
                     title={`ASR inference: ${modelStatusQuery.data.asr_device}`}
                   >
                     {modelStatusQuery.data.asr_device === "cuda" ? (
-                      <svg viewBox="0 0 122.88 104.91" className="h-[18px] w-[18px] fill-current text-accent" aria-label="GPU">
-                        <path d="M32.05,19.59H90.83a11.71,11.71,0,0,1,9,2.76,11.73,11.73,0,0,1,3.76,9V72.52a11.78,11.78,0,0,1-3.77,9,11.77,11.77,0,0,1-9,3.76H32.05a11.76,11.76,0,0,1-9-3.77,11.7,11.7,0,0,1-3.76-9V32.39a11.75,11.75,0,0,1,3.76-9,11.69,11.69,0,0,1,9-3.75Zm-3,33.76-4.25,9.37H18.73l8.14-17.51L18.73,41.7h6.06l4.26,9.61Zm10.55,9.37H35.21l8.2-16.5-8.2-16.5h4.34l8.2,16.5-8.2,16.5Zm0,0,8.41-16.5L39.56,41.7Zm3.91-16.5,8.2,16.5h-4.11l-8.2-16.5,8.2-16.5h4.11Zm3.91,0,8.2,8.4,0,0,0,0,0,0h0l-8.2,8.11v-7.14l8.2-8.2v0l-8.2,8.2V41.7h0l8.26-8.26-8.21-.26v-7.89l8.22,8.22h0l8.19,8.19-8.19,8.19v-7.53l-8.2-8.2v0l8.2-8.21h0Zm17.27,0L70.82,52.1H66.7l8.2-16.5-8.2-16.5h4.11l8.2,16.5-8.2,16.5Zm-4.56,9.37-8.2-16.5,8.2-16.5h4.11l-8.2,16.5,8.2,16.5H70.58Zm11-9.38L73.76,62.72H68.6l8.2-17.51L68.6,27.7h5.16l8.2,17.5Z"/>
-                        <rect x="79.4" y="10.35" width="3.86" height="11.89" rx="1.27"/>
-                        <rect x="79.4" y="82.67" width="3.86" height="11.89" rx="1.27"/>
-                        <rect x="68.57" y="10.35" width="3.86" height="11.89" rx="1.27"/>
-                        <rect x="68.57" y="82.67" width="3.86" height="11.89" rx="1.27"/>
-                      </svg>
+                      <>
+                        <svg viewBox="0 0 40 40" className="h-[16px] w-[16px] fill-current text-accent" aria-label="GPU">
+                          {/* Gehäuse (Graphics Card) */}
+                          <rect x="4" y="6" width="32" height="28" rx="2" ry="2" fill="currentColor" opacity="0.85"/>
+                          {/* PCIe-Leiste unten */}
+                          <rect x="10" y="34" width="20" height="4" rx="1" fill="currentColor" opacity="0.6"/>
+                          {/* 2 Lüfter */}
+                          <circle cx="15" cy="20" r="7" fill="currentColor" opacity="0.3"/>
+                          <circle cx="15" cy="20" r="4" fill="currentColor" opacity="0.5"/>
+                          <circle cx="28" cy="20" r="7" fill="currentColor" opacity="0.3"/>
+                          <circle cx="28" cy="20" r="4" fill="currentColor" opacity="0.5"/>
+                        </svg>
+                        <span className="hidden sm:inline text-[11px] leading-none text-accent font-medium">GPU</span>
+                      </>
                     ) : modelStatusQuery.data.asr_device === "cpu" ? (
-                      <svg viewBox="0 0 122.88 122.88" className="h-[18px] w-[18px] fill-current text-[#eab308]" aria-label="CPU">
-                        <rect x="30.2" y="30.2" width="62.48" height="62.48" rx="8" ry="8"/>
-                        <path d="M48.62,10.35h4.99V26.79H48.62V10.35Zm10.47,0h5.08V26.79H59.09V10.35Zm10.56,0h5.08V26.79H69.65V10.35ZM48.62,96.09h4.99V112.53H48.62V96.09Zm10.47,0h5.08V112.53H59.09V96.09Zm10.56,0h5.08V112.53H69.65V96.09Z"/>
-                        <rect x="50.12" y="41" width="22.64" height="26" rx="3"/>
-                        <rect x="10.35" y="48.71" width="17.29" height="5" rx="1.27"/>
-                        <rect x="95.24" y="48.71" width="17.29" height="5" rx="1.27"/>
-                        <rect x="10.35" y="63.27" width="17.29" height="5" rx="1.27"/>
-                        <rect x="95.24" y="63.27" width="17.29" height="5" rx="1.27"/>
-                        <rect x="10.35" y="77.83" width="17.29" height="5" rx="1.27"/>
-                        <rect x="95.24" y="77.83" width="17.29" height="5" rx="1.27"/>
-                      </svg>
+                      <>
+                        <svg viewBox="0 0 40 40" className="h-[16px] w-[16px] fill-current text-[#eab308]" aria-label="CPU">
+                          {/* Chip-Gehäuse */}
+                          <rect x="8" y="8" width="24" height="24" rx="2" ry="2" fill="currentColor" opacity="0.85"/>
+                          {/* Pin-Quadrate (Kontakte) */}
+                          <rect x="10" y="2" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="18" y="2" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="26" y="2" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="10" y="32" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="18" y="32" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="26" y="32" width="4" height="6" fill="currentColor" opacity="0.6"/>
+                          <rect x="2" y="10" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          <rect x="2" y="18" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          <rect x="2" y="26" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          <rect x="32" y="10" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          <rect x="32" y="18" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          <rect x="32" y="26" width="6" height="4" fill="currentColor" opacity="0.6"/>
+                          {/* Die-Chip innen */}
+                          <rect x="14" y="14" width="12" height="12" rx="1" fill="currentColor" opacity="0.4"/>
+                        </svg>
+                        <span className="hidden sm:inline text-[11px] leading-none text-[#eab308] font-medium">CPU</span>
+                      </>
                     ) : null}
                   </span>
                 )}
@@ -267,7 +285,7 @@ function AppContent() {
               </div>
 
               {/* Row 2: Navigation — Transcribe · Benchmark · Admin */}
-              <nav className="flex items-center gap-1 mt-1" aria-label="Hauptmenü">
+              <nav className="flex items-center gap-1.5 mt-[6px] sm:mt-[3px]" aria-label="Hauptmenü">
                 {([
                   ["main", t("transcribe")],
                   ["benchmark", t("benchmark")],
@@ -278,10 +296,10 @@ function AppContent() {
                     type="button"
                     onClick={() => setView(key as typeof view)}
                     aria-current={view === key ? "page" : undefined}
-                    className={`text-[11px] px-2 py-[3px] rounded-sm transition-colors ${
+                    className={`text-[13px] sm:text-[13px] font-medium px-3 sm:px-3.5 py-[5px] sm:py-1 rounded-[5px] border transition-colors ${
                       view === key
-                        ? "bg-accent/20 text-accent"
-                        : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+                        ? "bg-accent/[.12] text-accent border-accent/30"
+                        : "text-muted border-transparent hover:text-txt hover:bg-[rgba(255,255,255,.04)] hover:border-white/8"
                     }`}
                   >
                     {label}
