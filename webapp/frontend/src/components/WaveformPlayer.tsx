@@ -447,7 +447,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         const root = document.createElement("div");
         root.dataset.timingMarker = "1";
         root.style.cssText =
-          "position:absolute;top:" + WAVE_PAD + "px;bottom:" + WAVE_PAD + "px;pointer-events:auto;cursor:ew-resize;" +
+          "position:absolute;top:50%;left:0;right:0;height:55%;transform:translateY(-50%);pointer-events:auto;cursor:ew-resize;" +
           "touch-action:none;z-index:6;" +
           "background:rgba(46,160,67,0.18);border-top:1px solid #2ea043;border-bottom:1px solid #2ea043;";
         root.innerHTML =
