@@ -447,7 +447,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         const root = document.createElement("div");
         root.dataset.timingMarker = "1";
         root.style.cssText =
-          "position:absolute;top:0;bottom:0;pointer-events:auto;cursor:ew-resize;" +
+          "position:absolute;top:" + WAVE_PAD + "px;bottom:" + WAVE_PAD + "px;pointer-events:auto;cursor:ew-resize;" +
           "touch-action:none;z-index:6;" +
           "background:rgba(46,160,67,0.18);border-top:1px solid #2ea043;border-bottom:1px solid #2ea043;";
         root.innerHTML =
@@ -494,16 +494,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           cropRegionRef.current = null;
         }
       } else if (!cropRegionRef.current) {
-        const dur = wsRef.current?.getDuration?.() ?? 0;
-        if (dur > 0) {
-          cropRegionRef.current = regions.addRegion({
-            start: 0,
-            end: dur,
-            color: "rgba(46,160,67,0.1)",
-            drag: true,
-            resize: true,
-          });
-        }
+        // Selection erst beim User-Drag, nicht automatisch auf volle Dauer
       }
     }, [timingWord, ready]);
 
@@ -528,7 +519,34 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Change 155: Zoom verschiebt das sichtbare Fenster → Timing-Marker
       // neu positionieren (Ref: keine dep-Kette).
       updateTimingMarkerRef.current?.();
-    }, [updateMarkers]);
+      // Change 2026-09-15: Progressive Peaks auch beim manuellen Zoom —
+      // ab 10× sind 2000 Basispunkte pixelig.
+      if (recordingId && idx >= 3) {
+        const dur = ws.getDuration?.() ?? 0;
+        const needed = Math.min(
+          300000,
+          Math.max(2000, Math.ceil(pps * Math.max(dur, 1))),
+        );
+        if (needed > 2000) {
+          const cache = peaksCacheRef.current;
+          let prom = cache.get(needed);
+          if (!prom) {
+            prom = fetchPeaks(recordingId, needed).catch(() => null);
+            cache.set(needed, prom);
+          }
+          void prom.then((fine) => {
+            if (!fine || fine.length <= 2000 || !wsReadyRef.current) return;
+            const w = wsRef.current;
+            if (!w) return;
+            try {
+              (w as any).setPeaks?.([fine]);
+              w.zoom(pps);
+            } catch {/* WS7 ohne Audio — ignoriert */}
+            updateTimingMarkerRef.current?.();
+          });
+        }
+      }
+    }, [updateMarkers, recordingId]);
 
     // Change 137: 30 %-Zoom beim WECHSEL des Timing-Wortes (nicht bei jeder
     // Timing-Änderung während eines Drags — das würde den Zoom springen
@@ -591,7 +609,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         }
         updateTimingMarkerRef.current?.();
         try {
+          // Change 2026-09-15: Center the word in the visible view
           w.setTime(tw.start);
+          // Calculate scroll position so the word appears centered
+          // (word midpoint at 50% of the visible width)
+          const wDur = w.getDuration?.() ?? 0;
+          const cw = containerRef.current?.clientWidth ?? 800;
+          const wordMid = (tw.start + tw.end) / 2;
+          const targetScroll = Math.max(0, pps * wordMid - cw / 2);
+          if (wDur > 0 && targetScroll >= 0) {
+            (w as any).setScroll?.(targetScroll);
+          }
         } catch {
           /* WS7 noch ohne geladenes Audio — Seek überspringen */
         }
