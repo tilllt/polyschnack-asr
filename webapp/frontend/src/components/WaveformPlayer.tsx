@@ -3,18 +3,17 @@ import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
+import type { UpdateSide } from "wavesurfer.js/dist/plugins/regions.js";
 import { useT } from "../useLocale";
 import { fetchPeaks } from "../api";
 import {
   clampMoveWordTiming,
   clampWordTiming,
   fitPps,
-  markerPct,
   MIN_PPS,
   MIN_WORD_DURATION_S,
   timeFromClick,
   timingPps,
-  visibleWindow,
 } from "../waveformTime";
 
 export interface WaveSurferHandle {
@@ -291,8 +290,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const onTimingCommitRef = useRef(onTimingCommit);
     onTimingCommitRef.current = onTimingCommit;
     const [timingZoom, setTimingZoom] = useState(false);
-    const timingMarkerRef = useRef<HTMLDivElement | null>(null);
-    const timingDraggingRef = useRef(false);
     // Crop-Auswahl-Region (✂ Transcribe): in der Timing-Ansicht ausgeblendet,
     // damit sie nicht mit den Timing-Handles um die Drag-Gesten konkurriert.
     const cropRegionRef = useRef<{ remove: () => void } | null>(null);
@@ -328,9 +325,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // Change 155 (Timing-Zoom): progressive Peaks — Cache je Länge
     // (pro Player-Instanz; die Peaks ändern sich nie).
     const peaksCacheRef = useRef(new Map<number, Promise<number[] | null>>());
-    // Spiegelt updateTimingMarker für Listener außerhalb von React-Render
-    // (Scroll-Event, setPeaks-Fertigstellung).
-    const updateTimingMarkerRef = useRef<() => void>(() => {});
 
     // Change 056: Annotation-Marker als Overlay im Timeline-Container.
     // wavesurfer 7.x hat KEIN Markers-Plugin (erst 8.x) — ein 8er-Upgrade
@@ -369,142 +363,72 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       updateMarkers();
     }, [updateMarkers]);
 
-    // ── Change 137: Timing-Markierung (Overlay im Waveform-Container) ──
-    // Eigenes Overlay statt des RegionsPlugin: die Crop-Auswahl-Region (✂
-    // Transcribe) und die Timing-Markierung haben unterschiedliche
-    // Commit-Semantik (Loslassen = PATCH). Das Overlay gibt volle Kontrolle
-    // über Clamp (Nachbar-Grenzen) und Commit — ohne Plugin-Konflikte.
-    // Pointer-Capture auf den Handles; während des Drags bewegt der
-    // Drag-Handler den Marker DIREKT im DOM (kein React-Rebuild — der würde
-    // Pointer-Capture und die laufende Geste zerstören).
-    const onTimingPointerDown = (e: PointerEvent) => {
-      // Change 155: Body-Drag (Verschieben der ganzen Markierung) — die
-      // Handles (start/end) bleiben für das Ändern der Ränder.
-      const target = (e.target as HTMLElement).closest("[data-timing-handle]") as HTMLElement | null;
-      const tw = timingWordRef.current;
-      const root = timingMarkerRef.current;
-      if (!tw || !root) return;
-      e.stopPropagation();
-      const evtTarget = target ?? root; // Change 155: Body-Drag (ganze Markierung)
-      const handle = (target?.dataset.timingHandle as "start" | "end" | undefined) ?? "move";
-      const pps = ppsRef.current;
-      const dur = wsRef.current?.getDuration?.() ?? duration;
-      const startX = e.clientX;
-      const origStart = tw.start;
-      const origEnd = tw.end;
-      timingDraggingRef.current = true;
-      let live = { start: origStart, end: origEnd };
-      const apply = (clientX: number) => {
-        const dT = (clientX - startX) / Math.max(pps, 1e-6);
-        const next =
-          handle === "start"
-            ? clampWordTiming(origStart + dT, origEnd, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
-            : handle === "end"
-              ? clampWordTiming(origStart, origEnd + dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
-              : clampMoveWordTiming(origStart, origEnd, dT, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S);
-        live = next;
-        if (root.isConnected && dur > 0) {
-          root.style.left = `${(next.start / dur) * 100}%`;
-          root.style.width = `${((next.end - next.start) / dur) * 100}%`;
-        }
-        onTimingChangeRef.current?.(next.start, next.end);
-      };
-      const onMove = (ev: PointerEvent) => apply(ev.clientX);
-      const onUp = (ev: PointerEvent) => {
-        timingDraggingRef.current = false;
-        evtTarget.removeEventListener("pointermove", onMove);
-        evtTarget.removeEventListener("pointerup", onUp);
-        evtTarget.removeEventListener("pointercancel", onUp);
-        try {
-          evtTarget.releasePointerCapture(ev.pointerId);
-        } catch {
-          /* Capture bereits frei */
-        }
-        onTimingCommitRef.current?.(live.start, live.end);
-        updateTimingMarker();
-      };
-      try {
-        evtTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* Pointer-Capture nicht verfügbar — Drag läuft ohne */
-      }
-      evtTarget.addEventListener("pointermove", onMove);
-      evtTarget.addEventListener("pointerup", onUp);
-      evtTarget.addEventListener("pointercancel", onUp);
-    };
-
-    const updateTimingMarker = useCallback(() => {
-      const container = containerRef.current;
-      const tw = timingWordRef.current;
-      const existing = timingMarkerRef.current;
-      if (!container || !ready || !duration || !tw) {
-        existing?.remove();
-        timingMarkerRef.current = null;
-        return;
-      }
-      if (timingDraggingRef.current) return;
-      if (!existing || !existing.isConnected) {
-        const root = document.createElement("div");
-        root.dataset.timingMarker = "1";
-        root.style.cssText =
-          "position:absolute;top:50%;left:0;right:0;height:55%;transform:translateY(-50%);pointer-events:auto;cursor:ew-resize;" +
-          "touch-action:none;z-index:6;" +
-          "background:rgba(46,160,67,0.18);border-top:1px solid #2ea043;border-bottom:1px solid #2ea043;";
-        root.innerHTML =
-          '<div data-timing-handle="start" style="position:absolute;top:0;bottom:0;left:0;width:14px;pointer-events:auto;cursor:ew-resize;touch-action:none;background:rgba(255,255,255,0.12);border-left:2px solid #2ea043;border-radius:2px 0 0 2px;"></div>' +
-          '<div data-timing-handle="end" style="position:absolute;top:0;bottom:0;right:0;width:14px;pointer-events:auto;cursor:ew-resize;touch-action:none;background:rgba(255,255,255,0.12);border-right:2px solid #2ea043;border-radius:0 2px 2px 0;"></div>';
-        root.addEventListener("pointerdown", onTimingPointerDown);
-        // Klick auf Marker/Handles darf den Container-Klick-Seek nicht auslösen.
-        root.addEventListener("click", (e) => e.stopPropagation());
-        container.appendChild(root);
-        timingMarkerRef.current = root;
-      }
-      const el = timingMarkerRef.current;
-      if (!el) return;
-      // Change 155: relativ zum SICHTBAREN Fenster (nicht zur Gesamtdauer) —
-      // im Zoom lag der Marker vorher an der falschen Stelle.
-      const ws = wsRef.current;
-      const scrollPx = ws?.getScroll?.() ?? 0;
-      const win = visibleWindow(
-        container.clientWidth || 800,
-        scrollPx,
-        ppsRef.current,
-        duration,
-      );
-      const pct = markerPct(win, tw.start, tw.end);
-      el.style.left = `${pct.left}%`;
-      el.style.width = `${pct.width}%`;
-    }, [ready, duration]);
-    updateTimingMarkerRef.current = updateTimingMarker;
-
-    // Neu-Zeichnen bei Wort-/Zeit-Änderung (während eines Drags übernimmt
-    // der Drag-Handler das DOM — updateTimingMarker kehrt dann früh zurück).
-    useEffect(() => {
-      updateTimingMarker();
-    }, [updateTimingMarker, timingWord]);
+    // ── Change 196: Timing-Markierung per WS RegionsPlugin ──
+    const timingRegionRef = useRef<any>(null);
 
     // Change 137: Crop-Auswahl-Region (✂ Transcribe) in der Timing-Ansicht
-    // ausblenden — sonst konkurriert sie mit den Timing-Handles um Drags.
+    // ausblenden (Change 196: jetzt auch Timing-Region verwalten).
     useEffect(() => {
-      const regions = regionsRef.current;
-      if (!regions || !ready) return;
+      const regionsPlugin = regionsRef.current;
+      if (!regionsPlugin || !ready) return;
+
       if (timingWord) {
+        // Crop entfernen (wie bisher)
         if (cropRegionRef.current) {
           cropRegionRef.current.remove();
           cropRegionRef.current = null;
         }
-      } else if (!cropRegionRef.current) {
-        // Invisible region with drag handles — enables mobile touch selection
-        // without showing a distracting green overlay over everything.
-        const dur = wsRef.current?.getDuration?.() ?? 0;
-        if (dur > 0) {
-          cropRegionRef.current = regions.addRegion({
-            start: 0,
-            end: dur,
-            color: "rgba(46,160,67,0.03)",
-            drag: true,
-            resize: true,
-          });
+        // Timing-Region anlegen (falls noch nicht)
+        if (!timingRegionRef.current) {
+          const dur = wsRef.current?.getDuration?.() ?? 0;
+          if (dur > 0 && timingWord.start < dur && timingWord.end <= dur) {
+            const region = (regionsPlugin as any).addRegion({
+              start: timingWord.start,
+              end: timingWord.end,
+              color: "rgba(46,160,67,0.18)",
+              drag: true,
+              resize: true,
+              minLength: MIN_WORD_DURATION_S,
+            });
+            // Live-Constraint-Clamping bei Update
+            region.on("update", (side?: UpdateSide) => {
+              const tw = timingWordRef.current;
+              if (!tw) return;
+              const s = region.start, e = region.end;
+              const clamped = side === "start" || side === "end"
+                ? clampWordTiming(s, e, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S)
+                : clampMoveWordTiming(tw.start, tw.end, s - tw.start, tw.minStart, tw.maxEnd, MIN_WORD_DURATION_S);
+              if (clamped.start !== s || clamped.end !== e) {
+                region.setOptions({ start: clamped.start, end: clamped.end });
+              }
+              onTimingChangeRef.current?.(clamped.start, clamped.end);
+            });
+            // Commit nach Loslassen
+            region.on("update-end", () => {
+              const r = timingRegionRef.current;
+              if (r) onTimingCommitRef.current?.(r.start, r.end);
+            });
+            timingRegionRef.current = region;
+          }
+        }
+      } else {
+        // Timing-Region entfernen
+        if (timingRegionRef.current) {
+          timingRegionRef.current.remove();
+          timingRegionRef.current = null;
+        }
+        // Crop wiederherstellen (wie bisher)
+        if (!cropRegionRef.current) {
+          const dur = wsRef.current?.getDuration?.() ?? 0;
+          if (dur > 0) {
+            cropRegionRef.current = (regionsPlugin as any).addRegion({
+              start: 0,
+              end: dur,
+              color: "rgba(46,160,67,0.03)",
+              drag: true,
+              resize: true,
+            });
+          }
         }
       }
     }, [timingWord, ready]);
@@ -527,9 +451,6 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       zoomIdxRef.current = idx;
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
       updateMarkers();
-      // Change 155: Zoom verschiebt das sichtbare Fenster → Timing-Marker
-      // neu positionieren (Ref: keine dep-Kette).
-      updateTimingMarkerRef.current?.();
       // Change 2026-09-15: Progressive Peaks auch beim manuellen Zoom —
       // ab 10× sind 2000 Basispunkte pixelig.
       if (recordingId && idx >= 3) {
@@ -553,7 +474,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               (w as any).setPeaks?.([fine]);
               w.zoom(pps);
             } catch {/* WS7 ohne Audio — ignoriert */}
-            updateTimingMarkerRef.current?.();
+            
           });
         }
       }
@@ -615,10 +536,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             } catch {
               /* setPeaks nicht verfügbar — Basis-Peaks bleiben */
             }
-            updateTimingMarkerRef.current?.();
+            
           });
         }
-        updateTimingMarkerRef.current?.();
+        
         try {
           // Change 2026-09-15: Center the word in the visible view
           w.setTime(tw.start);
@@ -878,11 +799,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         });
       }
 
-      // Change 155: Scroll (gezoomte View) verschiebt das sichtbare Fenster
-      // → Timing-Marker neu positionieren (Ref, kein Render-Zyklus nötig).
-      ws.on("scroll", () => {
-        updateTimingMarkerRef.current?.();
-      });
+      // Change 196: Scroll (gezoomte View) verschiebt das sichtbare Fenster —
+      // die Timing-Region passt sich automatisch an (WS Region nativ).
 
       ws.on("timeupdate", (t) => {
         // Fix 2026-08-17 (Space-Stop-Sprung): WaveSurfer 7 feuert beim Pause
