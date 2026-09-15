@@ -6,7 +6,7 @@ import { useT } from "../useLocale";
 export function StatsBar({ stats }: { stats: Stats | undefined }) {
   const { t } = useT();
   return (
-    <div className="flex gap-[6px] sm:gap-[18px] flex-wrap max-w-[960px] mx-auto px-3 sm:px-5">
+    <div className="flex gap-[6px] sm:gap-[18px] flex-wrap max-w-[960px] px-3 sm:px-5">
       {/* Change 192: auf drei Kennzahlen gekürzt — Anzahl, Gesamtlänge, Speicher.
           „fertig/hochgeladen/in Arbeit" stehen im Queue- und Listenkontext. */}
       <StatItem val={stats?.total ?? "—"} lbl={t("recordings")} />

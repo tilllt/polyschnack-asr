@@ -284,8 +284,13 @@ function AppContent() {
                 </div>
               </div>
 
-              {/* Row 2: Navigation — Transcribe · Benchmark · Admin */}
-              <nav className="flex items-center gap-1.5 mt-[6px] sm:mt-[3px]" aria-label="Hauptmenü">
+              {/* Row 2: Status — rechtsbündig */}
+              <div className="flex justify-end mt-[4px]">
+                <StatsBar stats={stats} />
+              </div>
+
+              {/* Row 3: Navigation — Transcribe · Benchmark · Admin — linksbündig, etwas abgesetzt */}
+              <nav className="flex items-center gap-1.5 mt-[8px] sm:mt-[6px]" aria-label="Hauptmenü">
                 {([
                   ["main", t("transcribe")],
                   ["benchmark", t("benchmark")],
@@ -306,11 +311,6 @@ function AppContent() {
                   </button>
                 ))}
               </nav>
-
-              {/* Row 3: Stats — kleiner */}
-              <div className="mt-[2px]">
-                <StatsBar stats={stats} />
-              </div>
             </header>
 
       {/* PWA-Install-Banner (nur wenn installierbar + nicht abgelehnt) */}
