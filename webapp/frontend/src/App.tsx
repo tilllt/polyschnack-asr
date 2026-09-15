@@ -29,7 +29,7 @@ import { fetchMe, fetchMyCredits, formatCents, type UserInfo } from "./api";
 import { StatsBar } from "./components/StatsBar";
 import { UploadZone } from "./components/UploadZone";
 import { QueueWatcher } from "./components/QueueWatcher";
-import { LogIn, LogOut } from "lucide-react";
+import { LogIn, LogOut, Settings } from "lucide-react";
 
 import { LangMenu } from "./components/LangMenu";
 import { AdminPanel } from "./components/AdminPanel";
@@ -184,7 +184,6 @@ function AppContent() {
           <nav className="flex flex-wrap items-center gap-1" aria-label="Hauptmenü">
             {([
               ["main", t("transcribe")],
-              ["settings", t("settings")],
               ["benchmark", t("benchmark")],
               ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
             ] as const).map(([key, label]) => (
@@ -231,6 +230,14 @@ function AppContent() {
                     💰 {formatCents(credits.credits_cents)}
                   </button>
                 )}
+                <button
+                  className="btn-ghost-sm inline-flex items-center"
+                  title={t("settings")}
+                  aria-label={t("settings")}
+                  onClick={() => setView(view === "settings" ? "main" : "settings")}
+                >
+                  <Settings size={14} />
+                </button>
                 <a
                   href="/auth/logout"
                   className="btn-ghost-sm text-[12px] inline-flex items-center"
