@@ -222,6 +222,16 @@ export function claimExclusivePlayback(me: Playable): void {
   activePlayer = me;
 }
 
+/**
+ * Setzt `me` als aktiven Player OHNE den Vorgänger zu pausieren.
+ * NUR fürs Mount (Change 195): ein neu mountender Player darf kein
+ * laufendes Playback eines anderen unterbrechen — nur User-Initiiertes
+ * (Play-Button, Waveform-Klick) soll pausieren.
+ */
+export function registerActivePlayer(me: Playable): void {
+  activePlayer = me;
+}
+
 /** Gibt die Exklusivität frei, wenn `me` noch der aktive Player ist. */
 export function releaseExclusivePlayback(me: Playable): void {
   if (activePlayer === me) activePlayer = null;
@@ -920,7 +930,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Beim Mount als aktiven Player merken (zuletzt geöffnete Card) —
       // damit der globale Play/Stop-Shortcut (Space) ein Ziel hat, auch
       // bevor je ein Play lief. Cleanup gibt die Exklusivität frei.
-      claimExclusivePlayback(me);
+      // Change 195: NICHT claimExclusivePlayback — pausiert den Vorgänger
+      // nicht beim Mount (das passiert erst beim Play).
+      registerActivePlayer(me);
       ws.on("play", () => {
         claimExclusivePlayback(me);
         setPlaying(true);
@@ -991,7 +1003,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // Decode noch läuft (canPlay=false, Play-Button grau) würde der
         // Klick den Play-State setzen (Flicker zum Pause-Symbol), aber kein
         // Ton startet (User-Befund 2026-08-23). Nur Seek + Transkript-Scroll.
+        // Change 195: claimExclusivePlayback VOR ws.play() — pausiert den
+        // vorherigen Player direkt, unabhängig vom WS7-Event-Timing.
+        // Der ws.on("play")-Handler bleibt als doppelte Absicherung für
+        // andere Play-Pfade (toggleActivePlayback, seekTo, externe API).
         if (canPlayRef.current) {
+          claimExclusivePlayback(me);
           ensureAudioContext(ws);
           ws.play();
         }

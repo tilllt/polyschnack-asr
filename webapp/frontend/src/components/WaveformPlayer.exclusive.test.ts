@@ -3,6 +3,7 @@ import {
   claimExclusivePlayback,
   releaseExclusivePlayback,
   toggleActivePlayback,
+  registerActivePlayer,
   decidePlayPause,
   type Playable,
 } from "./WaveformPlayer";
@@ -99,6 +100,24 @@ describe("audio exclusivity", () => {
     // a ist bereits released → b pausiert niemanden
     expect(a.paused).toBe(false);
     expect(b.paused).toBe(false);
+  });
+
+  it("registerActivePlayer pausiert den Vorgänger NICHT (Change 195)", () => {
+    const a = makePlayable();
+    a.play();
+    claimExclusivePlayback(a); // a ist aktiv + spielt
+    a.paused = false;
+
+    const b = makePlayable();
+    b.play(); // b läuft auch
+    registerActivePlayer(b); // ← Mount: nur setzen, kein Pause
+
+    // a wurde NICHT pausiert (obwohl a noch spielt)
+    expect(a.paused).toBe(false);
+    expect(b.paused).toBe(false);
+    // activePlayer zeigt jetzt auf b (Space hat Ziel)
+    toggleActivePlayback();
+    expect(b.isPlaying()).toBe(false); // Space pausiert b
   });
 });
 
