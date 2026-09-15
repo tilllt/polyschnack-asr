@@ -180,6 +180,22 @@ function AppContent() {
               PolySchnack
             </h1>
           </a>
+          {/* GPU/CPU-Badge zwischen Logo-Text und Menü */}
+          {modelStatusQuery.data?.asr_device && (
+            <div
+              className={[
+                "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full order-2",
+                modelStatusQuery.data.asr_device === "cuda"
+                  ? "bg-[rgba(46,160,67,.15)] text-accent"
+                  : modelStatusQuery.data.asr_device === "cpu"
+                  ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
+                  : "bg-[rgba(248,81,73,.1)] text-err",
+              ].join(" ")}
+              title={`ASR inference: ${modelStatusQuery.data.asr_device}`}
+            >
+              {modelStatusQuery.data.asr_device === "cuda" ? "⚡ GPU" : modelStatusQuery.data.asr_device === "cpu" ? "💻 CPU" : "❓"}
+            </div>
+          )}
           {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
           <nav className="flex flex-wrap items-center gap-1" aria-label="Hauptmenü">
             {([
@@ -260,7 +276,7 @@ function AppContent() {
         </div>
 
         {/* Row 2: Stats — full width on mobile, inline on desktop */}
-        <StatsBar stats={stats} device={modelStatusQuery.data?.asr_device} />
+        <StatsBar stats={stats} />
       </header>
 
       {/* PWA-Install-Banner (nur wenn installierbar + nicht abgelehnt) */}
