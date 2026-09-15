@@ -163,67 +163,74 @@ function AppContent() {
           px-3 sm:px-6 py-3 sm:py-[14px]
         "
       >
-        {/* Row 1: Logo · Menü · Sprache — Nutzerbereich (Guthaben/Name/Symbol) rechtsbündig */}
-        <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 mb-2 sm:mb-0">
-          <a
-            href="/"
-            title={t("home")}
-            aria-label={t("home")}
-            className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline order-1"
-          >
-            <img
-              src="/logo.svg"
-              alt="PolySchnack"
-              className="h-[26px] sm:h-[30px] w-auto rounded-[6px]"
-            />
-            <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
-              PolySchnack
-            </h1>
-          </a>
-          {/* GPU/CPU-Badge zwischen Logo-Text und Menü */}
-          {modelStatusQuery.data?.asr_device && (
-            <div
-              className={[
-                "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full order-2",
-                modelStatusQuery.data.asr_device === "cuda"
-                  ? "bg-[rgba(46,160,67,.15)] text-accent"
-                  : modelStatusQuery.data.asr_device === "cpu"
-                  ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
-                  : "bg-[rgba(248,81,73,.1)] text-err",
-              ].join(" ")}
-              title={`ASR inference: ${modelStatusQuery.data.asr_device}`}
-            >
-              {modelStatusQuery.data.asr_device === "cuda" ? "⚡ GPU" : modelStatusQuery.data.asr_device === "cpu" ? "💻 CPU" : "❓"}
-            </div>
-          )}
-          {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
-          <nav className="flex flex-wrap items-center gap-1" aria-label="Hauptmenü">
-            {([
-              ["main", t("transcribe")],
-              ["benchmark", t("benchmark")],
-              ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setView(key as typeof view)}
-                aria-current={view === key ? "page" : undefined}
-                className={`text-[12px] px-2 py-1 rounded-sm transition-colors order-3 ${
-                  view === key
-                    ? "bg-accent/20 text-accent"
-                    : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+              {/* Row 1: Logo · GPU-Badge · Menü · Sprachwahl · User/Credits/Settings/Logout */}
+              {/* Desktop: [Logo(1)][GPU(2)][Nav(3)][Lang(4)] ——— [User/Credits/Settings/Logout(5)]
+                  Mobile:  [Logo(1)][GPU(2)][User/Credits/Settings/Logout(5)] — neue Zeile: [Nav(3)][Lang(4)] */}
+              <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 mb-2 sm:mb-0">
+                <a
+                  href="/"
+                  title={t("home")}
+                  aria-label={t("home")}
+                  className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline"
+                >
+                  <img
+                    src="/logo.svg"
+                    alt="PolySchnack"
+                    className="h-[26px] sm:h-[30px] w-auto rounded-[6px]"
+                  />
+                  <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
+                    PolySchnack
+                  </h1>
+                </a>
+                {/* GPU/CPU-Badge — Desktop order-2, Mobile order-2 */}
+                {modelStatusQuery.data?.asr_device && (
+                  <div
+                    className={[
+                      "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
+                      modelStatusQuery.data.asr_device === "cuda"
+                        ? "bg-[rgba(46,160,67,.15)] text-accent"
+                        : modelStatusQuery.data.asr_device === "cpu"
+                        ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
+                        : "bg-[rgba(248,81,73,.1)] text-err",
+                    ].join(" ")}
+                    title={`ASR inference: ${modelStatusQuery.data.asr_device}`}
+                  >
+                    {modelStatusQuery.data.asr_device === "cuda" ? "⚡ GPU" : modelStatusQuery.data.asr_device === "cpu" ? "💻 CPU" : "❓"}
+                  </div>
+                )}
+                {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
+                {/* Desktop order-3, Mobile order-98 (zweite Zeile) */}
+                <nav className="flex flex-wrap items-center gap-1 order-3 sm:order-3" aria-label="Hauptmenü">
+                  {([
+                    ["main", t("transcribe")],
+                    ["benchmark", t("benchmark")],
+                    ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setView(key as typeof view)}
+                      aria-current={view === key ? "page" : undefined}
+                      className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
+                        view === key
+                          ? "bg-accent/20 text-accent"
+                          : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </nav>
 
-          {/* Change 192: Sprachwahl als Flaggen-Dropdown, direkt neben dem Menü. */}
-          <LangMenu />
+                {/* Change 192: Sprachwahl als Flaggen-Dropdown — Desktop order-4, Mobile order-99 */}
+                <div className="order-4 sm:order-4">
+                  <LangMenu />
+                </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto order-2">
-            {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
+                {/* Rechte Gruppe: Login/Logout, Username, Credits, Settings — ML-AUTO schiebt nach rechts */}
+                {/* Desktop order-5, Mobile order-5 (bleibt in erster Zeile) */}
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+                  {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
             {user && user.oidc_enabled && !user.authenticated && (
               <a
                 href="/auth/login"
