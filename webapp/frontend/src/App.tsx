@@ -171,7 +171,7 @@ function AppContent() {
                   href="/"
                   title={t("home")}
                   aria-label={t("home")}
-                  className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline"
+                  className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline order-1 sm:order-1"
                 >
                   <img
                     src="/logo.svg"
@@ -186,7 +186,7 @@ function AppContent() {
                 {modelStatusQuery.data?.asr_device && (
                   <div
                     className={[
-                      "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full",
+                      "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full order-2 sm:order-2",
                       modelStatusQuery.data.asr_device === "cuda"
                         ? "bg-[rgba(46,160,67,.15)] text-accent"
                         : modelStatusQuery.data.asr_device === "cpu"
@@ -200,7 +200,7 @@ function AppContent() {
                 )}
                 {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
                 {/* Desktop order-3, Mobile order-98 (zweite Zeile) */}
-                <nav className="flex flex-wrap items-center gap-1 order-3 sm:order-3" aria-label="Hauptmenü">
+                <nav className="flex flex-wrap items-center gap-1 order-98 sm:order-3" aria-label="Hauptmenü">
                   {([
                     ["main", t("transcribe")],
                     ["benchmark", t("benchmark")],
@@ -223,13 +223,13 @@ function AppContent() {
                 </nav>
 
                 {/* Change 192: Sprachwahl als Flaggen-Dropdown — Desktop order-4, Mobile order-99 */}
-                <div className="order-4 sm:order-4">
+                <div className="order-99 sm:order-4">
                   <LangMenu />
                 </div>
 
                 {/* Rechte Gruppe: Login/Logout, Username, Credits, Settings — ML-AUTO schiebt nach rechts */}
                 {/* Desktop order-5, Mobile order-5 (bleibt in erster Zeile) */}
-                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto order-5 sm:order-5">
                   {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
             {user && user.oidc_enabled && !user.authenticated && (
               <a
@@ -281,10 +281,10 @@ function AppContent() {
             )}
           </div>
         </div>
-
-        {/* Row 2: Stats — full width on mobile, inline on desktop */}
-        <StatsBar stats={stats} />
       </header>
+
+      {/* Stats unter der Kopfzeile */}
+      <StatsBar stats={stats} />
 
       {/* PWA-Install-Banner (nur wenn installierbar + nicht abgelehnt) */}
       <InstallBanner />
