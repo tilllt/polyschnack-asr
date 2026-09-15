@@ -155,136 +155,145 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-bg">
       {/* ── Sticky header ── */}
-      <header
-        className="
-          sticky top-0 z-[100]
-          bg-[rgba(7,11,8,.92)] backdrop-blur-[12px]
-          border-b border-border
-          px-3 sm:px-6 py-3 sm:py-[14px]
-        "
-      >
-              {/* Row 1: Logo · GPU-Badge · Menü · Sprachwahl · User/Credits/Settings/Logout */}
-              {/* Desktop: [Logo(1)][GPU(2)][Nav(3)][Lang(4)] ——— [User/Credits/Settings/Logout(5)]
-                  Mobile:  [Logo(1)][GPU(2)][User/Credits/Settings/Logout(5)] — neue Zeile: [Nav(3)][Lang(4)] */}
-              <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 mb-2 sm:mb-0">
+            <header
+              className="
+                sticky top-0 z-[100]
+                bg-[rgba(7,11,8,.92)] backdrop-blur-[12px]
+                border-b border-border
+                px-3 sm:px-6 py-2 sm:py-[10px]
+              "
+            >
+              {/* Row 1: Logo · GPU/CPU-Icon ─── ml-auto ─── Credits(Desktop) · Username · Sprachwahl · Settings · Logout */}
+              <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1">
                 <a
                   href="/"
                   title={t("home")}
                   aria-label={t("home")}
-                  className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline order-1 sm:order-1"
+                  className="flex items-center gap-[6px] sm:gap-[10px] flex-shrink-0 no-underline"
                 >
                   <img
                     src="/logo.svg"
                     alt="PolySchnack"
-                    className="h-[26px] sm:h-[30px] w-auto rounded-[6px]"
+                    className="h-[24px] sm:h-[28px] w-auto rounded-[6px]"
                   />
-                  <h1 className="text-[15px] sm:text-[17px] m-0 font-bold tracking-[-0.01em] brand-gradient">
+                  <h1 className="text-[14px] sm:text-[16px] m-0 font-bold tracking-[-0.01em] brand-gradient">
                     PolySchnack
                   </h1>
                 </a>
-                {/* GPU/CPU-Badge — Desktop order-2, Mobile order-2 */}
+
+                {/* GPU/CPU-Icon (inline SVG) */}
                 {modelStatusQuery.data?.asr_device && (
-                  <div
-                    className={[
-                      "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[3px] rounded-full order-2 sm:order-2",
-                      modelStatusQuery.data.asr_device === "cuda"
-                        ? "bg-[rgba(46,160,67,.15)] text-accent"
-                        : modelStatusQuery.data.asr_device === "cpu"
-                        ? "bg-[rgba(234,179,8,.12)] text-[#eab308]"
-                        : "bg-[rgba(248,81,73,.1)] text-err",
-                    ].join(" ")}
+                  <span
+                    className="inline-flex items-center"
                     title={`ASR inference: ${modelStatusQuery.data.asr_device}`}
                   >
-                    {modelStatusQuery.data.asr_device === "cuda" ? "⚡ GPU" : modelStatusQuery.data.asr_device === "cpu" ? "💻 CPU" : "❓"}
-                  </div>
+                    {modelStatusQuery.data.asr_device === "cuda" ? (
+                      <svg viewBox="0 0 122.88 104.91" className="h-[18px] w-[18px] fill-current text-accent" aria-label="GPU">
+                        <path d="M32.05,19.59H90.83a11.71,11.71,0,0,1,9,2.76,11.73,11.73,0,0,1,3.76,9V72.52a11.78,11.78,0,0,1-3.77,9,11.77,11.77,0,0,1-9,3.76H32.05a11.76,11.76,0,0,1-9-3.77,11.7,11.7,0,0,1-3.76-9V32.39a11.75,11.75,0,0,1,3.76-9,11.69,11.69,0,0,1,9-3.75Zm-3,33.76-4.25,9.37H18.73l8.14-17.51L18.73,41.7h6.06l4.26,9.61Zm10.55,9.37H35.21l8.2-16.5-8.2-16.5h4.34l8.2,16.5-8.2,16.5Zm0,0,8.41-16.5L39.56,41.7Zm3.91-16.5,8.2,16.5h-4.11l-8.2-16.5,8.2-16.5h4.11Zm3.91,0,8.2,8.4,0,0,0,0,0,0h0l-8.2,8.11v-7.14l8.2-8.2v0l-8.2,8.2V41.7h0l8.26-8.26-8.21-.26v-7.89l8.22,8.22h0l8.19,8.19-8.19,8.19v-7.53l-8.2-8.2v0l8.2-8.21h0Zm17.27,0L70.82,52.1H66.7l8.2-16.5-8.2-16.5h4.11l8.2,16.5-8.2,16.5Zm-4.56,9.37-8.2-16.5,8.2-16.5h4.11l-8.2,16.5,8.2,16.5H70.58Zm11-9.38L73.76,62.72H68.6l8.2-17.51L68.6,27.7h5.16l8.2,17.5Z"/>
+                        <rect x="79.4" y="10.35" width="3.86" height="11.89" rx="1.27"/>
+                        <rect x="79.4" y="82.67" width="3.86" height="11.89" rx="1.27"/>
+                        <rect x="68.57" y="10.35" width="3.86" height="11.89" rx="1.27"/>
+                        <rect x="68.57" y="82.67" width="3.86" height="11.89" rx="1.27"/>
+                      </svg>
+                    ) : modelStatusQuery.data.asr_device === "cpu" ? (
+                      <svg viewBox="0 0 122.88 122.88" className="h-[18px] w-[18px] fill-current text-[#eab308]" aria-label="CPU">
+                        <rect x="30.2" y="30.2" width="62.48" height="62.48" rx="8" ry="8"/>
+                        <path d="M48.62,10.35h4.99V26.79H48.62V10.35Zm10.47,0h5.08V26.79H59.09V10.35Zm10.56,0h5.08V26.79H69.65V10.35ZM48.62,96.09h4.99V112.53H48.62V96.09Zm10.47,0h5.08V112.53H59.09V96.09Zm10.56,0h5.08V112.53H69.65V96.09Z"/>
+                        <rect x="50.12" y="41" width="22.64" height="26" rx="3"/>
+                        <rect x="10.35" y="48.71" width="17.29" height="5" rx="1.27"/>
+                        <rect x="95.24" y="48.71" width="17.29" height="5" rx="1.27"/>
+                        <rect x="10.35" y="63.27" width="17.29" height="5" rx="1.27"/>
+                        <rect x="95.24" y="63.27" width="17.29" height="5" rx="1.27"/>
+                        <rect x="10.35" y="77.83" width="17.29" height="5" rx="1.27"/>
+                        <rect x="95.24" y="77.83" width="17.29" height="5" rx="1.27"/>
+                      </svg>
+                    ) : null}
+                  </span>
                 )}
-                {/* Change 191: Top-Menü — Admin ist nur für Admins sichtbar. */}
-                {/* Desktop order-3, Mobile order-98 (zweite Zeile) */}
-                <nav className="flex flex-wrap items-center gap-1 order-98 sm:order-3" aria-label="Hauptmenü">
-                  {([
-                    ["main", t("transcribe")],
-                    ["benchmark", t("benchmark")],
-                    ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
-                  ] as const).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setView(key as typeof view)}
-                      aria-current={view === key ? "page" : undefined}
-                      className={`text-[12px] px-2 py-1 rounded-sm transition-colors ${
-                        view === key
-                          ? "bg-accent/20 text-accent"
-                          : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
-                      }`}
+
+                {/* ml-auto: Rechte Gruppe */}
+                <div className="flex items-center gap-2 ml-auto">
+                  {user && user.oidc_enabled && !user.authenticated && (
+                    <a
+                      href="/auth/login"
+                      className="btn-ghost-sm text-[12px] inline-flex items-center"
+                      title={t("login")}
+                      aria-label={t("login")}
                     >
-                      {label}
-                    </button>
-                  ))}
-                </nav>
-
-                {/* Change 192: Sprachwahl als Flaggen-Dropdown — Desktop order-4, Mobile order-99 */}
-                <div className="order-99 sm:order-4">
-                  <LangMenu />
+                      <LogIn size={14} />
+                    </a>
+                  )}
+                  {user?.authenticated && (
+                    <div className="flex items-center gap-2">
+                      {/* Credits: nur auf Desktop sichtbar */}
+                      {credits != null && (
+                        <span
+                          className="hidden sm:inline-flex items-center text-[12px] font-semibold text-[#eab308] gap-1 cursor-pointer"
+                          title={t("credits_balance")}
+                          onClick={() => setView("settings")}
+                        >
+                          💰 {formatCents(credits.credits_cents)}
+                        </span>
+                      )}
+                      <span className="text-[12px] text-muted">{user.name}</span>
+                      <LangMenu />
+                      <button
+                        className="btn-ghost-sm inline-flex items-center"
+                        title={t("settings")}
+                        aria-label={t("settings")}
+                        onClick={() => setView(view === "settings" ? "main" : "settings")}
+                      >
+                        <Settings size={14} />
+                      </button>
+                      <a
+                        href="/auth/logout"
+                        className="btn-ghost-sm text-[12px] inline-flex items-center"
+                        title={t("logout")}
+                        aria-label={t("logout")}
+                      >
+                        <LogOut size={14} />
+                      </a>
+                    </div>
+                  )}
+                  {user?.anonymous && user.name && (
+                    <span
+                      className="text-[12px] text-muted truncate max-w-[70px] sm:max-w-[160px]"
+                      title={t("anon_link_hint")}
+                    >
+                      🎭 {user.name}
+                    </span>
+                  )}
                 </div>
-
-                {/* Rechte Gruppe: Login/Logout, Username, Credits, Settings — ML-AUTO schiebt nach rechts */}
-                {/* Desktop order-5, Mobile order-5 (bleibt in erster Zeile) */}
-                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto order-5 sm:order-5">
-                  {/* Change 191: ein Symbol für An-/Abmelden, je nach Kontext. */}
-            {user && user.oidc_enabled && !user.authenticated && (
-              <a
-                href="/auth/login"
-                className="btn-ghost-sm text-[12px] inline-flex items-center"
-                title={t("login")}
-                aria-label={t("login")}
-              >
-                <LogIn size={14} />
-              </a>
-            )}
-            {user?.authenticated && (
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] text-muted">{user.name}</span>
-                {credits != null && (
-                  <button
-                    className="btn-ghost-sm text-[12px]"
-                    title={t("credits_balance")}
-                    onClick={() => setView(view === "settings" ? "main" : "settings")}
-                  >
-                    💰 {formatCents(credits.credits_cents)}
-                  </button>
-                )}
-                <button
-                  className="btn-ghost-sm inline-flex items-center"
-                  title={t("settings")}
-                  aria-label={t("settings")}
-                  onClick={() => setView(view === "settings" ? "main" : "settings")}
-                >
-                  <Settings size={14} />
-                </button>
-                <a
-                  href="/auth/logout"
-                  className="btn-ghost-sm text-[12px] inline-flex items-center"
-                  title={t("logout")}
-                  aria-label={t("logout")}
-                >
-                  <LogOut size={14} />
-                </a>
               </div>
-            )}
-            {user?.anonymous && user.name && (
-              <span
-                className="text-[12px] text-muted truncate max-w-[70px] sm:max-w-[160px]"
-                title={t("anon_link_hint")}
-              >
-                🎭 {user.name}
-              </span>
-            )}
-          </div>
-        </div>
-      </header>
 
-      {/* Stats unter der Kopfzeile */}
-      <StatsBar stats={stats} />
+              {/* Row 2: Navigation — Transcribe · Benchmark · Admin */}
+              <nav className="flex items-center gap-1 mt-1" aria-label="Hauptmenü">
+                {([
+                  ["main", t("transcribe")],
+                  ["benchmark", t("benchmark")],
+                  ...(user?.is_admin ? [["admin", t("admin")] as const] : []),
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setView(key as typeof view)}
+                    aria-current={view === key ? "page" : undefined}
+                    className={`text-[11px] px-2 py-[3px] rounded-sm transition-colors ${
+                      view === key
+                        ? "bg-accent/20 text-accent"
+                        : "text-muted hover:text-txt hover:bg-[rgba(255,255,255,.05)]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+
+              {/* Row 3: Stats — kleiner */}
+              <div className="mt-[2px]">
+                <StatsBar stats={stats} />
+              </div>
+            </header>
 
       {/* PWA-Install-Banner (nur wenn installierbar + nicht abgelehnt) */}
       <InstallBanner />
