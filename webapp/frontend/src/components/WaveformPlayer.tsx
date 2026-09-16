@@ -690,6 +690,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // da sind (ohne durationHint kann WaveSurfer die Timeline nicht
       // skalieren — dann lieber selbst dekodieren).
       const hasPeaks = !!(peaks && peaks.length > 0 && durationHint && durationHint > 0);
+      // Change 198: EINE Entscheidung für beide Stellen (Fetch-Pfad UND
+      // Fortschritts-Anzeige) — sonst läuft die Anzeige der Ladelogik
+      // hinterher. Worker nur im WebAudio-Modus (s. Begründung unten).
+      const useWorker = backend === "WebAudio" && typeof Worker !== "undefined" && !!audioUrl;
       const doLoad = (url: string) => {
         ws.load(
           url,
@@ -706,7 +710,17 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // Fetch, kein doppelter Decode (WS dekodiert das Blob wie gehabt
         // im Browser-Audio-Thread). Worker nicht verfügbar / Fehler →
         // direkter WS-Fetch (bisheriges Verhalten).
-        if (typeof Worker !== "undefined" && audioUrl) {
+        // Change 198: NUR im WebAudio-Modus. Im MediaElement-Modus (lange
+        // Aufnahmen, s. resolveBackend) hat der Worker den Zweck verfehlt:
+        // er lud die KOMPLETTE Datei (bei 98 min: 47 MB) herunter, um sie
+        // dann als blob:-URL zu übergeben — ein Blob kennt keine
+        // Range-Requests, damit war das Streaming-Backend wirkungslos und
+        // ein abgebrochener Download wurde (mangels Längenprüfung) still zu
+        // einem kürzeren Audio dekodiert → korrupte Welle ohne Fehlermeldung.
+        // MediaElement streamt die URL jetzt direkt: Range-Requests,
+        // Pufferung und Wiederholung macht der Browser selbst; die Welle
+        // kommt weiterhin sofort aus den Server-Peaks.
+        if (useWorker) {
           workerFetch(audioUrl, (pct) => {
             if (!cancelled) setLoadPct(pct);
           })
@@ -792,7 +806,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Hintergrund des "Loading…"-Textes als temporären Progress-Bar.
       // Change 096: im Worker-Fetch-Pfad liefert der Worker den Fortschritt
       // (der WS-"loading"-Event des Blobs wäre nur ein instanter 0→100).
-      if (typeof Worker === "undefined" || !audioUrl) {
+      // Change 198: ohne Worker (MediaElement streamt direkt) liefert WS den
+      // echten Fortschritt — Bedingung an `useWorker` gekoppelt, damit die
+      // Anzeige nicht hinter der Ladelogik zurückbleibt.
+      if (!useWorker) {
         ws.on("loading", (pct: number) => {
           if (cancelled) return;
           setLoadPct(pct);

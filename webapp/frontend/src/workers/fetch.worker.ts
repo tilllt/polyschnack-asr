@@ -74,6 +74,11 @@ self.onmessage = async (e: MessageEvent<{ url: string }>) => {
     const resp = await fetch(e.data.url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const total = Number(resp.headers.get("content-length") || 0);
+    // Change 198: Nur prüfen, wenn der Body nicht transformiert wurde. Bei
+    // gzip/deflate nennt content-length die KOMPRIMIERTE Größe — der
+    // dekodierte Stream ist größer und gälte sonst fälschlich als unvollständig.
+    const enc = (resp.headers.get("content-encoding") || "identity").toLowerCase();
+    const unveraendert = enc === "" || enc === "identity";
     const body = resp.body;
     let raw: ArrayBuffer;
     if (!body) {
@@ -90,6 +95,16 @@ self.onmessage = async (e: MessageEvent<{ url: string }>) => {
         if (total > 0) {
           self.postMessage({ type: "progress", pct: Math.min(100, (received / total) * 100) });
         }
+      }
+      // Change 198 — Invariante: ein vorzeitig beendeter Stream darf NIE als
+      // vollständige Datei weitergehen. decodeAudioData dekodiert eine
+      // abgeschnittene Datei lautlos zu einem KÜRZEREN Audio (gemessen:
+      // 3 MB von 47 MB → 1021 s statt 5868 s, ohne Fehler) — WaveSurfer
+      // zeichnete dann eine korrupte Welle ohne jede Meldung.
+      if (unveraendert && total > 0 && received !== total) {
+        throw new Error(
+          `Download unvollstaendig: ${received} von ${total} Bytes (Verbindung abgebrochen)`,
+        );
       }
       const merged = new Uint8Array(received);
       let off = 0;
@@ -110,3 +125,9 @@ self.onmessage = async (e: MessageEvent<{ url: string }>) => {
     self.postMessage({ type: "error", reason: String(err) });
   }
 };
+
+// Change 198: expliziter Modul-Marker — der Worker wird mit
+// `{ type: "module" }` instanziiert (s. workerFetch) und ist damit auch für
+// TypeScript ein Modul; ohne den Marker lässt er sich im Test nicht
+// importieren ("is not a module").
+export {};
