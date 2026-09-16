@@ -12,10 +12,20 @@ Beispiel: `https://whisper.cia-spandau.de/r/b68d6e39b5d548798600392c7ced39a2`
 
 | | |
 |---|---|
-| Aufnahmelänge | **97,8 min** (MP3 64 kbps) |
+| Aufnahmelänge | **262,0 min = 4 h 22 min** (`duration_s = 15718`) |
 | Preview `/audio/preview` | **46,9 MB** (`content-length: 46949384`, `accept-ranges: bytes`) |
-| Original `/audio` | **503,0 MB** (WAV) |
+| Original `/audio` | **503,0 MB** (WAV, 16 kHz mono 16-bit) |
 | Backend laut `resolveBackend()` | **MediaElement** (> 30 min) |
+
+> **Korrektur zur ersten Fassung:** Dort stand „97,8 min (MP3 64 kbps)". Das war
+> aus der Dateigröße bei angenommener 64-kbps-Bitrate hochgerechnet und falsch.
+> Die echte Länge belegen zwei unabhängige Quellen: die App-Metadaten
+> (`262m 6s`) und die WAV-Größe (502.963.544 B ÷ 32.000 B/s = 15.717 s).
+> Der gemessene `decodeAudioData`-Wert im Browser bestätigt sie
+> (`duration_s: 15718`). Die Preview ist damit ~24 kbps, nicht 64.
+> Für die Timeout-Rechnung ändert das nichts — die hängt nur an der Dateigröße.
+> Der Commit-Titel von `c64b839` nennt noch „98 min"; die Historie wird dafür
+> nicht umgeschrieben.
 
 ## Ursachenkette (jede Stufe belegt)
 
@@ -75,13 +85,13 @@ Empirisch belegt — derselbe Decoder, der in Produktion läuft
 
 - Server liefert 3.000.000 Bytes von 46.949.384 (Range erfüllt)
 - `decodeAudioData` → **`decode_fehler: null`**
-- Ergebnis: **1021 s (17,0 min)** statt 5868 s (97,8 min)
+- Ergebnis: **1021 s (17,0 min)** statt 15.718 s (262 min)
 
 Gegenprobe mit dem Referenzdecoder (ffmpeg) auf derselben Scheibe:
 `ffprobe duration=1021.0`, Exit-Code 0, vollständiger Decode ohne Warnung.
 
 **Ein abgeschnittener Download wird also zu einem kürzeren Audio ohne jeden
-Fehler.** WaveSurfer zeichnet eine Welle für 17 min bei einer 98-min-Aufnahme.
+Fehler.** WaveSurfer zeichnet eine Welle für 17 min bei einer 262-min-Aufnahme.
 
 Das erklärt auch „nach einer Weile": die Korruption entsteht erst, wenn der
 Download weit gelaufen und dann abgerissen ist.
