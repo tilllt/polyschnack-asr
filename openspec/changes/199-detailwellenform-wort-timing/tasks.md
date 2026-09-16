@@ -66,27 +66,46 @@
 
 - [x] `npm run build` exit 0 (`tsc && vite build`)
 - [x] Volle Testsuite grün: Backend 1200, Frontend 449
-- [x] Commit + Push (`fecc067`, `3994da0`) — laufende Pipelines vorher
+- [x] Commit + Push (`fecc067`, `3994da0`, `3b14190`) — laufende Pipelines vorher
       abgebrochen (`/opt/data/scripts/ci_cancel_running.sh`)
-- [ ] CI abwarten (Pipeline #5293)
-- [ ] Deployen (`/opt/data/scripts/ps_199_deploy.sh`), Bundle-Hash gegen den
-      lokalen Build prüfen, Migrationsspalten kontrollieren
-- [ ] **Live-Messung an `b68d6e39…`** (`/opt/data/scripts/ps_199_live_messung.sh`):
-      - Sidecar-Größen (hi/res) auf der Platte
-      - Übertragung pro Detailfenster (Ziel ~1–2 KB statt 6 MB)
-      - Balken pro 1000 px im Wort-Zoom (Ziel ≥ 300 statt 6)
-      - **kein ffmpeg-Lauf im Serverlog bei einem Zoom-Wechsel**
-      - Enhance-Blende im Browser: Übergang, Dauer, und dass sie bei
-        `prefers-reduced-motion` ausbleibt
-- [ ] Nachlauf über den Bestand beobachten (93 Aufnahmen, ~10 min) und den
-      ersten echten Sidecar gegen die Dauer prüfen
+- [x] CI grün (Pipeline #5293: mirror-ghcr, build-webapp, test-webapp, grep-gate)
+- [x] Deployt auf Revision `3994da02`. Verifiziert: Health 200 von außen,
+      ausgeliefertes Bundle `index-Cp8hfSDH.js` == lokaler Build (Hash-Gleichheit),
+      alle vier Spalten migriert
+- [x] **Live-Messung** (`/opt/data/scripts/ps_199_*`): Nachlauf über den Bestand
+      gelaufen, 93/93 Aufnahmen mit Sidecar, 0 Fehlmarker, 0 unfertige
+      `.part`-Dateien
+- [x] Erster echtes Sidecar an der Referenzaufnahme: **hi 15.717.607 B**,
+      res 2.097.152 B (exakt Budget)
+- [ ] **Browser-Abnahme durch den Nutzer** (nicht messbar von außen):
+      Deckungsgleiche Lage der Detail-Ebene über der WS-Welle, Blendeneffekt,
+      und dass er bei `prefers-reduced-motion` ausbleibt
+- [ ] Offen (nicht blockierend): echter HTTP-206 durch den Proxy. Mit `OIDC=1`
+      braucht das eine angemeldete Sitzung; die Range-Logik ist
+      applikationsseitig mit 206 und exakter Bytezahl getestet und das
+      `FileResponse`-Range-Verhalten isoliert geprüft
 
 ## Messungen
 
-- **Korpus (16.09.):** 93 Aufnahmen, 27,9 h Audio. Sidecars zusammen 0,15 GB
-  (hi 0,10 + res 0,05) = **3,3 % der 4,52 GB Audiodaten**. Nachlauf 10 min für
-  den gesamten Bestand bei 21 s je Stunde Audio. 1,9 TB frei — das im Proposal
-  als Risiko notierte Speicherwachstum ist damit quantifiziert und unkritisch.
+- **Korpus vor der Umsetzung (16.09.):** 93 Aufnahmen, 27,9 h Audio. Prognose:
+  Sidecars zusammen 0,15 GB = 3,3 % der 4,52 GB Audiodaten, Nachlauf 10 min.
+- **Korpus nach dem Nachlauf (16.09., gemessen):** 93/93 Aufnahmen mit Sidecar,
+  0 Fehlmarker, 0 unfertige `.part`-Dateien. **Echt auf der Platte: 106 Dateien,
+  121,7 MB** — 93 hi-Dateien (95,7 MB) und nur 13 res-Dateien (26,0 MB), weil
+  bei 80 Aufnahmen beide Ebenen auf dieselbe Datei zeigen. Die Prognose von
+  0,15 GB kam aus der Summe beider Spalten und zählt diese 80 Dateien doppelt;
+  real sind es 0,12 GB.
+  Aufschlussreicher Vergleich: die 154 Preview-MP3s belegen **521,5 MB** — die
+  Sidecars kosten also 23 % dessen, was die Vorschau-Audios ohnehin brauchen.
+- Längenzusage bestätigt (Stichproben auf das Byte): 12,9 s → 12.931 B;
+  24,2 s → 24.240 B; 2.169,6 s → 2.169.600 B mit res exakt 2.097.152 B.
+- **Abweichung `duration_s` gegen die echte dekodierte Länge:** nur 31 von 93
+  Aufnahmen stimmen exakt, die übrigen bis zu **1,83 %** (Median 0,019 %). Die
+  Sidecar-Länge folgt der dekodierten Länge und ist korrekt — der gespeicherte
+  `duration_s` (aus der Sonde) überschätzt sie, bei der 262-min-Zusammenführung
+  um 8,07 s. **Für die Wellenform folgenlos**, weil die Achse im Player aus
+  `ws.getDuration()` kommt (dekodierte Länge), nicht aus der API. Wäre sie aus
+  der API, ergäbe sich eine Verschiebung von bis zu 1,8 % am Dateiende.
 - Browser-Breitengrenze: 2^25 = 33.554.428 px (gemessen)
 - Voll-Decode Ausgangszustand: 3,23 s für 262 min (bei jeder Anfrage)
 
