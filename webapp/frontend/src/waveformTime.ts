@@ -19,6 +19,105 @@ export const MAX_TIMING_PPS = 48000;
  *  MIN_WORD_DURATION_S = 0.02 — identisch halten). */
 export const MIN_WORD_DURATION_S = 0.02;
 
+/** Change 199: Speicherbudget des residenten Envelopes, in Bytes (= Bins,
+ *  uint8). Muss zum Backend passen (`peaks.RESIDENT_BIN_BUDGET`). */
+export const RESIDENT_BIN_BUDGET = 2_097_152;
+
+/** Change 199: Auflösung des Detail-Envelopes in Bins/s (Backend `HI_BPS`). */
+export const HI_BPS = 1000;
+
+/** Change 199: gemessene Browser-Breitengrenze für Elementbreiten (2^25 px).
+ *  WaveSurfer setzt die Gesamtbreite auf `Dauer × px/s`; darüber kappt der
+ *  Browser stillschweigend. Der erreichbare Zoom ist damit `2^25 / Dauer`. */
+export const MAX_ELEMENT_PX = 33_554_428;
+
+/** Change 199: Auflösung des residenten Envelopes (Bins/s).
+ *  `min(HI_BPS, BUDGET / Dauer)` — bei langen Aufnahmen sinkt die Auflösung,
+ *  die geladene Datenmenge bleibt aber konstant bei ≤ BUDGET Bytes. */
+export function residentBinsPerSecond(duration: number): number {
+  if (!(duration > 0)) return HI_BPS;
+  return Math.min(HI_BPS, RESIDENT_BIN_BUDGET / duration);
+}
+
+/** Change 199: Bin-Anzahl des residenten Envelopes (Backend-Formel). */
+export function residentBinCount(duration: number): number {
+  return Math.max(1, Math.round(residentBinsPerSecond(duration) * duration));
+}
+
+/** Change 199: Bin-Anzahl des Detail-Envelopes (1000 Bins/s). */
+export function hiBinCount(duration: number): number {
+  return Math.max(1, Math.round(Math.max(duration, 0) * HI_BPS));
+}
+
+/** Change 199: effektiv erreichbarer Maximalzoom in px/s.
+ *
+ *  `MAX_TIMING_PPS` (48000) gilt nur bis `2^25 / Dauer` — ab ~11,7 min
+ *  deckelt die Browser-Breitengrenze, bei 262 min sind es noch 2135 px/s.
+ *  Die Grenze gehört zur Zoom-Mechanik, nicht zur Datenquelle: die
+ *  Detailwellenform liefert die Auflösung, nur die Breite fehlt.
+ */
+export function effectiveMaxPps(duration: number): number {
+  if (!(duration > 0)) return MAX_TIMING_PPS;
+  return Math.min(MAX_TIMING_PPS, MAX_ELEMENT_PX / duration);
+}
+
+/** Change 199: lässt die Breitengrenze das 30-%-Zielfenster eines Wortes von
+ *  *wordDuration* Sekunden noch zu?
+ *
+ *  Ersetzt die Zusicherung aus Change 197 („ein Wort erreicht immer sein
+ *  30-%-Fenster"), die auf langen Dateien nicht haltbar ist: ein 0,1-s-Wort
+ *  sind bei 2135 px/s nur 213 px statt 300. Statt einer Zusicherung, die der
+ *  Browser nicht einhalten kann, wird die Grenze hier abfragbar. */
+export function timingTargetReachable(
+  containerW: number,
+  duration: number,
+  wordDuration: number = MIN_WORD_DURATION_S,
+): boolean {
+  const needed = (0.3 * Math.max(containerW, 1)) / Math.max(wordDuration, 1e-3);
+  return needed <= effectiveMaxPps(duration);
+}
+
+/** Change 199: Bin-Bereich eines Zeitfensters im Detail-Sidecar.
+ *
+ *  Grundlage für die Frage „deckt das Geladene das Sichtbare noch ab?".
+ *  Wichtig: hier gehört KEIN Puffer hinein. Ein Puffer klebt am Fenster und
+ *  wandert beim Scrollen mit — geprüft wird die nackte Sicht, gepuffert wird
+ *  nur die Anfrage (`detailByteRange`). */
+export function windowBinRange(
+  win: { start: number; end: number },
+  duration: number,
+): { start: number; end: number } {
+  const last = hiBinCount(duration) - 1;
+  const start = Math.max(
+    0,
+    Math.min(last, Math.floor(Math.max(0, win.start) * HI_BPS)),
+  );
+  const end = Math.max(
+    start,
+    Math.min(last, Math.ceil(Math.max(0, win.end) * HI_BPS) - 1),
+  );
+  return { start, end };
+}
+
+/** Change 199: Bin-Bereich, der für ein sichtbares Zeitfenster angefordert
+ *  wird — mit *pad* Überschuss auf beiden Seiten.
+ *
+ *  Der Überschuss bestimmt, wie weit gescrollt werden kann, ohne dass eine
+ *  neue Anfrage fällig wird: bei `pad = 0.5` und einem 1-s-Fenster sind das
+ *  0,5 s in jede Richtung. Bei 1000 Bins/s ist die Zahl der übertragenen
+ *  Bytes genau `end - start + 1` — ein 1-s-Fenster ≈ 2 KB statt der 6 MB des
+ *  JSON-Wegs. */
+export function detailByteRange(
+  win: { start: number; end: number },
+  duration: number,
+  pad = 0.5,
+): { start: number; end: number } {
+  const span = Math.max(1e-6, win.end - win.start);
+  const from = Math.max(0, win.start - span * pad);
+  const to = Math.min(Math.max(duration, 0), win.end + span * pad);
+  return windowBinRange({ start: from, end: to }, duration);
+}
+
 /** px/s für „ganze Aufnahme sichtbar" (fit), nie kleiner als MIN_PPS. */
 export function fitPps(containerW: number, duration: number): number {
   return Math.max(MIN_PPS, containerW / Math.max(duration, 1));

@@ -128,6 +128,18 @@ class Recording(SQLModel, table=True):
     preview_path: Optional[str] = Field(default=None)
     preview_size_bytes: Optional[int] = Field(default=None)
 
+    # --- Change 199: Sidecar-Envelopes für die Detailwellenform ---
+    # Zwei binäre uint8-Envelopes neben dem Original, geschrieben aus dem
+    # Peaks-Dekodierlauf (kein zusätzlicher ffmpeg-Aufwand):
+    #   peaks_hi_path   1000 Bins/s — Detailfenster im Wort-Zoom (per Range)
+    #   peaks_res_path  residentes Level unter dem Speicherbudget → ganz laden
+    # Bei kurzen Dateien, wo das Budget nicht greift, zeigen beide auf
+    # dieselbe Datei (write_peaks_sidecars entscheidet das).
+    peaks_hi_path: Optional[str] = Field(default=None)
+    peaks_hi_size_bytes: Optional[int] = Field(default=None)
+    peaks_res_path: Optional[str] = Field(default=None)
+    peaks_res_size_bytes: Optional[int] = Field(default=None)
+
     # --- notification URLs ---
     notification_urls: Optional[str] = Field(default=None)
 

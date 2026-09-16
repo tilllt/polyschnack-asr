@@ -5,15 +5,18 @@ import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import type { UpdateSide } from "wavesurfer.js/dist/plugins/regions.js";
 import { useT } from "../useLocale";
-import { fetchPeaks } from "../api";
+import { fetchPeaks, fetchPeaksBinary, envelopeToPeaks } from "../api";
+import { DetailWaveformLayer } from "./DetailWaveformLayer";
 import {
   clampMoveWordTiming,
   clampWordTiming,
+  effectiveMaxPps,
   fitPps,
   MIN_PPS,
   MIN_WORD_DURATION_S,
   timeFromClick,
   timingPps,
+  visibleWindow,
 } from "../waveformTime";
 
 export interface WaveSurferHandle {
@@ -322,6 +325,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // füllt den Background des "Loading…"-Textes als temporären Progress-Bar.
     const [loadPct, setLoadPct] = useState(0);
 
+    // Change 199: sichtbares Zeitfenster der gezoomten View — die Detail-Ebene
+    // zeichnet nur im Timing-Modus UND pausiert, braucht aber immer die
+    // aktuelle Scroll-Position, um das richtige Sidecar-Fenster zu laden.
+    const [viewWin, setViewWin] = useState({ start: 0, end: 0 });
+    // Change 199: Zustand des Sidecars. „fehlt" ist sichtbar zu melden —
+    // eine stumm bleibende dünnere Wellenform wäre von „hier ist nichts"
+    // nicht zu unterscheiden (Altaufnahme, deren Nachlauf noch aussteht).
+    const [sidecarStatus, setSidecarStatus] = useState<"idle" | "ok" | "fehlt">("idle");
+
     // Change 155 (Timing-Zoom): progressive Peaks — Cache je Länge
     // (pro Player-Instanz; die Peaks ändern sich nie).
     const peaksCacheRef = useRef(new Map<number, Promise<number[] | null>>());
@@ -480,6 +492,56 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       }
     }, [updateMarkers, recordingId]);
 
+    // Change 199: residentes Envelope aus dem Sidecar. Es trägt die Timeline
+    // (ersetzt die 2000-Punkte-Basis) und liefert — anders als der feste
+    // 300.000er-Deckel, der mit der Aufnahmelänge verfällt — auf jeder Länge
+    // dieselbe Balkenzahl im Maximalzoom, weil das Budget mit der Dauer
+    // skaliert. Fehlt das Sidecar (Bestandsaufnahme vor dem Nachlauf),
+    // bleiben die JSON-Peaks stehen; der Zustand wird gemeldet statt
+    // verschwiegen.
+    useEffect(() => {
+      if (!ready || !recordingId) return;
+      let cancelled = false;
+      fetchPeaksBinary(recordingId, "res")
+        .then((bytes) => {
+          if (cancelled || !wsReadyRef.current || bytes.length === 0) return;
+          const cur = wsRef.current as unknown as {
+            setPeaks?: (p: Array<Float32Array | number[]>) => void;
+          };
+          if (!cur?.setPeaks) return;
+          cur.setPeaks([envelopeToPeaks(bytes)]);
+          setSidecarStatus("ok");
+        })
+        .catch(() => {
+          if (!cancelled) setSidecarStatus("fehlt");
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [ready, recordingId]);
+
+    // Change 199: Scroll-Position für die Detail-Ebene verfolgen. Der Scroller
+    // ist das Elternelement des WS-Wrappers — dort feuert 'scroll' bei
+    // Mausrad, Trackpad und Programm-Scroll (Timing-Sprung zentriert das
+    // Wort per setScroll).
+    useEffect(() => {
+      if (!ready || !timingZoom) return;
+      const w = wsRef.current;
+      if (!w) return;
+      const wrap = (w as unknown as { getWrapper?: () => HTMLElement }).getWrapper?.();
+      const scroller = wrap?.parentElement ?? null;
+      if (!scroller) return;
+      const onScroll = () => {
+        const cw = containerRef.current?.clientWidth ?? 800;
+        setViewWin(
+          visibleWindow(cw, w.getScroll?.() ?? 0, ppsRef.current, w.getDuration?.() ?? 0),
+        );
+      };
+      onScroll();
+      scroller.addEventListener("scroll", onScroll, { passive: true });
+      return () => scroller.removeEventListener("scroll", onScroll);
+    }, [ready, timingZoom]);
+
     // Change 137: 30 %-Zoom beim WECHSEL des Timing-Wortes (nicht bei jeder
     // Timing-Änderung während eines Drags — das würde den Zoom springen
     // lassen). Ohne Wort → zurück zu „fit“.
@@ -493,7 +555,15 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       const w = wsRef.current;
       if (tw) {
         const width = containerRef.current?.clientWidth ?? 800;
-        const pps = timingPps(width, Math.max(tw.end - tw.start, 1e-3));
+        // Change 199: die echte Obergrenze ist die Browser-Breite
+        // (2^25 / Dauer), nicht MAX_TIMING_PPS — auf langen Dateien würde
+        // sonst ein Zoom angefordert, den der Browser still kappt.
+        const pps = timingPps(
+          width,
+          Math.max(tw.end - tw.start, 1e-3),
+          MIN_PPS,
+          effectiveMaxPps(w.getDuration?.() ?? duration),
+        );
         ppsRef.current = pps;
         // Change 142: Im Timing-Zoom sind die Balken (barWidth 2/gap 1) zu
         // gestreckten Strichen mit Lücken entartet — man erkennt das Wort
@@ -551,6 +621,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           const targetScroll = Math.max(0, pps * wordMid - cw / 2);
           if (wDur > 0 && targetScroll >= 0) {
             (w as any).setScroll?.(targetScroll);
+            // Change 199: Fenster sofort setzen — der Scroll-Listener feuert
+            // bei programmatischem setScroll nicht in jedem Browser.
+            setViewWin(visibleWindow(cw, targetScroll, pps, wDur));
           }
         } catch {
           /* WS7 noch ohne geladenes Audio — Seek überspringen */
@@ -1147,7 +1220,23 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             spielt nicht“). visibility:hidden behält das Layout — WS7
             erstellt das Canvas mit echter Breite, sichtbar wird es bei
             ready. */}
-        <div ref={containerRef} className="w-full" style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD, visibility: ready && !error ? "visible" : "hidden" }} />
+        {/* Change 199: die Detail-Ebene liegt ÜBER der WS-Welle. Beide sind
+            vertikal zentriert, deshalb deckt sich die Nulllinie. */}
+        <div className="relative w-full">
+          <div ref={containerRef} className="w-full" style={{ paddingTop: WAVE_PAD, paddingBottom: WAVE_PAD, visibility: ready && !error ? "visible" : "hidden" }} />
+          {ready && !error && (
+            <DetailWaveformLayer
+              recordingId={recordingId}
+              duration={duration}
+              win={viewWin}
+              playing={playing}
+              timingZoom={timingZoom}
+              width={containerRef.current?.clientWidth ?? 0}
+              height={height + WAVE_PAD * 2}
+              onUnavailable={() => setSidecarStatus("fehlt")}
+            />
+          )}
+        </div>
         {/* Timeline ruler (Change 056: relative → 💬-Marker als Overlay) */}
         <div ref={timelineRef} className={`w-full relative ${ready && !error ? "mt-0" : "hidden"}`} />
         {ready && !error && (
@@ -1176,6 +1265,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             <span className="text-[12px] text-muted2 tabular-nums">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
+            {/* Change 199: fehlende Detail-Peaks sichtbar machen. Die
+                Wellenform bleibt dann in Basisauflösung — ohne Hinweis wäre
+                das von „diese Aufnahme hat eben keine Details" nicht zu
+                unterscheiden. */}
+            {sidecarStatus === "fehlt" && (
+              <span
+                className="text-[11px] text-muted2"
+                title="Für diese Aufnahme liegen noch keine Detail-Peaks vor — die Wellenform bleibt in Basisauflösung. Der Hintergrund-Nachlauf erzeugt sie."
+              >
+                ⓘ Basisauflösung
+              </span>
+            )}
             {/* Change 2026-08-17: Playback-Speed x0.5/x1/x1.5/x2 — die
                 Karaoke-Markierung hängt an der Audio-Position und folgt
                 damit automatisch korrekt jeder Geschwindigkeit.

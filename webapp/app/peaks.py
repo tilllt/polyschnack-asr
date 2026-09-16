@@ -38,6 +38,20 @@ _DECODE_TIMEOUT_S = 900  # 150-min-Audio dekodieren dauert > 60 s; seit 2026-08-
 # ist der Worker-Decode entfernt — nur noch der Hintergrund-Thread decodiert,
 # deshalb grosszuegiger Puffer statt Race um die CPU.
 
+# --- Change 199: Detailwellenform fürs Wort-Timing -------------------------
+# Das 2000er-JSON hat eine feste Länge und verliert damit mit der Aufnahme-
+# länge an Auflösung (gemessen: 262 min → 19,1 Bins/s → 6 Balken über 1000 px
+# im Wort-Zoom, also nur senkrechte Striche). Statt die Auflösung bei jeder
+# Anfrage neu zu erzeugen (voller ffmpeg-Dekodierlauf, 3,2 s für 262 min),
+# schreibt der Import-Job zwei binäre Sidecars aus DEM Dekodierlauf, der
+# ohnehin läuft:
+#   *_peaks_hi.bin   Detail-Envelope, 1000 Bins/s (ein Bin pro Millisekunde)
+#   *_peaks_res.bin  residentes Envelope unter RESIDENT_BIN_BUDGET
+# uint8 reicht (256 Stufen), die Wellenform wird 128 px hoch gezeichnet.
+HI_BPS = 1000  # Detail-Envelope: ein Bin pro Millisekunde
+RESIDENT_BIN_BUDGET = 2_097_152  # 2 MiB uint8 fürs residente Level
+
+
 
 def probe_sample_count(audio_bytes: bytes) -> Optional[int]:
     """Exakte Sample-Anzahl (16 kHz) via ffprobe — schnell, kein Voll-Decode.
@@ -235,6 +249,229 @@ def compute_peaks_path(path: Path, n_bins: int = PEAK_COUNT) -> List[float]:
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+# ---------------------------------------------------------------------------
+# Change 199: Sidecar-Envelopes (Detailwellenform fürs Wort-Timing)
+# ---------------------------------------------------------------------------
+
+
+def bins_per_second_resident(duration_s: float) -> float:
+    """Bins/s des residenten Envelopes unter dem Speicherbudget.
+
+    ``min(HI_BPS, BUDGET / Dauer)``: bei langen Aufnahmen sinkt die Auflösung,
+    die Nutzlast bleibt aber konstant bei höchstens BUDGET Bytes. Weil sich
+    die Dauer dabei herauskürzt, liefert das Budget auf *jeder* langen Datei
+    die gleiche Balkenzahl im Maximalzoom — anders als der heutige
+    300.000er-Deckel, der mit der Aufnahmelänge verfällt.
+    """
+    if duration_s <= 0:
+        return float(HI_BPS)
+    return min(float(HI_BPS), RESIDENT_BIN_BUDGET / float(duration_s))
+
+
+def resident_bin_count(duration_s: float) -> int:
+    """Bin-Anzahl des residenten Envelopes für *duration_s* Sekunden."""
+    return max(1, int(round(bins_per_second_resident(duration_s) * duration_s)))
+
+
+def hi_bin_count(duration_s: float) -> int:
+    """Bin-Anzahl des Detail-Envelopes (HI_BPS Bins pro Sekunde)."""
+    return max(1, int(round(float(duration_s) * HI_BPS)))
+
+
+def envelope_from_s16le(
+    chunks: Iterable[bytes], total_samples: int, n_bins: int
+) -> np.ndarray:
+    """uint8-Max-Envelope mit *n_bins* Bins — ein Streaming-Durchlauf.
+
+    Wie :func:`peaks_from_s16le`, aber direkt in uint8 (256 Stufen reichen,
+    die Wellenform wird 128 px hoch gezeichnet — halb so viel Speicher wie
+    float32). Die Quantisierung VOR dem Maximum ist verlustfrei, weil
+    ``floor`` monoton ist: ``max(floor(x)) == floor(max(x))``. ``>> 7`` bildet
+    32767 auf 255 ab; der Sonderwert 32768 (aus -32768) wird auf 255 gekappt.
+    """
+    n_bins = max(1, int(n_bins))
+    samples_per_bin = max(1, total_samples // n_bins)
+    env = np.zeros(n_bins, dtype=np.uint8)
+    idx = 0
+    for raw in chunks:
+        if not raw:
+            continue
+        arr = np.abs(np.frombuffer(raw, dtype="<i2").astype(np.int32))
+        n = arr.size
+        if n == 0:
+            continue
+        vals = np.minimum(arr >> 7, 255).astype(np.uint8)
+        bins = np.minimum((idx + np.arange(n)) // samples_per_bin, n_bins - 1)
+        changes = np.flatnonzero(np.diff(bins)) + 1
+        starts = np.concatenate(([0], changes))
+        segmax = np.maximum.reduceat(vals, starts)
+        np.maximum.at(env, bins[starts], segmax)
+        idx += n
+    return env
+
+
+def pool_envelope(env: np.ndarray, n_bins_out: int) -> np.ndarray:
+    """Max-Pooling eines uint8-Envelopes auf *n_bins_out* Bins.
+
+    Nur nach unten: nach oben gibt es kein Detail zurückzugewinnen, dort wird
+    das Envelope unverändert zurückgegeben.
+    """
+    n_in = int(env.size)
+    n_bins_out = max(1, int(n_bins_out))
+    if n_in == 0 or n_bins_out >= n_in:
+        return env
+    starts = (np.arange(n_bins_out) * n_in) // n_bins_out
+    return np.maximum.reduceat(env, starts)
+
+
+def envelope_to_floats(env: np.ndarray, n_bins: int = PEAK_COUNT) -> List[float]:
+    """uint8-Envelope in die JSON-Form bringen (Liste float in [0, 1])."""
+    if env is None or env.size == 0:
+        return []
+    return (pool_envelope(env, n_bins).astype(np.float32) / 255.0).tolist()
+
+
+def peaks_sidecar_paths(src: Path) -> tuple:
+    """Die beiden Sidecar-Pfade neben der Quelldatei."""
+    return (
+        src.with_name(src.stem + "_peaks_hi.bin"),
+        src.with_name(src.stem + "_peaks_res.bin"),
+    )
+
+
+def compute_envelope_path(path: Path, n_bins: int) -> Optional[np.ndarray]:
+    """uint8-Envelope mit *n_bins* Bins — genau ein ffmpeg-Dekodierlauf.
+
+    Pfad-basiert wie :func:`compute_peaks_path`: ffmpeg liest die Datei direkt
+    von der Platte, Python liest stdout in 1-MiB-Häppchen (konstanter Speicher,
+    kein stdin-Deadlock bei großen Dateien).
+    """
+    total_samples = probe_sample_count_path(path)
+    if not total_samples:
+        return None
+
+    deadline = time.monotonic() + _DECODE_TIMEOUT_S
+    try:
+        proc = sp.Popen(
+            [
+                "ffmpeg", "-nostdin", "-loglevel", "error",
+                "-i", str(path),
+                "-ac", "1", "-ar", str(TARGET_SR),
+                "-f", "s16le",
+                "pipe:1",
+            ],
+            stdout=sp.PIPE,
+        )
+    except Exception:
+        log.exception("peaks: ffmpeg start failed (envelope)")
+        return None
+
+    def _chunks():
+        assert proc.stdout is not None
+        while True:
+            if time.monotonic() > deadline:
+                log.warning("peaks: envelope decode timed out after %ds",
+                            _DECODE_TIMEOUT_S)
+                return
+            raw = proc.stdout.read(_CHUNK_BYTES)
+            if not raw:
+                return
+            yield raw
+
+    try:
+        env = envelope_from_s16le(_chunks(), total_samples, n_bins)
+        proc.wait(timeout=30)
+        if proc.returncode not in (0, None):
+            log.warning("peaks: ffmpeg exit=%d — Envelope evtl. unvollständig",
+                        proc.returncode)
+        return env
+    except Exception:
+        log.exception("peaks: envelope (path) threw")
+        return None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def _write_bytes_atomic(target: Path, data: bytes) -> None:
+    """Sidecar atomar schreiben: erst ``*.part``, dann umbenennen.
+
+    Ein abgebrochener Lauf darf keine halbe Datei hinterlassen — der nächste
+    Durchlauf würde sie sonst für gültig halten (Größenprüfung) und eine
+    abgeschnittene Wellenform ausliefern.
+    """
+    tmp = target.with_suffix(target.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(target)
+
+
+def _sidecar_plausible(target: Path, n_bins: int) -> bool:
+    """Existiert das Sidecar mit der erwarteten Länge?"""
+    try:
+        return target.exists() and target.stat().st_size == n_bins
+    except OSError:
+        return False
+
+
+def read_envelope(target: Path) -> Optional[np.ndarray]:
+    """Sidecar als uint8-Envelope lesen (``None``, wenn nicht lesbar)."""
+    try:
+        data = Path(target).read_bytes()
+    except OSError:
+        return None
+    if not data:
+        return None
+    return np.frombuffer(data, dtype=np.uint8)
+
+
+def write_peaks_sidecars(src: Path, force: bool = False) -> Optional[dict]:
+    """Beide Sidecars aus EINEM Dekodierlauf schreiben (idempotent).
+
+    Liefert ``{"hi_path", "hi_bins", "res_path", "res_bins", "duration_s",
+    "cached"}`` oder ``None``, wenn nicht dekodiert werden konnte.
+
+    Ist die residente Auflösung genauso fein wie die Detail-Auflösung (bei
+    kurzen Dateien, wo das Budget nicht greift), zeigen beide Einträge auf
+    dieselbe Datei — dann wird nur ein Sidecar geschrieben.
+    """
+    src = Path(src)
+    hi_path, res_path = peaks_sidecar_paths(src)
+    total_samples = probe_sample_count_path(src)
+    if not total_samples:
+        return None
+    duration_s = total_samples / float(TARGET_SR)
+    hi_bins = hi_bin_count(duration_s)
+    res_bins = resident_bin_count(duration_s)
+    shared = res_bins >= hi_bins
+
+    if not force and _sidecar_plausible(hi_path, hi_bins) and (
+        shared or _sidecar_plausible(res_path, res_bins)
+    ):
+        return {
+            "hi_path": str(hi_path), "hi_bins": hi_bins,
+            "res_path": str(hi_path if shared else res_path),
+            "res_bins": hi_bins if shared else res_bins,
+            "duration_s": duration_s, "cached": True,
+        }
+
+    env = compute_envelope_path(src, hi_bins)
+    if env is None:
+        return None
+
+    _write_bytes_atomic(hi_path, env.tobytes())
+    if shared:
+        res_out = hi_path
+    else:
+        _write_bytes_atomic(res_path, pool_envelope(env, res_bins).tobytes())
+        res_out = res_path
+
+    return {
+        "hi_path": str(hi_path), "hi_bins": hi_bins,
+        "res_path": str(res_out), "res_bins": res_bins,
+        "duration_s": duration_s, "cached": False,
+    }
 
 
 # Change 096: 24-kbps-Opus statt 64-kbps-MP3 — die Preview wird nur fürs

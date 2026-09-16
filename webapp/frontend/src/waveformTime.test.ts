@@ -2,16 +2,26 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  HI_BPS,
+  MAX_ELEMENT_PX,
   MAX_TIMING_PPS,
   MIN_WORD_DURATION_S,
   MIN_PPS,
+  RESIDENT_BIN_BUDGET,
   clampMoveWordTiming,
   clampWordTiming,
+  detailByteRange,
+  effectiveMaxPps,
   fitPps,
+  hiBinCount,
   markerPct,
+  residentBinCount,
+  residentBinsPerSecond,
   timeFromClick,
   timingPps,
+  timingTargetReachable,
   visibleWindow,
+  windowBinRange,
 } from "./waveformTime";
 
 describe("timeFromClick (Change 083)", () => {
@@ -79,13 +89,24 @@ describe("timingPps (Change 137)", () => {
     expect(timingPps(800, 0.0001)).toBe(MAX_TIMING_PPS);
   });
 
-  it("Invariante: auch die Mindest-Wortdauer erreicht das 30%-Zielfenster", () => {
-    // Sonst bleibt ein 20-ms-Wort bei 4 % der Breite stehen und ist im
-    // Timing-Tab nicht markierbar (MAX_TIMING_PPS zu niedrig).
+  it("Zielfenster ohne Breitengrenze: Mindest-Wortdauer erreicht 30 %", () => {
+    // Gilt für die reine Formel. Auf langen Dateien ist das NICHT erreichbar,
+    // weil die Browser-Breitengrenze den Zoom deckelt — siehe
+    // timingTargetReachable (Change 199).
     const W = 1000;
     const pps = timingPps(W, MIN_WORD_DURATION_S);
     expect(pps).toBeLessThan(MAX_TIMING_PPS);
     expect((MIN_WORD_DURATION_S * pps) / W).toBeCloseTo(0.3, 6);
+  });
+
+  it("Change 199: das 30-%-Fenster ist auf langen Dateien nicht haltbar", () => {
+    // Genau diese Zusicherung stand bis Change 197 im Code, ohne dass der
+    // Browser sie einhalten kann: bei 262 min sind nur 2135 px/s erreichbar
+    // (2^25 / 15718), ein 0,1-s-Wort bekommt damit 213 px statt 300.
+    const W = 1000;
+    expect(timingPps(W, 0.1)).toBeGreaterThan(0);         // Formel will 3000
+    expect(timingTargetReachable(W, 15718, 0.1)).toBe(false);
+    expect(timingTargetReachable(W, 15718, 1.0)).toBe(true);
   });
 
   it("nie kleiner als MIN_PPS (riesige Wörter)", () => {
@@ -170,5 +191,106 @@ describe("clampMoveWordTiming (Change 155)", () => {
 
   it("ohne Nachbarn: frei verschiebbar", () => {
     expect(clampMoveWordTiming(10, 11, 3, undefined, undefined)).toEqual({ start: 13, end: 14 });
+  });
+});
+
+// ── Change 199: residentes Budget, Breitengrenze, Detailfenster ──
+
+describe("residentes Envelope-Budget (Change 199)", () => {
+  it("kurze Dateien: das Budget greift nicht, Auflösung = Detailauflösung", () => {
+    expect(residentBinsPerSecond(600)).toBe(HI_BPS);
+    expect(residentBinCount(600)).toBe(hiBinCount(600));
+  });
+
+  it("lange Dateien: die Nutzlast ist konstant, nicht die Auflösung", () => {
+    for (const d of [3600, 15718, 36000]) {
+      expect(residentBinCount(d)).toBe(RESIDENT_BIN_BUDGET);
+      expect(residentBinsPerSecond(d)).toBeLessThan(HI_BPS);
+    }
+  });
+
+  it("Invariante: Balken im Maximalzoom sind von der Dauer unabhängig", () => {
+    // Weil sich die Dauer herauskürzt: BUDGET × Breite / 2^25.
+    const erwartet = (RESIDENT_BIN_BUDGET * 1000) / MAX_ELEMENT_PX;
+    for (const d of [3600, 15718]) {
+      const pps = effectiveMaxPps(d);
+      const fenster = 1000 / pps;                    // sichtbare Sekunden
+      const balken = fenster * residentBinsPerSecond(d);
+      expect(balken).toBeCloseTo(erwartet, 4);
+    }
+  });
+
+  it("Auflösung sinkt monoton mit der Länge", () => {
+    expect(residentBinsPerSecond(15718)).toBeLessThan(residentBinsPerSecond(3600));
+    expect(residentBinsPerSecond(3600)).toBeLessThan(HI_BPS);
+  });
+});
+
+describe("effectiveMaxPps (Change 199)", () => {
+  it("kurze Dateien: MAX_TIMING_PPS bleibt die Grenze", () => {
+    expect(effectiveMaxPps(600)).toBe(MAX_TIMING_PPS);
+    expect(effectiveMaxPps(699)).toBe(MAX_TIMING_PPS);
+  });
+
+  it("ab ~11,7 min deckelt die Browser-Breite", () => {
+    expect(effectiveMaxPps(720)).toBeCloseTo(MAX_ELEMENT_PX / 720, 6);
+    expect(effectiveMaxPps(720)).toBeLessThan(MAX_TIMING_PPS);
+  });
+
+  it("262 min: 2135 px/s statt 48000", () => {
+    expect(effectiveMaxPps(15718)).toBeCloseTo(2134.8, 1);
+  });
+
+  it("robust gegen 0/negative Dauer", () => {
+    expect(effectiveMaxPps(0)).toBe(MAX_TIMING_PPS);
+    expect(effectiveMaxPps(-5)).toBe(MAX_TIMING_PPS);
+  });
+});
+
+describe("Detailfenster im Sidecar (Change 199)", () => {
+  it("1-s-Fenster ± 50 % = 2 KB statt 6 MB", () => {
+    const r = detailByteRange({ start: 100, end: 101 }, 15718);
+    expect(r.start).toBe(99500);          // 100 s − 0,5 s
+    expect(r.end).toBe(101499);           // 101 s + 0,5 s
+    expect(r.end - r.start + 1).toBe(2000);
+  });
+
+  it("Fenster am Anfang wird nicht negativ", () => {
+    const r = detailByteRange({ start: 0, end: 1 }, 100);
+    expect(r.start).toBe(0);
+    expect(r.end).toBe(1499);             // bis 1,5 s, nicht weiter
+  });
+
+  it("Fenster am Ende bleibt im Sidecar", () => {
+    const r = detailByteRange({ start: 99, end: 100 }, 100);
+    expect(r.end).toBe(hiBinCount(100) - 1);
+    expect(r.start).toBeLessThanOrEqual(r.end);
+  });
+
+  it("Überabtastung deckt Scrollen bis zur Pufferbreite ohne neue Anfrage ab", () => {
+    // Angefordert wird ± 50 %: bei 1 s Fenster also 99,5–101,5 s.
+    const a = detailByteRange({ start: 100, end: 101 }, 15718, 0.5);
+    // Verschieben um 0,5 s (die Pufferbreite) bleibt im Geladenen …
+    const b = windowBinRange({ start: 100.5, end: 101.5 }, 15718);
+    expect(b.start).toBeGreaterThanOrEqual(a.start);
+    expect(b.end).toBeLessThanOrEqual(a.end);
+    // … mehr verlangt eine neue Anfrage (sonst würde still nichts gezeichnet).
+    const c = windowBinRange({ start: 101.2, end: 102.2 }, 15718);
+    expect(c.end).toBeGreaterThan(a.end);
+  });
+
+  it("pad=0 liefert genau das sichtbare Fenster", () => {
+    const r = detailByteRange({ start: 10, end: 11 }, 15718, 0);
+    expect(r.start).toBe(10000);
+    expect(r.end).toBe(10999);
+    expect(r.end - r.start + 1).toBe(1000);   // 1 s bei 1000 Bins/s
+  });
+
+  it("der Puffer klebt nicht am Fenster (sonst deckt er nie etwas ab)", () => {
+    // Hätte man die GEPUFFERTEN Bereiche verglichen, wäre jede Verschiebung
+    // außerhalb gelegen — deshalb prüft die Komponente windowBinRange.
+    const gepuffertVorher = detailByteRange({ start: 100, end: 101 }, 15718, 0.5);
+    const gepuffertNachher = detailByteRange({ start: 100.1, end: 101.1 }, 15718, 0.5);
+    expect(gepuffertNachher.end).toBeGreaterThan(gepuffertVorher.end);
   });
 });

@@ -353,6 +353,37 @@ export async function fetchPeaks(rid: string, length: number): Promise<number[]>
   return body.peaks;
 }
 
+/** Change 199: binäres Envelope aus dem Sidecar (uint8, ein Byte pro Bin).
+ *
+ *  `level="res"` lädt das residente Level komplett (≤ 2 MB) für WaveSurfer,
+ *  `level="hi"` ein Byte-Fenster des Detail-Envelopes (1000 Bins/s, per Range
+ *  → ein 1-s-Fenster sind ~1 KB). Zur Anfragezeit läuft serverseitig kein
+ *  ffmpeg; die Dateien entstehen beim Import.
+ *
+ *  Wirft nicht bei fehlendem Sidecar — der Aufrufer fällt dann auf das
+ *  2000er-JSON zurück (Altaufnahmen ohne Nachlauf). */
+export async function fetchPeaksBinary(
+  rid: string,
+  level: "res" | "hi",
+  range?: { start: number; end: number },
+): Promise<Uint8Array> {
+  const headers: Record<string, string> = {};
+  if (range) headers["Range"] = `bytes=${range.start}-${range.end}`;
+  const res = await fetch(
+    `/api/recordings/${encodeURIComponent(rid)}/peaks.bin?level=${level}`,
+    { headers },
+  ).then(checkOk);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Change 199: uint8-Envelope in die Form bringen, die WaveSurfer erwartet
+ *  (float in [0, 1]). Ein Byte pro Bin, 255 = Vollausschlag. */
+export function envelopeToPeaks(bytes: Uint8Array): number[] {
+  const out = new Array<number>(bytes.length);
+  for (let i = 0; i < bytes.length; i += 1) out[i] = bytes[i] / 255;
+  return out;
+}
+
 /** Change 056: Annotationen einer Aufnahme laden (flach, nach Zeit sortiert). */
 export async function fetchAnnotations(rid: string): Promise<Annotation[]> {
   const res = await fetch(`/api/recordings/${encodeURIComponent(rid)}/annotations`).then(checkOk);

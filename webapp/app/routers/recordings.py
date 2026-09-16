@@ -346,6 +346,39 @@ _peaks_inflight: set[int] = set()
 _PEEKS_LIST_NAACHZUG = 5
 
 
+def _ensure_peaks_sidecars(rec, src: Path) -> bool:
+    """Change 199: beide Sidecar-Envelopes sicherstellen und im Datensatz
+    vermerken. Liefert True, wenn sie danach auf der Platte liegen.
+
+    EIN Dekodierlauf erzeugt Detail- (1000 Bins/s) und residentes Level; der
+    bisherige 2000er-JSON-Vektor wird aus dem residenten Sidecar abgeleitet,
+    statt die Datei ein zweites Mal zu dekodieren. Schlägt das fehl, gibt die
+    Funktion False zurück und der Aufrufer fällt auf den alten Weg zurück.
+    """
+    from ..peaks import (PEAK_COUNT, envelope_to_floats, read_envelope,
+                         write_peaks_sidecars)
+
+    try:
+        info = write_peaks_sidecars(src)
+    except Exception:
+        log.exception("peaks: Sidecar-Erzeugung fehlgeschlagen für %s", src)
+        return False
+    if not info:
+        return False
+    try:
+        rec.peaks_hi_path = info["hi_path"]
+        rec.peaks_hi_size_bytes = Path(info["hi_path"]).stat().st_size
+        rec.peaks_res_path = info["res_path"]
+        rec.peaks_res_size_bytes = Path(info["res_path"]).stat().st_size
+    except OSError:
+        log.warning("peaks: Sidecar-Größe nicht lesbar für %s", src)
+    if not getattr(rec, "waveform_peaks", None):
+        env = read_envelope(info["res_path"])
+        if env is not None:
+            rec.waveform_peaks = envelope_to_floats(env, PEAK_COUNT)
+    return True
+
+
 def _backfill_peaks_batch(limit: int = 2) -> int:
     """Serieller Peaks-/Preview-Backfill: berechnet bis zu *limit* fehlende
     Assets (Peaks UND Playback-Preview).
@@ -384,12 +417,17 @@ def _backfill_peaks_batch(limit: int = 2) -> int:
                         if prev and Path(prev).exists():
                             rec.preview_path = str(prev)
                             rec.preview_size_bytes = Path(prev).stat().st_size
-                    # 2) Waveform-Peaks
-                    if not getattr(rec, "waveform_peaks", None):
-                        peaks = _compute_peaks_path(src)
-                        if peaks:
-                            rec.waveform_peaks = peaks
-                    if getattr(rec, "preview_path", None) or getattr(rec, "waveform_peaks", None):
+                    # 2) Waveform-Peaks + Sidecar-Envelopes (Change 199:
+                    #    ein Dekodierlauf liefert beide Envelope-Ebenen und
+                    #    den 2000er-JSON-Vektor).
+                    if not _ensure_peaks_sidecars(rec, src):
+                        if not getattr(rec, "waveform_peaks", None):
+                            peaks = _compute_peaks_path(src)
+                            if peaks:
+                                rec.waveform_peaks = peaks
+                    if (getattr(rec, "preview_path", None)
+                            or getattr(rec, "waveform_peaks", None)
+                            or getattr(rec, "peaks_res_path", None)):
                         s.add(rec)
                         s.commit()
                         done += 1
@@ -468,14 +506,17 @@ def _compute_peaks_background(rec_id: int) -> None:
                 if prev and Path(prev).exists():
                     rec.preview_path = str(prev)
                     rec.preview_size_bytes = Path(prev).stat().st_size
-            # 2) Waveform-Peaks
-            if not getattr(rec, "waveform_peaks", None):
+            # 2) Waveform-Peaks + Sidecar-Envelopes (Change 199)
+            if not _ensure_peaks_sidecars(rec, src):
                 # Pfad-basiert (statt read_bytes): 357-MB-Files würden sonst
                 # das RAM-Limit sprengen (OOM-Kill, s. peaks.compute_peaks_path).
-                peaks = _compute_peaks_path(src)
-                if peaks:
-                    rec.waveform_peaks = peaks
-            if getattr(rec, "preview_path", None) or getattr(rec, "waveform_peaks", None):
+                if not getattr(rec, "waveform_peaks", None):
+                    peaks = _compute_peaks_path(src)
+                    if peaks:
+                        rec.waveform_peaks = peaks
+            if (getattr(rec, "preview_path", None)
+                    or getattr(rec, "waveform_peaks", None)
+                    or getattr(rec, "peaks_res_path", None)):
                 s.add(rec)
                 s.commit()
     except Exception:
@@ -1365,6 +1406,52 @@ def get_progressive_peaks(
     return JSONResponse(
         {"peaks": peaks},
         headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/recordings/{rid}/peaks.bin")
+def get_peaks_binary(
+    rid: str,
+    request: Request,
+    level: str = Query("res", pattern="^(res|hi)$"),
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    """Change 199: Sidecar-Envelope als binäre Antwort (Range-fähig).
+
+    ``level=res`` liefert das residente Level (≤ 2 MB, wird ganz geladen und
+    per ``setPeaks`` an WaveSurfer gegeben); ``level=hi`` das Detail-Level mit
+    1000 Bins/s, das der Wort-Zoom fensterweise per ``Range``-Anfrage
+    anschneidet (ein Fenster von 1 s ≈ 1 KB statt 6 MB JSON).
+
+    Zur Anfragezeit läuft **kein** ffmpeg — beide Dateien entstehen beim
+    Import aus dem Peaks-Dekodierlauf. Antwort ist ein uint8-Envelope, ein
+    Byte pro Bin; der Client teilt durch 255 für Werte in [0, 1].
+    """
+    from pathlib import Path as _P
+
+    rec = get_recording_by_uid(session, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="not found")
+    uid = _current_user(request, session)
+    ensure_access(session, rec, uid, "read", cap=_key_cap(request, session))
+
+    attr = "peaks_hi_path" if level == "hi" else "peaks_res_path"
+    raw = getattr(rec, attr, None)
+    target = _P(raw) if raw else None
+    if target is None or not target.exists():
+        # Altaufnahme, deren Nachlauf noch aussteht, oder fehlgeschlagener
+        # Decode. Der Client fällt dann auf das 2000er-JSON zurück.
+        raise HTTPException(status_code=404, detail="peaks sidecar missing")
+
+    # Inhalt hängt nur am Audio, nicht an der Anfrage → unveränderlich.
+    return FileResponse(
+        str(target),
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Peaks-Level": level,
+            "X-Peaks-Scale": "255",
+        },
     )
 
 
