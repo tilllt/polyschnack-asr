@@ -11,10 +11,14 @@
 - [x] `MIN_WORD_DURATION_S`-Import ergänzt
 - [x] Tests: **410 grün** (33 Dateien)
 - [x] `npm run build`: exit 0
-- [ ] Commit + Push
-- [ ] CI-Pipeline abwarten
-- [ ] Deploy auf KI-Box (`/opt/container/polyschnack`, compose up -d ps-webapp)
-- [ ] Browser-Gegenprobe im Timing-Tab: Wortlänge zeigt Millisekunden, 20-ms-Wort füllt ~30 % der Breite
+- [x] Commit `0aad9c8` + Push auf main
+- [x] CI-Pipeline **5282**: `build-webapp`/`test-frontend`/`test-webapp`/`grep-gate`/`mirror-github` success (`mirror-ghcr` hängt, bekannt — Image ist in Harbor)
+- [x] Deploy auf KI-Box (`/opt/container/polyschnack`), Digest `sha256:1803c8cb…`, Container recreated+started
+- [x] **Live-Verifikation im ausgelieferten Bundle** (`/assets/index-CFHN3dTO.js`):
+      `NE=48e3` (= MAX_TIMING_PPS 48000), `Hl=.05` (MIN_PPS), `wl=.02` (MIN_WORD_DURATION_S),
+      `toFixed(3).padStart(6,"0")` (= fmtShortTimecode)
+- [x] Smoke-Test im Browser: HTTP 200, React mounted, **0 Konsolenfehler**
+- [ ] Sichtprüfung durch den Nutzer: Wortlänge zeigt Millisekunden; sehr kurzes Wort füllt ~30 % der Breite
 
 ## Geänderte Dateien
 
