@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abbreviateMid, fmtBytes, fmtTimecode } from "./format";
+import { abbreviateMid, fmtBytes, fmtTimecode, fmtShortTimecode } from "./format";
 
 describe("abbreviateMid", () => {
   it("lässt kurze Namen unverändert", () => {
@@ -47,5 +47,15 @@ describe("fmt-Helfer", () => {
   it("fmtTimecode", () => {
     expect(fmtTimecode(0)).toBe("00:00");
     expect(fmtTimecode(65)).toBe("01:05");
+  });
+
+  it("fmtShortTimecode zeigt Millisekunden (Wortlängen < 1 s)", () => {
+    expect(fmtShortTimecode(0)).toBe("00:00.000");
+    expect(fmtShortTimecode(0.32)).toBe("00:00.320");
+    expect(fmtShortTimecode(1.5)).toBe("00:01.500");
+    expect(fmtShortTimecode(65.789)).toBe("01:05.789");
+    // Invariante: fmtTimecode verliert Sub-Sekunden, fmtShortTimecode nicht
+    expect(fmtTimecode(0.32)).toBe("00:00");
+    expect(fmtShortTimecode(0.32)).not.toBe(fmtTimecode(0.32));
   });
 });

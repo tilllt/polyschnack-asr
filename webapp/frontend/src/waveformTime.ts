@@ -8,8 +8,12 @@ export const MIN_PPS = 0.05; // px/s — erlaubt echten Fit auch für 2h-Audios
 
 /** Change 137 (Timing-Tab): oberste Zoom-Grenze für die Wort-Detailansicht.
  *  Sehr kurze Wörter (< 100 ms) würden sonst auf absurde px/s explodieren
- *  (die Peaks-Auflösung rendert dann ohnehin gestreckte Balken). */
-export const MAX_TIMING_PPS = 2000;
+ *  (die Peaks-Auflösung rendert dann ohnehin gestreckte Balken).
+ *  Change 196-Folge: 2000 war zu niedrig — ein 20-ms-Wort (MIN_WORD_DURATION_S)
+ *  erreichte nur 4 % der Containerbreite statt der angepeilten 30 % und war
+ *  damit im Timing-Tab praktisch nicht markierbar. 48000 lässt die
+ *  Mindest-Wortdauer ihr Zielfenster treffen (1000 px: 15000 px/s). */
+export const MAX_TIMING_PPS = 48000;
 
 /** Change 137: kürzeste sinnvolle Wortdauer im Timing-Tab (Backend-Regel
  *  MIN_WORD_DURATION_S = 0.02 — identisch halten). */

@@ -14,6 +14,14 @@ export function fmtTimecode(s: number): string {
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+/** Dauer in Sekunden → "MM:SS.sss" (für Wort-Timing, Millisekunden-Auflösung) */
+export function fmtShortTimecode(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = Math.max(0, s % 60);
+  // 2 Vorkomma- + 3 Nachkommastellen = 6 Zeichen ("00.320")
+  return `${String(m).padStart(2, "0")}:${sec.toFixed(3).padStart(6, "0")}`;
+}
+
 /** Duration in seconds → "Xm Ys" or "X.Xs" (for card meta) */
 export function fmtDurSec(s: number | null | undefined): string {
   if (s == null || isNaN(s)) return "—";

@@ -8,7 +8,7 @@
  * in die Waveform-Detailansicht (RecordingCard → WaveformPlayer timingWord).
  */
 import type { Segment } from "../api";
-import { fmtTimecode } from "../format";
+import { fmtShortTimecode } from "../format";
 import { useT } from "../useLocale";
 import { SegmentList } from "./SegmentList";
 
@@ -72,14 +72,14 @@ export function TimingEditor({
               „{wordText}"
             </span>
             <span className="text-[11px] text-muted2 tabular-nums">
-              {t("timing_start")} {fmtTimecode(timing.start)}
+              {t("timing_start")} {fmtShortTimecode(timing.start)}
             </span>
             <span className="text-[11px] text-muted2 tabular-nums">
-              {t("timing_end")} {fmtTimecode(timing.end)}
+              {t("timing_end")} {fmtShortTimecode(timing.end)}
             </span>
             <span className="text-[11px] text-muted2 tabular-nums">
               {t("timing_length")}{" "}
-              {fmtTimecode(Math.max(0, timing.end - timing.start))}
+              {fmtShortTimecode(Math.max(0, timing.end - timing.start))}
             </span>
             {override && (
               <span

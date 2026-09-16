@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_TIMING_PPS,
+  MIN_WORD_DURATION_S,
   MIN_PPS,
   clampMoveWordTiming,
   clampWordTiming,
@@ -73,8 +74,18 @@ describe("timingPps (Change 137)", () => {
   });
 
   it("sehr kurzes Wort: clamped auf MAX_TIMING_PPS statt Explosion", () => {
-    expect(timingPps(800, 0.01)).toBe(MAX_TIMING_PPS);
+    // Der Clamp greift erst unterhalb von 0.3*W/MAX_TIMING_PPS.
     expect(timingPps(800, 0.001)).toBe(MAX_TIMING_PPS);
+    expect(timingPps(800, 0.0001)).toBe(MAX_TIMING_PPS);
+  });
+
+  it("Invariante: auch die Mindest-Wortdauer erreicht das 30%-Zielfenster", () => {
+    // Sonst bleibt ein 20-ms-Wort bei 4 % der Breite stehen und ist im
+    // Timing-Tab nicht markierbar (MAX_TIMING_PPS zu niedrig).
+    const W = 1000;
+    const pps = timingPps(W, MIN_WORD_DURATION_S);
+    expect(pps).toBeLessThan(MAX_TIMING_PPS);
+    expect((MIN_WORD_DURATION_S * pps) / W).toBeCloseTo(0.3, 6);
   });
 
   it("nie kleiner als MIN_PPS (riesige Wörter)", () => {
