@@ -329,3 +329,58 @@ def test_endpunkt_antwort_ist_range_faehig(tmp_path):
         ueberhang = c.get("/bin", headers={"Range": f"bytes=0-{info['hi_bins'] + 500}"})
         assert ueberhang.status_code == 206
         assert len(ueberhang.content) == info["hi_bins"]
+
+
+# ── Nachlauf-Auswahl ──────────────────────────────────────────────────────
+
+
+def test_backfill_waehlt_aufnahmen_ohne_sidecar(tmp_path):
+    """Regression: eine Aufnahme mit Peaks UND Preview fiel durch beide
+    bisherigen Bedingungen des Nachlaufs und bekam deshalb nie ein Sidecar —
+    obwohl ihr genau die Detail-Peaks fehlten. Der Nachlauf hätte den
+    gesamten Bestand nie nachgezogen."""
+    from sqlmodel import Session, SQLModel, create_engine
+
+    from app.crud import list_recordings_missing_peaks
+    from app.models import Recording, User
+
+    eng = create_engine(f"sqlite:///{tmp_path}/t.db")
+    SQLModel.metadata.create_all(eng)
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"x")
+    with Session(eng) as s:
+        s.add(User(id=1, sub="a", kind="oidc"))
+        # Vollständig bis auf das Sidecar — genau der Bestandsfall.
+        s.add(Recording(id=1, uid="r1", original_name="a.wav",
+                        stored_path=str(audio), user_id=1, status="done",
+                        waveform_peaks=[0.1, 0.2],
+                        preview_path=str(tmp_path / "a_preview.mp3"),
+                        peaks_res_path=None))
+        # Schon versucht, nicht dekodierbar → Marker, kein Endlos-Retry.
+        s.add(Recording(id=2, uid="r2", original_name="b.wav",
+                        stored_path=str(audio), user_id=1, status="done",
+                        waveform_peaks=[0.1],
+                        preview_path=str(tmp_path / "b_preview.mp3"),
+                        peaks_res_path=""))
+        s.commit()
+
+    with Session(eng) as s:
+        ids = [r.id for r in list_recordings_missing_peaks(s, limit=10)]
+    assert 1 in ids, "Aufnahme ohne Sidecar muss nachgezogen werden"
+    assert 2 not in ids, "Marker '' darf nicht erneut ausgewählt werden"
+
+
+def test_fehlgeschlagene_sidecar_erzeugung_setzt_marker(tmp_path, monkeypatch):
+    """Ein nicht dekodierbarer Fall darf nicht bei jedem Durchlauf erneut
+    voll dekodiert werden."""
+    import app.peaks as P
+    import app.routers.recordings as R
+
+    src = tmp_path / "kaputt.wav"
+    src.write_bytes(b"kein audio")
+    rec = _Rec(peaks_hi_path=None, peaks_res_path=None, waveform_peaks=None)
+
+    monkeypatch.setattr(P, "write_peaks_sidecars", lambda p, force=False: None)
+    assert R._ensure_peaks_sidecars(rec, src) is False
+    assert rec.peaks_res_path == "", "Marker fehlt — der Nachlauf würde retryen"
+

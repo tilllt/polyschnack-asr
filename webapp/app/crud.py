@@ -219,6 +219,13 @@ def list_recordings_missing_peaks(session: Session, limit: int = 3) -> list[Reco
     deshalb cast-Vergleich statt ``.is_(None)``. Leere Listen (`[]`) sind
     der „versucht, keine Peaks möglich"-Marker und werden NICHT erneut
     gefunden (kein Endlos-Retry bei kaputten Dateien).
+
+    Change 199: zusätzlich Aufnahmen OHNE Sidecar-Envelopes. Ohne diesen
+    Zweig würde der Nachlauf sie nie auswählen — sie haben Peaks UND Preview
+    und fielen damit durch beide bisherigen Bedingungen, obwohl ihnen die
+    Detail-Peaks fehlen. Der leere String in ``peaks_res_path`` ist wieder
+    der „versucht, nicht dekodierbar"-Marker (analog `[]`), damit eine
+    kaputte Datei nicht in jedem Durchlauf erneut dekodiert wird.
     """
     from sqlalchemy import cast, or_, String
 
@@ -228,6 +235,7 @@ def list_recordings_missing_peaks(session: Session, limit: int = 3) -> list[Reco
             cast(Recording.waveform_peaks, String) == "null",
             Recording.waveform_peaks.is_(None),  # type: ignore[union-attr]
             Recording.preview_path.is_(None),  # type: ignore[union-attr]
+            Recording.peaks_res_path.is_(None),  # type: ignore[union-attr]
         ))
         .order_by(Recording.id.asc())  # type: ignore[arg-type]
         .limit(limit)

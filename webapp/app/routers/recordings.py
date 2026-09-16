@@ -362,8 +362,13 @@ def _ensure_peaks_sidecars(rec, src: Path) -> bool:
         info = write_peaks_sidecars(src)
     except Exception:
         log.exception("peaks: Sidecar-Erzeugung fehlgeschlagen für %s", src)
+        # Marker setzen: ohne ihn wählt der Nachlauf diese Datei in jedem
+        # Durchlauf erneut aus und dekodiert sie voll (analog `[]` bei den
+        # Peaks — „versucht, nicht dekodierbar").
+        rec.peaks_res_path = ""
         return False
     if not info:
+        rec.peaks_res_path = ""
         return False
     try:
         rec.peaks_hi_path = info["hi_path"]
