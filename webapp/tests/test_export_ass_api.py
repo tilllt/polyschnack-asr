@@ -232,3 +232,129 @@ def test_render_validates_preset_and_timings(client):
         {"start": 0.0, "end": 1.0, "text": "ohne worte", "words": []}])
     assert client.post(f"/api/recordings/{empty}/export",
                        json={"preset": "classic"}).status_code == 409
+
+# ---------------------------------------------------------------------------
+# Change 200 — Video-Export über den optionalen Render-Dienst
+# ---------------------------------------------------------------------------
+FORMAT_WEBM = {
+    "id": "alpha_webm", "label": "WebM (nur Untertitel, transparent)",
+    "ext": "webm", "mime": "video/webm", "alpha": True, "note": "transparent",
+}
+
+
+def _fake_service(monkeypatch, formats=None, **overrides):
+    """Render-Dienst vortäuschen (die Webapp ruft ihn nie direkt im Test)."""
+    from app.ass_export import render_client as rc
+
+    rc.reset_cache()
+    listing = list(formats or [])
+    monkeypatch.setattr(rc, "formats", lambda: listing)
+    monkeypatch.setattr(
+        rc, "health",
+        lambda ttl=None: {"status": "ok" if listing else "unavailable",
+                          "formats": listing, "detail": "" if listing else "ConnectError"},
+    )
+    for name, fn in overrides.items():
+        monkeypatch.setattr(rc, name, fn)
+    return rc
+
+
+def test_presets_melden_render_unavailable_ohne_dienst(client, monkeypatch):
+    _fake_service(monkeypatch, formats=[])
+    d = client.get("/api/export/presets").json()
+    assert d["render_available"] is False
+    assert d["render_formats"] == []
+    assert "render_note" in d
+
+
+def test_presets_melden_formate_wenn_dienst_laeuft(client, monkeypatch):
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM])
+    d = client.get("/api/export/presets").json()
+    assert d["render_available"] is True
+    assert [f["id"] for f in d["render_formats"]] == ["alpha_webm"]
+
+
+def test_render_startet_job_mit_ass_dauer_und_flaeche(client, monkeypatch):
+    rid = _make_recording(client)
+    calls = {}
+
+    def fake_start(**kw):
+        calls.update(kw)
+        return {"id": "job123", "state": "queued", "progress": 0.0, "filename": "x.webm"}
+
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM], start=fake_start)
+    r = client.post(f"/api/recordings/{rid}/export",
+                    json={"mode": "render", "format": "alpha_webm", "preset": "highlight"})
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["id"] == "job123"
+    assert body["format_label"].startswith("WebM")
+    # Das erzeugte ASS geht mit, die Fläche wird daraus gelesen (nicht geraten).
+    assert b"[Script Info]" in calls["ass_bytes"]
+    assert calls["width"] == 1920 and calls["height"] == 1080
+    assert calls["duration_s"] >= 1.0
+    assert calls["media"] is None          # WebM braucht keine Tonspur
+
+
+def test_render_ohne_dienst_ist_503_mit_hinweis(client, monkeypatch):
+    rid = _make_recording(client)
+    _fake_service(monkeypatch, formats=[])
+    r = client.post(f"/api/recordings/{rid}/export", json={"mode": "render"})
+    assert r.status_code == 503
+    assert r.json()["detail"]["error"] == "render_unavailable"
+    assert "ass" in r.json()["detail"]["hint"].lower()
+
+
+def test_render_unbekanntes_format_ist_400(client, monkeypatch):
+    rid = _make_recording(client)
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM])
+    r = client.post(f"/api/recordings/{rid}/export",
+                    json={"mode": "render", "format": "alpha_mov"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "unsupported_format"
+    assert "alpha_mov" in r.json()["detail"]["detail"]
+
+
+def test_render_status_wird_durchgereicht(client, monkeypatch):
+    rid = _make_recording(client)
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM],
+                  status=lambda jid: {"id": jid, "state": "running", "progress": 0.42})
+    r = client.get(f"/api/recordings/{rid}/export/jobs/job123")
+    assert r.status_code == 200
+    assert r.json()["progress"] == 0.42
+
+
+def test_render_datei_wird_gestreamt_mit_dateinamen(client, monkeypatch):
+    import httpx as _httpx
+
+    rid = _make_recording(client)
+    upstream = _httpx.Response(200, headers={
+        "content-type": "video/webm",
+        "content-disposition": 'attachment; filename="folge.webm"',
+    }, content=b"webm-daten")
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM],
+                  open_file=lambda jid: (FakeClient(), upstream))
+    r = client.get(f"/api/recordings/{rid}/export/jobs/job123/file")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("video/webm")
+    assert "folge.webm" in r.headers["content-disposition"]
+    assert r.content == b"webm-daten"
+
+
+def test_render_job_fehler_werden_zu_klaren_status(client, monkeypatch):
+    from app.ass_export import render_client as rc
+
+    rid = _make_recording(client)
+
+    def expired(jid):
+        raise rc.RenderError("expired", "Die Datei wurde bereits aufgeräumt (24 h).")
+
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM], status=expired)
+    r = client.get(f"/api/recordings/{rid}/export/jobs/job123")
+    assert r.status_code == 410
+    assert r.json()["detail"]["error"] == "expired"

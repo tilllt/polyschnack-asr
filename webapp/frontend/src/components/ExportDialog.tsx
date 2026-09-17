@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, X, Download, AlertTriangle, Info, ChevronDown, Sparkles } from "lucide-react";
-import type { AssExportResult, ExportCatalog, ExportParamSpec, Recording } from "../api";
+import type {
+  AssExportResult,
+  ExportCatalog,
+  ExportParamSpec,
+  Recording,
+  RenderFormat,
+  RenderJob,
+} from "../api";
 import {
   AssExportError,
+  cancelRenderJob,
   downloadUrl,
   fetchAssExport,
   fetchExportPresets,
+  fetchRenderJob,
+  renderFileUrl,
+  startRender,
 } from "../api";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -67,6 +78,82 @@ export function ExportDialog({
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<{ code: string; hint: string } | null>(null);
   const [result, setResult] = useState<AssExportResult | null>(null);
+
+  // ---- Change 200: Video-Export über den Render-Dienst ---------------------
+  const [renderFormat, setRenderFormat] = useState<string>("");
+  const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
+  const [renderBusy, setRenderBusy] = useState(false);
+  const [renderError, setRenderError] = useState<{ code: string; hint: string } | null>(null);
+  const renderFormats: RenderFormat[] = catalog?.render_formats ?? [];
+  const renderAvailable = Boolean(catalog?.render_available) && renderFormats.length > 0;
+
+  useEffect(() => {
+    if (renderFormat || renderFormats.length === 0) return;
+    // Transparentes WebM ist der häufigste Wunsch (Overlay im Schnittprogramm),
+    // sonst das erste Format, das der Dienst meldet.
+    const preferred = renderFormats.find((f) => f.id === "alpha_webm") ?? renderFormats[0];
+    setRenderFormat(preferred.id);
+  }, [renderFormats, renderFormat]);
+
+  // Fortschritt pollen, solange ein Auftrag läuft. Der Prozentwert kommt aus
+  // ffmpeg — ist er 0, sagen wir das (statt einen Fortschritt zu erfinden).
+  const renderState = renderJob?.state;
+  useEffect(() => {
+    if (!renderJob) return;
+    if (renderState !== "running" && renderState !== "queued") return;
+    const jobId = renderJob.id;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const job = await fetchRenderJob(recording.uid, jobId);
+        if (alive) setRenderJob(job);
+      } catch (e) {
+        if (!alive) return;
+        const err = e as AssExportError;
+        setRenderError({ code: err.code ?? "unknown_error", hint: err.hint ?? err.message ?? "" });
+        setRenderJob(null);
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [renderJob?.id, renderState, recording.uid]);
+
+  async function handleRender() {
+    if (!activePreset || !renderFormat) return;
+    setRenderBusy(true);
+    setRenderError(null);
+    setRenderJob(null);
+    try {
+      const job = await startRender(recording.uid, {
+        preset: activePreset.name,
+        params: payload,
+        format: renderFormat,
+        fps: 25,
+      });
+      setRenderJob(job);
+      toast(t("ass_render_started"), "ok");
+    } catch (e) {
+      const err = e as AssExportError;
+      setRenderError({ code: err.code ?? "unknown_error", hint: err.hint ?? err.message ?? "" });
+      toast(t("ass_render_failed"), "err");
+    } finally {
+      setRenderBusy(false);
+    }
+  }
+
+  async function handleRenderCancel() {
+    if (!renderJob) return;
+    try {
+      setRenderJob(await cancelRenderJob(recording.uid, renderJob.id));
+    } catch (e) {
+      const err = e as AssExportError;
+      setRenderError({ code: err.code ?? "unknown_error", hint: err.hint ?? err.message ?? "" });
+    }
+  }
 
   // Vorbelegung: „Hervorhebung" ist der meistgenutzte Stil, sonst das erste Preset.
   useEffect(() => {
@@ -272,10 +359,130 @@ export function ExportDialog({
 
             {/* Kein Render-Dienst: sagen, was mit der Datei geht, statt einen
                 Knopf zu zeigen, der nur 503 liefert. */}
-            {!catalog.render_available && (
+            {!renderAvailable && (
               <div className="flex items-start gap-1.5 text-[11px] text-muted2 mt-3">
                 <Info size={12} className="mt-[2px] shrink-0" />
-                <span>{t("ass_export_render_off")}</span>
+                <span>
+                  {t("ass_export_render_off")}
+                  {catalog.render_note ? ` (${catalog.render_note})` : ""}
+                </span>
+              </div>
+            )}
+
+            {renderAvailable && (
+              <div className="mt-4 pt-3 border-t border-border2" data-testid="render-section">
+                <div className="text-[11px] text-muted2 mb-2">{t("ass_render_title")}</div>
+                <div className="space-y-1.5">
+                  {renderFormats.map((f) => (
+                    <label
+                      key={f.id}
+                      className="flex items-start gap-2 text-[12px] cursor-pointer"
+                      data-testid={`render-format-${f.id}`}
+                    >
+                      <input
+                        type="radio"
+                        name="render-format"
+                        className="mt-[3px]"
+                        checked={renderFormat === f.id}
+                        onChange={() => setRenderFormat(f.id)}
+                      />
+                      <span>
+                        <span className="text-txt">{f.label}</span>
+                        {f.note ? (
+                          <span className="block text-[11px] text-muted2">{f.note}</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRender}
+                  disabled={renderBusy || renderState === "running" || renderState === "queued"}
+                  className="btn-ghost-sm mt-3 flex items-center gap-1.5 disabled:opacity-40"
+                  data-testid="render-start"
+                >
+                  {renderState === "running" || renderState === "queued" ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={12} />
+                  )}
+                  {renderState === "running" || renderState === "queued"
+                    ? t("ass_render_running")
+                    : t("ass_render_start")}
+                </button>
+
+                {renderJob && (renderState === "running" || renderState === "queued") && (
+                  <div className="mt-2" data-testid="render-progress">
+                    <div className="h-1.5 w-full bg-panel2 rounded-[3px] overflow-hidden">
+                      <div
+                        className="h-full bg-accent transition-[width] duration-300"
+                        style={{ width: `${Math.round((renderJob.progress || 0) * 100)}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted2">
+                      {renderJob.progress > 0
+                        ? `${Math.round(renderJob.progress * 100)} %`
+                        : t("ass_render_waiting")}
+                      {" · "}
+                      <button
+                        type="button"
+                        onClick={handleRenderCancel}
+                        className="underline decoration-dotted"
+                        data-testid="render-cancel"
+                      >
+                        {t("ass_render_cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {renderJob && renderState === "canceled" && (
+                  <div className="mt-2 text-[11px] text-muted2" data-testid="render-canceled">
+                    {t("ass_render_canceled")}
+                  </div>
+                )}
+
+                {renderJob && renderState === "done" && (
+                  <div className="mt-2 text-[11px]" data-testid="render-done">
+                    {/* Anker auf die API-URL — der Browser lädt die Datei selbst
+                        (Blob-Downloads verwerfen manche Browser still). */}
+                    <a
+                      href={renderFileUrl(recording.uid, renderJob.id)}
+                      download={renderJob.filename}
+                      className="text-accent underline decoration-dotted"
+                      data-testid="render-download"
+                    >
+                      {t("ass_render_download")}
+                    </a>
+                    {renderJob.size_bytes > 0 ? (
+                      <span className="text-muted2">
+                        {" · "}
+                        {(renderJob.size_bytes / (1024 * 1024)).toFixed(1)} MB
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
+                {renderJob && renderState === "failed" && (
+                  <div
+                    className="mt-2 text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-sm px-2 py-1.5"
+                    data-testid="render-failed"
+                  >
+                    {t("ass_render_failed")}
+                    {renderJob.error ? `: ${renderJob.error.slice(0, 300)}` : ""}
+                  </div>
+                )}
+
+                {renderError && (
+                  <div
+                    className="mt-2 text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-sm px-2 py-1.5"
+                    data-testid="render-request-error"
+                  >
+                    {errorText(renderError.code, renderError.hint)}
+                  </div>
+                )}
               </div>
             )}
 

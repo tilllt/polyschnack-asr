@@ -471,8 +471,13 @@ export interface ExportPreset {
 export interface ExportCatalog {
   presets: ExportPreset[];
   parameter_specs: Record<string, ExportParamSpec>;
-  /** false = kein Render-Container konfiguriert (nur ASS-Download). */
+  /** false = kein Render-Dienst aktiv (nur ASS-Download). */
   render_available: boolean;
+  /** Formate, die der Render-Dienst wirklich kann (nichts geraten). */
+  render_formats?: RenderFormat[];
+  render_status?: string;
+  /** Grund, wenn der Dienst fehlt — wird im Dialog angezeigt. */
+  render_note?: string;
 }
 
 export async function fetchExportPresets(): Promise<ExportCatalog> {
@@ -1429,4 +1434,97 @@ export function formatCents(cents: number | null | undefined): string {
     style: "currency",
     currency: "EUR",
   });
+}
+
+/* --------------------------------------------------------------------------
+ * Change 200 — Video-Export über den optionalen Render-Dienst (ps-render)
+ * ------------------------------------------------------------------------ */
+
+export interface RenderFormat {
+  id: string;
+  label: string;
+  ext: string;
+  mime: string;
+  alpha: boolean;
+  note: string;
+}
+
+export interface RenderJob {
+  id: string;
+  format: string;
+  state: "queued" | "running" | "done" | "failed" | "canceled";
+  /** 0…1 aus ffmpeg — 0 heißt „noch nichts gerechnet", nicht „gleich fertig". */
+  progress: number;
+  filename: string;
+  size_bytes: number;
+  error: string;
+}
+
+export interface RenderStartResult extends RenderJob {
+  duration_s: number;
+  width: number;
+  height: number;
+  format_label: string;
+  audio: boolean;
+}
+
+/** Fehlerkörper der Export-Endpunkte in eine AssExportError übersetzen. */
+async function exportFailure(res: Response): Promise<AssExportError> {
+  let code = "unknown_error";
+  let hint = "";
+  let detail = "";
+  try {
+    const body = await res.json();
+    const d = body?.detail;
+    if (typeof d === "string") {
+      detail = d;
+    } else if (d && typeof d === "object") {
+      code = d.error ?? code;
+      hint = d.hint ?? "";
+      detail = d.detail ?? "";
+    }
+  } catch {
+    /* kein JSON-Body */
+  }
+  return new AssExportError(code, hint, detail || `HTTP ${res.status}`);
+}
+
+export async function startRender(
+  uid: string,
+  body: {
+    preset: string;
+    params: Record<string, number | string | boolean>;
+    format: string;
+    fps?: number;
+    width?: number;
+    height?: number;
+    background?: string;
+    crf?: number;
+    include_audio?: boolean;
+  },
+): Promise<RenderStartResult> {
+  const res = await fetch(`/api/recordings/${uid}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: "render", ...body }),
+  });
+  if (!res.ok) throw await exportFailure(res);
+  return (await res.json()) as RenderStartResult;
+}
+
+export async function fetchRenderJob(uid: string, jobId: string): Promise<RenderJob> {
+  const res = await fetch(`/api/recordings/${uid}/export/jobs/${jobId}`);
+  if (!res.ok) throw await exportFailure(res);
+  return (await res.json()) as RenderJob;
+}
+
+export async function cancelRenderJob(uid: string, jobId: string): Promise<RenderJob> {
+  const res = await fetch(`/api/recordings/${uid}/export/jobs/${jobId}`, { method: "DELETE" });
+  if (!res.ok) throw await exportFailure(res);
+  return (await res.json()) as RenderJob;
+}
+
+/** Download-URL der fertigen Datei — Anker darauf, kein Blob (s. downloadUrl). */
+export function renderFileUrl(uid: string, jobId: string): string {
+  return `/api/recordings/${uid}/export/jobs/${jobId}/file`;
 }

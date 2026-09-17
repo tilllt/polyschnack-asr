@@ -5,7 +5,14 @@ import { LocaleProvider } from "../useLocale";
 import { ToastProvider } from "./Toasts";
 import { ExportDialog } from "./ExportDialog";
 import type { Recording } from "../api";
-import { AssExportError, fetchAssExport, fetchExportPresets, downloadUrl } from "../api";
+import {
+  AssExportError,
+  downloadUrl,
+  fetchAssExport,
+  fetchExportPresets,
+  fetchRenderJob,
+  startRender,
+} from "../api";
 
 /* Change 193 Frontend: Export-Dialog für animierte ASS-Untertitel.
  *
@@ -26,6 +33,9 @@ vi.mock("../api", async () => {
     fetchExportPresets: vi.fn(),
     fetchAssExport: vi.fn(),
     downloadUrl: vi.fn(),
+    startRender: vi.fn(),
+    fetchRenderJob: vi.fn(),
+    cancelRenderJob: vi.fn(),
   };
 });
 
@@ -271,4 +281,67 @@ describe("ExportDialog", () => {
     renderDialog();
     expect(await screen.findByText(/could not load the templates/i)).toBeTruthy();
   });
+});
+
+/* ---------------------------------------------------------------------------
+ * Change 200 — Video-Export (Render-Dienst)
+ * ------------------------------------------------------------------------ */
+
+const RENDER_FORMATS = [
+  {
+    id: "alpha_webm", label: "WebM (nur Untertitel, transparent)", ext: "webm",
+    mime: "video/webm", alpha: true, note: "kleine Datei",
+  },
+  {
+    id: "alpha_mov", label: "MOV ProRes 4444", ext: "mov",
+    mime: "video/quicktime", alpha: true, note: "große Datei",
+  },
+];
+
+
+test("zeigt keine Video-Auswahl, wenn der Dienst fehlt", async () => {
+  vi.mocked(fetchExportPresets).mockResolvedValue({ ...CATALOG, render_available: false });
+  renderDialog();
+  await screen.findByTestId("preset-highlight");
+  expect(screen.queryByTestId("render-section")).toBeNull();
+});
+
+
+test("startet einen Render und bietet danach den Download an", async () => {
+  vi.mocked(fetchExportPresets).mockResolvedValue({
+    ...CATALOG, render_available: true, render_formats: RENDER_FORMATS,
+  });
+  vi.mocked(startRender).mockResolvedValue({
+    id: "job1", format: "alpha_webm", state: "queued", progress: 0,
+    filename: "folge.webm", size_bytes: 0, error: "",
+    duration_s: 12, width: 1920, height: 1080, format_label: "WebM", audio: false,
+  });
+  vi.mocked(fetchRenderJob).mockResolvedValue({
+    id: "job1", format: "alpha_webm", state: "done", progress: 1,
+    filename: "folge.webm", size_bytes: 2_500_000, error: "",
+  });
+
+  renderDialog();
+  await screen.findByTestId("render-section");
+
+  // Transparentes WebM ist vorbelegt (häufigster Wunsch: Overlay im Schnitt)
+  const webm = screen.getByTestId("render-format-alpha_webm").querySelector(
+    "input",
+  ) as HTMLInputElement;
+  expect(webm.checked).toBe(true);
+  expect(screen.getByTestId("render-format-alpha_mov")).toBeTruthy();
+
+  fireEvent.click(screen.getByTestId("render-start"));
+  await waitFor(() => expect(startRender).toHaveBeenCalledTimes(1));
+  const [uid, body] = vi.mocked(startRender).mock.calls[0];
+  expect(uid).toBe("rec-1");
+  expect(body.format).toBe("alpha_webm");
+  expect(body.preset).toBe("highlight");
+
+  // Nach dem ersten Poll steht der Download-Link — als API-URL, nicht als Blob.
+  const link = await screen.findByTestId("render-download");
+  expect(link.getAttribute("href")).toBe("/api/recordings/rec-1/export/jobs/job1/file");
+  expect(link.getAttribute("download")).toBe("folge.webm");
+  // 2_500_000 B = 2.4 MiB (das ist die ehrliche Anzeige der Dateigröße)
+  expect(screen.getByTestId("render-done").textContent).toContain("2.4 MB");
 });
