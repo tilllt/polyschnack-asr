@@ -83,6 +83,23 @@ test-frontend:
       changes:
         - webapp/frontend/**/*
 
+# Render-Dienst (Change 200): die Tests brauchen ffmpeg MIT libass und
+# mindestens eine Schrift — sonst rendert libass keinen Text und die
+# pixelweisen Alpha-/Sichtbarkeitsprüfungen schlagen fehl.
+test-render:
+  stage: test
+  image: python:3.13-slim
+  tags:
+    - shared
+  script:
+    - apt-get update -qq && apt-get install -y -qq ffmpeg fonts-liberation fontconfig > /dev/null 2>&1
+    - pip install -q pytest httpx fastapi python-multipart numpy 2>/dev/null
+    - cd render-service && python -m pytest test_app.py -v --tb=short
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - render-service/**/*
+
 build-qwen3:
   timeout: 60 minutes
   stage: build
@@ -137,6 +154,23 @@ build-diar:
     - shared
   needs:
     - job: test-webapp
+      optional: true
+
+build-render:
+  stage: build
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    bash scripts/ci_smart_build.sh "${HARBOR_REGISTRY}/public" "${CI_PROJECT_NAME}-render" "render-service/"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - render-service/**/*
+  tags:
+    - shared
+  needs:
+    - job: test-render
       optional: true
 
 # Forced-Aligner-Service (Karaoke-Word-Sync): qwen3-asr.cpp-Build (CUDA mit
@@ -414,6 +448,8 @@ mirror-github:
       optional: true
     - job: build-diar
       optional: true
+    - job: build-render
+      optional: true
     - job: build-aligner
       optional: true
     - job: build-sep
@@ -551,6 +587,8 @@ mirror-ghcr:
     - job: build-ark
       optional: true
     - job: build-diar
+      optional: true
+    - job: build-render
       optional: true
     - job: build-aligner
       optional: true

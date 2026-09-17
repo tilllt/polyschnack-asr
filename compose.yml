@@ -150,6 +150,10 @@ services:
       #   POLYSCHNACK_ALIGN_WORDS: "false"
       CRISP_ALIGN_URL: "${CRISP_ALIGN_URL:-http://crispr-align:5099}"
       POLYSCHNACK_ALIGN_WORDS: "${POLYSCHNACK_ALIGN_WORDS:-true}"
+      # Render-Dienst (Change 200): optionaler Container im Profil "render".
+      # Läuft er nicht, ist der Video-Export einfach nicht verfügbar — die
+      # Webapp prüft /health und meldet das ehrlich (kein toter Knopf).
+      RENDER_URL: "${RENDER_URL:-http://ps-render:8090}"
       DIARIZE_METHOD: "${DIARIZE_METHOD:-pyannote}"  # pyannote|foxnose|energy|…
       DATA_DIR: /data
       # Benchmark-Seite (/benchmark): versionierte Manifeste + Audio + Ergebnisse.
@@ -185,4 +189,44 @@ services:
         condition: service_healthy
       crispr-diar:
         condition: service_started
+    restart: unless-stopped
+
+  # ==============================================================
+  # ps-render — optionaler Render-Dienst (Change 200)
+  # ==============================================================
+  # Brennt ASS-Untertitel in ein Video ein (MP4) oder erzeugt ein
+  # Untertitel-Video MIT Alphakanal (WebM VP9 / ProRes 4444 / PNG-ZIP) zum
+  # Drüberlegen im Schnittprogramm.
+  #
+  # Startet NUR mit aktivem Profil:
+  #   docker compose --profile render -f compose.yml -f compose.oidc.yml \
+  #     -f compose.backends.yml -f compose.gpu.yml up -d ps-render
+  # Ohne ihn arbeitet die Webapp unverändert (POST /export → 503 mit Hinweis,
+  # /api/export/presets meldet render_available=false).
+  #
+  # Kein GPU-Zugriff nötig: VP9-Alpha und ProRes 4444 haben keinen nutzbaren
+  # Hardware-Pfad. Die CPU-Grenze ist bewusst gesetzt, damit ein langer Render
+  # die Transkription nicht aushungert.
+  ps-render:
+    profiles: ["render"]
+    image: ${REGISTRY:-ghcr.io/tilllt}/polyschnack-asr-render:latest
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "4"
+    environment:
+      RENDER_DATA: /data/render
+      RENDER_TTL_S: "86400"        # fertige Dateien nach 24 h aufräumen
+      RENDER_TIMEOUT_S: "1800"     # harte Obergrenze pro Job (30 min)
+    volumes:
+      - ./DATA/render:/data/render
+    ports:
+      - "${RENDER_PORT:-8090}:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
