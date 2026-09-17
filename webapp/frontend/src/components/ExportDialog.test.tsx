@@ -5,7 +5,7 @@ import { LocaleProvider } from "../useLocale";
 import { ToastProvider } from "./Toasts";
 import { ExportDialog } from "./ExportDialog";
 import type { Recording } from "../api";
-import { AssExportError, fetchAssExport, fetchExportPresets, saveBlob } from "../api";
+import { AssExportError, fetchAssExport, fetchExportPresets, downloadUrl } from "../api";
 
 /* Change 193 Frontend: Export-Dialog für animierte ASS-Untertitel.
  *
@@ -25,7 +25,7 @@ vi.mock("../api", async () => {
     ...actual,
     fetchExportPresets: vi.fn(),
     fetchAssExport: vi.fn(),
-    saveBlob: vi.fn(),
+    downloadUrl: vi.fn(),
   };
 });
 
@@ -93,7 +93,7 @@ function renderDialog() {
 beforeEach(() => {
   vi.mocked(fetchExportPresets).mockResolvedValue(CATALOG as never);
   vi.mocked(fetchAssExport).mockReset();
-  vi.mocked(saveBlob).mockReset();
+  vi.mocked(downloadUrl).mockReset();
 });
 
 describe("ExportDialog", () => {
@@ -137,6 +137,7 @@ describe("ExportDialog", () => {
   test("sendet geänderte Werte und nur benutzte Parameter", async () => {
     vi.mocked(fetchAssExport).mockResolvedValue({
       blob: new Blob(["ass"]),
+      url: "/api/recordings/rec-1/export/ass?preset=classic&params=%7B%7D",
       filename: "interview.ass",
       preset: "classic",
       words: 12,
@@ -164,8 +165,16 @@ describe("ExportDialog", () => {
     expect(Object.keys(params)).not.toContain("accent_color");
     expect(Object.keys(params)).not.toContain("dim_color");
 
-    await waitFor(() => expect(saveBlob).toHaveBeenCalled());
-    expect(vi.mocked(saveBlob).mock.calls[0][1]).toBe("interview.ass");
+    await waitFor(() => expect(downloadUrl).toHaveBeenCalled());
+    expect(vi.mocked(downloadUrl).mock.calls[0][1]).toBe("interview.ass");
+    // WICHTIG: gespeichert wird über die API-URL (nativer Browser-Download),
+    // NICHT über einen Blob — Blob-Downloads verwerfen manche Browser still.
+    const [dlUrl] = vi.mocked(downloadUrl).mock.calls[0];
+    expect(dlUrl).toContain("/export/ass?preset=classic");
+    expect(dlUrl).not.toContain("blob:");
+    // Und es gibt einen echten Link als Ersatzweg, mit derselben URL.
+    const fb = await screen.findByTestId("ass-export-fallback");
+    expect(fb.getAttribute("href")).toBe(dlUrl);
   });
 
   test("macht einen Serverfehler sichtbar (409 keine Wortzeiten)", async () => {
@@ -179,7 +188,7 @@ describe("ExportDialog", () => {
 
     const box = await screen.findByTestId("ass-export-error");
     expect(box.textContent).toMatch(/word timestamps/i);
-    expect(vi.mocked(saveBlob)).not.toHaveBeenCalled();
+    expect(vi.mocked(downloadUrl)).not.toHaveBeenCalled();
   });
 
   test("meldet unbekannte Fehlercodes ehrlich statt leer", async () => {
@@ -198,6 +207,7 @@ describe("ExportDialog", () => {
   test("zeigt Warnungen aus dem Export (Wortzeiten mechanisch verteilt)", async () => {
     vi.mocked(fetchAssExport).mockResolvedValue({
       blob: new Blob(["ass"]),
+      url: "/api/recordings/rec-1/export/ass?preset=highlight&params=%7B%7D",
       filename: "interview.ass",
       preset: "highlight",
       words: 40,
@@ -216,6 +226,7 @@ describe("ExportDialog", () => {
   test("nennt Wörter- und Zeilenzahl nach erfolgreichem Export", async () => {
     vi.mocked(fetchAssExport).mockResolvedValue({
       blob: new Blob(["ass"]),
+      url: "/api/recordings/rec-1/export/ass?preset=highlight&params=%7B%7D",
       filename: "interview.ass",
       preset: "highlight",
       words: 40,

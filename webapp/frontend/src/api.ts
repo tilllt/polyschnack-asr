@@ -495,6 +495,8 @@ export class AssExportError extends Error {
 
 export interface AssExportResult {
   blob: Blob;
+  /** Die angefragte API-URL (Preset + Parameter) — für den nativen Download. */
+  url: string;
   filename: string;
   preset: string;
   words: number;
@@ -520,7 +522,8 @@ export async function fetchAssExport(
   params: Record<string, number | string | boolean>,
 ): Promise<AssExportResult> {
   const qs = new URLSearchParams({ preset, params: JSON.stringify(params) });
-  const res = await fetch(`/api/recordings/${uid}/export/ass?${qs.toString()}`);
+  const url = `/api/recordings/${uid}/export/ass?${qs.toString()}`;
+  const res = await fetch(url);
   if (!res.ok) {
     let code = "unknown_error";
     let hint = "";
@@ -547,6 +550,7 @@ export async function fetchAssExport(
     .filter(Boolean);
   return {
     blob,
+    url,
     filename: filenameFromDisposition(
       res.headers.get("Content-Disposition"),
       `${uid}.ass`,
@@ -557,6 +561,32 @@ export async function fetchAssExport(
     timing: res.headers.get("X-Polyschnack-Timing") ?? "real",
     warnings,
   };
+}
+
+/**
+ * Datei über die API-URL herunterladen — der Weg, den die übrigen Exporte
+ * (TXT/SRT/AUD) schon immer nutzen: der Browser holt die Datei selbst, der
+ * Server schickt `Content-Disposition: attachment`.
+ *
+ * Warum nicht der Blob aus `saveBlob`: ein programmatisch geklickter Anker auf
+ * eine `blob:`-URL wird von manchen Browsern (iOS/Safari, PWA-/WebView-Modus,
+ * harte Download-Einstellungen) still verworfen. Beobachtet am ASS-Export: der
+ * Server lieferte 200 auf `/export/ass`, beim Nutzer kam trotzdem keine Datei an
+ * (belegt im Traefik-Zugriffsprotokoll). Erst das Erzeugen der Datei nach dem
+ * Laden ist fragil — der Blob wird deshalb nicht mehr zum Speichern benutzt.
+ */
+export function downloadUrl(url: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  // Aufräumen verzögert: sofortiges Entfernen ist in Chromium unproblematisch
+  // (gegen einen echten Server geprüft, Datei kommt an), aber ältere Engines
+  // brechen einen Download ab, dessen auslösendes Element schon weg ist.
+  setTimeout(() => a.remove(), 60_000);
 }
 
 /** Blob als Datei speichern (Object-URL wird danach wieder freigegeben). */

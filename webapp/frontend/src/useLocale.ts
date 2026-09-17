@@ -415,6 +415,7 @@ const dict: Record<Lang, Record<string, string>> = {
       "A renderização de vídeo não está ativada nesta instalação. O arquivo .ass pode ser aberto no VLC ou gravado com ffmpeg: ffmpeg -i video.mp4 -vf ass=legendas.ass saida.mp4",
     ass_export_ok: "Arquivo de legendas baixado",
     ass_export_failed: "Falha na exportação",
+    ass_export_fallback: "Nada foi salvo? Clique aqui",
     ass_export_words: "palavras",
     ass_export_lines: "linhas",
     ass_err_no_word_timestamps:
@@ -873,6 +874,7 @@ const dict: Record<Lang, Record<string, string>> = {
       "Video-Rendern ist auf dieser Installation nicht aktiviert. Die .ass-Datei kannst du in VLC laden oder mit ffmpeg einbrennen: ffmpeg -i video.mp4 -vf ass=untertitel.ass ausgabe.mp4",
     ass_export_ok: "Untertitel-Datei heruntergeladen",
     ass_export_failed: "Export fehlgeschlagen",
+    ass_export_fallback: "Nichts gespeichert? Hier klicken",
     ass_export_words: "Wörter",
     ass_export_lines: "Zeilen",
     ass_err_no_word_timestamps:
@@ -1331,6 +1333,7 @@ const dict: Record<Lang, Record<string, string>> = {
       "Video rendering is not enabled on this installation. The .ass file can be opened in VLC or burned in with ffmpeg: ffmpeg -i video.mp4 -vf ass=subtitles.ass out.mp4",
     ass_export_ok: "Subtitle file downloaded",
     ass_export_failed: "Export failed",
+    ass_export_fallback: "Nothing saved? Click here",
     ass_export_words: "words",
     ass_export_lines: "lines",
     ass_err_no_word_timestamps:

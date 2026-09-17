@@ -4,9 +4,9 @@ import { Loader2, X, Download, AlertTriangle, Info, ChevronDown, Sparkles } from
 import type { AssExportResult, ExportCatalog, ExportParamSpec, Recording } from "../api";
 import {
   AssExportError,
+  downloadUrl,
   fetchAssExport,
   fetchExportPresets,
-  saveBlob,
 } from "../api";
 import { useT } from "../useLocale";
 import { useToast } from "./Toasts";
@@ -116,7 +116,7 @@ export function ExportDialog({
     setResult(null);
     try {
       const res = await fetchAssExport(recording.uid, activePreset.name, payload);
-      saveBlob(res.blob, res.filename);
+      downloadUrl(res.url, res.filename);
       setResult(res);
       toast(t("ass_export_ok"), "ok");
     } catch (e) {
@@ -308,6 +308,22 @@ export function ExportDialog({
                 data-testid="ass-export-result"
               >
                 {result.words} {t("ass_export_words")} · {result.lines} {t("ass_export_lines")}
+              </div>
+            )}
+
+            {/* Ersatzweg, immer sichtbar sobald eine Datei erzeugt wurde: einige
+                Browser verwerfen programmatisch ausgelöste Downloads still — ein
+                Link, den der Nutzer selbst anklickt, funktioniert dort zuverlässig. */}
+            {result && (
+              <div className="mt-1 text-[11px] text-muted2">
+                <a
+                  href={result.url}
+                  download={result.filename}
+                  className="text-accent underline decoration-dotted"
+                  data-testid="ass-export-fallback"
+                >
+                  {t("ass_export_fallback")}
+                </a>
               </div>
             )}
 

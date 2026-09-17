@@ -111,6 +111,19 @@ Stand: 17.09.2026 — Phase 1 + 2 sind implementiert (Tests grün), Phase 3–5 
 
 ### Offen aus der Abnahme
 
+- **Download-Weg korrigiert (17.09., nach der Abnahme):** Der Dialog speicherte die
+  Datei über einen `blob:`-Anker. Der Server lieferte 200, beim Nutzer kam aber
+  keine Datei an (belegt im Traefik-Zugriffsprotokoll: `200 GET …/export/ass?preset=
+  highlight&params=…` um 19:10:31 bzw. `kinetic` 19:11:22, keine gespeicherte Datei).
+  Jetzt derselbe Weg wie bei TXT/SRT/AUD: `downloadUrl(url, name)` setzt einen
+  Anker auf die **API-URL** (Server schickt `Content-Disposition: attachment`),
+  der `fetch` bleibt nur zur Prüfung/Meldung. Zusätzlich steht unter dem Dialog ein
+  sichtbarer Ersatzlink („Nichts gespeichert? Hier klicken").
+  Nachgewiesen: gegen einen echten HTTP-Server im Chromium gespeichert (128 B,
+  korrekter Inhalt), auch bei sofortigem Entfernen des Ankers; im vollen
+  GUI-Durchlauf feuert das Download-Ereignis mit der API-URL als Ziel.
+  Tests: 461 Frontend-Tests grün, `tsc + vite` grün.
+
 - **Share-Link-Recordings haben teils kryptische Titel** (`iy7szEP8szHBeVVpmKSSVX.ass`
   als Dateiname, weil `original_name` beim URL-Import so heißt). Der Export nutzt
   korrekt den Titel/das Original — die Datei heißt dann eben so. Bei Bedarf den
