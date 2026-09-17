@@ -1,0 +1,13 @@
+name: Aufpoppen
+description: "Aufpoppen: Das gerade gesprochene Wort springt gross hervor und schrumpft sofort auf Normalgrösse."
+description_en: "Pop: the word being spoken pops up large and settles back to normal size."
+description_pt: "Pop: a palavra falada surge grande e volta ao tamanho normal."
+defaults:
+  font_size: 58
+  words_per_line: 4
+  pop_scale: 135
+  pop_ms: 220
+  margin_v: 90
+style:
+  primary: text_color
+  secondary: accent_color

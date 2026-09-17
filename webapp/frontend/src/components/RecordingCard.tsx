@@ -8,6 +8,7 @@ import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
+import { ExportDialog } from "./ExportDialog";
 import JobStatus from "./JobStatus";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate, parseUtcMs } from "../format";
 import { WaveformPlayer, type WaveSurferHandle, type TimingWord } from "./WaveformPlayer";
@@ -252,6 +253,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Audio läuft; das Karaoke-Highlight bleibt aktiv.
   const [followPlayback, setFollowPlayback] = useState(true);
   const [dlOpen, setDlOpen] = useState(false);
+  // Change 193: ASS-Untertitel-Export (animierte Captions) als Dialog.
+  const [exportOpen, setExportOpen] = useState(false);
   // Change 015: Export-Formate dynamisch aus GET /export-templates
   // (Fallback: hartkodierte txt|srt|vtt, falls der Call fehlschlägt).
   const [exportTemplates, setExportTemplates] = useState<ExportTemplate[] | null>(null);
@@ -2114,6 +2117,28 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     <span>{fmt.name}</span>
                   </a>
                 ))}
+                {/* Change 193: animierte Untertitel fürs Video — öffnet den
+                    Export-Dialog (Preset-Auswahl + Parameter). Kein reiner
+                    Download-Link, weil Backend-Fehler (409 „keine Wortzeiten")
+                    und Timing-Hinweise sichtbar werden müssen. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDlOpen(false);
+                    setExportOpen(true);
+                  }}
+                  data-testid="open-ass-export"
+                  className="
+                    w-full flex items-center gap-2 px-[10px] py-[7px] rounded-[5px]
+                    text-txt text-[13px] cursor-pointer text-left
+                    hover:bg-panel2 transition-colors duration-[120ms]
+                  "
+                >
+                  <span className="font-semibold text-[11px] text-accent w-[26px]">
+                    ASS
+                  </span>
+                  <span>{t("ass_export_menu")}</span>
+                </button>
                 {/* Change 169: Original-Aufnahme herunterladen — get_audio
                     liefert die Original-Datei mit original_name (attachment);
                     für alle read-Zugriffe (der Player streamt sie ebenso). */}
@@ -2383,6 +2408,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         </button>
       </div>
       </>)}
+
+      {/* Change 193: Export-Dialog für animierte ASS-Untertitel. */}
+      {exportOpen && (
+        <ExportDialog recording={r} onClose={() => setExportOpen(false)} />
+      )}
 
       {/* Change 056: Annotate-Popover (Text markieren → 💬 → Kommentar).
           Overlay zentriert; zeigt die markierte Passage + Markdown-Eingabe. */}

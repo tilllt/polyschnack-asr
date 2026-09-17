@@ -1,0 +1,12 @@
+name: Klassisch
+description: "Klassisch: ganzer Satz unten eingeblendet — weisse Schrift mit schwarzer Kante."
+description_en: "Classic: whole sentence at the bottom, white text with a black outline."
+description_pt: "Clássico: frase inteira na parte de baixo, texto branco com contorno preto."
+defaults:
+  font_size: 48
+  words_per_line: 6
+  fade_ms: 150
+  margin_v: 80
+style:
+  primary: text_color
+  secondary: text_color

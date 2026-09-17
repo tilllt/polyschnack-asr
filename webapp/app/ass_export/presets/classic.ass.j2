@@ -1,0 +1,6 @@
+{#- Klassisch: eine Zeile pro Caption, weisse Schrift mit Kante, optional Ein-/Ausblenden. -#}
+{% import "_base.ass.j2" as base %}{% call base.document(meta, styles) -%}
+{% for line in lines -%}
+Dialogue: 0,{{ line.start_tc }},{{ line.end_tc }},Default,{{ line.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{{ line.text | ass_escape }}
+{% endfor -%}
+{%- endcall %}

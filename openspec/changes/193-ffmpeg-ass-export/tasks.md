@@ -1,32 +1,62 @@
 # Change 193 — Tasks
 
+Stand: 17.09.2026 — Phase 1 + 2 sind implementiert (Tests grün), Phase 3–5 offen.
+
+**Abweichungen von der ursprünglichen Planung (aus technischen Gründen):**
+
+- Das Paket heißt `app/ass_export/`, nicht `app/export/`. Ein Paket `app/export/`
+  würde das **bestehende Modul `app/export.py`** (Change 008, Template-Exporte für
+  TXT/SRT/VTT) verdecken — Python löst `app.export` dann auf das Paket auf und der
+  bestehende Export bricht.
+- Preset-Dateien heißen `<name>.yaml` (nicht `preset.yaml`): mehrere Presets liegen
+  nebeneinander im selben Verzeichnis; `preset.yaml` wäre fünfmal derselbe Name.
+- Eine Fortschritts-Anzeige braucht der **ASS-Export** nicht: die Erzeugung dauert
+  Millisekunden und läuft synchron im Request. Fortschritt gehört zur Render-Strecke
+  (Phase 4) — für Phase 2 wäre ein Fortschrittsbalken eine Anzeige ohne echten Wert.
+
 ## Phase 1: ASS-Generator + Presets (Kern)
 
-- [ ] `app/export/` Verzeichnis anlegen
-- [ ] `app/export/presets.py` — Preset-Manager (lädt .ass.j2-Templates, merged Parameter)
-- [ ] `app/export/template_engine.py` — Jinja2-basierte Template-Engine (Platzhalter, Schleifen, Filter)
-- [ ] `app/export/ass_generator.py` — Nimmt Caption[] + Template + Parameter → .ass-String
-- [ ] 5 Standard-Presets als `.ass.j2` unter `app/export/presets/`:
-  - [ ] `classic.ass.j2`
-  - [ ] `karaoke.ass.j2`
-  - [ ] `highlight.ass.j2`
-  - [ ] `kinetic.ass.j2`
-  - [ ] `modern.ass.j2`
-- [ ] Jedes Preset hat `preset.yaml` mit Default-Parametern + Beschreibung
-- [ ] Tests: ASS-Generator erzeugt valides ASS für jedes Preset + Caption-Datensatz
+- [x] `app/ass_export/` Verzeichnis angelegt (siehe Abweichung oben)
+- [x] `app/ass_export/presets.py` — Preset-Manager (lädt `.yaml` + Vorlage, merged Parameter, prüft Werte)
+- [x] `app/ass_export/template_engine.py` — Jinja2 (`SandboxedEnvironment`, `StrictUndefined`) mit ASS-Filtern
+- [x] `app/ass_export/ass_generator.py` — Wort-Timings + Vorlage + Parameter → `.ass`
+- [x] 5 Standard-Presets als `.ass.j2` unter `app/ass_export/presets/`:
+  - [x] `classic.ass.j2`
+  - [x] `karaoke.ass.j2` (`\kf`-Farbverlauf je Wort, Summe = Event-Dauer)
+  - [x] `highlight.ass.j2`
+  - [x] `kinetic.ass.j2`
+  - [x] `modern.ass.j2`
+- [x] Jedes Preset hat ein YAML mit Default-Parametern + Beschreibung (de/en/pt)
+- [x] Tests: ASS-Generator erzeugt valides ASS für jedes Preset + Caption-Datensatz
+  (`tests/test_ass_export.py`, 55 Tests: Struktur, Monotonie, Überlappungsfreiheit,
+  Karaoke-Sync, Klammer-Ersatz, Parameter-Grenzen, Misch-/Fallback-Timing)
+- [x] Zusätzlich: `tests/test_ass_export_render.py` — die erzeugten Dateien werden mit
+  **libass gerendert und pixelweise gemessen** (Karaoke füllt sich, Akzent wandert zum
+  nächsten Wort, Aufpoppen startet groß, Social Media blendet Wörter nacheinander ein,
+  Klammer-Ersatz ist sichtbar). Ein Struktur-Test allein würde die Wirkung nicht belegen.
 
 ## Phase 2: Export-API (Webapp)
 
-- [ ] `routers/export.py` — 2 Endpoints:
-  - [ ] `GET /api/recordings/{id}/export/ass?preset=...&params=...` → `.ass`-Datei
-  - [ ] `POST /api/recordings/{id}/export` → Body: `{preset, background_video?, params}`
-- [ ] Export-Dialog in der UI (`RecordingCard.tsx` oder `ExportDialog.tsx`):
-  - [ ] Export-Button neben Restranscribe/Align
-  - [ ] Preset-Auswahl (Dropdown/Grid mit Vorschau)
-  - [ ] Parameter-Eingabe (Farbe, Größe, Position — optional)
-  - [ ] Button: "ASS herunterladen" oder "Video rendern"
-- [ ] Fortschritts-Anzeige beim Rendern (WebSocket oder Polling)
-- [ ] Tests: ASS-Export-Endpoint, Render-Endpoint, Template-Verarbeitung
+- [x] `routers/export.py` — Endpoints:
+  - [x] `GET /api/recordings/{id}/export/ass?preset=...&params=...` → `.ass`-Datei
+    (409 `no_word_timestamps`, 409 `not_transcribed`, 404 `unknown_preset`,
+    400 `invalid_params`, 500 `template_error`; Header `X-Polyschnack-Timing/Words/Lines/Warnings`)
+  - [x] `GET /api/export/presets` — Katalog + Parameter-Schema + `used_params` je Preset
+  - [x] `POST /api/recordings/{id}/export` → validiert Preset/Parameter und antwortet ohne
+    Render-Dienst **503 `render_unavailable`** (Phase 4 schaltet das frei)
+- [x] Export-Dialog in der UI (`ExportDialog.tsx`, eingehängt in `RecordingCard.tsx`):
+  - [x] Einstieg im bestehenden Download-Dropdown (Konsistenz mit TXT/SRT/VTT/AUD/ZIP,
+        statt eines weiteren Buttons in der Knopfreihe)
+  - [x] Preset-Auswahl als Kacheln mit Beschreibung in der UI-Sprache
+  - [x] Parameter-Eingabe generisch aus dem Backend-Schema (Regler für Zahlen,
+        Farbwähler, Schalter, Auswahl) — **nur** die Parameter, die die Vorlage
+        benutzt (`used_params`); Rest unter „Weitere Optionen"
+  - [x] „ASS herunterladen" (Download per `fetch` + Blob, damit Fehler und
+        Warnungen sichtbar sind) — kein Render-Knopf, solange
+        `render_available: false`
+- [x] Fortschritts-Anzeige: für den ASS-Export nicht nötig (siehe Abweichung oben);
+  gehört zu Phase 4
+- [x] Tests: `tests/test_export_ass_api.py` (12 Tests) + `ExportDialog.test.tsx` (12 Tests)
 
 ## Phase 3: User-Templates (CRUD + Marktplatz)
 
@@ -49,15 +79,17 @@
 - [ ] Dockerfile für ps-render (Python + ffmpeg + libass)
 - [ ] `compose.yml`: Neuer Service `ps-render` mit Profil `render`
 - [ ] Render-API: `POST /render` (empfängt .ass + background.mp4, gibt MP4)
-- [ ] Render-Client in Webapp: `app/export/render_client.py`
+- [ ] Render-Client in Webapp: `app/ass_export/render_client.py`
 - [ ] Fortschritts-WebSocket vom Render-Container
 - [ ] Automatische Bereinigung temp-Dateien (24h TTL)
 - [ ] Tests: Render-Integration (mockt Container)
 
 ## Phase 5: Abnahme
 
-- [ ] CI-Pipeline: Neue Tests grün
-- [ ] ASS-Export mit allen 5 Presets auf Prod verifizieren
+- [ ] CI-Pipeline: Neue Tests grün (nach dem Push prüfen — `jinja2` ist dafür in
+  `.gitlab-ci.yml` beim `test-webapp`-Job ergänzt)
+- [ ] ASS-Export mit allen 5 Presets auf Prod verifizieren (echtes Recording, alle
+  Presets herunterladen, Rendering gegenprüfen)
 - [ ] Template-Erstellung + Installation + Sharing auf Prod testen
 - [ ] Render-Container (optional) auf Prod starten und Video-Export verifizieren
 - [ ] Admin-Doku: Neuer Abschnitt "Export" + "Optionaler Render-Container"

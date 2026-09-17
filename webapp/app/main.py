@@ -46,6 +46,7 @@ from .routers.llm_endpoints import router as llm_endpoints_router
 from .routers.templates import router as templates_router
 from .routers.targets import router as targets_router
 from .routers.url_import import router as url_import_router
+from .routers.export import router as export_router
 
 log = logging.getLogger(__name__)
 
@@ -326,6 +327,7 @@ app.include_router(url_import_router)
 app.include_router(auth_router)
 app.include_router(annotations_router)
 app.include_router(benchmark_router)
+app.include_router(export_router)
 
 
 @app.get("/health")

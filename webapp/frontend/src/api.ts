@@ -443,6 +443,134 @@ export async function fetchExportTemplates(): Promise<ExportTemplate[]> {
   return data.templates ?? [];
 }
 
+/* ---------------------------------------------------------------------------
+ * Change 193: ASS-Untertitel-Export (animierte Captions fürs Video).
+ * ------------------------------------------------------------------------- */
+
+/** Parameter-Typ laut Backend-Schema (steuert das Bedienelement im Dialog). */
+export interface ExportParamSpec {
+  type: "int" | "str" | "bool" | "color" | "enum";
+  min?: number;
+  max?: number;
+  values?: string[];
+  max_len?: number;
+}
+
+export interface ExportPreset {
+  name: string;
+  title: string;
+  description: string;
+  description_en?: string;
+  description_pt?: string;
+  /** Effektive Defaults (globale Defaults + Preset-Überschreibungen). */
+  parameters: Record<string, number | string | boolean>;
+  /** Nur die Parameter, die diese Vorlage wirklich benutzt. */
+  used_params: string[];
+}
+
+export interface ExportCatalog {
+  presets: ExportPreset[];
+  parameter_specs: Record<string, ExportParamSpec>;
+  /** false = kein Render-Container konfiguriert (nur ASS-Download). */
+  render_available: boolean;
+}
+
+export async function fetchExportPresets(): Promise<ExportCatalog> {
+  const res = await fetch("/api/export/presets").then(checkOk);
+  return (await res.json()) as ExportCatalog;
+}
+
+/** Fehler mit maschinenlesbarem Code aus dem Backend (409/400/404/503). */
+export class AssExportError extends Error {
+  code: string;
+  hint: string;
+
+  constructor(code: string, hint: string, message?: string) {
+    super(message ?? code);
+    this.name = "AssExportError";
+    this.code = code;
+    this.hint = hint;
+  }
+}
+
+export interface AssExportResult {
+  blob: Blob;
+  filename: string;
+  preset: string;
+  words: number;
+  lines: number;
+  timing: string;
+  warnings: string[];
+}
+
+/** Dateiname aus dem Content-Disposition-Header (Fallback: <uid>.ass). */
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  const m = header?.match(/filename="([^"]+)"/);
+  return m ? m[1] : fallback;
+}
+
+/**
+ * Holt die .ass-Datei als Blob (bewusst per fetch statt <a href>): nur so
+ * sind Fehlerstatus (409 „keine Wortzeiten") und die Hinweis-Header
+ * (Timing real/mixed, Warnungen) im Dialog sichtbar.
+ */
+export async function fetchAssExport(
+  uid: string,
+  preset: string,
+  params: Record<string, number | string | boolean>,
+): Promise<AssExportResult> {
+  const qs = new URLSearchParams({ preset, params: JSON.stringify(params) });
+  const res = await fetch(`/api/recordings/${uid}/export/ass?${qs.toString()}`);
+  if (!res.ok) {
+    let code = "unknown_error";
+    let hint = "";
+    let detail = "";
+    try {
+      const body = await res.json();
+      const d = body?.detail;
+      if (typeof d === "string") {
+        detail = d;
+      } else if (d && typeof d === "object") {
+        code = d.error ?? code;
+        hint = d.hint ?? "";
+        detail = d.detail ?? "";
+      }
+    } catch {
+      /* kein JSON-Body */
+    }
+    throw new AssExportError(code, hint, detail || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const warnings = (res.headers.get("X-Polyschnack-Warnings") ?? "")
+    .split(",")
+    .map((w) => w.trim())
+    .filter(Boolean);
+  return {
+    blob,
+    filename: filenameFromDisposition(
+      res.headers.get("Content-Disposition"),
+      `${uid}.ass`,
+    ),
+    preset: res.headers.get("X-Polyschnack-Preset") ?? preset,
+    words: Number(res.headers.get("X-Polyschnack-Words") ?? 0),
+    lines: Number(res.headers.get("X-Polyschnack-Lines") ?? 0),
+    timing: res.headers.get("X-Polyschnack-Timing") ?? "real",
+    warnings,
+  };
+}
+
+/** Blob als Datei speichern (Object-URL wird danach wieder freigegeben). */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 export async function fetchStats(): Promise<Stats> {
   const res = await fetch("/api/stats").then(checkOk);
   return res.json() as Promise<Stats>;

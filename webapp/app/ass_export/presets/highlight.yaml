@@ -1,0 +1,11 @@
+name: Hervorhebung
+description: "Hervorhebung: Das gerade gesprochene Wort leuchtet farbig, alle anderen bleiben grau."
+description_en: "Highlight: the word being spoken lights up in colour, the rest stay grey."
+description_pt: "Destaque: a palavra falada acende em cor, as outras ficam cinza."
+defaults:
+  font_size: 56
+  words_per_line: 4
+  margin_v: 90
+style:
+  primary: text_color
+  secondary: accent_color

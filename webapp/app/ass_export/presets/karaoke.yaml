@@ -1,0 +1,13 @@
+name: Karaoke
+description: "Karaoke: Die Wörter füllen sich nacheinander mit Farbe — wie beim Mitsingen."
+description_en: "Karaoke: words fill up with colour one after another, like singing along."
+description_pt: "Karaokê: as palavras vão se preenchendo de cor, uma após a outra."
+defaults:
+  font_size: 56
+  words_per_line: 5
+  tail_ms: 400
+  margin_v: 90
+style:
+  # Primär = gesungen (Akzent), Sekundär = noch nicht gesungen (grau).
+  primary: accent_color
+  secondary: dim_color

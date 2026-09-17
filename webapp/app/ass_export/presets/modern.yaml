@@ -1,0 +1,18 @@
+name: Social Media
+description: "Social Media: grosse Schrift in der Mitte, Wörter erscheinen beim Sprechen, das aktive Wort wächst."
+description_en: "Social media: large text in the centre, words appear as they are spoken, the active word grows."
+description_pt: "Redes sociais: texto grande no centro, palavras aparecem conforme a fala, a palavra ativa cresce."
+defaults:
+  font_size: 84
+  words_per_line: 3
+  position: center
+  uppercase: true
+  hide_upcoming: true
+  active_scale: 112
+  play_res_x: 1080
+  play_res_y: 1920
+  margin_v: 0
+  tail_ms: 250
+style:
+  primary: text_color
+  secondary: accent_color

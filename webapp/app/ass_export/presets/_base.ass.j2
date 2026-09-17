@@ -1,0 +1,33 @@
+{#-
+  Gemeinsamer ASS-Rahmen (Change 193): Kopf + Stile + Event-Format.
+  Jedes Preset importiert diese Datei und ruft das Makro "document" auf;
+  der Aufrufer liefert nur die Dialogue-Zeilen.
+
+  Whitespace-Regel: Block-Tags am Zeilenende tragen "-%}" (schneidet den
+  Zeilenumbruch ab), damit jedes Event exakt eine eigene Zeile bekommt.
+
+  Kontext:
+    meta.title, meta.play_res_x|y  — Szenengroesse in Pixeln
+    styles[]                       — fertige ASS-Stil-Felder (Farben &HAABBGGRR)
+-#}
+{% macro document(meta, styles) -%}
+[Script Info]
+Title: {{ meta.title | ass_escape }}
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: {{ meta.play_res_x }}
+PlayResY: {{ meta.play_res_y }}
+YCbCr Matrix: TV.709
+; generator: {{ meta.generator }}
+; preset: {{ meta.preset }}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+{% for s in styles -%}
+Style: {{ s.name }},{{ s.fontname }},{{ s.fontsize }},{{ s.primary }},{{ s.secondary }},{{ s.outline }},{{ s.back }},{{ s.bold }},{{ s.italic }},{{ s.underline }},{{ s.strikeout }},{{ s.scale_x }},{{ s.scale_y }},{{ s.spacing }},{{ s.angle }},{{ s.border_style }},{{ s.outline_px }},{{ s.shadow }},{{ s.alignment }},{{ s.margin_l }},{{ s.margin_r }},{{ s.margin_v }},{{ s.encoding }}
+{% endfor %}
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+{{ caller() }}
+{%- endmacro %}
