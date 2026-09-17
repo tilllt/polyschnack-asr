@@ -86,11 +86,36 @@ Stand: 17.09.2026 — Phase 1 + 2 sind implementiert (Tests grün), Phase 3–5 
 
 ## Phase 5: Abnahme
 
-- [ ] CI-Pipeline: Neue Tests grün (nach dem Push prüfen — `jinja2` ist dafür in
-  `.gitlab-ci.yml` beim `test-webapp`-Job ergänzt)
-- [ ] ASS-Export mit allen 5 Presets auf Prod verifizieren (echtes Recording, alle
-  Presets herunterladen, Rendering gegenprüfen)
-- [ ] Template-Erstellung + Installation + Sharing auf Prod testen
-- [ ] Render-Container (optional) auf Prod starten und Video-Export verifizieren
+- [x] CI-Pipeline: Neue Tests grün — Pipeline **5317** (`8dad641`): `test-webapp`,
+  `test-frontend`, `grep-gate`, `build-webapp` = success (die `mirror-*`-Jobs
+  hängen an `needs:` und laufen länger; Freigabe war `build-webapp`, s. Skill).
+- [x] ASS-Export mit allen 5 Presets auf Prod verifizieren — **17.09.2026**,
+  `whisper.cia-spandau.de`, Image-Revision `8dad6417` (Label im Container geprüft):
+  - `/api/export/presets` → 200, fünf Presets, `render_available: false`;
+    `classic` liefert 18 `used_params` **ohne** `accent_color`, `highlight` **mit** —
+    die Regel „nur wirkende Regler" greift also live.
+  - `GET /api/recordings/<unbekannt>/export/ass` → 404 (Route + Zugriffsprüfung live).
+  - Echtes Recording über den Share-Link (414 Wörter, `timing=real`), alle fünf
+    Presets geladen: `classic` 76 / `karaoke` 92 / `highlight`, `kinetic`, `modern`
+    je 414 Events; `Content-Disposition` + `X-Polyschnack-*`-Header vorhanden.
+  - Jede der fünf Dateien mit **libass gerendert**: rc=0, keine libass-Fehler,
+    Captions in 27/30 Frames sichtbar; in der Datei 0 ungültige Events und
+    0 Überlappungen.
+  - Ausgeliefertes Frontend-Bundle (`assets/index-BnERVeki.js`) enthält
+    `/api/export/presets`, `/export/ass` und `ass_export_download` — der Dialog
+    ist im Prod-Build, nicht nur im Repo.
+- [ ] Template-Erstellung + Installation + Sharing auf Prod testen (Phase 3)
+- [ ] Render-Container (optional) auf Prod starten und Video-Export verifizieren (Phase 4)
 - [ ] Admin-Doku: Neuer Abschnitt "Export" + "Optionaler Render-Container"
-- [ ] OpenSpec archivieren (nach Merge)
+- [ ] OpenSpec archivieren (nach Abschluss von Phase 3/4)
+
+### Offen aus der Abnahme
+
+- **Share-Link-Recordings haben teils kryptische Titel** (`iy7szEP8szHBeVVpmKSSVX.ass`
+  als Dateiname, weil `original_name` beim URL-Import so heißt). Der Export nutzt
+  korrekt den Titel/das Original — die Datei heißt dann eben so. Bei Bedarf den
+  Dateinamen im Dialog editierbar machen (nicht Teil dieses Changes).
+- Der **anonyme** Export über einen aktiven Share-Link funktioniert (read-Recht).
+  Für eingeloggte Nutzer ist der Weg identisch; ein Wire-Test mit Session ist
+  ohne echtes Konto nicht möglich (OIDC=1) — die 404-Probe belegt Route + Guard.
+
