@@ -289,6 +289,145 @@ def _run_job(job: Job, spec: dict, ass_path: Path, media_path: Optional[Path],
         except Exception:
             pass
         job._proc = None
+        _write_job_file(job)
+
+
+# ---------------------------------------------------------------------------
+# Wiederherstellung nach einem Neustart
+# ---------------------------------------------------------------------------
+# Der Dienst hielt seine Auftraege NUR im Arbeitsspeicher. Ein Neustart (Deploy,
+# Absturz) machte damit fertige Dateien unauffindbar: der Nutzer bekam "Auftrag
+# unbekannt" fuer ein Video, das vollstaendig auf der Platte lag (live passiert
+# am 18.09., der Download brach dadurch ab).
+#
+# Beim Start wird deshalb rekonstruiert — und zwar nur, was nachweislich
+# vollstaendig ist. Ein halbes Video darf nie ausgeliefert werden.
+
+#: Dateien im Auftragsverzeichnis, die selbst keine Ausgabe sind.
+_CONTROL_NAMES = {"cmd.txt", "ffmpeg.log", "meta.json", "job.json", "subtitles.ass"}
+
+
+def _write_job_file(job: "Job") -> None:
+    """Zustand sichern, damit ein Neustart den Auftrag wiederfindet."""
+    try:
+        (job.dir / "job.json").write_text(json.dumps({
+            "id": job.id, "format": job.format, "state": job.state,
+            "progress": job.progress, "filename": job.filename,
+            "size_bytes": job.size_bytes, "error": job.error,
+            "created_at": job.created, "duration_s": job.duration_s,
+        }, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass          # kein Grund, den Auftrag deswegen scheitern zu lassen
+
+
+def _media_duration_s(path: Path) -> Optional[float]:
+    """Dauer laut ffprobe, oder None wenn die Datei nicht lesbar ist."""
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        value = float(res.stdout.strip())
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _completeness(path: Path, expected_s: float) -> tuple:
+    """(vollstaendig?, Grund). Prueft Existenz, Lesbarkeit UND Laenge."""
+    if not path.exists():
+        return False, "Datei fehlt"
+    if path.stat().st_size == 0:
+        return False, "Datei ist leer"
+    if path.suffix == ".zip":
+        try:
+            import zipfile
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+                if not names or zf.testzip() is not None:
+                    return False, "Archiv ist unvollstaendig"
+        except Exception:
+            return False, "Archiv ist unvollstaendig"
+        return True, ""
+    duration = _media_duration_s(path)
+    if duration is None:
+        return False, "Datei ist nicht lesbar (unvollstaendig)"
+    # Ein abgebrochener Lauf liefert eine kuerzere Datei — das ist der Fall,
+    # den der Nutzer als "Download bricht ab" sieht.
+    if expected_s > 1.0 and duration < expected_s - 1.5:
+        return False, f"nur {duration:.1f} s von {expected_s:.1f} s gerechnet"
+    return True, ""
+
+
+def _recover_jobs() -> int:
+    """Auftraege aus dem Datenverzeichnis zurueckholen (Rueckgabe: Anzahl)."""
+    if not DATA_DIR.exists():
+        return 0
+    recovered = 0
+    for job_dir in sorted(p for p in DATA_DIR.iterdir() if p.is_dir()):
+        saved, meta_path = job_dir / "job.json", job_dir / "meta.json"
+        job: Optional[Job] = None
+        if saved.exists():
+            try:
+                data = json.loads(saved.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            job = Job(
+                id=data.get("id") or job_dir.name,
+                format=data.get("format") or "burn_mp4",
+                state=data.get("state") or "failed",
+                progress=float(data.get("progress") or 0.0),
+                filename=data.get("filename") or "",
+                size_bytes=int(data.get("size_bytes") or 0),
+                error=data.get("error") or "",
+                created=float(data.get("created_at") or 0.0) or job_dir.stat().st_mtime,
+                dir=job_dir,
+                duration_s=float(data.get("duration_s") or 0.0),
+            )
+        elif meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            fmt = meta.get("format") or ""
+            if fmt not in FORMATS:
+                continue
+            media = (meta.get("media") or "").strip()
+            candidates = [
+                f for f in job_dir.iterdir()
+                if f.is_file() and f.name not in _CONTROL_NAMES
+                and not f.name.startswith("frame_") and f.name != media
+            ]
+            job = Job(id=job_dir.name, format=fmt, dir=job_dir,
+                      created=job_dir.stat().st_mtime,
+                      duration_s=float(meta.get("duration_s") or 0.0))
+            if len(candidates) == 1:
+                job.filename = candidates[0].name
+                job.size_bytes = candidates[0].stat().st_size
+                # Als "fertig" vormerken — die Vollstaendigkeitspruefung unten
+                # stuft es wieder auf "failed" herunter, wenn etwas fehlt.
+                job.state, job.progress = "done", 1.0
+        if job is None:
+            continue
+        if job.state == "done":
+            ok, why = _completeness(job_dir / job.filename, job.duration_s)
+            if not ok:
+                job.state = "failed"
+                job.error = (f"Die Datei ist unvollstaendig ({why}) — der Dienst "
+                             f"wurde waehrend des Auftrags neu gestartet. Bitte neu erzeugen.")
+        elif job.state in {"running", "queued"}:
+            job.state = "failed"
+            job.error = ("Der Auftrag wurde durch einen Neustart des Dienstes "
+                         "unterbrochen — bitte neu erzeugen.")
+        with JOBS_LOCK:
+            JOBS[job.id] = job
+        _write_job_file(job)
+        recovered += 1
+    return recovered
 
 
 def _worker() -> None:
@@ -337,6 +476,9 @@ app = FastAPI(title="PolySchnack Render", version=VERSION)
 def _startup() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     _cleanup_old()
+    # Fertige Dateien überleben den Neustart — sonst war ein Deploy der Grund,
+    # dass ein bereits gerendertes Video nicht mehr herunterladbar war.
+    _recover_jobs()
     threading.Thread(target=_worker, daemon=True).start()
     threading.Thread(target=_cleanup_loop, daemon=True).start()
 

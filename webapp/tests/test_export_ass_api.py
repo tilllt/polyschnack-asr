@@ -358,3 +358,51 @@ def test_render_job_fehler_werden_zu_klaren_status(client, monkeypatch):
     r = client.get(f"/api/recordings/{rid}/export/jobs/job123")
     assert r.status_code == 410
     assert r.json()["detail"]["error"] == "expired"
+
+
+# ---------------------------------------------------------------------------
+# Regression: der Video-Download brach mit 500 ab (live 18.09.)
+# ---------------------------------------------------------------------------
+def test_open_file_liest_die_fehlermeldung_auch_bei_streaming(monkeypatch):
+    """httpx wirft bei ungarer Streaming-Antwort ResponseNotRead -> 500 statt 404."""
+    import httpx as _httpx
+
+    from app.ass_export import render_client as rc
+
+    body = b'{"detail":{"error":"unknown_job","detail":"Auftrag unbekannt"}}'
+    streamed = _httpx.Response(404, stream=_httpx.ByteStream(body),
+                              headers={"content-type": "application/json"})
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def build_request(self, *a, **k):
+            return _httpx.Request("GET", "http://render/jobs/x/file")
+
+        def send(self, request, stream=False):
+            return streamed
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rc.httpx, "Client", FakeClient)
+    with pytest.raises(rc.RenderError) as exc:
+        rc.open_file("job1")
+    assert exc.value.code == "unknown_job"
+    assert "unbekannt" in exc.value.detail
+
+
+def test_unbekannter_auftrag_beim_download_ist_404_nicht_500(client, monkeypatch):
+    """Endpunkt-Sicht: klare Antwort, kein interner Fehler."""
+    from app.ass_export import render_client as rc
+
+    rid = _make_recording(client)
+
+    def unknown(job_id):
+        raise rc.RenderError("unknown_job", "Auftrag unbekannt (oder Dienst neu gestartet).")
+
+    _fake_service(monkeypatch, formats=[FORMAT_WEBM], open_file=unknown)
+    r = client.get(f"/api/recordings/{rid}/export/jobs/job123/file")
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"]["error"] == "unknown_job"

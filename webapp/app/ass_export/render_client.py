@@ -182,7 +182,14 @@ def open_file(job_id: str) -> Tuple[httpx.Client, httpx.Response]:
         client.close()
         raise RenderUnavailable(f"Render-Dienst nicht erreichbar: {exc}") from exc
     if res.status_code >= 400:
-        detail = res.text[:300]
+        # Eine Streaming-Antwort MUSS zuerst gelesen werden: httpx wirft beim
+        # Zugriff auf .text sonst ResponseNotRead, die Ausnahme schlägt bis zum
+        # Client durch und der Nutzer sieht "500" statt der eigentlichen Ursache
+        # (live passiert am 18.09. — der Video-Download brach dadurch ab).
+        try:
+            detail = res.read().decode("utf-8", "replace")[:300]
+        except Exception:  # noqa: BLE001 — Fehlertext ist optional
+            detail = ""
         res.close()
         client.close()
         if res.status_code == 409:

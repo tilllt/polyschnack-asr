@@ -8,6 +8,7 @@ meldet auch dann Erfolg, wenn der Alphakanal unterwegs verloren geht.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -244,3 +245,67 @@ def test_dateiname_wird_nicht_doppelt_gehaengt(client):
     r = client.post("/render", files={"ass": ("treffen.ass", ASS.encode(), "text/plain")},
                     data={"format": "alpha_mov", "duration_s": "1"})
     assert r.json()["filename"] == "treffen.mov"
+
+
+# ---------------------------------------------------------------------------
+# Neustart-Festigkeit (live gefunden am 18.09.: Download brach ab)
+# ---------------------------------------------------------------------------
+def test_auftrag_ueberlebt_einen_neustart(client):
+    """Nach einem Neustart war eine fertige Datei unauffindbar (unknown_job)."""
+    st = run_job(client, "alpha_webm")
+    assert st["state"] == "done"
+    assert (render_app.DATA_DIR / st["id"] / "job.json").exists(), "Zustand nicht gesichert"
+
+    # Neustart nachstellen: Gedaechtnis leeren, Wiederherstellung laufen lassen.
+    with render_app.JOBS_LOCK:
+        render_app.JOBS.clear()
+    assert render_app._recover_jobs() >= 1
+
+    st2 = client.get(f"/jobs/{st['id']}").json()
+    assert st2["state"] == "done", st2
+    assert st2["filename"] == st["filename"]
+    r = client.get(f"/jobs/{st['id']}/file")
+    assert r.status_code == 200
+    assert len(r.content) == st2["size_bytes"] > 0
+
+
+def _schreibe_altes_verzeichnis(jid: str, *, dauer_datei: float, dauer_erwartet: float) -> None:
+    """Verzeichnis wie ein Lauf VOR dieser Aenderung (nur meta.json)."""
+    d = render_app.DATA_DIR / jid
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "meta.json").write_text(json.dumps({
+        "format": "alpha_webm", "duration_s": dauer_erwartet, "width": 640,
+        "height": 360, "fps": 10, "media": "", "background": "#101418", "crf": 40,
+    }), encoding="utf-8")
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+         "-i", f"color=c=black@0.0:s=640x360:r=10:d={dauer_datei},format=yuva420p",
+         "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
+         "-b:v", "0", "-crf", "40", "-t", str(dauer_datei), str(d / "untertitel.webm")],
+        check=True)
+
+
+def test_unvollstaendige_datei_wird_nie_ausgeliefert(client):
+    """Der gemeldete Abbrich: 3 s gerechnet, 30 s erwartet -> nicht ausliefern."""
+    _schreibe_altes_verzeichnis("abgeschnitten1234", dauer_datei=3.0, dauer_erwartet=30.0)
+    with render_app.JOBS_LOCK:
+        render_app.JOBS.clear()
+    render_app._recover_jobs()
+
+    st = client.get("/jobs/abgeschnitten1234").json()
+    assert st["state"] == "failed", st
+    assert "unvollstaendig" in st["error"] or "unterbrochen" in st["error"]
+    assert client.get("/jobs/abgeschnitten1234/file").status_code == 409
+
+
+def test_vollstaendige_alte_datei_wird_wieder_ausgeliefert(client):
+    """Was vollstaendig auf der Platte liegt, bleibt nutzbar."""
+    _schreibe_altes_verzeichnis("vollstaendig5678", dauer_datei=5.0, dauer_erwartet=5.0)
+    with render_app.JOBS_LOCK:
+        render_app.JOBS.clear()
+    render_app._recover_jobs()
+
+    st = client.get("/jobs/vollstaendig5678").json()
+    assert st["state"] == "done", st
+    r = client.get("/jobs/vollstaendig5678/file")
+    assert r.status_code == 200 and len(r.content) == st["size_bytes"] > 0
