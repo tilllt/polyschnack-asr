@@ -51,18 +51,53 @@ FORMATS: Dict[str, dict] = {
         "mime": "video/mp4",
         "alpha": False,
         "encoder": "libx264",
-        "note": "Fertiges Video. Ohne Videospur der Aufnahme wird ein "
-                "einfarbiger Hintergrund erzeugt; liegt eine Audiodatei vor, "
-                "wird deren Ton mitgenommen.",
+        "note": "Fertiges Video mit fest eingebrannten Untertiteln — YouTube, "
+                "WhatsApp, Handy-Schnitt (KineMaster). Ist die Aufnahme nur Ton, "
+                "wird ein einfarbiger Hintergrund erzeugt und der Ton mitgenommen.",
     },
+    "screen_mp4": {
+        "id": "screen_mp4",
+        "label": "MP4 schwarzer Grund (Mischmodus \u201eScreen\u201c, z. B. KineMaster)",
+        "ext": "mp4",
+        "mime": "video/mp4",
+        "alpha": False,
+        "encoder": "libx264",
+        "note": "Untertitel auf schwarzem Grund. Im Handy-Schnitt als Ebene "
+                "einfügen und den Mischmodus \u201eScreen\u201c wählen — dann "
+                "verschwindet der schwarze Grund und nur die Schrift bleibt.",
+    },
+    "chroma_mp4": {
+        "id": "chroma_mp4",
+        "label": "MP4 grüner Hintergrund (Chroma Key, z. B. KineMaster)",
+        "ext": "mp4",
+        "mime": "video/mp4",
+        "alpha": False,
+        "encoder": "libx264",
+        "note": "Untertitel auf einfarbig grünem Grund. Im Handy-Schnitt über "
+                "Chroma Key einfügen, dann bleibt nur die Schrift sichtbar. "
+                "Farbe einstellbar (Standard #00B140).",
+    },
+    # KineMaster und andere Handy-Programme koennen kein Alpha-Video lesen
+    # (WebM/ProRes fallen dort aus). Sie koennen aber "Chroma Key": ein gruener
+    # Hintergrund wird im Programm zum Verschwinden gebracht. Damit ist ein
+    # Overlay auch auf dem Handy moeglich — ohne dass wir HEVC-mit-Alpha
+    # brauchen, das sich auf Linux gar nicht erzeugen laesst (libx265 verwirft
+    # den Alphakanal stillschweigend, hevc_videotoolbox gibt es nur auf macOS).
+    # Kein Alpha, aber der Handy-Weg ohne Chroma Key: weisse Schrift auf
+    # schwarzem Grund. KineMaster hat 24 Mischmodi — mit "Screen" verschwindet
+    # der schwarze Grund und nur die Schrift bleibt ueber dem eigenen Video.
+    # Das ist die einzige Transparenz-Darstellung, die auf dem Handy ohne
+    # Farbstiche funktioniert (Chroma Key franst an den Kanten aus).
     "alpha_webm": {
         "label": "WebM (nur Untertitel, transparent)",
         "ext": "webm",
         "mime": "video/webm",
         "alpha": True,
         "encoder": "libvpx-vp9",
-        "note": "Transparenter Hintergrund, kleine Datei. Zum Drüberlegen im "
-                "Schnittprogramm oder im Browser.",
+        "note": "Transparenter Hintergrund, kleine Datei. Für Desktop-"
+                "Schnittprogramme (Resolve, Premiere) und den Browser. "
+                "KineMaster kann WebM nicht importieren — dafür das Format "
+                "\u201eMP4 gr\u00fcner Hintergrund\u201c nehmen.",
     },
     "alpha_mov": {
         "label": "MOV ProRes 4444 (nur Untertitel, transparent)",
@@ -70,8 +105,9 @@ FORMATS: Dict[str, dict] = {
         "mime": "video/quicktime",
         "alpha": True,
         "encoder": "prores_ks",
-        "note": "Transparenter Hintergrund im Schnittprogramm-Standard. "
-                "Deutlich größere Datei als WebM.",
+        "note": "Transparenter Hintergrund im Schnittprogramm-Standard "
+                "(Resolve, Premiere). Deutlich größere Datei. Handy-Apps wie "
+                "KineMaster können ProRes nicht lesen.",
     },
     "alpha_png": {
         "label": "PNG-Sequenz als ZIP (nur Untertitel, transparent)",
@@ -79,7 +115,8 @@ FORMATS: Dict[str, dict] = {
         "mime": "application/zip",
         "alpha": True,
         "encoder": "png",
-        "note": "Universell, aber sehr groß. Für Programme ohne Alpha-Video.",
+        "note": "Für Programme ohne Alpha-Video. Die ZIP-Datei muss dafür "
+                "entpackt werden — auf dem Handy ungeeignet.",
     },
 }
 
@@ -169,9 +206,24 @@ def _dimensions(width: int, height: int) -> str:
     return f"{max(2, width // 2 * 2)}x{max(2, height // 2 * 2)}"
 
 
+def _stream_kinds(path: Path) -> set:
+    """Welche Spuren enthaelt die Datei? ('video'/'audio') — entscheidet, ob sie
+    als Bildquelle taugen oder nur als Ton."""
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {line.strip() for line in res.stdout.splitlines() if line.strip()}
+
+
 def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
                       width: int, height: int, fps: int, duration_s: float,
-                      background: str, crf: int) -> List[str]:
+                      background: str, crf: int,
+                      chroma_color: str = "#00B140") -> List[str]:
     """Argumentliste für ffmpeg — kein Shell-String, keine Nutzereingabe im Befehl.
 
     Die Format-Beschreibung wird aus ``job.format`` geholt: ein zusätzlich
@@ -182,6 +234,10 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
     size = _dimensions(width, height)
     out = job.dir / job.filename
     args = ["ffmpeg", "-hide_banner", "-nostats", "-y", "-progress", "pipe:1"]
+    kinds = _stream_kinds(media_path) if media_path is not None else set()
+    media_has_video, media_has_audio = "video" in kinds, "audio" in kinds
+    if job.format == "screen_mp4":
+        background = "#000000"      # fest: der Mischmodus »Screen« setzt das voraus
 
     if spec["alpha"]:
         # Transparenter Untergrund: color mit Alpha 0, dann libass darüber.
@@ -190,8 +246,25 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
         args += ["-f", "lavfi", "-i",
                  f"color=c=black@0.0:s={size}:r={fps}:d={duration_s:.3f},format=yuva420p"]
         filt = "ass=" + str(ass_path).replace("\\", "\\\\").replace(":", "\\:") + ":alpha=1"
-    elif media_path is not None:
+    elif job.format == "chroma_mp4":
+        # Gruener Grund fuer Chroma Key; liegt Ton vor, kommt er als zweite
+        # Eingabe dazu.
+        args += ["-f", "lavfi", "-i",
+                 f"color=c=0x{chroma_color.lstrip('#')}:s={size}:r={fps}:d={duration_s:.3f}"]
+        if media_path is not None:
+            args += ["-i", str(media_path)]
+        filt = "ass=" + str(ass_path).replace("\\", "\\\\").replace(":", "\\:")
+    elif media_path is not None and media_has_video:
         args += ["-i", str(media_path)]
+        filt = "ass=" + str(ass_path).replace("\\", "\\\\").replace(":", "\\:")
+    elif media_path is not None:
+        # NUR TON (der Normalfall bei Polyschnack: die Aufnahme ist eine
+        # Tondatei). Vorher fehlte hier die Bildquelle komplett: der Videofilter
+        # lief ins Leere und das Ergebnis war eine MP4 OHNE Videospur — in
+        # KineMaster und in jedem Schnittprogramm unbrauchbar.
+        args += ["-f", "lavfi", "-i",
+                 f"color=c=0x{background.lstrip('#')}:s={size}:r={fps}:d={duration_s:.3f}",
+                 "-i", str(media_path)]
         filt = "ass=" + str(ass_path).replace("\\", "\\\\").replace(":", "\\:")
     else:
         args += ["-f", "lavfi", "-i",
@@ -209,10 +282,10 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
         # Sequenz: ffmpeg schreibt nummerierte Einzelbilder; das ZIP baut der
         # Job danach (ein einzelnes .zip kann ffmpeg nicht schreiben).
         args += ["-vf", filt, "-c:v", "png", "-pix_fmt", "rgba", "-f", "image2"]
-    else:  # burn_mp4
+    else:  # burn_mp4 | chroma_mp4 — H.264/AAC mit Index am Anfang
         args += ["-vf", filt + ",format=yuv420p", "-c:v", "libx264",
                  "-preset", "veryfast", "-crf", str(crf), "-movflags", "+faststart"]
-        if media_path is not None:
+        if media_path is not None and media_has_audio:
             args += ["-c:a", "aac", "-b:a", "160k"]
 
     if job.format == "alpha_png":
@@ -236,14 +309,14 @@ def _zip_frames(job: Job) -> None:
 
 def _run_job(job: Job, spec: dict, ass_path: Path, media_path: Optional[Path],
              width: int, height: int, fps: int, duration_s: float,
-             background: str, crf: int) -> None:
+             background: str, crf: int, chroma_color: str = "#00B140") -> None:
     job.state = "running"
     log_path = job.dir / "ffmpeg.log"
     log = open(log_path, "wb")
     crashed = ""
     try:
         args = build_ffmpeg_args(job, ass_path, media_path, width, height,
-                                 fps, duration_s, background, crf)
+                                 fps, duration_s, background, crf, chroma_color)
         (job.dir / "cmd.txt").write_text(" ".join(args), encoding="utf-8")
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=log, text=True)
         job._proc = proc
@@ -445,7 +518,8 @@ def _worker() -> None:
         CURRENT["id"] = job_id
         try:
             _run_job(job, spec, ass_path, media, meta["width"], meta["height"],
-                     meta["fps"], meta["duration_s"], meta["background"], meta["crf"])
+                     meta["fps"], meta["duration_s"], meta["background"], meta["crf"],
+                     meta.get("chroma_color", "#00B140"))
         finally:
             CURRENT["id"] = None
             QUEUE.task_done()
@@ -509,6 +583,7 @@ async def render(
     fps: int = Form(25),
     duration_s: float = Form(...),
     background: str = Form("#101418"),
+    chroma_color: str = Form("#00B140"),
     crf: int = Form(28),
 ) -> JSONResponse:
     if format not in FORMATS or not any(f["id"] == format for f in available_formats()):
@@ -561,6 +636,7 @@ async def render(
     (job_dir / "meta.json").write_text(json.dumps({
         "format": format, "media": media_name, "width": width, "height": height,
         "fps": fps, "duration_s": duration_s, "background": background, "crf": crf,
+        "chroma_color": chroma_color,
     }), encoding="utf-8")
     with JOBS_LOCK:
         JOBS[job_id] = job

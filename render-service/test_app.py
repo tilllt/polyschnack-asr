@@ -105,11 +105,15 @@ def test_health_meldet_verfuegbare_formate(client):
     h = client.get("/health").json()
     assert h["libass"] is True, "libass fehlt — das Image wäre unbrauchbar"
     ids = [f["id"] for f in h["formats"]]
-    for fmt in ("burn_mp4", "alpha_webm", "alpha_mov"):
+    for fmt in ("burn_mp4", "chroma_mp4", "alpha_webm", "alpha_mov", "alpha_png"):
         assert fmt in ids
+    # Genau die drei Alpha-Formate tragen Alpha; die beiden MP4-Formate nicht.
+    assert {f["id"] for f in h["formats"] if f["alpha"]} == {
+        "alpha_webm", "alpha_mov", "alpha_png"}
     for f in h["formats"]:
-        assert f["alpha"] is (f["id"] != "burn_mp4")
         assert f["ext"] and f["mime"] and f["label"]
+        # Jedes Format muss sagen, wofuer es ist — die GUI zeigt diesen Text.
+        assert f["note"], f"{f['id']} ohne Beschreibung"
 
 
 def _args(fmt: str, ext: str):
@@ -309,3 +313,81 @@ def test_vollstaendige_alte_datei_wird_wieder_ausgeliefert(client):
     assert st["state"] == "done", st
     r = client.get("/jobs/vollstaendig5678/file")
     assert r.status_code == 200 and len(r.content) == st["size_bytes"] > 0
+
+
+def _tonquelle(tmp_path):
+    """Kleine MP3 wie eine Polyschnack-Aufnahme: nur Ton, kein Bild."""
+    f = tmp_path / "aufnahme.mp3"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "sine=frequency=440:duration=2", "-c:a", "libmp3lame",
+                    "-b:a", "64k", str(f)], check=True)
+    return ("aufnahme.mp3", f.read_bytes(), "audio/mpeg")
+
+
+def _ton_spur(path: Path) -> str:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=codec_name", "-of", "default=nw=1:nk=1", str(path)],
+        capture_output=True, text=True,
+    ).stdout
+    return out.strip()
+
+
+def test_burn_mp4_mit_tonaufnahme_hat_wirklich_bild(client, tmp_path):
+    """Gemeldeter Fehler (18.09.): Aufnahme ist nur Ton -> MP4 OHNE Videospur.
+
+    Vorher lief der Videofilter ins Leere, weil als einzige Eingabe die Tondatei
+    uebergeben wurde. Das Ergebnis war eine reine Audiodatei im MP4-Gewand — in
+    KineMaster und jedem Schnittprogramm unbrauchbar.
+    """
+    files = {"ass": ("untertitel.ass", ASS.encode("utf-8"), "text/plain"),
+             "media": _tonquelle(tmp_path)}
+    r = client.post("/render", files=files, data={
+        "format": "burn_mp4", "duration_s": "2", "width": "640", "height": "360",
+        "fps": "10", "background": "#101418", "crf": "40"})
+    assert r.status_code == 202, r.text
+    job_id = r.json()["id"]
+    for _ in range(120):
+        st = client.get(f"/jobs/{job_id}").json()
+        if st["state"] in {"done", "failed", "canceled"}:
+            break
+        time.sleep(0.5)
+    assert st["state"] == "done", st["error"]
+
+    f = tmp_path / "out.mp4"
+    f.write_bytes(client.get(f"/jobs/{job_id}/file").content)
+    assert probe(f, "codec_name") == "h264", "keine Videospur — genau der gemeldete Fehler"
+    assert probe(f, "pix_fmt") == "yuv420p"
+    assert _ton_spur(f) == "aac", "der Ton der Aufnahme fehlt"
+    gray = frame_rgba(f)[:, :, :3].mean(axis=2)
+    assert float((gray > 200).mean()) > 0.0005, "keine Untertitel im Bild"
+
+
+def test_chroma_mp4_hat_gruenen_grund_und_text(client, tmp_path):
+    """KineMaster-Weg: gruener Hintergrund zum Freistellen per Chroma Key."""
+    st = run_job(client, "chroma_mp4", chroma_color="#00B140")
+    assert st["state"] == "done", st["error"]
+    f = tmp_path / "chroma.mp4"
+    f.write_bytes(client.get(f"/jobs/{st['id']}/file").content)
+
+    assert probe(f, "codec_name") == "h264"
+    assert probe(f, "pix_fmt") == "yuv420p"
+    px = frame_rgba(f)
+    r_, g_, b_ = (int(v) for v in px[5, 5, :3])
+    assert g_ > 60 and g_ > r_ + 30 and g_ > b_ + 30, f"Hintergrund nicht grün: {r_},{g_},{b_}"
+    gray = px[:, :, :3].mean(axis=2)
+    assert float((gray > 200).mean()) > 0.0005, "keine Untertitel sichtbar"
+
+
+def test_screen_mp4_schwarzer_grund_fuer_mischmodus(client, tmp_path):
+    """Handy-Weg ohne Chroma Key: schwarzer Grund, den »Screen« verschwinden laesst."""
+    st = run_job(client, "screen_mp4", background="#FFFFFF")   # Hintergrund wird erzwungen
+    assert st["state"] == "done", st["error"]
+    f = tmp_path / "screen.mp4"
+    f.write_bytes(client.get(f"/jobs/{st['id']}/file").content)
+    assert probe(f, "codec_name") == "h264"
+    px = frame_rgba(f)
+    ecke = px[5, 5, :3].mean()
+    assert ecke < 30, f"Hintergrund ist nicht schwarz: {ecke}"
+    gray = px[:, :, :3].mean(axis=2)
+    assert float((gray > 200).mean()) > 0.0005, "keine Untertitel sichtbar"
