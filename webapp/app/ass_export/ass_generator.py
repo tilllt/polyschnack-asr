@@ -17,8 +17,9 @@ Zeitbasis: alles intern in Millisekunden, ASS bekommt ``h:mm:ss.cc``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from . import fitwidth, textfit
 from .presets import (
     POSITION_ALIGNMENT,
     COLOR_PARAMS,
@@ -291,9 +292,26 @@ def has_real_word_timings(segments: Sequence[Dict[str, Any]]) -> bool:
 
 
 def build_lines(words: Sequence[Word], words_per_line: int,
-                sentence_breaks: bool = True) -> List[Line]:
-    """Gruppiert Wörter zu Caption-Zeilen."""
-    lines: List[Line] = []
+                sentence_breaks: bool = True,
+                measure: Optional[Callable[[str], float]] = None,
+                available: float = 0.0) -> List[Line]:
+    """Gruppiert Wörter zu Caption-Zeilen.
+
+    *measure* entscheidet über den Umbruch:
+
+    * ``None`` — wie bisher nach **fester Wortzahl** (``words_per_line``).
+    * gesetzt — nach **Breite** ausbalanciert (``fit_mode="balanced"``, siehe
+      *available*):
+      ``words_per_line`` bleibt Obergrenze je Zeile, die Zeilen werden aber
+      möglichst gleich breit, damit eine gemeinsame Schriftgröße sie alle
+      ausfüllt. Die Messfunktion liefert Breiten in PlayRes-Pixeln und
+      berücksichtigt Großschreibung und fette Schrift.
+
+    Harte Grenzen gelten in beiden Fällen: Segmentwechsel, Sprecherwechsel und
+    (wenn eingeschaltet) das Satzende.
+    """
+    # Erst die Blöcke zwischen den harten Grenzen bilden …
+    blocks: List[List[Word]] = []
     current: List[Word] = []
     for word in words:
         if current:
@@ -306,12 +324,30 @@ def build_lines(words: Sequence[Word], words_per_line: int,
                 and prev.text.rstrip()[-1:] in SENTENCE_END
             )
             if new_segment or new_speaker or full or sentence_done:
-                lines.append(Line(index=len(lines), words=current,
-                                  start_ms=0, end_ms=0))
+                blocks.append(current)
                 current = []
         current.append(word)
     if current:
-        lines.append(Line(index=len(lines), words=current, start_ms=0, end_ms=0))
+        blocks.append(current)
+
+    # … dann jeden Block in Zeilen teilen.
+    lines: List[Line] = []
+    for block in blocks:
+        if measure is None:
+            groups: List[List[Word]] = [
+                block[i:i + words_per_line] for i in range(0, len(block), words_per_line)
+            ]
+        else:
+            widths = []
+            for k, word in enumerate(block):
+                breite = measure(word.text)
+                if k + 1 < len(block):
+                    breite += measure(" ")      # Leerzeichen zählt zur Zeile
+                widths.append(breite)
+            groups = [[block[j] for j in group]
+                      for group in fitwidth.balanced_split(widths, words_per_line, available)]
+        for group in groups:
+            lines.append(Line(index=len(lines), words=group, start_ms=0, end_ms=0))
     return lines
 
 
@@ -448,6 +484,12 @@ def _line_context(line: Line, params: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+#: Seitliche Raender des ASS-Stils. Die Breitenmessung zieht sie ab —
+#: deshalb stehen sie hier EINMAL und nicht zweimal im Code.
+STYLE_MARGIN_L = 40
+STYLE_MARGIN_R = 40
+
+
 def _styles(preset: Preset, params: Dict[str, Any],
             warnings: List[str]) -> List[Dict[str, Any]]:
     """ASS-Stile aus den Parametern (Farb-Rollen kommen aus dem Preset)."""
@@ -480,8 +522,8 @@ def _styles(preset: Preset, params: Dict[str, Any],
         "outline_px": params["outline_width"],
         "shadow": params["shadow"],
         "alignment": POSITION_ALIGNMENT[params["position"]],
-        "margin_l": 40,
-        "margin_r": 40,
+        "margin_l": STYLE_MARGIN_L,
+        "margin_r": STYLE_MARGIN_R,
         "margin_v": params["margin_v"],
         "encoding": 1,
     }]
@@ -500,6 +542,72 @@ def _uniform_timing(words: Sequence[Word]) -> bool:
     return len(deltas) <= 2
 
 
+def _available_width(params: Dict[str, Any]) -> float:
+    """Breite, die eine Zeile belegen darf — mit den Rändern des ASS-Stils."""
+    return textfit.available_width({**params,
+                                    "margin_l": STYLE_MARGIN_L,
+                                    "margin_r": STYLE_MARGIN_R})
+
+
+def _width_measure(params: Dict[str, Any],
+                   warnings: List[str]) -> Optional[Callable[[str], float]]:
+    """Messfunktion für Zeilenbreiten — oder ``None`` (feste Wortzahl/Größe).
+
+    Ist ``fit_mode`` nicht ``balanced``, wird nicht gemessen. Kann nicht
+    gemessen werden (Pillow oder fontconfig fehlt), wird das GEMELDET
+    (``fit_unavailable``) und es bleibt bei der festen Größe — statt still auf
+    eine geratene Zahl auszuweichen.
+    """
+    if str(params.get("fit_mode", "off")) != "balanced":
+        return None
+
+    fehlt: List[str] = []
+    if not textfit.available(fehlt):
+        warnings.append("fit_unavailable:" + ",".join(fehlt))
+        return None
+
+    font_name = str(params.get("font_name", ""))
+    bold = bool(params.get("bold"))
+    upper = bool(params.get("uppercase"))
+    if textfit.text_width("M", font_name=font_name, bold=bold) is None:
+        warnings.append("fit_unavailable:font")
+        return None
+
+    def measure(text: str) -> float:
+        breite = textfit.text_width(text.upper() if upper else text,
+                                    font_name=font_name, bold=bold)
+        return float(breite or 0.0)
+
+    return measure
+
+
+def _fit_font_size(lines: Sequence[Line], params: Dict[str, Any],
+                   measure: Callable[[str], float],
+                   warnings: List[str]) -> Dict[str, Any]:
+    """Berechnet die Schriftgröße, die die Bildschirmbreite ausfüllt.
+
+    Eine Größe für den ganzen Export: die breiteste Zeile füllt die verfügbare
+    Breite, begrenzt auf 0,5×…3× der eingestellten Größe. Passt eine Zeile
+    selbst dann nicht, wird das gemeldet (``fit_overflow:<n>``) — sie wird
+    nicht stillschweigend über den Rand geschrieben.
+    """
+    leer = measure(" ")
+    breiten: List[float] = []
+    for line in lines:
+        if not line.words:
+            continue
+        breite = sum(measure(word.text) for word in line.words) + leer * (len(line.words) - 1)
+        breiten.append(breite)
+
+    verfuegbar = _available_width(params)
+    groesse, ueberlauf = fitwidth.font_size_for(verfuegbar, breiten, params["font_size"])
+    if ueberlauf:
+        warnings.append(f"fit_overflow:{ueberlauf}")
+    # Die wirksame Größe tritt an die Stelle der eingestellten: so zeigen
+    # ASS-Kopf, Stil und Antwort dieselbe Zahl (keine zwei Wahrheiten).
+    return {**params, "font_size": groesse}
+
+
 def generate_ass(recording: Any, preset_name: str = "highlight",
                  overrides: Optional[Dict[str, Any]] = None) -> AssResult:
     """Erzeugt eine ``.ass``-Datei für *recording*.
@@ -516,11 +624,19 @@ def generate_ass(recording: Any, preset_name: str = "highlight",
     if not words:
         raise NoWordTimestamps("recording has no usable word timings")
 
-    lines = build_lines(words, params["words_per_line"],
-                        params["sentence_breaks"])
-    duration_ms = apply_timing(lines, params["lead_ms"], params["tail_ms"])
-
     warnings: List[str] = []
+
+    # Schriftgröße an die Bildschirmbreite anpassen (Change 201)? Dann werden
+    # die Zeilen nach Breite ausbalanciert und EINE Größe daraus berechnet,
+    # die die breiteste Zeile ausfüllt.
+    measure = _width_measure(params, warnings)
+    verfuegbare_breite = _available_width(params) if measure is not None else 0.0
+    lines = build_lines(words, params["words_per_line"],
+                        params["sentence_breaks"], measure=measure,
+                        available=verfuegbare_breite)
+    if measure is not None:
+        params = _fit_font_size(lines, params, measure, warnings)
+    duration_ms = apply_timing(lines, params["lead_ms"], params["tail_ms"])
     if stats["distributed"]:
         warnings.append("fallback_timing_words")
     if stats["skipped_segments"]:

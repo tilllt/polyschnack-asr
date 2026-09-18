@@ -62,6 +62,10 @@ PARAM_SPECS: Dict[str, Dict[str, Any]] = {
     "play_res_x": {"type": "int", "default": 1920, "min": 128, "max": 7680},
     "play_res_y": {"type": "int", "default": 1080, "min": 128, "max": 7680},
     "words_per_line": {"type": "int", "default": 4, "min": 1, "max": 12},
+    # Change 201: Schriftgröße an die Bildschirmbreite anpassen. "balanced"
+    # balanciert die Zeilen nach Breite und berechnet daraus EINE Größe, die
+    # die breiteste Zeile ausfüllt.
+    "fit_mode": {"type": "enum", "default": "off", "values": ["off", "balanced"]},
     "sentence_breaks": {"type": "bool", "default": True},
     "lead_ms": {"type": "int", "default": 0, "min": 0, "max": 1500},
     "tail_ms": {"type": "int", "default": 300, "min": 0, "max": 2000},
@@ -80,6 +84,7 @@ COLOR_PARAMS = tuple(k for k, v in PARAM_SPECS.items() if v["type"] == "color")
 #: Quelle: ``ass_generator.build_lines`` / ``apply_timing`` / ``_line_context``.
 LAYOUT_PARAM_KEYS = (
     "words_per_line",
+    "fit_mode",
     "sentence_breaks",
     "lead_ms",
     "tail_ms",

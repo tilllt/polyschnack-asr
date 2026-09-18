@@ -26,7 +26,13 @@ WORKDIR /app
 
 # Resolve Python deps first for layer caching
 COPY pyproject.toml ./
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs git && rm -rf /var/lib/apt/lists/*
+# fonts-liberation + fontconfig: Change 201 misst die Untertitelbreite mit der
+# echten Schrift (fc-match loest Arial auf Liberation Sans auf, wie im
+# Render-Container).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg nodejs git fontconfig fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* /var/cache/fontconfig \
+    && fc-cache -f >/dev/null
 # Node.js als JS-Runtime für yt-dlp (YouTube-JS-Challenge, seit 2026 Pflicht):
 # ohne Node/Deno scheitert der YouTube-Import mit 403 "no supported
 # JavaScript runtime was found" (Bot-Schutz der Player-Challenge).
@@ -43,6 +49,18 @@ COPY app ./app
 
 # Inject the built frontend into app/static/ so FastAPI serves it
 COPY --from=fe /fe/dist ./app/static
+
+# Change 201: Die Schriftmessung muss im Image funktionieren — sonst bleibt
+# fit_mode wirkungslos und meldet nur "fit_unavailable". Deshalb hier messen,
+# nicht erst im Betrieb (Lehre: der Bau prueft, was der Dienst benutzt).
+RUN python -c "\
+from PIL import ImageFont; \
+import subprocess; \
+p = subprocess.run(['fc-match', '-f', '%{file}', 'Arial:bold'], capture_output=True, text=True).stdout.strip(); \
+assert p, 'fc-match findet keine Schrift fuer Arial'; \
+w = ImageFont.truetype(p, 100).getlength('Hallo Welt'); \
+assert w > 0, 'Textmessung liefert 0'; \
+print('Schriftmessung OK:', p.split('/')[-1], round(w, 1), 'px bei 100')"
 
 ENV DATA_DIR=/data \
     PYTHONUNBUFFERED=1

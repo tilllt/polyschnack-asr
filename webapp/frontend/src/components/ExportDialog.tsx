@@ -231,6 +231,12 @@ export function ExportDialog({
     if (w.startsWith("skipped_segments:")) return t("ass_warn_skipped_segments");
     if (w.startsWith("skipped_words:")) return t("ass_warn_skipped_words");
     if (w.startsWith("preset_style_source_invalid:")) return t("ass_warn_preset_style");
+    // Change 201: Schriftgroesse an der Bildschirmbreite ausgerichtet
+    if (w.startsWith("fit_overflow:")) {
+      const n = w.slice("fit_overflow:".length);
+      return t("ass_warn_fit_overflow").replace("{n}", n);
+    }
+    if (w.startsWith("fit_unavailable:")) return t("ass_warn_fit_unavailable");
     return w;
   }
 

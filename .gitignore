@@ -1,2 +1,7 @@
 # Fremdes Audio/Transkript aus Vergleichstests — nie versionieren
 canary-test/
+
+# Node-Abhängigkeiten und Caches (gehoeren nie ins Repo — Lehre: ein
+# `git add -A` hatte ein .vite-Cache-Artefakt mit eingereiht).
+node_modules/
+.vite/

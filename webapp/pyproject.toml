@@ -17,6 +17,9 @@ dependencies = [
     # Jinja2-Sandbox verhindert Ausbrüche aus fremden Vorlagen.
     "jinja2>=3.1",
     "numpy>=2.5.2",
+    # Change 201: Textbreite mit der echten Schrift messen (fit_mode=balanced).
+    # Pillow rasiert über FreeType, genau wie der Renderer.
+    "pillow>=10.0",
     # Change 060: VAD direkt via onnxruntime (silero_vad.onnx) — das
     # PyPI-Paket silero-vad zog torch+torchaudio transitiv ins Image
     # (~2,5 GB Ballast); onnxruntime ist der schlanke CPU-Runtime.

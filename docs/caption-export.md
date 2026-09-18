@@ -139,6 +139,59 @@ Zum Nachlesen beim Suchen: `ffprobe` meldet die Spur als `yuv420p`, obwohl
 Alpha drin ist — der Kanal liegt als eigene Ebene vor. Wer auf `pix_fmt` prüft,
 sucht am falschen Ort; belastbar ist das Extrahieren des Alphakanals.
 
+## Schriftgröße füllt die Bildschirmbreite (`fit_mode`)
+
+Standardmäßig haben Untertitel eine **feste Schriftgröße** (`font_size`) und
+brechen nach fester Wortzahl (`words_per_line`). Auf dem Bildschirm bleibt
+dadurch oft Breite ungenutzt: vier kurze Wörter füllen bei 1920 px vielleicht
+ein Drittel, obwohl Platz für deutlich größere Schrift wäre.
+
+Der Parameter **„Schrift füllt die Breite"** (`fit_mode`) schaltet das um:
+
+* **`off`** (Vorgabe) — alles wie bisher: feste Größe, feste Wortzahl.
+* **`balanced`** — die Zeilen werden nach **Breite** ausbalanciert und daraus
+  **eine** Schriftgröße für den ganzen Export berechnet, die die breiteste
+  Zeile ausfüllt. `words_per_line` bleibt als Obergrenze erhalten: es bestimmt,
+  wie viele Wörter höchstens in eine Zeile dürfen. Harte Grenzen bleiben
+  bestehen — Sprecherwechsel, Abschnittswechsel und (wenn eingeschaltet) das
+  Satzende trennen weiterhin.
+
+### Gemessen, nicht geschätzt
+
+Die Breite wird mit der Schrift gemessen, die der Renderer auch benutzt:
+`fc-match` löst den Namen auf (Arial → Liberation Sans, wie im Render-Container),
+gerastert wird über FreeType. Großschreibung (`uppercase`), fette Schrift, die
+seitlichen Ränder des Stils und ein Zuschlag für Kontur und Schatten gehen in
+die Rechnung ein. Die verfügbare Breite ist
+
+```
+play_res_x − margin_l − margin_r − 2 × outline_width − schatten
+```
+
+### Grenzen und Meldungen
+
+* Die berechnete Größe wird auf **0,5× bis 3× der eingestellten `font_size`**
+  begrenzt — die eingestellte Größe gibt also die Richtung vor. Sehr kurze
+  Zeilen füllen deshalb nicht die gesamte Breite: wer größere Untertitel will,
+  stellt `font_size` höher und lässt `balanced` den Rest machen.
+* Passt eine Zeile selbst bei der Untergrenze nicht (etwa ein sehr langes
+  Einzelwort), wird sie **gemeldet**: „In n Zeile(n) passt der Text auch mit der
+  kleinsten Schrift nicht in die Breite." Es wird nichts stillschweigend über
+  den Rand geschrieben.
+* Ist die Messung nicht möglich (fehlt die Schrift im Image), erscheint
+  „Textbreite ließ sich nicht messen" und es bleibt bei der eingestellten
+  Größe. Der Image-Bau prüft diese Fähigkeit, damit das nicht im Betrieb
+  auffällt.
+
+### Praxiserfahrung
+
+An einer Aufnahme mit gemischten Satzlängen: feste Größe 56 px → Zeilen 728 bis
+942 px von 1833 px verfügbar. Mit `balanced`: 108 px → 1236 bis 1816 px. Keine
+Zeile läuft über, alle Zeilen sind deutlich breiter. Die Zeilen *innerhalb* eines
+Satzes werden gleichmäßig; zwischen Sätzen können die Breiten abweichen, weil
+das Satzende eine harte Grenze bleibt.
+
+
 **Was auf dem Handy funktioniert:**
 
 - **MP4 mit eingebrannten Untertiteln** (`burn_mp4`) — das fertige Video mit
