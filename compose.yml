@@ -222,7 +222,10 @@ services:
     volumes:
       - ./DATA/render:/data/render
     ports:
-      - "${RENDER_PORT:-8090}:8090"
+      # Nur lokal veröffentlichen: die Webapp erreicht den Dienst über das
+      # Docker-Netz (http://ps-render:8090). Der Host-Port ist nur für
+      # Handproben — 8091, weil die Webapp auf der KI-Box hostseitig 8090 belegt.
+      - "127.0.0.1:${RENDER_PORT:-8091}:8090"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8090/health"]
       interval: 30s

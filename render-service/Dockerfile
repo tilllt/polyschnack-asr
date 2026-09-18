@@ -47,6 +47,13 @@ RUN printf '%s\n' \
       > /etc/fonts/conf.d/99-arial-liberation.conf \
     && fc-cache -f >/dev/null
 
+# ffmpeg mit HEVC-Alpha aus dem eigenen Image (ffalpha-build/). Der Bau dauert
+# 15-20 Minuten und liegt deshalb nicht hier, sondern in einem selten gebauten
+# Image mit fester Version (:v1). Version dort erhoehen = neu bauen.
+COPY --from=harbor.rand0m.me/public/polyschnack-asr-ffalpha:v1 /opt/ffalpha /opt/ffalpha
+ENV RENDER_FFMPEG=/opt/ffalpha/bin/ffmpeg \
+    RENDER_FFPROBE=/opt/ffalpha/bin/ffprobe
+
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -58,11 +65,14 @@ COPY app.py .
 # baute und auf der Box crashte).
 RUN set -e; \
     ffmpeg -hide_banner -filters | grep -qE '\bass\b +V->V' || { echo "FEHLT: libass (ass-Filter)"; exit 1; }; \
-    for enc in libx264 libvpx-vp9 prores_ks png; do \
+    for enc in libx264 libvpx-vp9 prores_ks png libx265; do \
       ffmpeg -hide_banner -encoders | grep -q " $enc " || { echo "FEHLT: Encoder $enc"; exit 1; }; \
     done; \
+    ffmpeg -hide_banner -h encoder=libx265 | grep -q "yuva420p" \
+      || { echo "FEHLT: mitgebautes ffmpeg ohne HEVC-Alpha (yuva420p)"; exit 1; }; \
+    ffprobe -version >/dev/null || { echo "FEHLT: mitgebautes ffprobe"; exit 1; }; \
     fc-match Arial | grep -qi "liberation" || { echo "WARNUNG: Arial bildet nicht auf Liberation ab"; exit 1; }; \
-    echo "Render-Image OK: libass + alle Encoder + Arial-Ersatz vorhanden"
+    echo "Render-Image OK: libass + alle Encoder + HEVC-Alpha + Arial-Ersatz vorhanden"
 
 ENV RENDER_DATA=/data/render
 RUN mkdir -p /data/render && useradd -m -u 10001 render && chown -R render:render /data/render

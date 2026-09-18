@@ -26,6 +26,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+
+#: Welche Binaries benutzt werden. Im Container zeigt RENDER_FFMPEG auf das
+#: mitgebaute ffmpeg mit HEVC-Alpha (ffalpha-build/), lokal auf das System-ffmpeg.
+FFMPEG = os.environ.get("RENDER_FFMPEG", "ffmpeg")
+FFPROBE = os.environ.get("RENDER_FFPROBE", "ffprobe")
 from fastapi.responses import FileResponse, JSONResponse
 
 VERSION = "1.0.0"
@@ -88,6 +93,21 @@ FORMATS: Dict[str, dict] = {
     # der schwarze Grund und nur die Schrift bleibt ueber dem eigenen Video.
     # Das ist die einzige Transparenz-Darstellung, die auf dem Handy ohne
     # Farbstiche funktioniert (Chroma Key franst an den Kanten aus).
+    # Das einzige Alpha-Format, das KineMaster (ab 7.1) importiert: HEVC mit
+    # Alpha in MP4. Es braucht ein ffmpeg, das mit -DX265_ENABLE_ALPHA gebaut
+    # wurde — sonst fehlt yuva420p und das Format wird gar nicht angeboten.
+    "hevc_alpha": {
+        "id": "hevc_alpha",
+        "label": "MP4 mit Alpha (HEVC) — Handy-Schnitt, z. B. KineMaster",
+        "ext": "mp4",
+        "mime": "video/mp4",
+        "alpha": True,
+        "encoder": "libx265",
+        "needs": "x265_alpha",
+        "note": "Echte Transparenz im Format, das KineMaster ab 7.1 importiert "
+                "(Layer → Media). Nur verfügbar, wenn der Dienst mit "
+                "Alpha-fähigem ffmpeg läuft.",
+    },
     "alpha_webm": {
         "label": "WebM (nur Untertitel, transparent)",
         "ext": "webm",
@@ -123,15 +143,36 @@ FORMATS: Dict[str, dict] = {
 
 def _ffmpeg_encoders() -> set:
     out = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True
+        [FFMPEG, "-hide_banner", "-encoders"], capture_output=True, text=True
     ).stdout
     # Flags sind 6 Zeichen (z. B. "V....D", "A....D") — das D gehoert dazu.
     return {m.group(1) for m in re.finditer(r"^\s*[VAS][A-Z.]{5}\s+(\S+)", out, re.M)}
 
 
+#: Einmal ermittelt, dann gemerkt — die Pruefung kostet einen Prozessstart.
+_X265_ALPHA_CACHE: Optional[bool] = None
+
+
+def x265_alpha_supported() -> bool:
+    """Kann das benutzte ffmpeg HEVC mit Alpha (yuva420p)?
+
+    Entscheidend ist die Formatliste des Encoders, nicht die Bibliotheksversion:
+    ohne den Build-Schalter X265_ENABLE_ALPHA fehlt yuva420p dort komplett.
+    """
+    global _X265_ALPHA_CACHE
+    if _X265_ALPHA_CACHE is None:
+        try:
+            res = subprocess.run([FFMPEG, "-hide_banner", "-h", "encoder=libx265"],
+                                 capture_output=True, text=True, timeout=30)
+            _X265_ALPHA_CACHE = "yuva420p" in res.stdout
+        except (OSError, subprocess.SubprocessError):
+            _X265_ALPHA_CACHE = False
+    return _X265_ALPHA_CACHE
+
+
 def _has_ass_filter() -> bool:
     out = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True
+        [FFMPEG, "-hide_banner", "-filters"], capture_output=True, text=True
     ).stdout
     return bool(re.search(r"\bass\b\s+V->V", out))
 
@@ -149,13 +190,21 @@ ENCODERS = _ffmpeg_encoders()
 HAS_LIBASS = _has_ass_filter()
 
 
+#: Faehigkeiten, die ein Format voraussetzen kann.
+_CAPABILITIES = {
+    "x265_alpha": x265_alpha_supported,
+}
+
+
 def available_formats() -> List[dict]:
     if not HAS_LIBASS:
         return []
     return [
-        {"id": fid, **{k: v for k, v in spec.items() if k != "encoder"}}
+        {"id": fid, **{k: v for k, v in spec.items()
+                       if k not in ("encoder", "needs")}}
         for fid, spec in FORMATS.items()
         if spec["encoder"] in ENCODERS
+        and (not spec.get("needs") or _CAPABILITIES.get(spec["needs"], lambda: False)())
     ]
 
 
@@ -211,7 +260,7 @@ def _stream_kinds(path: Path) -> set:
     als Bildquelle taugen oder nur als Ton."""
     try:
         res = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+            [FFPROBE, "-v", "error", "-show_entries", "stream=codec_type",
              "-of", "default=nw=1:nk=1", str(path)],
             capture_output=True, text=True, timeout=60,
         )
@@ -233,7 +282,7 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
     spec = FORMATS[job.format]
     size = _dimensions(width, height)
     out = job.dir / job.filename
-    args = ["ffmpeg", "-hide_banner", "-nostats", "-y", "-progress", "pipe:1"]
+    args = [FFMPEG, "-hide_banner", "-nostats", "-y", "-progress", "pipe:1"]
     kinds = _stream_kinds(media_path) if media_path is not None else set()
     media_has_video, media_has_audio = "video" in kinds, "audio" in kinds
     if job.format == "screen_mp4":
@@ -278,6 +327,12 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
     elif job.format == "alpha_mov":
         args += ["-vf", filt, "-c:v", "prores_ks", "-profile:v", "4444",
                  "-pix_fmt", "yuva444p10le", "-vendor", "apl0"]
+    elif job.format == "hevc_alpha":
+        # hvc1 ist der Apple-Tag; KineMaster erwartet dieses Format. Der
+        # Alphakanal kommt aus dem Encoder (ffmpeg mit X265_ENABLE_ALPHA).
+        args += ["-vf", filt, "-c:v", "libx265", "-pix_fmt", "yuva420p",
+                 "-tag:v", "hvc1", "-crf", str(crf), "-preset", "veryfast",
+                 "-movflags", "+faststart"]
     elif job.format == "alpha_png":
         # Sequenz: ffmpeg schreibt nummerierte Einzelbilder; das ZIP baut der
         # Job danach (ein einzelnes .zip kann ffmpeg nicht schreiben).
@@ -397,7 +452,7 @@ def _media_duration_s(path: Path) -> Optional[float]:
     """Dauer laut ffprobe, oder None wenn die Datei nicht lesbar ist."""
     try:
         res = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(path)],
             capture_output=True, text=True, timeout=60,
         )
@@ -569,6 +624,7 @@ def health() -> dict:
         "font_arial": _font_for("Arial"),
         "busy": CURRENT["id"] is not None,
         "jobs": len(JOBS),
+        "x265_alpha": x265_alpha_supported(),
         "ttl_s": JOB_TTL_S,
     }
 

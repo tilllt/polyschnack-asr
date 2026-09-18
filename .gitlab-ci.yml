@@ -156,6 +156,29 @@ build-diar:
     - job: test-webapp
       optional: true
 
+# ffmpeg mit HEVC-Alpha (Change 200) — eigener Bau, weil er 15-20 Minuten
+# dauert. Der Tag ist bewusst eine feste Version (v1) und NICHT die Commit-SHA:
+# sonst wuerde bei jedem Commit neu gebaut. Version erhoehen = neu bauen.
+# Das Render-Image kopiert die Binaries aus diesem Image.
+build-ffalpha:
+  stage: build
+  timeout: 45 minutes
+  image: ${HARBOR_REGISTRY}/public/ci-tools
+  script: |
+    mkdir -p ~/.docker
+    cp ${CONFIG_JSON} ~/.docker/config.json
+    IMG="${HARBOR_REGISTRY}/public/${CI_PROJECT_NAME}-ffalpha:v1"
+    if docker manifest inspect "$IMG" >/dev/null 2>&1; then
+      echo "[ffalpha] $IMG existiert bereits — Build uebersprungen"
+      exit 0
+    fi
+    docker build -t "$IMG" ffalpha-build/
+    docker push "$IMG"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - ffalpha-build/**/*
+
 build-render:
   stage: build
   image: ${HARBOR_REGISTRY}/public/ci-tools
@@ -171,6 +194,10 @@ build-render:
     - shared
   needs:
     - job: test-render
+      optional: true
+    # Wenn ffalpha in dieser Pipeline gebaut wird, muss es vorher fertig sein;
+    # sonst wird es uebersprungen (das Image :v1 liegt dann schon in der Registry).
+    - job: build-ffalpha
       optional: true
 
 # Forced-Aligner-Service (Karaoke-Word-Sync): qwen3-asr.cpp-Build (CUDA mit

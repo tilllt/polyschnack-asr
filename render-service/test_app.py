@@ -391,3 +391,47 @@ def test_screen_mp4_schwarzer_grund_fuer_mischmodus(client, tmp_path):
     assert ecke < 30, f"Hintergrund ist nicht schwarz: {ecke}"
     gray = px[:, :, :3].mean(axis=2)
     assert float((gray > 200).mean()) > 0.0005, "keine Untertitel sichtbar"
+
+
+# ---------------------------------------------------------------------------
+# HEVC mit Alpha (das Format, das KineMaster importiert)
+# ---------------------------------------------------------------------------
+def test_hevc_alpha_wird_ohne_faehigkeit_nicht_angeboten(client, monkeypatch):
+    """Ein Format, das nicht geht, darf gar nicht erst erscheinen."""
+    monkeypatch.setattr(render_app, "_X265_ALPHA_CACHE", None)
+    monkeypatch.setattr(render_app, "x265_alpha_supported", lambda: False)
+    monkeypatch.setitem(render_app._CAPABILITIES, "x265_alpha", lambda: False)
+    ids = [f["id"] for f in client.get("/health").json()["formats"]]
+    assert "hevc_alpha" not in ids
+    assert "alpha_webm" in ids, "andere Alpha-Formate muessen bleiben"
+
+
+def test_hevc_alpha_argumente_und_angebot(client, monkeypatch):
+    """Mit Faehigkeit erscheint es und erzeugt HEVC mit yuva420p."""
+    monkeypatch.setitem(render_app._CAPABILITIES, "x265_alpha", lambda: True)
+    ids = [f["id"] for f in client.get("/health").json()["formats"]]
+    assert "hevc_alpha" in ids
+
+    job = render_app.Job(id="x", format="hevc_alpha", filename="a.mp4", dir=Path("/tmp"))
+    args = " ".join(render_app.build_ffmpeg_args(job, Path("/tmp/s.ass"), None,
+                                                 1920, 1080, 25, 10.0, "#000000", 28))
+    assert "libx265" in args
+    assert "-pix_fmt yuva420p" in args, "ohne yuva420p gibt es kein Alpha"
+    assert "-tag:v hvc1" in args, "KineMaster erwartet den Apple-Tag"
+
+
+def test_hevc_alpha_erzeugt_echte_transparenz(client):
+    """Voller Weg — laeuft nur mit Alpha-faehigem ffmpeg (im Image, nicht lokal).
+
+    Der Image-Bau prueft dieselbe Kette (ffalpha-build/Dockerfile): ohne
+    nachgewiesene Transparenz scheitert dort schon der Build.
+    """
+    if not render_app.x265_alpha_supported():
+        pytest.skip("ffmpeg ohne HEVC-Alpha — wird im ffalpha-Image geprueft")
+    st = run_job(client, "hevc_alpha")
+    assert st["state"] == "done", st["error"]
+    datei = Path(render_app.DATA_DIR) / st["id"] / st["filename"]
+    assert datei.exists()
+    px = frame_rgba(datei)
+    assert (px[:, :, 3] < 10).mean() > 0.5, "Hintergrund ist nicht transparent"
+    assert (px[:, :, 3] > 200).mean() > 0.0001, "kein deckender Text gefunden"
