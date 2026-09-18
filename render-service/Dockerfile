@@ -64,14 +64,18 @@ COPY app.py .
 # Verify IM BUILD: fehlt libass oder ein Encoder, soll der Build scheitern —
 # nicht erst der Nutzer beim Rendern (Lehre aus dem crispasr-Image, das gruen
 # baute und auf der Box crashte).
+# Geprueft wird das ffmpeg, das der Dienst WIRKLICH benutzt (RENDER_FFMPEG) —
+# das Debian-ffmpeg im Image kann kein HEVC-Alpha und taugt nicht als Nachweis.
 RUN set -e; \
-    ffmpeg -hide_banner -filters | grep -qE '\bass\b +V->V' || { echo "FEHLT: libass (ass-Filter)"; exit 1; }; \
+    ffm="${RENDER_FFMPEG}"; fp="${RENDER_FFPROBE}"; \
+    test -x "$ffm" || { echo "FEHLT: RENDER_FFMPEG nicht ausfuehrbar ($ffm)"; exit 1; }; \
+    $ffm -hide_banner -filters | grep -qE '\bass\b +V->V' || { echo "FEHLT: libass (ass-Filter)"; exit 1; }; \
     for enc in libx264 libvpx-vp9 prores_ks png libx265; do \
-      ffmpeg -hide_banner -encoders | grep -q " $enc " || { echo "FEHLT: Encoder $enc"; exit 1; }; \
+      $ffm -hide_banner -encoders | grep -q " $enc " || { echo "FEHLT: Encoder $enc"; exit 1; }; \
     done; \
-    ffmpeg -hide_banner -h encoder=libx265 | grep -q "yuva420p" \
-      || { echo "FEHLT: mitgebautes ffmpeg ohne HEVC-Alpha (yuva420p)"; exit 1; }; \
-    ffprobe -version >/dev/null || { echo "FEHLT: mitgebautes ffprobe"; exit 1; }; \
+    $ffm -hide_banner -h encoder=libx265 | grep -q "yuva420p" \
+      || { echo "FEHLT: $ffm ohne HEVC-Alpha (yuva420p)"; exit 1; }; \
+    $fp -version >/dev/null || { echo "FEHLT: RENDER_FFPROBE ($fp)"; exit 1; }; \
     fc-match Arial | grep -qi "liberation" || { echo "WARNUNG: Arial bildet nicht auf Liberation ab"; exit 1; }; \
     echo "Render-Image OK: libass + alle Encoder + HEVC-Alpha + Arial-Ersatz vorhanden"
 
