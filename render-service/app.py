@@ -405,9 +405,14 @@ async def render(
                     raise HTTPException(status_code=413, detail={"error": "media_too_large"})
                 fh.write(chunk)
 
+    # Dateiname aus dem ASS-Namen ableiten. Endet der schon auf die Zielendung
+    # (z. B. "folge.webm" -> WebM), nicht doppelt anhängen: sonst heißt der
+    # Download "folge.webm.webm" (in der Live-Abnahme genau so passiert).
     base = _clean_name(Path(ass.filename or "untertitel").stem, "untertitel")
+    ext = FORMATS[format]["ext"]
+    filename = base if base.lower().endswith("." + ext) else f"{base}.{ext}"
     job = Job(id=job_id, format=format,
-              filename=f"{base}.{FORMATS[format]['ext']}", dir=job_dir,
+              filename=filename, dir=job_dir,
               duration_s=duration_s)
     (job_dir / "meta.json").write_text(json.dumps({
         "format": format, "media": media_name, "width": width, "height": height,

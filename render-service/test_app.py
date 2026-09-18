@@ -232,3 +232,15 @@ def test_datei_vor_fertigstellung_ist_409(client):
 def test_unbekannter_job_ist_404(client):
     assert client.get("/jobs/gibtsnicht").status_code == 404
     assert client.get("/jobs/gibtsnicht/file").status_code == 404
+
+
+def test_dateiname_wird_nicht_doppelt_gehaengt(client):
+    """Live gefunden: "folge.webm" als ASS-Name ergab "folge.webm.webm"."""
+    r = client.post("/render", files={"ass": ("folge.webm.ass", ASS.encode(), "text/plain")},
+                    data={"format": "alpha_webm", "duration_s": "1"})
+    assert r.status_code == 202, r.text
+    assert r.json()["filename"] == "folge.webm"
+
+    r = client.post("/render", files={"ass": ("treffen.ass", ASS.encode(), "text/plain")},
+                    data={"format": "alpha_mov", "duration_s": "1"})
+    assert r.json()["filename"] == "treffen.mov"
