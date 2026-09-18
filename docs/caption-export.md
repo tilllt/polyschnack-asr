@@ -109,13 +109,35 @@ H.265 und AAC/PCM. Als einziges Format **mit Alphakanal** kann KineMaster seit
 Version 7.1 **HEVC mit Alpha in einer MP4** lesen. WebM (VP9 mit Alpha),
 MOV mit ProRes 4444 und die PNG-Sequenz stehen nicht auf dieser Liste.
 
-**HEVC mit Alpha können wir derzeit nicht verlässlich liefern.** Nachgemessen:
-Die x265-Bibliothek aus Debian verwirft den Alphakanal stillschweigend — in
-8 Bit ergibt das `yuv420p`, in 10 Bit `yuv420p10le`, in beiden Fällen ohne
-`alpha_mode`. Ein aus den Quellen gebautes x265 mit `-DENABLE_ALPHA=ON` kann
-Alpha zwar kodieren, legt es aber als zusätzliche HEVC-Schicht ab, die ffmpeg
-nicht wieder lesen kann („Scalability type 1 not supported“). Solche Dateien
-sind deshalb **nicht prüfbar** — sie sind bisher nicht im Angebot.
+**HEVC mit Alpha** wird geliefert — als Format „MP4 mit Alpha (HEVC)". Es
+erscheint im Export-Dialog nur, wenn der Dienst es wirklich kann: Der Container
+bringt dafür ein selbst gebautes ffmpeg mit (Ordner `ffalpha-build/`), und
+`/health` meldet die Fähigkeit als `x265_alpha`. Fehlt sie, wird das Format
+gar nicht erst angeboten, statt beim Export zu scheitern.
+
+Warum der eigene Bau nötig ist — drei Dinge müssen zusammenkommen, jedes
+einzeln nachgemessen:
+
+1. **x265 mit `-DENABLE_ALPHA=ON` bauen.** Debian baut seine x265-Bibliothek
+   ohne; die Option `alpha` ist dort nicht einmal registriert (Nachweis über
+   die x265-Parameter-API: Debian lehnt sie ab, ein eigener Bau nimmt sie an).
+2. **Die geteilte Bibliothek ins Prefix kopieren und `x265.pc` selbst
+   schreiben.** x265s CMake installiert nur die statische Bibliothek, die
+   Header und das Kommandozeilen-Werkzeug — eine pkg-config-Datei gibt es
+   nicht, und ffmpeg findet die Bibliothek sonst nicht.
+3. **ffmpeg aus Quellen mit Alpha-Code bauen** und beim Konfigurieren
+   `-DX265_ENABLE_ALPHA` mitgeben. Version 7.1 enthält den Code nicht, ab 8.0
+   ist er drin. Wichtig: Der Schalter wird an keiner Stelle automatisch gesetzt
+   — deshalb hat auch ein Standardbau kein HEVC-Alpha.
+
+Nachweis im Bau des Images: Die Formatliste des Encoders zeigt `yuva420p`, und
+der Rundlauf (kodieren, wieder einlesen, Alpha extrahieren) liefert teils
+transparente und teils deckende Bildpunkte. Ohne diesen Nachweis scheitert der
+Image-Bau — ein Image ohne funktionierenden Alpha-Pfad ist wertlos.
+
+Zum Nachlesen beim Suchen: `ffprobe` meldet die Spur als `yuv420p`, obwohl
+Alpha drin ist — der Kanal liegt als eigene Ebene vor. Wer auf `pix_fmt` prüft,
+sucht am falschen Ort; belastbar ist das Extrahieren des Alphakanals.
 
 **Was auf dem Handy funktioniert:**
 
