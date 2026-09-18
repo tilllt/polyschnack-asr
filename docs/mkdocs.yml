@@ -72,6 +72,7 @@ nav:
       - Feature-Matrix: backends/matrix.md
       - Modelle laden: backends/models.md
   - Web UI & Features: webui.md
+  - Untertitel-Export: caption-export.md
   - Diarization: diarization.md
   - Benchmark:
       - Übersicht: benchmark/index.md

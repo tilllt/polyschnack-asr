@@ -300,7 +300,7 @@ const RENDER_FORMATS = [
 
 
 test("zeigt keine Video-Auswahl, wenn der Dienst fehlt", async () => {
-  vi.mocked(fetchExportPresets).mockResolvedValue({ ...CATALOG, render_available: false });
+  vi.mocked(fetchExportPresets).mockResolvedValue({ ...CATALOG, render_available: false } as never);
   renderDialog();
   await screen.findByTestId("preset-highlight");
   expect(screen.queryByTestId("render-section")).toBeNull();
@@ -310,7 +310,7 @@ test("zeigt keine Video-Auswahl, wenn der Dienst fehlt", async () => {
 test("startet einen Render und bietet danach den Download an", async () => {
   vi.mocked(fetchExportPresets).mockResolvedValue({
     ...CATALOG, render_available: true, render_formats: RENDER_FORMATS,
-  });
+  } as never);
   vi.mocked(startRender).mockResolvedValue({
     id: "job1", format: "alpha_webm", state: "queued", progress: 0,
     filename: "folge.webm", size_bytes: 0, error: "",
