@@ -178,10 +178,13 @@ play_res_x − margin_l − margin_r − 2 × outline_width − schatten
   Einzelwort), wird sie **gemeldet**: „In n Zeile(n) passt der Text auch mit der
   kleinsten Schrift nicht in die Breite." Es wird nichts stillschweigend über
   den Rand geschrieben.
-* Ist die Messung nicht möglich (fehlt die Schrift im Image), erscheint
-  „Textbreite ließ sich nicht messen" und es bleibt bei der eingestellten
-  Größe. Der Image-Bau prüft diese Fähigkeit, damit das nicht im Betrieb
-  auffällt.
+* Kann das Image die Schrift nicht messen (Pillow oder Schriften fehlen),
+  wird der Regler **gar nicht erst angeboten** — ein Regler ohne Wirkung im
+  Dialog ist schlimmer als kein Regler (dieselbe Regel wie beim Render-Dienst,
+  der Formate ohne Encoder nicht anbietet). Wer den Modus trotzdem über die API
+  anfordert, bekommt die Warnung „Textbreite ließ sich nicht messen" und die
+  eingestellte Größe unverändert. Der Image-Bau prüft die Fähigkeit, damit das
+  nicht erst im Betrieb auffällt.
 
 ### Praxiserfahrung
 

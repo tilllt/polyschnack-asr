@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from . import textfit
 from .template_engine import PRESET_DIR, parse_color
 
 #: Anzeige-Position → ASS-Alignment (Numpad-Layout: 1-3 unten, 4-6 mitte, 7-9 oben).
@@ -289,6 +290,12 @@ def used_params(preset: "Preset") -> List[str]:
     gelistete sie in Ruhe lassen.
     """
     keys = set(template_param_refs(preset)) | set(LAYOUT_PARAM_KEYS) | set(STYLE_PARAM_KEYS)
+    # fit_mode wirkt nur, wenn Text wirklich gemessen werden kann. Fehlt die
+    # Fähigkeit (Image ohne Schrift/Pillow), wird der Regler NICHT gelistet —
+    # sonst stünde ein wirkungsloser Regler im Dialog.
+    # Quelle: test_used_params_match_the_rendered_output prüft genau das.
+    if "fit_mode" in keys and not textfit.kann_messen():
+        keys.discard("fit_mode")
     for role in ("primary", "secondary"):
         source = preset.style_map.get(role)
         if source:

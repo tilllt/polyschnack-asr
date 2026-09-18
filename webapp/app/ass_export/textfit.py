@@ -64,6 +64,20 @@ def _width(text: str, path: str, size: int) -> float:
     return float(font.getlength(text))
 
 
+@lru_cache(maxsize=1)
+def kann_messen() -> bool:
+    """Ist die Schriftmessung in dieser Umgebung überhaupt möglich?
+
+    Wird gefragt, bevor ein Regler angeboten wird: ein Regler ohne Wirkung im
+    Dialog ist schlimmer als kein Regler (dieselbe Regel wie beim Render-Dienst,
+    der Formate ohne Encoder nicht anbietet).
+    """
+    fehlt: list = []
+    if not available(fehlt):
+        return False
+    return font_path("Arial", True) is not None
+
+
 def available(missing: list) -> bool:
     """Kann gemessen werden? Sammelt den Grund in *missing* (fuer die Meldung)."""
     if ImageFont is None:

@@ -47,6 +47,12 @@
 #### Scenario: Messung nicht möglich
 
 - **Akteure:** Betreiber, dessen Image die Schriftmessung nicht kann.
-- **Ergebnis:** Der Export bleibt bei der eingestellten `font_size` und meldet
-  `fit_unavailable:<grund>`. Der Image-Bau prüft die Fähigkeit (fc-match +
-  eine Beispielmessung > 0), damit dieser Fall nicht erst im Betrieb auffällt.
+- **Ergebnis (Oberfläche):** `fit_mode` wird **nicht** in `used_params`
+  geführt — der Regler erscheint gar nicht erst im Export-Dialog. Ein Regler
+  ohne Wirkung im Dialog ist der Fehler, den
+  `test_used_params_match_the_rendered_output` verbietet.
+- **Ergebnis (API, falls doch angefordert):** Der Export bleibt bei der
+  eingestellten `font_size` und meldet `fit_unavailable:<grund>`.
+- **Absicherung:** Der Image-Bau prüft die Fähigkeit (fc-match + eine
+  Beispielmessung > 0), damit dieser Fall nicht erst im Betrieb auffällt; ein
+  Test prüft die Fähigkeitserkennung und beide Richtungen der Regler-Liste.

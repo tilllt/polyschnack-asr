@@ -189,6 +189,13 @@ def test_ueberlauf_wird_gemeldet(monkeypatch):
     assert any(w.startswith("fit_overflow") for w in res.warnings), res.warnings
 
 
+def test_faehigkeit_wird_erkannt():
+    """`kann_messen` muss die Umgebung widerspiegeln — darauf baut der Regler."""
+    hat_pillow = textfit.ImageFont is not None
+    assert textfit.kann_messen() is hat_pillow, \
+        "Fähigkeit und vorhandenes Pillow widersprechen sich"
+
+
 def test_ohne_messmoeglichkeit_bleibt_die_groesse(monkeypatch):
     """Fehlt die Messung, wird gewarnt und die eingestellte Größe benutzt."""
     monkeypatch.setattr(textfit, "available", lambda fehlt: (fehlt.append("pillow"), False)[1])
@@ -198,8 +205,21 @@ def test_ohne_messmoeglichkeit_bleibt_die_groesse(monkeypatch):
     assert any(w.startswith("fit_unavailable") for w in res.warnings), res.warnings
 
 
-def test_modus_ist_im_dialog_verfuegbar():
-    """Der Regler muss dort stehen, wo er wirkt (used_params der Presets)."""
+def test_modus_ist_nur_mit_messmoeglichkeit_im_dialog(monkeypatch):
+    """Der Regler steht genau dann im Dialog, wenn er auch wirkt.
+
+    Die CI hat gezeigt, warum das geprüft werden muss: ohne Schrift im Image
+    änderte `fit_mode` nichts — und dann wäre es ein wirkungsloser Regler
+    (genau das verbietet test_used_params_match_the_rendered_output).
+    """
+    from app.ass_export import presets as presets_mod
     from app.ass_export.presets import list_presets, used_params
+
     for preset in list_presets():
-        assert "fit_mode" in used_params(preset), preset.name
+        erwartet = textfit.kann_messen()
+        assert ("fit_mode" in used_params(preset)) is erwartet, preset.name
+
+    # Ohne Messmöglichkeit darf er nirgends stehen …
+    monkeypatch.setattr(presets_mod.textfit, "kann_messen", lambda: False)
+    for preset in list_presets():
+        assert "fit_mode" not in used_params(preset), preset.name

@@ -97,3 +97,18 @@ verfügbar, gemischte Satzlängen):
 |---|---|---|
 | Schriftgröße | 56 px | 108 px |
 | Zeilenbreiten | 728…942 px | 1236…1816 px |
+
+### Nachtrag: die CI hat einen echten Mangel gefunden
+
+`test-webapp` scheiterte in der Pipeline 5365 (5 Tests):
+`test_used_params_match_the_rendered_output` meldete „wirkungsloser Regler im
+Dialog" — im CI-Image fehlt die Schriftmessung, dort tut `fit_mode` also
+nichts, wurde aber als Regler gelistet. Behebung an der Ursache:
+
+- [x] `textfit.kann_messen()`: Fähigkeitsabfrage (Pillow **und** auffindbare Schrift)
+- [x] `presets.used_params()` blendet `fit_mode` aus, wenn die Fähigkeit fehlt
+      (gleiche Regel wie beim Render-Dienst: Formate ohne Encoder werden nicht angeboten)
+- [x] Tests prüfen **beide Richtungen** (mit Fähigkeit gelistet, ohne nicht) plus
+      die Fähigkeitserkennung selbst
+- [x] Gegenprobe lokal in der CI-Situation (Pillow verdeckt): 68 grün, 7
+      übersprungen, keine Fehler (vorher 5 Fehler)
