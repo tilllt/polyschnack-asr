@@ -59,3 +59,33 @@ Umgesetzt und geprüft, aber noch **nicht** auf Prod ausgerollt:
 
 Offen: Deploy auf die KI-Box (Profil `render`), Live-Probe mit allen Formaten auf
 einem echten Recording, Admin-Doku, Abnahme.
+
+## Fehlerbehebung 18.09.2026 (gemeldet: "Download bricht ab, bevor das Video da ist")
+
+Belege: `docker inspect` (Container-StartedAt 09:18:40Z lag zwischen den beiden
+Aufträgen des Nutzers), Render-Log, Webapp-Traceback
+(`httpx.ResponseNotRead` in `render_client.open_file`), öffentlicher Abruf
+(21 Byte Fehlertext statt 330.097 Byte Datei).
+
+- [x] Dienst: Auftragszustand als `job.json` sichern, beim Start rekonstruieren
+      (auch aus älteren Verzeichnissen mit nur `meta.json`)
+- [x] Dienst: Vollständigkeitsprüfung (ffprobe-Dauer vs. erwartete Dauer; leere
+      oder unlesbare Datei; kaputtes ZIP) — Unvollständiges wird **nie** als
+      fertig ausgeliefert, sondern als gescheitert geführt
+- [x] Dienst: Wiederherstellung im Log melden (live: "recovery: 6 Aufträge …")
+- [x] Webapp: Streaming-Fehlerantwort erst lesen, dann auswerten → 404 mit
+      Klartext statt 500
+- [x] Webapp: `Content-Length` durchreichen (abgeschnittener Transfer wird als
+      Fehler sichtbar statt still eine halbe Datei zu speichern)
+- [x] Tests: 13 Render-Tests (Neustart, unvollständige Datei, vollständige
+      Alt-Datei), 23 Webapp-Export-Tests (Streaming-Fehlerantwort, 404 statt 500,
+      Größen-Header)
+
+**Abnahme über die öffentliche URL (Revision 7ade63c1):**
+Download HTTP 200 mit `content-length: 330097`, Datei vollständig (webm,
+30,88 s); unbekannter Auftrag → HTTP 404 mit `unknown_job` statt 500; Presets
+melden weiterhin `render_available: true` mit vier Formaten; ASS-Download
+unverändert (200, 40 Dialogue-Zeilen).
+
+Offen (Härtung, nicht Teil der Meldung): Auftrag ↔ Aufnahme fest verknüpfen,
+damit ein Auftrag nicht über eine beliebige eigene Aufnahme-ID abrufbar ist.
