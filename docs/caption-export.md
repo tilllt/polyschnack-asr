@@ -98,6 +98,39 @@ Der Fortschrittsbalken kommt aus dem Rechenprogramm selbst, nicht aus einer
 Schätzung. Solange noch kein Abschnitt fertig ist, steht dort „Der Dienst
 rechnet …" statt einer erfundenen Prozentzahl. Abbrechen ist jederzeit möglich.
 
+
+## Handy-Schnitt (KineMaster & Co.)
+
+Auf dem Handy gelten andere Regeln als am Rechner — das ist der häufigste
+Stolperstein beim Export.
+
+**Welches Format liest KineMaster?** Laut Hersteller MP4/MOV/3GP mit H.264 oder
+H.265 und AAC/PCM. Als einziges Format **mit Alphakanal** kann KineMaster seit
+Version 7.1 **HEVC mit Alpha in einer MP4** lesen. WebM (VP9 mit Alpha),
+MOV mit ProRes 4444 und die PNG-Sequenz stehen nicht auf dieser Liste.
+
+**HEVC mit Alpha können wir derzeit nicht verlässlich liefern.** Nachgemessen:
+Die x265-Bibliothek aus Debian verwirft den Alphakanal stillschweigend — in
+8 Bit ergibt das `yuv420p`, in 10 Bit `yuv420p10le`, in beiden Fällen ohne
+`alpha_mode`. Ein aus den Quellen gebautes x265 mit `-DENABLE_ALPHA=ON` kann
+Alpha zwar kodieren, legt es aber als zusätzliche HEVC-Schicht ab, die ffmpeg
+nicht wieder lesen kann („Scalability type 1 not supported“). Solche Dateien
+sind deshalb **nicht prüfbar** — sie sind bisher nicht im Angebot.
+
+**Was auf dem Handy funktioniert:**
+
+- **MP4 mit eingebrannten Untertiteln** (`burn_mp4`) — das fertige Video mit
+  Text im Bild. Läuft überall, kein Alpha nötig.
+- **MP4 auf schwarzem Grund mit Mischmodus „Screen"** (`screen_mp4`) — im
+  Schnittprogramm als Ebene einfügen und den Mischmodus auf *Screen* stellen:
+  Der schwarze Grund verschwindet, es bleibt nur die Schrift. KineMaster hat
+  24 Mischmodi und beschreibt dieses Vorgehen selbst; ohne Chroma-Key-Fransen.
+- **MP4 auf grünem Grund mit Chroma Key** (`chroma_mp4`) — für Programme, die
+  kein „Screen" können. Die Farbe ist einstellbar (Standard `#00B140`).
+
+Am Rechner (DaVinci Resolve, Premiere) sind dagegen `alpha_webm`, `alpha_mov`
+und `alpha_png` die richtige Wahl — dort ist echter Alphakanal verfügbar.
+
 ## Wenn etwas nicht klappt
 
 - **„Video-Rendern ist auf dieser Installation nicht aktiviert"** — Der Dienst
