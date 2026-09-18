@@ -331,6 +331,7 @@ def test_render_datei_wird_gestreamt_mit_dateinamen(client, monkeypatch):
     upstream = _httpx.Response(200, headers={
         "content-type": "video/webm",
         "content-disposition": 'attachment; filename="folge.webm"',
+        "content-length": "10",
     }, content=b"webm-daten")
 
     class FakeClient:
@@ -343,6 +344,9 @@ def test_render_datei_wird_gestreamt_mit_dateinamen(client, monkeypatch):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("video/webm")
     assert "folge.webm" in r.headers["content-disposition"]
+    # Die Groesse MUSS mitfahren: ohne sie liefert der Server gestueckelt aus und
+    # ein abgeschnittener Download faellt dem Browser nicht auf.
+    assert r.headers["content-length"] == "10"
     assert r.content == b"webm-daten"
 
 

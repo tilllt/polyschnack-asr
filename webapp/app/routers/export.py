@@ -409,7 +409,15 @@ def export_job_file(
             upstream.close()
             client.close()
 
-    return StreamingResponse(_chunks(), media_type=media_type, headers={
+    headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Access-Control-Expose-Headers": "Content-Disposition",
-    })
+    }
+    # Groesse durchreichen: ohne Content-Length liefert der Server die Antwort
+    # gestueckelt aus, und ein unterbrochener Transfer faellt dem Browser nicht
+    # auf — er speichert still eine halbe Datei ("Download bricht ab").
+    length = upstream.headers.get("content-length")
+    if length:
+        headers["Content-Length"] = length
+
+    return StreamingResponse(_chunks(), media_type=media_type, headers=headers)

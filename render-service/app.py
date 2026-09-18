@@ -478,7 +478,9 @@ def _startup() -> None:
     _cleanup_old()
     # Fertige Dateien überleben den Neustart — sonst war ein Deploy der Grund,
     # dass ein bereits gerendertes Video nicht mehr herunterladbar war.
-    _recover_jobs()
+    wieder = _recover_jobs()
+    print(f"recovery: {wieder} Auftrag/Auftraege aus dem Datenverzeichnis "
+          f"wiederhergestellt (jeder wird beim Ausliefern auf Vollstaendigkeit geprueft)")
     threading.Thread(target=_worker, daemon=True).start()
     threading.Thread(target=_cleanup_loop, daemon=True).start()
 
