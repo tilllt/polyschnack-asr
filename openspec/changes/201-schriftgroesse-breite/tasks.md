@@ -112,3 +112,12 @@ nichts, wurde aber als Regler gelistet. Behebung an der Ursache:
       die Fähigkeitserkennung selbst
 - [x] Gegenprobe lokal in der CI-Situation (Pillow verdeckt): 68 grün, 7
       übersprungen, keine Fehler (vorher 5 Fehler)
+
+### Nachtrag 2: Bau-Prüfung mit dem richtigen Interpreter
+
+`build-webapp` scheiterte in Pipeline 5366 (`ModuleNotFoundError: No module
+named 'PIL'`): Die Prüfung rief das nackte `python` des Basis-Images auf, der
+Dienst läuft aber über `uv run` in der Projektumgebung. Behoben — die Prüfung
+benutzt jetzt **denselben Interpreter wie das CMD** (`uv run python`). Dieselbe
+Lehre wie beim Render-Image: der Bau muss mit der Umgebung prüfen, die der
+Dienst benutzt, nicht mit irgendeiner.

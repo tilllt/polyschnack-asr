@@ -53,7 +53,9 @@ COPY --from=fe /fe/dist ./app/static
 # Change 201: Die Schriftmessung muss im Image funktionieren — sonst bleibt
 # fit_mode wirkungslos und meldet nur "fit_unavailable". Deshalb hier messen,
 # nicht erst im Betrieb (Lehre: der Bau prueft, was der Dienst benutzt).
-RUN python -c "\
+# Wichtig: `uv run` — dasselbe Python wie im CMD unten. Das nackte `python`
+# des Basis-Images kennt die Projektabhaengigkeiten nicht (PIL fehlte).
+RUN uv run python -c "\
 from PIL import ImageFont; \
 import subprocess; \
 p = subprocess.run(['fc-match', '-f', '%{file}', 'Arial:bold'], capture_output=True, text=True).stdout.strip(); \
