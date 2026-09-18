@@ -19,6 +19,9 @@
 # Der Bau dauert ~15-20 Minuten und gehoert deshalb NICHT in jeden Build des
 # Render-Images, sondern in dieses selten gebaute Image (Tag :v1). Der
 # Render-Container kopiert daraus /opt/ffalpha.
+#
+# Der CI-Job dazu (build-ffalpha) braucht `tags: [shared]` — ohne Tag bleibt er
+# pending, weil der Projekt-Runner keine untagged Jobs annimmt.
 # ==============================================================
 FROM python:3.12-slim AS build
 

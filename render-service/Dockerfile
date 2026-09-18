@@ -50,6 +50,7 @@ RUN printf '%s\n' \
 # ffmpeg mit HEVC-Alpha aus dem eigenen Image (ffalpha-build/). Der Bau dauert
 # 15-20 Minuten und liegt deshalb nicht hier, sondern in einem selten gebauten
 # Image mit fester Version (:v1). Version dort erhoehen = neu bauen.
+# Faehigkeit im Betrieb pruefbar: /health meldet x265_alpha.
 COPY --from=harbor.rand0m.me/public/polyschnack-asr-ffalpha:v1 /opt/ffalpha /opt/ffalpha
 ENV RENDER_FFMPEG=/opt/ffalpha/bin/ffmpeg \
     RENDER_FFPROBE=/opt/ffalpha/bin/ffprobe
