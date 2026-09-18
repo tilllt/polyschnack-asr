@@ -72,11 +72,16 @@ RUN git clone --depth 1 --branch ${FFMPEG_REF} \
     && grep -q "X265_ENABLE_ALPHA" /src/ffmpeg/libavcodec/libx265.c \
     && echo "Quellstand ${FFMPEG_REF} enthaelt HEVC-Alpha im Encoder"
 
+# zlib ausdruecklich einschalten: --disable-autodetect schaltet es ab, dann
+# fehlt der PNG-Encoder und das Format "PNG-Sequenz" waere im Betrieb kaputt
+# (der Pruefschritt unten hat genau das gefangen). Kommentare gehoeren NICHT in
+# die Zeilenfortsetzung — sie brechen den Befehl.
 RUN cd /src/ffmpeg \
     && PKG_CONFIG_PATH=/opt/ffalpha/lib/pkgconfig ./configure \
         --prefix=/opt/ffalpha \
         --disable-doc --disable-debug --disable-network --disable-autodetect \
         --enable-gpl --enable-libx265 --enable-libvpx --enable-libx264 \
+        --enable-zlib \
         --enable-libass --enable-libfreetype --enable-libfontconfig --enable-libfribidi \
         --extra-cflags="-DX265_ENABLE_ALPHA" \
         --extra-ldflags="-L/opt/ffalpha/lib -Wl,-rpath,/opt/ffalpha/lib" \
