@@ -7,8 +7,12 @@
 - **Ablauf:** Läuft der Dienst `ps-render`, kann der Nutzer im Export-Dialog ein
   Video erzeugen lassen; ohne ihn bleibt es beim ASS-Download mit Hinweis.
 - **Eingaben:** `POST /api/recordings/{id}/export` mit `mode="render"`,
-  `format` (`burn_mp4` | `alpha_webm` | `alpha_mov` | `alpha_png`), Preset und
-  Parametern.
+  `format` (`burn_mp4` | `screen_mp4` | `chroma_mp4` | `hevc_alpha` |
+  `alpha_webm` | `alpha_mov` | `alpha_png`), Preset und Parametern.
+- **Handy-Schnitt:** KineMaster und Verwandte lesen MP4/MOV/3GP mit H.264/H.265.
+  Als einziges Alpha-Format unterstützt KineMaster (ab 7.1) **HEVC mit Alpha in
+  MP4** — dafür gibt es `hevc_alpha`. `screen_mp4` (schwarzer Grund, Mischmodus
+  „Screen") und `chroma_mp4` (grüner Grund) sind die Wege ohne Alphakanal.
 - **Ausgaben:** 202 mit Job-Objekt; Status über den Dienst; fertige Datei über
   `GET /api/recordings/{id}/export/jobs/{job_id}/file`.
 - **Ergebnis:** `render_available` wird aus `/health` des Dienstes ermittelt,
@@ -38,6 +42,18 @@
 - **Ergebnis:** Der Dienst meldet das Format nicht in `/health`, die GUI bietet
   es nicht an, und die API weist ein nicht unterstütztes Format mit 400
   `unsupported_format` zurück.
+
+#### Scenario: HEVC mit Alpha nur bei nachgewiesener Fähigkeit
+
+- **Akteure:** Betreiber mit Alpha-fähigem ffmpeg im Image.
+- **Eingaben:** `format="hevc_alpha"`.
+- **Ergebnis:** `/health` meldet `x265_alpha: true` und führt `hevc_alpha` in
+  den Formaten; die Datei ist HEVC 1280×720 mit echtem Alphakanal (Stichprobe:
+  an Untertitelzeiten teils transparent, teils deckend, sichtbarer Text).
+- **Gegenprobe:** Ein ffmpeg ohne `yuva420p` in der Formatliste des Encoders
+  führt dazu, dass `hevc_alpha` **gar nicht** angeboten wird (Nachweis im
+  Container: `FEHLT: Encoder png` → `alpha_png` wurde nicht gelistet, statt
+  beim Rendern zu scheitern).
 
 ### Requirement: Ehrlicher Fortschritt beim Rendern
 
