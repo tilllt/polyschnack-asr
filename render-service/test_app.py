@@ -89,8 +89,10 @@ def frame_rgba(path: Path, at_s: float = 1.0, w: int = 640, h: int = 360):
     if path.suffix == ".webm":
         dec = ["-c:v", "libvpx-vp9"]
     out = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", *dec, "-ss", str(at_s), "-i", str(path),
-         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+        # Das KONFIGURIERTE ffmpeg benutzen: das System-ffmpeg (7.1) kann
+        # HEVC-Alpha nicht dekodieren und liefert dann alles deckend.
+        [render_app.FFMPEG, "-hide_banner", "-loglevel", "error", *dec, "-ss", str(at_s),
+         "-i", str(path), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
         capture_output=True,
     )
     buf = out.stdout
@@ -105,11 +107,19 @@ def test_health_meldet_verfuegbare_formate(client):
     h = client.get("/health").json()
     assert h["libass"] is True, "libass fehlt — das Image wäre unbrauchbar"
     ids = [f["id"] for f in h["formats"]]
-    for fmt in ("burn_mp4", "chroma_mp4", "alpha_webm", "alpha_mov", "alpha_png"):
+    for fmt in ("burn_mp4", "screen_mp4", "chroma_mp4", "alpha_webm", "alpha_mov"):
         assert fmt in ids
-    # Genau die drei Alpha-Formate tragen Alpha; die beiden MP4-Formate nicht.
-    assert {f["id"] for f in h["formats"] if f["alpha"]} == {
-        "alpha_webm", "alpha_mov", "alpha_png"}
+    # alpha_png nur, wenn der PNG-Encoder im Build steckt. Fehlt er, wird das
+    # Format gar nicht angeboten — statt beim Rendern zu scheitern (das ist die
+    # Absicherung, nicht ein Fehler). Der Image-Bau prueft den Encoder mit.
+    if "png" in render_app.ENCODERS:
+        assert "alpha_png" in ids
+    # Alpha tragen nur die Alpha-Formate. hevc_alpha kommt nur dazu, wenn der
+    # Dienst das kann — sonst wird es gar nicht angeboten.
+    erwartet = {"alpha_webm", "alpha_mov", "alpha_png"}
+    if render_app.x265_alpha_supported():
+        erwartet.add("hevc_alpha")
+    assert {f["id"] for f in h["formats"] if f["alpha"]} == erwartet
     for f in h["formats"]:
         assert f["ext"] and f["mime"] and f["label"]
         # Jedes Format muss sagen, wofuer es ist — die GUI zeigt diesen Text.
