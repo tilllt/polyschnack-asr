@@ -10,6 +10,10 @@
 - [x] Dockerfile: `LD_LIBRARY_PATH=/opt/ffalpha/lib`.
 - [x] Dockerfile: Bau-Prüfung um „PATH-ffmpeg ist das Alpha-Build" und „kein zweites
       `/usr/bin/ffmpeg`" erweitert.
+- [x] `render-service/README.md` geschrieben: Alpha-ffmpeg-Bau (drei Bedingungen, gemessene
+      Fakten), Nutzung des Images/Containers als Baustein für eigene Multi-Stage-Builds
+      (drei Wege, inkl. Hinweis auf die fest verdrahtete interne Registry), Alpha-Nachweis
+      mit Messbefehlen und Fallstricken, Kurzfassung der Bitstrom-Signalisierung, Betrieb.
 - [ ] Image bauen (Pre-Check auf der KI-Box) und im Container prüfen:
       `command -v ffmpeg`, `ffmpeg -version`, `-h encoder=libx265` zeigt `yuva420p`,
       `/usr/bin/ffmpeg` fehlt, echte Alpha-Aufnahme mit dem **Standard**-Aufruf.
