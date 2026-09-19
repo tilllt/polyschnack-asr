@@ -90,14 +90,24 @@ interface Props {
    *  Gesetzt → Waveform zoomt auf das Wort (~30 % der Ansicht) und zeigt
    *  die Timing-Markierung mit Start-/Ende-Handles. null = normal. */
   timingWord?: TimingWord | null;
+  /** Change 211 (Nutzer-Vorgabe 19.09.2026): Worttext des aktiven Wortes —
+   *  wird als sehr kleines Label in der Fläche angezeigt (3 px Abstand zum
+   *  Startmarker, analog zu den Nachbarflächen). */
+  timingWordText?: string;
   /** Change 209 (User-Vorgabe 19.09.2026): Range-Marker der Nachbarwörter
    *  (n-1/n+1) im selben Zoom — Kontext für das Ziehen. Wird eine Kante des
    *  aktiven Wortes über einen Nachbarn gezogen, schrumpft sie mit (der
    *  Parent rechnet das live und der Server beim Speichern). */
   timingNeighbors?: { prev: TimingNeighbor | null; next: TimingNeighbor | null } | null;
   /** Change 209: Klick oder Anfassen eines Nachbar-Markers (oder seiner
-   *  Region) macht dieses Wort zum aktiven Wort. */
-  onTimingSelectWord?: (segIdx: number, wordIdx: number) => void;
+   *  Region) macht dieses Wort zum aktiven Wort.
+   *  Change 211 (Nutzer-Vorgabe 19.09.2026): `opts.noPlay` — der Klick auf eine
+   *  Nachbarfläche aktiviert nur (kein Playback). */
+  onTimingSelectWord?: (
+    segIdx: number,
+    wordIdx: number,
+    opts?: { noPlay?: boolean },
+  ) => void;
   /** Change 155 (Timing-Zoom): Recording-UID für progressive Peaks
    *  (GET /recordings/{rid}/peaks?length=N). Nur im Timing-Kontext nötig. */
   recordingId?: string;
@@ -277,7 +287,7 @@ export function toggleActivePlayback(): void {
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, timingNeighbors = null, onTimingSelectWord, recordingId, onTimingChange, onTimingCommit }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, timingWordText, timingNeighbors = null, onTimingSelectWord, recordingId, onTimingChange, onTimingCommit }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     // Change 072 (User-Befund 2026-08-21, „Waveforms lade endlos“ trotz 070):
@@ -412,6 +422,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const timingRegionRef = useRef<any>(null);
     // Change 209: Kennung des zuletzt angelegten aktiven Wortes (siehe unten).
     const prevRegionKeyRef = useRef<string | null>(null);
+    /** Change 211 (Nutzer-Vorgabe): Worttext des aktiven Wortes für das Label
+     *  in der Fläche. Als Ref, damit die Effekte den aktuellen Wert sehen,
+     *  ohne dass sich ihre Abhängigkeiten ändern. */
+    const timingWordTextRef = useRef("");
+    timingWordTextRef.current = timingWordText ?? "";
     // Change 209: Regionen der Nachbarwörter (n-1 / n+1).
     const neighborRegionsRef = useRef<{ prev: any; next: any }>({ prev: null, next: null });
     const neighborDataRef = useRef(timingNeighbors);
@@ -450,6 +465,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               if (el) {
                 el.classList.add("ps-timing-region", "ps-timing-region-active");
                 el.style.border = "2px solid rgba(46,160,67,0.95)";
+                // Change 211 (Nutzer-Vorgabe 19.09.2026): das jeweilige WORT
+                // sehr klein am Startmarker — wie bei den Nachbarflächen.
+                const lab = document.createElement("span");
+                lab.className = "ps-timing-word ps-timing-word-active";
+                lab.textContent = timingWordTextRef.current || "";
+                el.appendChild(lab);
               }
             } catch {
               /* Element nicht verfügbar — Markierung bleibt ohne Rahmen */
@@ -532,6 +553,16 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       } catch {
         /* setOptions nicht verfügbar — Region bleibt an alter Stelle */
       }
+      // Change 211 (Nutzer-Vorgabe): Das Label muss mit dem Wortwechsel
+      // mitwandern — die Region wird wiederverwendet, sonst bliebe der Text
+      // des vorherigen Wortes stehen.
+      try {
+        const rEl = timingRegionRef.current?.element as HTMLElement | undefined;
+        const rLab = rEl?.querySelector(".ps-timing-word-active") as HTMLElement | null;
+        if (rLab) rLab.textContent = timingWordTextRef.current || "";
+      } catch {
+        /* kein Label vorhanden */
+      }
     }, [timingWord, ready]);
 
     // ── Change 209: Range-Marker der Nachbarwörter (n-1 / n+1) ──
@@ -597,7 +628,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             // Zoom lädt es neu, gezogen wird dann an seinen Handles.
             const select = () => {
               const cur = neighborDataRef.current?.[which];
-              if (cur) onTimingSelectRef.current?.(cur.segIdx, cur.wordIdx);
+              if (cur) onTimingSelectRef.current?.(cur.segIdx, cur.wordIdx, { noPlay: true });
             };
             created.on("click", select);
             created.on("update", select);

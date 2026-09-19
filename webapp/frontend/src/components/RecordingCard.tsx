@@ -1159,7 +1159,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     r.job?.pct != null ? r.job.pct : r.status === "processing" ? (r.progress_pct ?? null) : null;
 
   // ── Change 137: Timing-Tab (Wort laden, Marker-Drag, PATCH, Reset) ──
-  function handleTimingWordSelect(segIdx: number, wordIdx: number) {
+  function handleTimingWordSelect(
+    segIdx: number,
+    wordIdx: number,
+    opts?: { noPlay?: boolean },
+  ) {
     const segs = displaySegments ?? segments;
     const seg = segs?.[segIdx];
     const w = seg?.words?.[wordIdx];
@@ -1190,7 +1194,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     // NUR die Wortspanne und hält am Ende an; der Cursor steht danach am
     // Wortanfang, damit Play von dort weiterläuft. (Die Wortliste selbst
     // startet kein Playback mehr — sie zoomt nur und setzt die Markierung.)
-    wsRef.current?.playRange(w.start, w.end);
+    // Change 211 (Nutzer-Vorgabe 19.09.2026): Der Klick auf eine Nachbarfläche
+    // (n-1/n+1) aktiviert das Wort NUR und zentriert die Ansicht — kein
+    // Playback. Der Weg über die Wortliste spielt weiter die Wortspanne.
+    if (!opts?.noPlay) {
+      wsRef.current?.playRange(w.start, w.end);
+    }
   }
 
   // Live-Update während des Drags: nur die Zeiten ändern (der 30 %-Zoom
@@ -1514,6 +1523,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             // Change 137: Timing-Tab — Wort laden (30 %-Zoom + Markierung),
             // Drag-Handles live + Commit per PATCH.
             timingWord={timingWord}
+            // Change 211 (Nutzer-Vorgabe): Worttext für das Label im aktiven
+            // Wort (aus der angezeigten Segmentliste, gleiche Quelle wie der
+            // Klick).
+            timingWordText={
+              timingWord
+                ? ((displaySegments ?? segments)?.[timingWord.segIdx]?.words?.[
+                    timingWord.wordIdx
+                  ]?.word ?? "")
+                : ""
+            }
             timingNeighbors={timingNeighbors}
             onTimingSelectWord={handleTimingWordSelect}
             onTimingChange={handleTimingChange}
