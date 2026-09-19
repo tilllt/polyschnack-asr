@@ -54,3 +54,25 @@ fc-match -f '%{family}' "Liberation Sans Narrow"
    durch: die Probe suchte einen anderen Wert in ``spec["values"]``, und ohne
    Schriftmessung enthält die Liste nur die Vorgabe. Für offene Auswahlen prüft
    sie jetzt mit einem anderen Namen — in beiden Umgebungen grün.
+
+## Live-Abnahme (19.09., Revision 8687121a)
+
+* Pipeline `5386` grün: `test-webapp` ✓ (751 s), `test-frontend` ✓, `test-render` ✓,
+  `build-webapp` ✓, `build-render` ✓, `grep-gate` ✓; `mirror-ghcr` lief noch
+  (nicht abnahmerelevant).
+* Ausgerollt: `polyschnack-ps-webapp-1` und `polyschnack-ps-render-1`, beide
+  Revision **8687121a**, Status running.
+* `curl /api/export/presets` → ``font_name``: ``type=enum``, ``open=true``,
+  ``max_len=64``, Werte
+  ``['Arial', 'Liberation Sans', 'Times New Roman', 'Liberation Serif', 'Courier New', 'Liberation Mono']``;
+  alle fünf Presets führen ``font_name`` in ``used_params`` und belegen ``Arial`` vor.
+* **Gegenprobe am Renderdienst** (``fc-match`` im Container für jeden angebotenen
+  Namen): Arial → Liberation Sans, Liberation Sans → Liberation Sans,
+  Times New Roman → Liberation Serif, Liberation Serif → Liberation Serif,
+  Courier New → Liberation Mono, Liberation Mono → Liberation Mono — alle „ok".
+  Damit ist die Zusage „nur was beide Seiten selbst auflösen" live belegt.
+* Ausgeliefertes Bundle unverändert ``assets/index-B_9IAANU.js`` (870 252 B) —
+  richtig, denn 203 hat keine Frontend-Quelle geändert, nur ihren Test. Die
+  Auswahlliste entsteht aus dem Schema der API (``type=enum``), und genau das
+  rendert der bestehende ``<select>``-Pfad; belegt ist das über den Test
+  ``ExportDialog.test.tsx`` (Dropdown mit den Serverwerten, kein Textfeld).
