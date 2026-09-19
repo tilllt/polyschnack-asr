@@ -134,7 +134,16 @@ export function UploadZone({ user }: Props) {
     const items = Array.from(files);
     if (!items.length) return;
     // Kein Sofort-Upload mehr: erst Liste zeigen (Reihenfolge + Modus wählen)
-    setPendingFiles(items);
+    // Change 211 (Nutzer-Befund 19.09.2026): Weitere Auswahl ANHÄNGEN statt
+    // ersetzen — mehrfaches „Click to upload" sammelt eine Upload-Liste.
+    // Dedupe über Name+Größe+Änderungszeit, damit dieselbe Datei nicht doppelt
+    // in der Liste landet.
+    setPendingFiles((prev) => {
+      const key = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+      const seen = new Set((prev ?? []).map(key));
+      const add = items.filter((f) => !seen.has(key(f)));
+      return [...(prev ?? []), ...add];
+    });
   }
 
   async function startUpload() {
@@ -650,6 +659,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const snapshotRecRef = useRef<MediaRecorder | null>(null);
   const snapshotChunksRef = useRef<Blob[]>([]);
   const snapshotPendingRef = useRef<PendingRecording | null>(null);
+  /** Change 211 (Nutzer-Befund 19.09.2026): Timer für die Mindesthaltedauer —
+   *  eine neue Aufnahme startet erst nach ~350 ms Halten, damit ein kurzer
+   *  Tipp keine 0,2-Sekunden-Aufnahme erzeugt. */
+  const holdTimerRef = useRef<number | null>(null);
 
   // Change 211 (Nutzer-Vorgabe 19.09.2026): Die einmalige Anleitung beim ersten
   // Besuch entfällt — die Gestenhilfe ist jetzt dauerhaft sichtbar. Der frühere
@@ -996,13 +1009,18 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     gestureDone.current = false;
 
     if (recording && paused) {
-      // Fortsetzen nach Pause — weiter in dieselbe Datei
+      // Fortsetzen nach Pause — weiter in dieselbe Datei (sofort, kein Halten nötig)
       recordRef.current?.resumeRecording();
       setPaused(false);
       timerRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
     } else if (!recording && !paused) {
-      // Neue Aufnahme starten
-      void startRecording();
+      // Change 211 (Nutzer-Befund 19.09.2026): Eine neue Aufnahme startet erst
+      // nach kurzem HALTEN (~350 ms). Ein versehentlicher kurzer Tipp erzeugte
+      // vorher 0,2-Sekunden-Fragmente. Loslassen vor Ablauf → nur Hinweis.
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        void startRecording();
+      }, 350);
     }
     // Läuft bereits (continuous): nichts tun — Gesten entscheiden
   }
@@ -1032,6 +1050,16 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   }
 
   function onTouchEnd() {
+    // Change 211 (Nutzer-Befund 19.09.2026): Kurzer Tipp (unter der
+    // Mindesthaltedauer) startet KEINE Aufnahme — stattdessen der Hinweis,
+    // dass nur beim Halten aufgenommen wird.
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+      toast(t("push_gesture_hold"), "info");
+      touchStartY.current = null;
+      return;
+    }
     // Loslassen ohne Swipe = Pause (nur wenn nicht Continuous-Modus)
     if (!gestureDone.current && recording && !paused && !continuous) {
       recordRef.current?.pauseRecording();
