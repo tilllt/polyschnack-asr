@@ -353,3 +353,21 @@ und `alpha_png` die richtige Wahl — dort ist echter Alphakanal verfügbar.
 | `RENDER_TTL_S` | Aufbewahrung fertiger Dateien in Sekunden, Standard 86400 (24 h) |
 | `RENDER_TIMEOUT_S` | Obergrenze pro Auftrag in Sekunden, Standard 1800 (30 min) |
 | `RENDER_PORT` (Host) | Nur für Handproben, Standard 8091 auf 127.0.0.1 |
+
+## Technische Details zum Render-Image
+
+`ps-render` bringt sein eigenes **ffmpeg mit HEVC-Alpha** mit. Dazu gibt es eine eigene
+Dokumentation direkt neben dem Dockerfile:
+[`render-service/README.md`](../render-service/README.md). Sie erklärt
+
+- **warum** der Bau nötig ist (x265 mit `-DENABLE_ALPHA`, geteilte `libx265` plus `x265.pc`,
+  ffmpeg ≥ 8.0 mit `-DX265_ENABLE_ALPHA`),
+- **wie** man diesen Container als Baustein für eigene (Multi-Stage-)Builds nutzt, die
+  Alphakanal-Support brauchen — drei Wege, mit den jeweils nötigen Laufzeit-Bibliotheken,
+- wie man Alpha **numerisch nachweist** statt nach Augenmaß, und welche drei Fallstricke
+  dabei schon zugeschlagen haben.
+
+Zwei Punkte, die im Betrieb wichtig sind: Im Image gibt es **genau ein** ffmpeg — das
+Alpha-Build, als Standard in `PATH` (`/usr/local/bin/ffmpeg`). Und der Dienst hängt in einem
+Compose-**Profil**: `docker compose … up -d ps-render` **ohne `--profile render`
+überspringt ihn still.**
