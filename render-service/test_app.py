@@ -449,6 +449,10 @@ def test_hevc_alpha_argumente_und_angebot(client, monkeypatch):
     assert "libx265" in args
     assert "-pix_fmt yuva420p" in args, "ohne yuva420p gibt es kein Alpha"
     assert "-tag:v hvc1" in args, "KineMaster erwartet den Apple-Tag"
+    # Am Geraet gemessen: die x265-Versions-SEI im hvcC laesst KineMaster die
+    # Datei komplett ablehnen ("enthaelt ein nicht unterstuetztes Format").
+    assert "-x265-params info=0" in args, "ohne info=0 landet die x265-Versions-SEI im hvcC"
+    assert "-g 50" in args, "IDR-Intervall auf 2 s begrenzen (25 fps), sonst warnt KineMaster"
 
 
 def test_hevc_alpha_erzeugt_echte_transparenz(client):

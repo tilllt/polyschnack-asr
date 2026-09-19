@@ -161,7 +161,26 @@ Signalisierung stimmen:
 Notizen und Messreihen dazu: `openspec/changes/204-ein-ffmpeg-im-render-image/` sowie die
 zugehörige Skill-Dokumentation zum x265-Alpha-Patch.
 
-## 7. Betrieb
+## 7. Was KineMaster zum Import braucht (am Gerät gemessen, 19.09.2026)
+
+KineMaster 7.1 prüft den `hvcC` (Sample Description) streng:
+
+- Im `hvcC` darf **neben der Alpha-SEI nichts weiter** stehen. Enthält das SEI-Array zusätzlich die
+  ~2,3 kB große x265-Versions-SEI (`user_data_unregistered`, „x265 (build …)"), lehnt KineMaster die
+  Datei komplett ab: **„Dieser Clip enthält ein nicht unterstütztes Format."** Dieselbe SEI *in den
+  Samples* ist dagegen harmlos.
+  → Der Dienst kodiert deshalb mit **`-x265-params info=0`**; im `hvcC` bleibt nur die 4-Byte-Alpha-SEI —
+  das entspricht Apples Referenzdateien.
+- Der **IDR-Abstand** muss klein sein: mit x265-Standard (`keyint=250`, also 10 s bei 25 fps)
+  importiert KineMaster zwar, warnt aber „IDR-Intervall ist zu groß".
+  → Der Dienst setzt **`-g <2 × fps>`** (2 Sekunden).
+- Die Signalisierung selbst (`scalability_mask=0x3000` inklusive AUX, `AuxId=1`, SEI 165) wird
+  akzeptiert — daran lag es nicht.
+
+Messergebnisse und die Sonden, mit denen das eingekreist wurde:
+`openspec/changes/205-hevc-alpha-importierbar/`.
+
+## 8. Betrieb
 
 | Variable | Zweck |
 | --- | --- |

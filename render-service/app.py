@@ -359,8 +359,24 @@ def build_ffmpeg_args(job: Job, ass_path: Path, media_path: Optional[Path],
     elif job.format == "hevc_alpha":
         # hvc1 ist der Apple-Tag; KineMaster erwartet dieses Format. Der
         # Alphakanal kommt aus dem Encoder (ffmpeg mit X265_ENABLE_ALPHA).
+        #
+        # Zwei Parameter sind NICHT kosmetisch, sondern importentscheidend — am
+        # Geraet gemessen (19.09.2026, vier Sonden gegen KineMaster 7.1):
+        #  * info=0 — sonst schreibt x265 eine ~2,3 kB grosse
+        #    user_data_unregistered-SEI ("x265 (build 216) ...") in beide
+        #    Schichten. ffmpeg legt die SEI-NALs in den hvcC (Sample
+        #    Description); KineMaster lehnt Dateien mit dieser SEI im hvcC
+        #    komplett ab ("enthaelt ein nicht unterstuetztes Format"). Ohne die
+        #    Versions-SEI bleibt dort nur die 4-Byte-Alpha-SEI — damit
+        #    importiert es, und der Aufbau entspricht Apples Referenzdateien.
+        #    In den Samples ist die Versions-SEI dagegen harmlos (gemessen).
+        #  * -g <2 s> — x265 nimmt sonst keyint=250 (10 s bei 25 fps).
+        #    KineMaster importiert das zwar, warnt aber "IDR-Intervall ist zu
+        #    gross"; kurze GOPs sind ausserdem besser zu scrubben.
+        keyint = max(1, int(round(fps * 2)))
         args += ["-vf", filt, "-c:v", "libx265", "-pix_fmt", "yuva420p",
                  "-tag:v", "hvc1", "-crf", str(crf), "-preset", "veryfast",
+                 "-g", str(keyint), "-x265-params", "info=0",
                  "-movflags", "+faststart"]
     elif job.format == "alpha_png":
         # Sequenz: ffmpeg schreibt nummerierte Einzelbilder; das ZIP baut der
