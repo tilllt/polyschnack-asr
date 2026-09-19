@@ -45,24 +45,36 @@ Renderprüfung wäre das durchgegangen (die Rechnung sah in sich stimmig aus).
 * Frontend: `ExportDialog.test.tsx` 14 Tests grün, `npm run build` ohne
   Typfehler; alle drei Sprachen haben 464 Schlüssel (neue in allen dreien).
 
-## CI und Ausrollen
+## CI und Ausrollen — erledigt
 
-* Commit `a87f56d`, Pipeline `5382`: `test-frontend` und `grep-gate` grün,
-  **`test-webapp` rot** (9 Fehlschläge) → `build-webapp` übersprungen, kein
-  neues Image.
+* Commit `a87f56d` (Pipeline `5382`, rot: s. o.) → Korrektur `af8399a`
+  (Pipeline `5383`): `test-webapp` **success** (857 s), `build-webapp`
+  **success** (161 s, Image in Harbor), `mirror-github` success,
+  `grep-gate` success; `test-frontend` existiert in dieser Pipeline nicht
+  (`changes:`-Filter, kein Frontend-Change).
+* Ausgerollt auf der KI-Box (.140): `polyschnack-ps-webapp-1` neu erstellt,
+  Label `org.opencontainers.image.revision=af8399ac`, API nach 3 s HTTP 200.
 
-### Warum `test-webapp` rot war (und was die Lehre ist)
+### Live-Abnahme (gemessen am ausgelieferten Stand)
 
-Der CI-Testjob installiert **Pillow nicht** (die explizite pip-Liste in
-`.gitlab-ci.yml`). Damit meldet `textfit.available()` → `fit_unavailable:pillow`,
-`fit_mode` fällt auf `off` zurück, und meine Tests prüften eine Größe, die es in
-dieser Umgebung nicht gibt: `TypeError: '<' not supported between instances of
-'NoneType'` und „kein \fs-Tag" — also Fehlschläge, die nichts über den Code,
-sondern über die Umgebung aussagen.
+* `GET /api/export/presets` → `fit_mode`: `{"type": "enum", "values": ["off",
+  "balanced", "per_line"]}`; `safe_margin_pct`: `{"type": "int", "min": 0,
+  "max": 20}`. Alle fünf Presets führen **beide** in `used_params`, die Regler
+  erscheinen also im Dialog.
+* Ausgeliefertes Bundle: `index-B_9IAANU.js`, 870 252 Bytes — identisch mit dem
+  lokal gebauten; enthält `ass_pos_per_line` (3×), `ep_safe_margin_pct` (3×),
+  `ass_warn_fit_tag_missing` (4×) und die Labels „Jede Zeile einzeln",
+  „Sicherheitsrand (Safe Title)".
+* Route/Auth: `/api/recordings/gibtsnicht/export/ass` → **HTTP 404** (Route da,
+  Zugriffsprüfung greift).
+* **Rechnung im ausgerollten Image** (`docker exec` im Webapp-Container,
+  dieselbe Beispielaufnahme, `safe_margin_pct=5` → Ränder 96/96):
 
-Korrektur: alles, was die **berechnete** Größe prüft, trägt `needs_font` (skip,
-wenn nicht messbar); der Vorlagen-Test stellt die Messfähigkeit per monkeypatch
-selbst her, statt sich auf Pillow zu verlassen. Gegengeprüft in beiden
-Umgebungen: mit Pillow 24 Tests grün, ohne Pillow (Import von `PIL` blockiert)
-80 grün / 19 übersprungen. Die 201-Tests hatten dieselbe Lücke — dort war nur
-deshalb nichts rot, weil sie von Anfang an mit `skipif` versehen wurden.
+  | Modus | Zeilen | Größen |
+  |---|---|---|
+  | `per_line`, 1 Wort je Zeile | Ich, bin, ein, sehr, langes, Wort, Donau… | 830, 830, 830, 814, 543, 761, 78 px |
+  | `per_line`, 4 Wörter je Zeile | „Ich bin ein sehr", „langes Wort Donau…" | 234, 61 px |
+  | `off`, 4 Wörter je Zeile | dieselben Zeilen | kein `\fs`-Tag (Stil 48 px) |
+
+  Damit ist der Sprung (Faktor ~11 zwischen kurzer und langer Zeile) am
+  laufenden Container belegt, nicht nur an der Konfiguration.
