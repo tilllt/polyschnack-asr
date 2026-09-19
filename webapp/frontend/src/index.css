@@ -277,41 +277,56 @@ audio {
 .ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); top: auto; bottom: 1px; }
 .ps-timing-word-active { color: #7ee787; top: 1px; bottom: auto; }
 
-/* Change 211 (Nutzer-Vorgabe 19.09.2026): dauerhafte Gestenhilfe am
-   Record-Knopf. Drei dezente Animationen: pulsierender Ring für „halten",
-   Pfeil aufwärts für „Daueraufnahme", Pfeil abwärts für „Stop & Upload".
-   Bewusst langsam und klein — Hinweis, kein Blinker. */
-@keyframes ps-gesture-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.55; }
-  50%      { transform: scale(1.35); opacity: 1; }
+/* Change 211 (Nutzer-Vorgabe 19.09.2026): Nutzungshinweise neben dem
+   Record-Knopf — groß, nacheinander eingeblendet, mit animiertem Pfeil.
+   Bewusst deutlich größer als vorher; sie sollen sofort ins Auge fallen. */
+.ps-tips {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  animation: ps-tip-in 0.4s ease-out;
 }
-@keyframes ps-gesture-up {
-  0%, 100% { transform: translateY(1px); opacity: 0.5; }
-  50%      { transform: translateY(-3px); opacity: 1; }
+.ps-tips-arrow {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--ps-accent, #2ea043);
 }
-@keyframes ps-gesture-down {
-  0%, 100% { transform: translateY(-1px); opacity: 0.5; }
-  50%      { transform: translateY(3px); opacity: 1; }
+.ps-tips-text {
+  font-size: 15px;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--ps-text, #e6edf3);
 }
-.ps-gesture { display: inline-block; line-height: 1; }
-.ps-gesture-arrow { font-size: 9px; }
-.ps-gesture-hold {
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid currentColor;
-  border-radius: 9999px;
-  animation: ps-gesture-pulse 2.4s ease-in-out infinite;
+@keyframes ps-tip-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }
-.ps-gesture-up { animation: ps-gesture-up 2.4s ease-in-out infinite; }
-.ps-gesture-down { animation: ps-gesture-down 2.4s ease-in-out infinite; }
+@keyframes ps-tip-up {
+  0%, 100% { transform: translateY(4px); opacity: 0.6; }
+  50%      { transform: translateY(-6px); opacity: 1; }
+}
+@keyframes ps-tip-down {
+  0%, 100% { transform: translateY(-4px); opacity: 0.6; }
+  50%      { transform: translateY(6px); opacity: 1; }
+}
+@keyframes ps-tip-hold {
+  0%, 100% { transform: scale(1); opacity: 0.65; }
+  50%      { transform: scale(1.25); opacity: 1; }
+}
+.ps-tip-up { animation: ps-tip-up 1.6s ease-in-out infinite; }
+.ps-tip-down { animation: ps-tip-down 1.6s ease-in-out infinite; }
+.ps-tip-hold { animation: ps-tip-hold 1.6s ease-in-out infinite; }
 
-/* Wer Bewegung reduziert haben will, bekommt die Hilfe statisch. */
+/* Wer Bewegung reduziert haben will, bekommt die Hinweise statisch. */
 @media (prefers-reduced-motion: reduce) {
-  .ps-gesture-hold,
-  .ps-gesture-up,
-  .ps-gesture-down {
+  .ps-tips,
+  .ps-tip-up,
+  .ps-tip-down,
+  .ps-tip-hold {
     animation: none;
-    opacity: 0.9;
+    opacity: 0.95;
   }
 }
 .ps-timing-region-active {

@@ -629,7 +629,19 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
-  // Change 211: showHelp entfällt — die Gestenhilfe ist jetzt dauerhaft sichtbar.
+  // Change 211 (Nutzer-Vorgabe 19.09.2026): Nutzungshinweise nacheinander —
+  // groß neben dem Record-Knopf, einer nach dem anderen, mit animiertem Pfeil.
+  const usageTips = [
+    { key: "gesture_lock_up", glyph: "▲", anim: "ps-tip-up" },
+    { key: "gesture_stop_down", glyph: "▼", anim: "ps-tip-down" },
+    { key: "gesture_hold", glyph: "◉", anim: "ps-tip-hold" },
+    { key: "gesture_release_pause", glyph: "❙❙", anim: "ps-tip-hold" },
+  ] as const;
+  const [tipIdx, setTipIdx] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTipIdx((i) => (i + 1) % usageTips.length), 2600);
+    return () => window.clearInterval(id);
+  }, [usageTips.length]);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -1113,7 +1125,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           (Modal mit „Verstanden") ist entfernt — an ihre Stelle tritt die
           dauerhafte, animierte Hilfe direkt am Record-Knopf. */}
 
-      {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher */}
+      {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher.
+          Change 211 (Nutzer-Vorgabe 19.09.2026): Die Nutzungshinweise stehen
+          groß NEBEN dem Knopf und werden nacheinander eingeblendet. */}
+      <div className={isTouch ? "flex items-center justify-center gap-6" : ""}>
       <div className="relative">
         <button
           onClick={isTouch ? undefined : (recording ? stopRecording : startRecording)}
@@ -1135,9 +1150,20 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           {recording ? (paused ? "⏸" : continuous ? "🔴" : "⏹") : "🎤"}
         </button>
 
-        {/* Change 211 (Nutzer-Vorgabe 19.09.2026): Der „?"-Help-Button ist weg —
-            die dauerhafte, animierte Gestenhilfe steht direkt unter dem Knopf. */}
       </div>
+
+        {/* Change 211: Nutzungshinweise — nacheinander, groß, mit Pfeil. */}
+        {isTouch && (
+          <div className="ps-tips" key={tipIdx}>
+            <div className={`ps-tips-arrow ${usageTips[tipIdx].anim}`} aria-hidden="true">
+              {usageTips[tipIdx].glyph}
+            </div>
+            <div className="ps-tips-text">{t(usageTips[tipIdx].key)}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Statuszeile bleibt bestehen (Pause/Daueraufnahme) */}
 
       {/* Mikrofon-Auswahl — nur wenn mehrere Inputs existieren */}
       {micDevices.length > 1 && !recording && (
@@ -1169,31 +1195,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         </div>
       )}
 
-      {/* Change 211 (Nutzer-Vorgabe 19.09.2026): dauerhafte Gestenhilfe statt
-          einmaliger Erklärung. Dezente, wiederkehrend animierte Pfeile zeigen
-          Richtung UND Funktion; während Aufnahme und Upload ausgeblendet,
-          damit sie nicht mit dem Aufnahmezustand konkurriert. Bei
-          prefers-reduced-motion stehen die Pfeile still (siehe index.css). */}
-      {isTouch && !recording && uploadPhase === "idle" && (
-        <div className="flex items-center justify-center gap-4 text-[10.5px] text-muted2 select-none">
-          <span className="inline-flex items-center gap-1">
-            <span className="ps-gesture ps-gesture-hold" aria-hidden="true" />
-            {t("push_gesture_hold")}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="ps-gesture ps-gesture-arrow ps-gesture-up" aria-hidden="true">
-              ▲
-            </span>
-            {t("push_gesture_up")}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="ps-gesture ps-gesture-arrow ps-gesture-down" aria-hidden="true">
-              ▼
-            </span>
-            {t("push_gesture_down")}
-          </span>
-        </div>
-      )}
+      {/* Change 211 (Nutzer-Vorgabe 19.09.2026): Die kleine Hinweiszeile ist
+          ersetzt — die Nutzungshinweise stehen jetzt groß neben dem Knopf. */}
 
       <div className="text-[22px] sm:text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
 
