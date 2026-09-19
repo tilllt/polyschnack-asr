@@ -91,15 +91,29 @@ def test_duplicate_enqueue_raises(qm):
 
 def test_queue_full_raises(qm, monkeypatch):
     # Worker blockieren → Jobs bleiben in der Queue (deterministisch, kein Race)
-    def slow_process(rec_id, backend=None):
-        time.sleep(5)
-
+    #
+    # Befund 19.09.2026 (CI rot mit "1 failed, 1343 passed" bei einem reinen
+    # Frontend-Commit): Der Fake nahm nur (rec_id, backend) entgegen, der Worker
+    # ruft aber process_recording(rec_id, backend=..., job=job) auf
+    # (app/queue.py:660). Der Aufruf endete deshalb SOFORT mit TypeError — die
+    # beabsichtigte Blockade (time.sleep) wurde nie erreicht, der Worker räumte
+    # den Job aus _jobs ab und der 4. enqueue lief je nach Thread-Timing mal in
+    # QueueFullError, mal nicht.
+    # Jetzt: echte Signatur + Blockade über ein Event, das erst im finally
+    # gesetzt wird — der Worker ist garantiert belegt, 3 aktive Jobs (max 3)
+    # → der 4. muss werfen.
+    held = threading.Event()
+    def slow_process(rec_id, backend=None, job=None, **kwargs):
+        held.wait(10)
     monkeypatch.setattr(queue_mod, "process_recording", slow_process)
-    qm.enqueue(1, None, "ps-pk-onnx")
-    qm.enqueue(2, None, "ps-pk-onnx")
-    qm.enqueue(3, None, "ps-pk-onnx")
-    with pytest.raises(QueueFullError):
-        qm.enqueue(4, None, "ps-pk-onnx")
+    try:
+        qm.enqueue(1, None, "ps-pk-onnx")
+        qm.enqueue(2, None, "ps-pk-onnx")
+        qm.enqueue(3, None, "ps-pk-onnx")
+        with pytest.raises(QueueFullError):
+            qm.enqueue(4, None, "ps-pk-onnx")
+    finally:
+        held.set()  # Worker freigeben, damit m.stop() nicht wartet
 
 
 def test_position_counts_same_backend_only(qm_no_worker):
