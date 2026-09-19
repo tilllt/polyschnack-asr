@@ -273,6 +273,44 @@ audio {
 }
 .ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); }
 .ps-timing-word-active { color: #7ee787; }
+
+/* Change 211 (Nutzer-Vorgabe 19.09.2026): dauerhafte Gestenhilfe am
+   Record-Knopf. Drei dezente Animationen: pulsierender Ring für „halten",
+   Pfeil aufwärts für „Daueraufnahme", Pfeil abwärts für „Stop & Upload".
+   Bewusst langsam und klein — Hinweis, kein Blinker. */
+@keyframes ps-gesture-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50%      { transform: scale(1.35); opacity: 1; }
+}
+@keyframes ps-gesture-up {
+  0%, 100% { transform: translateY(1px); opacity: 0.5; }
+  50%      { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes ps-gesture-down {
+  0%, 100% { transform: translateY(-1px); opacity: 0.5; }
+  50%      { transform: translateY(3px); opacity: 1; }
+}
+.ps-gesture { display: inline-block; line-height: 1; }
+.ps-gesture-arrow { font-size: 9px; }
+.ps-gesture-hold {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 9999px;
+  animation: ps-gesture-pulse 2.4s ease-in-out infinite;
+}
+.ps-gesture-up { animation: ps-gesture-up 2.4s ease-in-out infinite; }
+.ps-gesture-down { animation: ps-gesture-down 2.4s ease-in-out infinite; }
+
+/* Wer Bewegung reduziert haben will, bekommt die Hilfe statisch. */
+@media (prefers-reduced-motion: reduce) {
+  .ps-gesture-hold,
+  .ps-gesture-up,
+  .ps-gesture-down {
+    animation: none;
+    opacity: 0.9;
+  }
+}
 .ps-timing-region-active {
   box-shadow: inset 1px 0 0 rgba(46, 160, 67, 0.85), inset -1px 0 0 rgba(46, 160, 67, 0.85);
 }

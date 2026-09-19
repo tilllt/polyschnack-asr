@@ -620,7 +620,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
+  // Change 211: showHelp entfällt — die Gestenhilfe ist jetzt dauerhaft sichtbar.
   const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -651,13 +651,9 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const snapshotChunksRef = useRef<Blob[]>([]);
   const snapshotPendingRef = useRef<PendingRecording | null>(null);
 
-  // Anleitung beim ersten Besuch automatisch zeigen
-  useEffect(() => {
-    if (isTouch && !localStorage.getItem("ps_pushtorecord_help_seen")) {
-      setShowHelp(true);
-      localStorage.setItem("ps_pushtorecord_help_seen", "1");
-    }
-  }, [isTouch]);
+  // Change 211 (Nutzer-Vorgabe 19.09.2026): Die einmalige Anleitung beim ersten
+  // Besuch entfällt — die Gestenhilfe ist jetzt dauerhaft sichtbar. Der frühere
+  // localStorage-Merker („ps_pushtorecord_help_seen") wird nicht mehr gebraucht.
 
   async function acquireWakeLock() {
     try {
@@ -1085,48 +1081,9 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       {/* Offline-Puffer-Banner: liegt jetzt in der Hauptkomponente
           (UploadZone), damit er in allen Tabs + beim App-Start sichtbar ist. */}
 
-      {/* Mobile: animierte Gesten-Anleitung */}
-      {isTouch && showHelp && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6" onClick={() => setShowHelp(false)}>
-          <div className="bg-panel border border-border rounded-card p-5 max-w-[320px] w-full space-y-4 max-h-[85dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center font-bold text-[14px]">📱 {t("push_record_help_title")}</div>
-
-            {/* Geste 1: Drücken & Loslassen = Pause */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[20px] animate-pulse shrink-0">🎤</div>
-              <div className="text-[12px] text-txt leading-snug">
-                <b>👆 {t("push_record_gesture_1a")}</b>
-                <div className="text-muted2">{t("push_record_gesture_1b")}</div>
-              </div>
-            </div>
-
-            {/* Geste 2: Swipe ↑ = Daueraufnahme */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[20px] shrink-0 animate-bounce">⬆️</div>
-              <div className="text-[12px] text-txt leading-snug">
-                <b>{t("push_record_gesture_2a")}</b>
-                <div className="text-muted2">{t("push_record_gesture_2b")}</div>
-              </div>
-            </div>
-
-            {/* Geste 3: Swipe ↓ = Stop */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-err/20 border border-err/40 flex items-center justify-center text-[20px] shrink-0 animate-pulse">⬇️</div>
-              <div className="text-[12px] text-txt leading-snug">
-                <b>{t("push_record_gesture_3a")}</b>
-                <div className="text-muted2">{t("push_record_gesture_3b")}</div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowHelp(false)}
-              className="w-full bg-accent text-white text-[12px] py-2 rounded-sm font-semibold"
-            >
-              {t("push_record_help_close")}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Change 211 (Nutzer-Vorgabe 19.09.2026): Die einmalige Gesten-Anleitung
+          (Modal mit „Verstanden") ist entfernt — an ihre Stelle tritt die
+          dauerhafte, animierte Hilfe direkt am Record-Knopf. */}
 
       {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher */}
       <div className="relative">
@@ -1150,16 +1107,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           {recording ? (paused ? "⏸" : continuous ? "🔴" : "⏹") : "🎤"}
         </button>
 
-        {/* Help-Button (mobile) */}
-        {isTouch && (
-          <button
-            onClick={() => setShowHelp(true)}
-            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-panel2 border border-border text-[11px] text-muted hover:text-txt flex items-center justify-center"
-            title={t("push_record_help_title")}
-          >
-            ?
-          </button>
-        )}
+        {/* Change 211 (Nutzer-Vorgabe 19.09.2026): Der „?"-Help-Button ist weg —
+            die dauerhafte, animierte Gestenhilfe steht direkt unter dem Knopf. */}
       </div>
 
       {/* Mikrofon-Auswahl — nur wenn mehrere Inputs existieren */}
@@ -1186,11 +1135,35 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         <div className="text-[12px] text-center">
           {paused ? (
             <span className="text-[#d99e2b] font-semibold">⏸ {t("push_record_paused")}</span>
-          ) : continuous ? (
-            <span className="text-accent font-semibold">🔴 {t("push_record_continuous")}</span>
           ) : (
-            <span className="text-muted">{t("push_record_hold_hint")}</span>
+            <span className="text-accent font-semibold">🔴 {t("push_record_continuous")}</span>
           )}
+        </div>
+      )}
+
+      {/* Change 211 (Nutzer-Vorgabe 19.09.2026): dauerhafte Gestenhilfe statt
+          einmaliger Erklärung. Dezente, wiederkehrend animierte Pfeile zeigen
+          Richtung UND Funktion; während Aufnahme und Upload ausgeblendet,
+          damit sie nicht mit dem Aufnahmezustand konkurriert. Bei
+          prefers-reduced-motion stehen die Pfeile still (siehe index.css). */}
+      {isTouch && !recording && uploadPhase === "idle" && (
+        <div className="flex items-center justify-center gap-4 text-[10.5px] text-muted2 select-none">
+          <span className="inline-flex items-center gap-1">
+            <span className="ps-gesture ps-gesture-hold" aria-hidden="true" />
+            {t("push_gesture_hold")}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="ps-gesture ps-gesture-arrow ps-gesture-up" aria-hidden="true">
+              ▲
+            </span>
+            {t("push_gesture_up")}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="ps-gesture ps-gesture-arrow ps-gesture-down" aria-hidden="true">
+              ▼
+            </span>
+            {t("push_gesture_down")}
+          </span>
         </div>
       )}
 
