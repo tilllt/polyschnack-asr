@@ -46,8 +46,8 @@ const CATALOG = {
       title: "Klassisch",
       description: "Klassisch: ganzer Satz unten.",
       description_en: "Classic: whole sentence at the bottom.",
-      parameters: { font_size: 48, text_color: "#FFFFFF", words_per_line: 6 },
-      used_params: ["font_size", "text_color", "words_per_line"],
+      parameters: { font_size: 48, text_color: "#FFFFFF", words_per_line: 6, font_name: "Arial" },
+      used_params: ["font_size", "text_color", "words_per_line", "font_name"],
     },
     {
       name: "highlight",
@@ -60,11 +60,19 @@ const CATALOG = {
         text_color: "#FFFFFF",
         words_per_line: 4,
         play_res_x: 1920,
+        font_name: "Arial",
       },
-      used_params: ["font_size", "accent_color", "text_color", "words_per_line", "play_res_x"],
+      used_params: ["font_size", "accent_color", "text_color", "words_per_line",
+                    "play_res_x", "font_name"],
     },
   ],
   parameter_specs: {
+    font_name: {
+      type: "enum",
+      open: true,
+      max_len: 64,
+      values: ["Arial", "Liberation Sans", "Liberation Mono", "Liberation Serif"],
+    },
     font_size: { type: "int", min: 12, max: 300 },
     words_per_line: { type: "int", min: 1, max: 12 },
     text_color: { type: "color" },
@@ -133,6 +141,53 @@ describe("ExportDialog", () => {
     expect(screen.getByTestId("param-font_size")).toBeTruthy();
     // dim_color steht in KEINER Vorlage → nirgends sichtbar.
     expect(screen.queryByTestId("param-dim_color")).toBeNull();
+  });
+
+  test("Schriftart ist eine Auswahlliste, kein Textfeld", async () => {
+    /* Change 203: die Liste kommt vom Server (nur Schriften, die auch der
+     * Renderdienst auflöst) — ein leeres oder falsch belegtes Dropdown würde
+     * stumm die Schrift wechseln, deshalb wird hier auf Werte geprüft. */
+    renderDialog();
+    await screen.findByTestId("preset-highlight");
+    fireEvent.click(screen.getByTestId("export-advanced-toggle"));
+
+    const feld = (await screen.findByTestId("param-font_name")) as HTMLSelectElement;
+    expect(feld.tagName).toBe("SELECT");
+    expect(Array.from(feld.options).map((o) => o.value)).toEqual([
+      "Arial",
+      "Liberation Sans",
+      "Liberation Mono",
+      "Liberation Serif",
+    ]);
+    // Die Vorgabe steht wirklich im Feld (sonst zeigte der Browser stumm etwas anderes).
+    expect(feld.value).toBe("Arial");
+    // Kein Textfeld daneben, das die Liste umgehen könnte.
+    expect(document.querySelector('input[data-testid="param-font_name"]')).toBeNull();
+  });
+
+  test("gewählte Schrift geht so mit in den Export", async () => {
+    vi.mocked(fetchAssExport).mockResolvedValue({
+      blob: new Blob(["ass"]),
+      url: "/api/recordings/rec-1/export/ass?preset=game&params=%7B%7D",
+      filename: "interview.ass",
+      preset: "classic",
+      words: 12,
+      lines: 3,
+      timing: "real",
+      warnings: [],
+    });
+    renderDialog();
+    await screen.findByTestId("preset-highlight");
+    fireEvent.click(screen.getByTestId("export-advanced-toggle"));
+
+    const feld = (await screen.findByTestId("param-font_name")) as HTMLSelectElement;
+    fireEvent.change(feld, { target: { value: "Liberation Serif" } });
+    fireEvent.click(screen.getByTestId("ass-export-download"));
+
+    await waitFor(() => expect(fetchAssExport).toHaveBeenCalledTimes(1));
+    const [, preset, params] = vi.mocked(fetchAssExport).mock.calls[0];
+    expect(preset).toBe("highlight");
+    expect(params.font_name).toBe("Liberation Serif");
   });
 
   test("weitere Optionen sind eingeklappt und kommen auf Klick", async () => {

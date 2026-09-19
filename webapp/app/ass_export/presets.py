@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import yaml
 
@@ -26,6 +26,15 @@ from .template_engine import PRESET_DIR, parse_color
 
 #: Anzeige-Position → ASS-Alignment (Numpad-Layout: 1-3 unten, 4-6 mitte, 7-9 oben).
 POSITION_ALIGNMENT = {"bottom": 2, "center": 5, "top": 8}
+
+#: Standardname → Familie, auf die fontconfig ihn hier abbildet (metrik-gleich).
+#: Change 203 bietet beide an: den Namen, den Schnittprogramme kennen, und die
+#: Familie, die tatsächlich gerastert wird.
+STANDARDNAMEN = (
+    ("Arial", "Liberation Sans"),
+    ("Times New Roman", "Liberation Serif"),
+    ("Courier New", "Liberation Mono"),
+)
 
 #: Erlaubte Zeichen im Dateinamen eines Presets.
 _NAME_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
@@ -46,7 +55,8 @@ class ParamError(Exception):
 #: Globale Parameter-Definitionen. Presets überschreiben nur die Defaults.
 #: ``type`` steuert die UI-Eingabe (Zahl/Regler, Farbe, Schalter, Auswahl).
 PARAM_SPECS: Dict[str, Dict[str, Any]] = {
-    "font_name": {"type": "str", "default": "Arial", "max_len": 64},
+    "font_name": {"type": "enum", "default": "Arial", "open": True,
+                  "values": ["Arial"], "max_len": 64},
     "font_size": {"type": "int", "default": 48, "min": 12, "max": 300},
     "bold": {"type": "bool", "default": True},
     "uppercase": {"type": "bool", "default": False},
@@ -149,13 +159,23 @@ def _coerce(key: str, raw: Any) -> Any:
         return str(raw).strip() if str(raw).strip().startswith("#") else "#" + str(raw).strip()
     if kind == "enum":
         val = str(raw).strip()
+        if spec.get("open"):
+            # Offene Auswahl (Change 203): die Liste ist eine Hilfe in der
+            # Oberfläche, keine Sperre. Skripte und fremde Schnittprogramme
+            # dürfen jede wohlgeformte Schrift nennen — geprüft wird wie bei
+            # einer Zeichenkette (Länge, Komma).
+            return _coerce_text(key, val, spec)
         if val not in spec["values"]:
             raise ParamError(
                 f"{key}: {val!r} nicht erlaubt (erlaubt: {', '.join(spec['values'])})"
             )
         return val
     # str
-    val = str(raw).strip()
+    return _coerce_text(key, str(raw).strip(), spec)
+
+
+def _coerce_text(key: str, val: str, spec: Dict[str, Any]) -> str:
+    """Gemeinsame Prüfung für Zeichenketten — auch bei offener Auswahl."""
     if not val:
         raise ParamError(f"{key}: darf nicht leer sein")
     if len(val) > spec.get("max_len", 128):
@@ -324,9 +344,56 @@ def list_presets(include_internal: bool = False) -> List[Preset]:
     return out
 
 
-def parameter_specs() -> Dict[str, Dict[str, Any]]:
-    """Schema für die UI (Typ, Grenzen, Auswahlwerte) — ohne Defaults."""
-    return {
+def font_choices(eigene: Sequence[str],
+                 fremde: Optional[Sequence[str]] = None) -> List[str]:
+    """Auswahlwerte für ``font_name`` (Change 203) — reine Rechnung.
+
+    *eigene* sind die Familien der messenden Instanz, *fremde* die des
+    Renderdienstes (``None`` = unbekannt, dann zählt nur *eigene*).
+
+    Angeboten wird nur, was **beide** Seiten selbst auflösen: gemessen wird in
+    der Webapp, eingebrannt im Renderdienst. Ein Name, den ein Host still auf
+    eine andere Familie abbildet, bekäme eine falsche Breite — er fällt hier
+    heraus (Beispiel: ``Liberation Sans Narrow`` gibt es nur im Webapp-Image).
+
+    Die drei Standardnamen stehen als Paar vor ihrer Ersatzfamilie, weil sie
+    metrik-gleich sind und der Nutzer sie aus Schnittprogrammen kennt.
+    """
+    if isinstance(eigene, str):
+        eigene = (eigene,)
+    if isinstance(fremde, str):
+        fremde = (fremde,)
+    gemeinsam = set(eigene or ())
+    if fremde is not None:
+        gemeinsam &= set(fremde)
+    werte: List[str] = []
+    for standard, ersatz in STANDARDNAMEN:
+        if ersatz in gemeinsam:
+            werte.extend((standard, ersatz))
+    for name in sorted(gemeinsam):
+        if name not in werte:
+            werte.append(name)
+    vorgabe = PARAM_SPECS["font_name"]["default"]
+    if vorgabe not in werte:
+        # Sonst zeigte ein <select> stumm den ersten Eintrag, während der Wert
+        # weiter die Vorgabe wäre. fontconfig bildet den Standardnamen ab.
+        werte.insert(0, vorgabe)
+    return werte
+
+
+def parameter_specs(render_families: Optional[Sequence[str]] = None) -> Dict[str, Dict[str, Any]]:
+    """Schema für die UI (Typ, Grenzen, Auswahlwerte) — ohne Defaults.
+
+    *render_families* sind die Schriften, die der Renderdienst auflösen kann
+    (``/health`` → ``fonts``). Ohne Angabe bleiben die Auswahlwerte der
+    messenden Instanz.
+    """
+    specs = {
         k: {kk: vv for kk, vv in v.items() if kk != "default"}
         for k, v in PARAM_SPECS.items()
     }
+    specs["font_name"] = dict(specs["font_name"])
+    specs["font_name"]["values"] = font_choices(
+        textfit.font_families(), render_families
+    )
+    return specs

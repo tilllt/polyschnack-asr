@@ -103,6 +103,27 @@ def frame_rgba(path: Path, at_s: float = 1.0, w: int = 640, h: int = 360):
 # --------------------------------------------------------------------------
 # Aufbau / Formate
 # --------------------------------------------------------------------------
+def test_health_meldet_die_schriften_des_images(client):
+    """Grundlage der Schriftauswahl in der Webapp (Change 203).
+
+    Ein Name, den dieser Dienst nicht selbst auflöst, darf dort nicht als
+    Auswahl erscheinen — sonst würde eine Breite gemessen, die beim Einbrennen
+    nicht gilt.
+    """
+    h = client.get("/health").json()
+    assert isinstance(h["fonts"], list), h.get("fonts")
+    assert "Liberation Sans" in h["fonts"], h["fonts"]
+
+
+def test_fonts_ohne_fontconfig_bleibt_leer(monkeypatch):
+    """Kein fc-list → leere Liste (die Webapp fällt dann auf ihre eigene zurück)."""
+    monkeypatch.setattr(
+        render_app.subprocess, "run",
+        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("fc-list")),
+    )
+    assert render_app._fonts() == []
+
+
 def test_health_meldet_verfuegbare_formate(client):
     h = client.get("/health").json()
     assert h["libass"] is True, "libass fehlt — das Image wäre unbrauchbar"

@@ -507,7 +507,7 @@ def test_used_params_match_the_rendered_output(name):
     geprüft. Ergebnis: Jeder gelistete Parameter ändert in mindestens einer
     Kombination die Ausgabe, jeder nicht gelistete ändert sie in keiner.
     """
-    from app.ass_export.presets import PARAM_SPECS
+    from app.ass_export.presets import PARAM_SPECS, parameter_specs
 
     recordings = _probe_recordings()
     preset = load_preset(name)
@@ -526,7 +526,14 @@ def test_used_params_match_the_rendered_output(name):
             return [v for v in (default + delta, default - delta)
                     if spec["min"] <= v <= spec["max"] and v != default]
         if spec["type"] == "enum":
-            return [v for v in spec["values"] if v != default]
+            # Die Auswahlwerte kommen aus der Wirklichkeit (Change 203: nur
+            # Schriften, die dieser Rechner auflöst). Ohne Schriftmessung bleibt
+            # davon nur die Vorgabe übrig — für eine OFFENE Auswahl wird dann mit
+            # einem anderen Namen geprüft, den die API genauso annimmt.
+            werte = [v for v in parameter_specs()[key].get("values", []) if v != default]
+            if not werte and spec.get("open"):
+                werte = ["Probe Sans"]
+            return werte
         return [_PROBE_VALUE[key]]
 
     for key in PARAM_SPECS:

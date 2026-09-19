@@ -24,7 +24,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 try:  # Pillow ist die Messgrundlage; fehlt es, wird das gemeldet (nicht verschluckt)
     from PIL import ImageFont
@@ -103,6 +103,37 @@ def available(missing: list) -> bool:
         missing.append("fontconfig")
         return False
     return True
+
+
+@lru_cache(maxsize=1)
+def font_families() -> Tuple[str, ...]:
+    """Familien, die fontconfig AUF DIESEM RECHNER auflöst (gecacht).
+
+    Grundlage der Schriftauswahl im Exportdialog: nur was hier liegt, kann auch
+    gemessen werden. Leere Liste, wenn ``fc-list`` fehlt oder nichts liefert —
+    der Aufrufer entscheidet dann, was er anbietet.
+
+    Die Namen sind bereits entdoppelt und sortiert; fontconfig trennt mehrere
+    Familien eines Schnitts mit Komma.
+    """
+    if not shutil.which("fc-list"):
+        return ()
+    try:
+        # Explizites Format: ``fc-list : family`` liefert je nach
+        # fontconfig-Version die ganze Zeile (Pfad/Schnitt) statt der Familie.
+        out = subprocess.run(
+            ["fc-list", "-f", "%{family}\n"], capture_output=True, text=True,
+            timeout=20,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    familien = set()
+    for zeile in out.splitlines():
+        for teil in zeile.split(","):
+            name = teil.strip()
+            if name:
+                familien.add(name)
+    return tuple(sorted(familien))
 
 
 def text_width(text: str, *, font_name: str, bold: bool = False,

@@ -186,8 +186,37 @@ def _font_for(family: str) -> str:
         return "fontconfig fehlt"
 
 
+def _fonts() -> list:
+    """Familien, die fontconfig HIER auflöst — Grundlage der Schriftauswahl.
+
+    Die Webapp misst die Untertitelbreite, eingebrannt wird aber hier: nur
+    Schriften, die beide Seiten selbst auflösen, taugen als Auswahl. Ein Name,
+    der hier still auf eine andere Familie zeigt, würde eine falsche Breite
+    gemessen bekommen.
+    """
+    try:
+        # Explizites Format: ``fc-list : family`` liefert je nach
+        # fontconfig-Version die ganze Zeile (Pfad/Schnitt) statt der Familie.
+        out = subprocess.run(
+            ["fc-list", "-f", "%{family}\n"], capture_output=True, text=True,
+            timeout=20,
+        ).stdout
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return []
+    familien = set()
+    for zeile in out.splitlines():
+        for teil in zeile.split(","):
+            name = teil.strip()
+            if name:
+                familien.add(name)
+    return sorted(familien)
+
+
 ENCODERS = _ffmpeg_encoders()
 HAS_LIBASS = _has_ass_filter()
+#: Schriften aendern sich im Container nicht — einmal ermitteln, nicht bei
+#: jedem /health-Aufruf (die Webapp fragt das fuer jeden Exportdialog ab).
+FONTS = _fonts()
 
 
 #: Faehigkeiten, die ein Format voraussetzen kann.
@@ -622,6 +651,7 @@ def health() -> dict:
         "libass": HAS_LIBASS,
         "formats": available_formats(),
         "font_arial": _font_for("Arial"),
+        "fonts": list(FONTS),
         "busy": CURRENT["id"] is not None,
         "jobs": len(JOBS),
         "x265_alpha": x265_alpha_supported(),

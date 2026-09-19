@@ -139,6 +139,37 @@ Zum Nachlesen beim Suchen: `ffprobe` meldet die Spur als `yuv420p`, obwohl
 Alpha drin ist — der Kanal liegt als eigene Ebene vor. Wer auf `pix_fmt` prüft,
 sucht am falschen Ort; belastbar ist das Extrahieren des Alphakanals.
 
+## Schriftart (Auswahlliste)
+
+Die Schriftart ist ein **Auswahlfeld**, kein Textfeld: unbekannte Namen fielen
+bisher still auf die Ersatzschrift von fontconfig zurück, der Export sah dann
+anders aus als erwartet.
+
+Angeboten wird nur, was **beide Seiten selbst auflösen** — die Webapp (dort wird
+die Breite gemessen) und der Renderdienst (dort wird eingebrannt; er meldet
+seine Schriften in ``/health`` als ``fonts``). Ein Name, den ein Host auf eine
+andere Familie abbildet, erscheint nicht: sonst wäre die gemessene Breite
+falsch. Deshalb fehlt z. B. ``Liberation Sans Narrow`` — es liegt nur im
+Webapp-Image (``fonts-liberation`` 1.07.4 unter bookworm), das Render-Image
+(2.1.5 unter trixie) zeigt dafür auf ``Liberation Sans``.
+
+Angeboten werden die drei Standardnamen samt der Familie, auf die fontconfig sie
+hier abbildet (metrik-gleich, deshalb ändert die Wahl die Größe nicht):
+
+| Name | wird hier zu |
+|---|---|
+| ``Arial`` (Vorgabe) | Liberation Sans |
+| ``Times New Roman`` | Liberation Serif |
+| ``Courier New`` | Liberation Mono |
+
+Ist der Renderdienst nicht erreichbar oder meldet er noch keine Liste, gilt die
+Liste der messenden Instanz.
+
+Die Auflösung ist **offen**: die API nimmt weiterhin jeden wohlgeformten Namen
+an (Länge ≤ 64, Komma wird ersetzt, weil die ASS-Stilzeile komma-getrennt ist).
+Die Liste ist eine Hilfe in der Oberfläche, keine Sperre — für Skripte und für
+Untertitel, die in einem anderen Schnittprogramm weiterverwendet werden.
+
 ## Schriftgröße füllt die Bildschirmbreite (`fit_mode`)
 
 Standardmäßig haben Untertitel eine **feste Schriftgröße** (`font_size`) und

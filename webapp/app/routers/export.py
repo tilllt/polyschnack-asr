@@ -156,9 +156,12 @@ def export_presets() -> dict:
     """
     health = render_client.health()
     formats = list(render_client.formats())
+    # Schriften des Renderdienstes: die Schriftauswahl bietet nur an, was beide
+    # Seiten selbst auflösen (gemessen wird hier, eingebrannt dort).
+    render_fonts = health.get("fonts") or None
     return {
         "presets": [preset.as_dict() for preset in list_presets()],
-        "parameter_specs": parameter_specs(),
+        "parameter_specs": parameter_specs(render_fonts),
         "render_available": bool(formats),
         "render_formats": formats,
         "render_status": health.get("status", "unknown"),
