@@ -46,6 +46,10 @@ export function useYjsTranscription<T extends { text: string }>(
   // Raum und befüllt ihn aus dem Serverstand. Damit kann alter Text nicht mehr
   // über frisch geänderte Daten gelegt werden (Vorfall 14.09.2026).
   roomStamp?: string | null,
+  // Change 207: Fehler des Autosaves sichtbar machen. Vorher wurden sie still
+  // geschluckt (`catch { return false }`) — der Nutzer sah nicht, dass seine
+  // Bearbeitung nie gespeichert wurde.
+  onSaveError?: (reason: string) => void,
 ) {
   const [conn, setConn] = useState<YjsConnState>("solo");
   // Change 067-Fix (User-Befund 2026-08-21): NUR ANDERE Clients, die
@@ -58,6 +62,17 @@ export function useYjsTranscription<T extends { text: string }>(
   // Strukturoperationen, solange ein anderer Client ein Segment editiert.
   const [editLock, setEditLock] = useState<EditLock | null>(null);
   const [saving, setSaving] = useState(false);
+  // Change 207: Der Schutz gegen paralleles Speichern läuft über eine Ref, damit
+  // `save` seine Identität behält. Vorher stand `saving` in den Abhängigkeiten
+  // von `save` — und der Provider-Effekt hängt an `save`. Damit baute JEDER
+  // Speicherversuch den Yjs-Provider (und die WebSocket-Verbindung) neu auf und
+  // löste den nächsten Autosave aus: gemessen 675 Anfragen in 7 Sekunden, keine
+  // einzige erfolgreich, weil der Server den Stand ablehnte.
+  const savingRef = useRef(false);
+  // Change 207: Fehlversuche zählen → Backoff statt Hämmern; Fehler einmal melden.
+  const failuresRef = useRef(0);
+  const onSaveErrorRef = useRef(onSaveError);
+  onSaveErrorRef.current = onSaveError;
   const docRef = useRef<Y.Doc | null>(null);
   const provRef = useRef<WebsocketProvider | null>(null);
   const initedRef = useRef(false);
@@ -86,28 +101,50 @@ export function useYjsTranscription<T extends { text: string }>(
   /** Change 068: Yjs-Stand atomar in die DB schreiben (mit/ohne Version). */
   const save = useCallback(
     async (withVersion: boolean): Promise<boolean> => {
-      if (!recordingId || saving) return false;
+      if (!recordingId || savingRef.current) return false;
       const fp = docFingerprint();
       if (fp === null || fp === lastSavedRef.current) return false;
+      savingRef.current = true;
       setSaving(true);
       try {
         const texts = fp.split("\u0000");
         const base = segmentsRef.current;
         if (!base.length || texts.length !== base.length) return false;
         const merged = base.map((s, i) => ({ ...s, text: texts[i] ?? s.text }));
+        // Change 207: Nichts senden, was der Server garantiert ablehnt. Ein
+        // Segment mit leerem Text ist ein Zwischenstand (gerade am Tippen) —
+        // vorher ging er als 400 zurück, der Autosave wiederholte sich immer
+        // wieder und NICHTS wurde gespeichert. Jetzt: warten, bis der Text
+        // wieder gefüllt ist; der nächste Doc-Update stößt den Autosave an.
+        const leerIdx = merged.findIndex((s) => !String(s.text ?? "").trim());
+        if (leerIdx >= 0) {
+          failuresRef.current = 0;
+          savingRef.current = false;
+          setSaving(false);
+          onSaveErrorRef.current?.("empty_text");
+          return false;
+        }
         const result = await replaceSegments(recordingId, merged as never[], withVersion);
         lastSavedRef.current = fp;
         remoteCbRef.current?.(result.segments.map((s) => s.text));
         return true;
-      } catch {
-        // Autosave-Fehler still schlucken — der nächste Doc-Update
-        // startet den Debounce erneut (Retry). Kein Fake-Erfolg.
+      } catch (err) {
+        // Change 207: NICHT mehr still schlucken. Der Nutzer muss wissen, dass
+        // seine Bearbeitung nicht gespeichert wurde — und der Autosave darf
+        // nicht im Sekundentakt weiterhämmern (Backoff in scheduleAutosave).
+        failuresRef.current += 1;
+        if (failuresRef.current === 1) {
+          onSaveErrorRef.current?.(
+            err instanceof Error ? err.message : "save_failed",
+          );
+        }
         return false;
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
-    [recordingId, saving, docFingerprint],
+    [recordingId, docFingerprint],
   );
 
   /** Autosave (ohne Version) nach Debounce anstoßen. */
@@ -115,10 +152,13 @@ export function useYjsTranscription<T extends { text: string }>(
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current);
     }
+    // Change 207: Nach einem Fehlversuch langsamer nachfassen. Der Autosave darf
+    // einen dauerhaft abgelehnten Stand nicht im Sekundentakt senden.
+    const delay = failuresRef.current >= 1 ? AUTOSAVE_DEBOUNCE_MS * 4 : AUTOSAVE_DEBOUNCE_MS;
     autosaveTimerRef.current = window.setTimeout(() => {
       autosaveTimerRef.current = null;
       void save(false);
-    }, AUTOSAVE_DEBOUNCE_MS);
+    }, delay);
   }, [save]);
 
   useEffect(() => {

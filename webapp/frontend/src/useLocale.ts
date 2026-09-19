@@ -387,6 +387,7 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Tempo da palavra salvo",
     timing_save_error: "Falha ao salvar o tempo da palavra",
     edit_save_error: "Não foi possível salvar a edição — tente novamente",
+    collab_save_empty_text: "Ainda não salvo — um segmento está vazio. Adicione texto e será salvo automaticamente.",
     stale_write_error: "Gravação alterada entretanto — recarregue a página (a sua edição não foi enviada)",
     stale_write_reload: "Recarregar",
     // Change 141: „Folgen"-Toggle
@@ -864,6 +865,9 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Wort-Timing gespeichert",
     timing_save_error: "Wort-Timing speichern fehlgeschlagen",
     edit_save_error: "Bearbeitung konnte nicht gespeichert werden — bitte erneut versuchen",
+    // Change 207: Der Autosave sendet keinen Stand mit leerem Segment (der
+    // Server lehnt ihn ab). Das muss der Nutzer wissen, statt still zu tippen.
+    collab_save_empty_text: "Noch nicht gespeichert — ein Segment ist leer. Text ergänzen, dann speichert es automatisch.",
     stale_write_error: "Aufnahme wurde zwischenzeitlich geändert — bitte neu laden (deine Änderung wurde nicht gesendet)",
     stale_write_reload: "Neu laden",
     // Change 141: „Folgen"-Toggle
@@ -1341,6 +1345,7 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_saved: "Word timing saved",
     timing_save_error: "Failed to save word timing",
     edit_save_error: "Could not save the edit — please try again",
+    collab_save_empty_text: "Not saved yet — one segment is empty. Add text and it saves automatically.",
     stale_write_error: "Recording changed in the meantime — please reload (your change was not sent)",
     stale_write_reload: "Reload",
     // Change 141: "Follow" toggle

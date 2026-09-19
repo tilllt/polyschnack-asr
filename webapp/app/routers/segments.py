@@ -931,13 +931,26 @@ def replace_segments(
 
     segs = body.segments
     if not segs:
+        # Change 207: Der Grund wird protokolliert — vorher stand im Log nur die
+        # Zahl (400) und niemand konnte sagen, warum ein Client nichts speichern
+        # konnte (1090 Fehlversuche für eine Aufnahme ohne eine einzige
+        # erfolgreiche Speicherung).
+        log.warning("PUT /recordings/%s/segments abgelehnt: leere Liste", rid)
         raise HTTPException(status_code=400, detail="segments must not be empty")
     for i, s in enumerate(segs):
         if "start" not in s or "end" not in s:
+            log.warning(
+                "PUT /recordings/%s/segments abgelehnt: Segment %d ohne start/end (Felder=%s)",
+                rid, i, sorted(s.keys()),
+            )
             raise HTTPException(
                 status_code=400, detail=f"segment {i} missing start/end"
             )
         if not str(s.get("text") or "").strip():
+            log.warning(
+                "PUT /recordings/%s/segments abgelehnt: Segment %d mit leerem Text (%d Segmente gesendet)",
+                rid, i, len(segs),
+            )
             raise HTTPException(status_code=400, detail=f"segment {i} empty text")
 
     # Tiefe Kopie → SQLAlchemy erkennt die Zuweisung als Änderung.

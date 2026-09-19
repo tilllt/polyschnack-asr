@@ -198,7 +198,18 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     );
   }, collabEnabled,
     // Change 189: Raum an den geladenen Stand binden.
-    expectedUpdatedAt ?? null);
+    expectedUpdatedAt ?? null,
+    // Change 207: Ein fehlgeschlagener Autosave muss sichtbar sein. Vorher
+    // wurde er still geschluckt — der Nutzer tippte weiter, ohne zu ahnen,
+    // dass nichts gespeichert wurde (gemessen: 1090 Fehlversuche für eine
+    // Aufnahme, kein einziger Erfolg).
+    (reason) => {
+      if (reason === "empty_text") {
+        toast(t("collab_save_empty_text"), "info");
+      } else {
+        toast(t("edit_save_error"), "err");
+      }
+    });
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
