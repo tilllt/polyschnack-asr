@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import mimetypes
+import re
 import time
 import uuid
 from pathlib import Path
@@ -863,12 +864,38 @@ def _recording_to_dict(
 def _guess_mime(stored_path: str, stored_mime: str) -> str:
     """Return a usable audio MIME type for *stored_path*.
 
-    Falls back to *_AUDIO_MIME_FALLBACK* when guessing fails.
+    Die **Endung der abgelegten Datei gewinnt**: nach einer Konvertierung
+    (webm → mp3) bleibt das MIME-Feld der Aufnahme auf dem alten Wert stehen
+    (z. B. ``audio/wav``), während auf der Platte eine MP3 liegt. Wer dem Feld
+    glaubt, liefert dem Browser einen falschen Typ — genau das ließ
+    heruntergeladene Dateien „nicht funktionieren".
+
+    Falls sich aus dem Pfad nichts ableiten lässt, gilt das gespeicherte MIME,
+    zuletzt der generische Audio-Fallback.
     """
+    guessed, _ = mimetypes.guess_type(stored_path)
+    if guessed:
+        return guessed
     if stored_mime and stored_mime != "application/octet-stream":
         return stored_mime
-    guessed, _ = mimetypes.guess_type(stored_path)
-    return guessed or _AUDIO_MIME_FALLBACK
+    return _AUDIO_MIME_FALLBACK
+
+
+#: Klammer-Zusatz, den die Konvertierung an den Anzeigenamen hängt:
+#: ``"name.webm (konvertiert von .webm nach MP3)"``. Der Zusatz ist eine Notiz
+#: für die Oberfläche — im Dateinamen eines Downloads hat er nichts zu suchen,
+#: sonst endet die Datei ohne brauchbare Endung auf dem Gerät.
+_CONVERTED_NOTE_RE = re.compile(r"\s*\(konvertiert von [^)]*\)\s*", re.IGNORECASE)
+
+
+def _download_name(rec) -> str:
+    """Sauberer Dateiname für den Download: Anzeigename ohne Konvertier-Notiz,
+    aber mit der Endung der **tatsächlich abgelegten** Datei."""
+    name = _CONVERTED_NOTE_RE.sub(" ", rec.original_name or "").strip()
+    stem = Path(name).stem if name else ""
+    stem = stem or "audio"
+    suffix = Path(rec.stored_path or "").suffix or Path(name).suffix or ".bin"
+    return f"{stem}{suffix}"
 
 
 def _convert_to_wav_if_needed(raw: bytes, original_name: str) -> tuple[bytes, str, str | None]:
@@ -1648,7 +1675,7 @@ def get_audio(
     return FileResponse(
         str(path),
         media_type=mime,
-        filename=rec.original_name,
+        filename=_download_name(rec),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
