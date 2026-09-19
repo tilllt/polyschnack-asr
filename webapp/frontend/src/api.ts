@@ -700,7 +700,7 @@ export async function updateWordTiming(
   recordingId: string,
   segmentIdx: number,
   wordIdx: number,
-  body: { start?: number; end?: number; override?: boolean },
+  body: { start?: number; end?: number; override?: boolean; shrink_neighbors?: boolean },
 ): Promise<{ segments: Segment[]; text: string }> {
   const res = await fetch(
     `/api/recordings/${recordingId}/segments/${segmentIdx}/words/${wordIdx}`,

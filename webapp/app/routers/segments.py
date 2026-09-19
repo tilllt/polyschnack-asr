@@ -684,6 +684,12 @@ class WordTimingUpdate(BaseModel):
     start: float | None = None
     end: float | None = None
     override: bool | None = None
+    # Change 209 (User-Vorgabe 19.09.2026): Die Nachbar-Marker (Wort davor /
+    # danach) schrumpfen automatisch mit, wenn die gezogene Kante über sie
+    # hinausreicht — statt die Anfrage mit 400 abzulehnen (strenge Monotonie).
+    # Default False = altes Verhalten (ablehnen), damit andere Aufrufer und
+    # Skripte unverändert streng bleiben.
+    shrink_neighbors: bool = False
 
 
 # Change 137: kürzestes sinnvolles Wort (verhindert 0-dauer-Zeitfenster
@@ -721,6 +727,79 @@ def _flattened_neighbor_bounds(
     return prev_end, next_start
 
 
+def _neighbor_word_refs(
+    segments: list[dict[str, Any]],
+    idx: int,
+    word_idx: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Change 209: die Nachbarwörter SELBST (nicht nur ihre Grenzen).
+
+    Liefert ``(prev_word, next_word)`` im Wort-Flow (segmentübergreifend, wie
+    ``_flattened_neighbor_bounds``) — mutierbare Referenzen, damit das
+    Schrumpfen ihre Kanten direkt mitschreiben kann. ``None``, wenn es den
+    Nachbarn nicht gibt (erstes/letztes Wort der Aufnahme).
+    """
+    words = segments[idx].get("words") or []
+    prev_word: dict[str, Any] | None = None
+    next_word: dict[str, Any] | None = None
+    if word_idx > 0:
+        prev_word = words[word_idx - 1]
+    elif idx > 0:
+        prev_words = segments[idx - 1].get("words") or []
+        if prev_words:
+            prev_word = prev_words[-1]
+    if word_idx < len(words) - 1:
+        next_word = words[word_idx + 1]
+    elif idx < len(segments) - 1:
+        next_words = segments[idx + 1].get("words") or []
+        if next_words:
+            next_word = next_words[0]
+    return prev_word, next_word
+
+
+def _apply_shrink(
+    segments: list[dict[str, Any]],
+    idx: int,
+    word_idx: int,
+    start: float,
+    end: float,
+) -> tuple[float, float]:
+    """Change 209: Wort-Timing ziehen und die Nachbarn mitschrumpfen lassen.
+
+    Zieht der Nutzer die Markierung des aktiven Wortes über das Wort davor
+    oder danach, werden die BERÜHRTEN Kanten der Nachbarn mitgeschoben: die
+    Reihenfolge im Wort-Flow bleibt erhalten, es entsteht keine Überlappung.
+    Jeder Nachbar behält seine Mindestdauer (``MIN_WORD_DURATION_S``); reicht
+    der Platz nicht, wird die gezogene Kante begrenzt — in beiden Fällen
+    KEIN 400 (das ist der Unterschied zum strengen Pfad).
+
+    Segment-Grenzen bleiben unangetastet (Change 155: Timing-Edits ändern
+    nur Wörter, nie Segmente). Rückgabe: die (ggf. begrenzten) neuen Zeiten
+    des aktiven Wortes.
+    """
+    prev_word, next_word = _neighbor_word_refs(segments, idx, word_idx)
+    if prev_word is not None:
+        prev_start = float(prev_word.get("start") or 0.0)
+        prev_end = float(prev_word.get("end") or 0.0)
+        if start < prev_end - 1e-6:
+            # Der Vorgänger wird geschrumpft, aber nicht unter seine
+            # Mindestdauer (degenerierte Daten: dann bleibt er stehen und
+            # die gezogene Kante wird begrenzt).
+            start = max(start, min(prev_end, prev_start + MIN_WORD_DURATION_S))
+            if start < prev_end:
+                prev_word["end"] = start
+                prev_word["override"] = True  # manuell korrigiert wie das aktive Wort
+    if next_word is not None:
+        next_start = float(next_word.get("start") or 0.0)
+        next_end = float(next_word.get("end") or 0.0)
+        if end > next_start + 1e-6:
+            end = min(end, max(next_start, next_end - MIN_WORD_DURATION_S))
+            if end > next_start:
+                next_word["start"] = end
+                next_word["override"] = True
+    return start, end
+
+
 @router.patch("/recordings/{rid}/segments/{idx}/words/{word_idx}")
 def update_word_timing(
     rid: str,
@@ -742,6 +821,8 @@ def update_word_timing(
     Validierung (Design Change 137): ``start < end``, Mindestdauer 20 ms,
     Monotonie gegen die Nachbarwörter im Wort-Flow (segmentübergreifend).
     Das Frontend clampt beim Drag; ungültige Werte liefern hier 400.
+    Mit ``shrink_neighbors=true`` (Change 209, Timing-Tab) wird stattdessen
+    die berührte Kante der Nachbarwörter mitgeschoben — kein 400.
 
     ``override: false`` (ohne start/end) entfernt das Override-Flag — das
     Wort behält seine aktuelle Zeit bis zum nächsten Re-Align.
@@ -793,16 +874,35 @@ def update_word_timing(
                 detail=f"word duration must be >= {MIN_WORD_DURATION_S}s",
             )
         prev_end, next_start = _flattened_neighbor_bounds(segments, idx, word_idx)
-        if prev_end is not None and start < prev_end - 1e-6:
-            raise HTTPException(
-                status_code=400,
-                detail=f"start must not precede previous word end ({prev_end:.3f}s)",
-            )
-        if next_start is not None and end > next_start + 1e-6:
-            raise HTTPException(
-                status_code=400,
-                detail=f"end must not exceed next word start ({next_start:.3f}s)",
-            )
+        if body.shrink_neighbors:
+            # Change 209 (User-Vorgabe 19.09.2026): Die Marker der Nachbarwörter
+            # schrumpfen mit, wenn die gezogene Kante über sie hinausreicht —
+            # die strenge Monotonie-Ablehnung bleibt nur für Aufrufer ohne
+            # dieses Flag (Skripte, alte Clients).
+            start, end = _apply_shrink(segments, idx, word_idx, start, end)
+            if not (start < end) or end - start < MIN_WORD_DURATION_S:
+                raise HTTPException(
+                    status_code=400,
+                    detail="no room for the word: neighbors are at minimum duration",
+                )
+            new_prev_end, new_next_start = _flattened_neighbor_bounds(segments, idx, word_idx)
+            if new_prev_end != prev_end or new_next_start != next_start:
+                log.info(
+                    "Change 209: Wort %s/%s gezogen — Nachbarn mitgeschoben "
+                    "(prev_end %s -> %s, next_start %s -> %s)",
+                    idx, word_idx, prev_end, new_prev_end, next_start, new_next_start,
+                )
+        else:
+            if prev_end is not None and start < prev_end - 1e-6:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"start must not precede previous word end ({prev_end:.3f}s)",
+                )
+            if next_start is not None and end > next_start + 1e-6:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"end must not exceed next word start ({next_start:.3f}s)",
+                )
         words[word_idx]["start"] = start
         words[word_idx]["end"] = end
         # Jede Timing-Änderung ist eine manuelle Korrektur → Override setzen

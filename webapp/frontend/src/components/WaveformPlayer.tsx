@@ -4,6 +4,8 @@ import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
 import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import type { UpdateSide } from "wavesurfer.js/dist/plugins/regions.js";
+// Change 209: Range-Marker der Nachbarwörter (Typ + Live-Vorschau-Schrumpfen).
+import type { TimingNeighbor } from "../timingNeighbors";
 import { useT } from "../useLocale";
 import { fetchPeaks, fetchPeaksBinary, envelopeToPeaks } from "../api";
 import { DetailWaveformLayer } from "./DetailWaveformLayer";
@@ -88,6 +90,14 @@ interface Props {
    *  Gesetzt → Waveform zoomt auf das Wort (~30 % der Ansicht) und zeigt
    *  die Timing-Markierung mit Start-/Ende-Handles. null = normal. */
   timingWord?: TimingWord | null;
+  /** Change 209 (User-Vorgabe 19.09.2026): Range-Marker der Nachbarwörter
+   *  (n-1/n+1) im selben Zoom — Kontext für das Ziehen. Wird eine Kante des
+   *  aktiven Wortes über einen Nachbarn gezogen, schrumpft sie mit (der
+   *  Parent rechnet das live und der Server beim Speichern). */
+  timingNeighbors?: { prev: TimingNeighbor | null; next: TimingNeighbor | null } | null;
+  /** Change 209: Klick oder Anfassen eines Nachbar-Markers (oder seiner
+   *  Region) macht dieses Wort zum aktiven Wort. */
+  onTimingSelectWord?: (segIdx: number, wordIdx: number) => void;
   /** Change 155 (Timing-Zoom): Recording-UID für progressive Peaks
    *  (GET /recordings/{rid}/peaks?length=N). Nur im Timing-Kontext nötig. */
   recordingId?: string;
@@ -267,7 +277,7 @@ export function toggleActivePlayback(): void {
 }
 
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
-  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, recordingId, onTimingChange, onTimingCommit }, ref) {
+  function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, timingNeighbors = null, onTimingSelectWord, recordingId, onTimingChange, onTimingCommit }, ref) {
     const { t } = useT();
     const containerRef = useRef<HTMLDivElement>(null);
     // Change 072 (User-Befund 2026-08-21, „Waveforms lade endlos“ trotz 070):
@@ -306,6 +316,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     onTimingChangeRef.current = onTimingChange;
     const onTimingCommitRef = useRef(onTimingCommit);
     onTimingCommitRef.current = onTimingCommit;
+    // Change 209: Auswahl eines Nachbar-Markers.
+    const onTimingSelectRef = useRef(onTimingSelectWord);
+    onTimingSelectRef.current = onTimingSelectWord;
     const [timingZoom, setTimingZoom] = useState(false);
     // Crop-Auswahl-Region (✂ Transcribe): in der Timing-Ansicht ausgeblendet,
     // damit sie nicht mit den Timing-Handles um die Drag-Gesten konkurriert.
@@ -397,6 +410,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     // ── Change 196: Timing-Markierung per WS RegionsPlugin ──
     const timingRegionRef = useRef<any>(null);
+    // Change 209: Kennung des zuletzt angelegten aktiven Wortes (siehe unten).
+    const prevRegionKeyRef = useRef<string | null>(null);
+    // Change 209: Regionen der Nachbarwörter (n-1 / n+1).
+    const neighborRegionsRef = useRef<{ prev: any; next: any }>({ prev: null, next: null });
+    const neighborDataRef = useRef(timingNeighbors);
+    neighborDataRef.current = timingNeighbors;
 
     // Change 137: Crop-Auswahl-Region (✂ Transcribe) in der Timing-Ansicht
     // ausblenden (Change 196: jetzt auch Timing-Region verwalten).
@@ -464,6 +483,91 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         }
       }
     }, [timingWord, ready]);
+
+    // Change 209 (Nebenfund): Die aktive Timing-Markierung wurde nur EINMAL
+    // angelegt und blieb beim Wechsel des Wortes am alten Wort stehen — hier
+    // wandert sie mit. Während eines Drags bleibt die Kennung gleich, laufende
+    // Gesten werden also nicht angefasst.
+    useEffect(() => {
+      if (!timingWord || !timingRegionRef.current) return;
+      const key = `${timingWord.segIdx}:${timingWord.wordIdx}`;
+      if (prevRegionKeyRef.current === key) return;
+      prevRegionKeyRef.current = key;
+      try {
+        timingRegionRef.current.setOptions({
+          start: timingWord.start,
+          end: timingWord.end,
+        });
+      } catch {
+        /* setOptions nicht verfügbar — Region bleibt an alter Stelle */
+      }
+    }, [timingWord, ready]);
+
+    // ── Change 209: Range-Marker der Nachbarwörter (n-1 / n+1) ──
+    useEffect(() => {
+      const plugin = regionsRef.current as any;
+      const mine = neighborRegionsRef.current;
+      const clear = (which: "prev" | "next") => {
+        if (mine[which]) {
+          try {
+            mine[which].remove();
+          } catch {
+            /* schon entfernt */
+          }
+          mine[which] = null;
+        }
+      };
+
+      if (!timingWord || !ready || !plugin) {
+        clear("prev");
+        clear("next");
+        return;
+      }
+
+      const make = (which: "prev" | "next", n: TimingNeighbor) => {
+        const region = mine[which];
+        if (!region) {
+          const dur = wsRef.current?.getDuration?.() ?? 0;
+          if (dur > 0 && n.start >= 0 && n.end <= dur) {
+            const created = plugin.addRegion({
+              start: n.start,
+              end: n.end,
+              // Blasser als das aktive Wort (grün) — reiner Kontext.
+              color: "rgba(139,148,158,0.22)",
+              drag: false,
+              resize: true, // sichtbare Marker; Anfassen macht das Wort aktiv
+              minLength: MIN_WORD_DURATION_S,
+            });
+            // Klick, Anfassen oder Ziehen eines Nachbar-Markers: dieses Wort
+            // wird das aktive Wort. Bewusst OHNE eigenen Timing-Commit — der
+            // Zoom lädt es neu, gezogen wird dann an seinen Handles.
+            const select = () => {
+              const cur = neighborDataRef.current?.[which];
+              if (cur) onTimingSelectRef.current?.(cur.segIdx, cur.wordIdx);
+            };
+            created.on("click", select);
+            created.on("update", select);
+            const el = created.element as HTMLElement | undefined;
+            if (el) {
+              el.style.cursor = "pointer";
+              el.addEventListener("pointerdown", select);
+            }
+            mine[which] = created;
+          }
+        } else {
+          try {
+            region.setOptions({ start: n.start, end: n.end });
+          } catch {
+            /* setOptions nicht verfügbar */
+          }
+        }
+      };
+
+      if (timingNeighbors?.prev) make("prev", timingNeighbors.prev);
+      else clear("prev");
+      if (timingNeighbors?.next) make("next", timingNeighbors.next);
+      else clear("next");
+    }, [timingWord, timingNeighbors, ready]);
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst

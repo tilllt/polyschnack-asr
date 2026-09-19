@@ -343,6 +343,131 @@ def test_align_words_keeps_override_flag():
     assert out2[2]["start"] == pytest.approx(1.2)
 
 
+# ── Change 209 (User-Vorgabe 19.09.2026): Nachbar-Marker schrumpfen mit ──
+# Der Nutzer zieht die Markierung des aktiven Wortes über das Wort davor oder
+# danach. Statt 400 (strenge Monotonie) schiebt der Server die BERÜHRTE Kante
+# des Nachbarn mit: keine Überlappung, Reihenfolge bleibt, Segment-Grenzen
+# bleiben unangetastet (Change 155).
+
+
+def test_shrink_neighbors_prev_shrinks_when_start_moves_left(client):
+    """Start nach links ziehen → Vorgänger „Hallo" schrumpft auf die Kante."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 0.5, "end": 2.0, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    seg = r.json()["segments"][0]
+    assert seg["words"][0]["end"] == pytest.approx(0.5)
+    assert seg["words"][0]["override"] is True
+    assert seg["words"][1]["start"] == pytest.approx(0.5)
+    assert seg["words"][1]["end"] == pytest.approx(2.0)
+    assert seg["words"][0]["start"] == pytest.approx(0.0)  # Anfang bleibt
+    assert seg["start"] == pytest.approx(0.0)  # Segment-Grenzen unangetastet
+    assert seg["end"] == pytest.approx(2.0)
+
+
+def test_shrink_neighbors_next_shrinks_when_end_moves_right(client):
+    """Ende nach rechts ziehen → Nachfolger rückt nach (segmentübergreifend)."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 1.0, "end": 2.5, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    segs = r.json()["segments"]
+    assert segs[1]["words"][0]["start"] == pytest.approx(2.5)
+    assert segs[1]["words"][0]["end"] == pytest.approx(3.0)
+    assert segs[1]["words"][0]["override"] is True
+    assert segs[1]["start"] == pytest.approx(2.0)  # Segment-Grenze bleibt
+
+
+def test_shrink_neighbors_keeps_min_duration_instead_of_400(client):
+    """Weit über den Vorgänger hinaus: er behält 20 ms Mindestdauer, die
+    gezogene Kante wird begrenzt — kein 400."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": -5.0, "end": 2.0, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    seg = r.json()["segments"][0]
+    assert seg["words"][0]["end"] == pytest.approx(0.02)
+    assert seg["words"][1]["start"] == pytest.approx(0.02)
+
+
+def test_shrink_neighbors_does_not_grow_untouched_neighbor(client):
+    """Nur die BERÜHRTE Kante wandert: verkleinert man das Wort, wächst der
+    Nachfolger nicht nach."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 1.0, "end": 1.5, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    segs = r.json()["segments"]
+    assert segs[0]["words"][1]["end"] == pytest.approx(1.5)
+    assert segs[1]["words"][0]["start"] == pytest.approx(2.0)
+
+
+def test_strict_path_without_flag_still_rejects_overlap(client):
+    """Ohne Flag bleibt das alte strenge Verhalten (400) — Skripte und alte
+    Clients ändern sich nicht."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 0.5, "end": 2.0},
+    )
+    assert r.status_code == 400
+    assert "previous word end" in r.json()["detail"]
+
+
+def test_shrink_neighbors_last_word_has_no_next(client):
+    """Letztes Wort der Aufnahme: keine Nachbarn, kein Fehler."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/1/words/1",
+        json={"start": 3.0, "end": 4.5, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["segments"][1]["words"][1]["end"] == pytest.approx(4.5)
+
+
+def test_shrink_neighbors_body_move_left_shrinks_prev_only(client):
+    """GANZE Markierung nach links ziehen (Start und Ende wandern, Länge
+    bleibt): der Vorgänger schrumpft, der Nachfolger bleibt."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 0.5, "end": 1.5, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    segs = r.json()["segments"]
+    assert segs[0]["words"][0]["end"] == pytest.approx(0.5)
+    assert segs[0]["words"][1]["start"] == pytest.approx(0.5)
+    assert segs[0]["words"][1]["end"] == pytest.approx(1.5)
+    assert segs[1]["words"][0]["start"] == pytest.approx(2.0)
+
+
+def test_shrink_neighbors_body_move_right_shrinks_next_only(client):
+    """GANZE Markierung nach rechts ziehen: nur der Nachfolger rückt nach."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 1.5, "end": 2.5, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    segs = r.json()["segments"]
+    assert segs[1]["words"][0]["start"] == pytest.approx(2.5)
+    assert segs[0]["words"][0]["end"] == pytest.approx(1.0)
+
+
+def test_shrink_neighbors_both_edges_in_one_request(client):
+    """Beide Kanten in EINEM Request: beide Nachbarn schrumpfen mit —
+    der Server prüft Vorgänger und Nachfolger unabhängig."""
+    r = client.patch(
+        "/api/recordings/rec-timing-1/segments/0/words/1",
+        json={"start": 0.4, "end": 2.6, "shrink_neighbors": True},
+    )
+    assert r.status_code == 200
+    segs = r.json()["segments"]
+    assert segs[0]["words"][0]["end"] == pytest.approx(0.4)
+    assert segs[1]["words"][0]["start"] == pytest.approx(2.6)
+
+
 def test_progressive_peaks_endpoint(client, monkeypatch):
     """Change 155 (Timing-Zoom): GET /recordings/{rid}/peaks?length=N
     liefert Peaks in der gewünschten Auflösung + Cache-Control."""

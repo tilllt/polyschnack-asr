@@ -12,6 +12,9 @@ import { ExportDialog } from "./ExportDialog";
 import JobStatus from "./JobStatus";
 import { fmtBytes, fmtDurSec, fmtMs, fmtDate, parseUtcMs } from "../format";
 import { WaveformPlayer, type WaveSurferHandle, type TimingWord } from "./WaveformPlayer";
+// Change 209: Nachbar-Marker (n-1/n+1) — Auswahl, Grenzen, Mitschrumpfen.
+import { neighborWords, shrinkNeighborEdges, type TimingNeighbor } from "../timingNeighbors";
+import { MIN_WORD_DURATION_S } from "../waveformTime";
 import { TimingEditor } from "./TimingEditor";
 import { AnnotationThreads } from "./AnnotationThreads";
 import { useT } from "../useLocale";
@@ -247,6 +250,19 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // Aktives Wort im Timing-Tab: Alignment-Timing + Drag-Grenzen (Nachbarn).
   // start/end werden während des Marker-Drags LIVE aktualisiert.
   const [timingWord, setTimingWord] = useState<TimingWord | null>(null);
+  // Change 209: die Nachbarwörter des aktiven Wortes (Range-Marker n-1/n+1).
+  // Der Server ist die Wahrheit; hier stehen sie für Anzeige + Live-Vorschau.
+  const [timingNeighbors, setTimingNeighbors] = useState<{
+    prev: TimingNeighbor | null;
+    next: TimingNeighbor | null;
+  } | null>(null);
+  // Change 209: Ausgangsstand der Nachbarn (beim Auswählen gesetzt) — die
+  // Live-Vorschau rechnet immer daraus, damit ein Zug zurück die Nachbarn
+  // wieder auf ihren alten Rand setzt.
+  const timingNeighborsBaseRef = useRef<{
+    prev: TimingNeighbor | null;
+    next: TimingNeighbor | null;
+  } | null>(null);
   const [timingOverride, setTimingOverride] = useState(false);
   // Change 141: „Folgen"-Toggle — Auto-Scroll der Transkription an das
   // Playback (Default an). Aus = in Ruhe lesen/bearbeiten während das
@@ -1149,23 +1165,17 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     const w = seg?.words?.[wordIdx];
     const words = seg?.words ?? [];
     if (!seg || !w || words.length === 0 || typeof w.start !== "number" || typeof w.end !== "number") return;
-    // Drag-Grenzen aus dem WORT-FLOW: Ende des Vorgängers / Start des
-    // Folgeworts (segmentübergreifend — Lücken erlaubt, Überlappungen nicht).
-    let minStart: number | undefined;
-    let maxEnd: number | undefined;
-    if (wordIdx > 0) {
-      minStart = words[wordIdx - 1].end;
-    } else if (segIdx > 0) {
-      const prevWords = segs[segIdx - 1]?.words;
-      if (prevWords?.length) minStart = prevWords[prevWords.length - 1].end;
-    }
-    if (wordIdx < words.length - 1) {
-      maxEnd = words[wordIdx + 1].start;
-    } else if (segIdx < (segs?.length ?? 0) - 1) {
-      const nextWords = segs[segIdx + 1]?.words;
-      if (nextWords?.length) maxEnd = nextWords[0].start;
-    }
+    // Change 209: die Nachbarwörter (n-1/n+1) im WORT-FLOW zeigen und ihre
+    // Ränder als Zieh-Grenzen nutzen. Vorher endete der Zug an der INNENKANTE
+    // des Nachbarn (Überlappung verboten) — jetzt darf man bis an seinen
+    // Anfang/das Ende ziehen, weil der Nachbar mitschrumpft.
+    const { prev, next } = neighborWords(segs, segIdx, wordIdx);
+    const minStart = prev ? prev.start + MIN_WORD_DURATION_S : undefined;
+    const maxEnd = next ? next.end - MIN_WORD_DURATION_S : undefined;
     setTimingWord({ segIdx, wordIdx, start: w.start, end: w.end, minStart, maxEnd });
+    // Change 209: Ausgangsstand der Nachbarn für die Live-Vorschau.
+    timingNeighborsBaseRef.current = { prev, next };
+    setTimingNeighbors({ prev, next });
     setTimingOverride(!!w.override);
     setActiveSegIdx(segIdx);
     // Change 208 (User-Vorgabe 19.09.2026): Im Timing-Modus spielt der Klick
@@ -1179,6 +1189,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // läuft im WaveformPlayer nur beim Wort-WECHSEL, nicht bei jedem Delta).
   function handleTimingChange(start: number, end: number) {
     setTimingWord((tw) => (tw ? { ...tw, start, end } : tw));
+    // Change 209: Nachbar-Marker schrumpfen LIVE mit (gleiche Rechnung wie der
+    // Server) — gerechnet immer aus dem Ausgangsstand, damit ein Zug zurück
+    // die Nachbarn wieder auf ihren alten Rand setzt.
+    const base = timingNeighborsBaseRef.current;
+    if (base) {
+      setTimingNeighbors(shrinkNeighborEdges({ start, end }, base.prev, base.next));
+    }
   }
 
   // Commit nach Loslassen: PATCH ans Backend, Cache-Update, Rollback+Toast
@@ -1187,14 +1204,39 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     const tw = timingWord;
     if (!tw || !r.uid) return;
     const prev = { start: tw.start, end: tw.end };
+    const prevNb = timingNeighborsBaseRef.current;
     try {
-      const res = await updateWordTiming(r.uid, tw.segIdx, tw.wordIdx, { start, end });
+      // Change 209: EIN Request für das Wort + die berührten Nachbar-Kanten
+      // (shrink_neighbors) — der Server schiebt sie mit, statt 400 zu liefern,
+      // und die Antwort enthält den konsistenten Stand aller Beteiligten.
+      const res = await updateWordTiming(r.uid, tw.segIdx, tw.wordIdx, {
+        start,
+        end,
+        shrink_neighbors: true,
+      });
       handleEdited(res.segments, res.text);
-      setTimingWord((cur) => (cur ? { ...cur, start, end } : cur));
+      // Nachbarn + Zieh-Grenzen aus der Server-Antwort übernehmen (sie kann
+      // Kanten verschoben haben — die Anzeige muss das zeigen).
+      const fresh = neighborWords(res.segments, tw.segIdx, tw.wordIdx);
+      timingNeighborsBaseRef.current = fresh;
+      setTimingNeighbors(fresh);
+      setTimingWord((cur) =>
+        cur
+          ? {
+              ...cur,
+              start,
+              end,
+              minStart: fresh.prev ? fresh.prev.start + MIN_WORD_DURATION_S : undefined,
+              maxEnd: fresh.next ? fresh.next.end - MIN_WORD_DURATION_S : undefined,
+            }
+          : cur,
+      );
       setTimingOverride(true);
       toast(t("timing_saved"), "ok");
     } catch {
       setTimingWord((cur) => (cur ? { ...cur, ...prev } : cur));
+      timingNeighborsBaseRef.current = prevNb;
+      setTimingNeighbors(prevNb);
       toast(t("timing_save_error"), "err");
     }
   }
@@ -1218,7 +1260,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     setEditorTab(tab);
     // Beim Verlassen des Timing-Tabs das Wort entladen → Waveform zurück
     // zu „fit" (und die Crop-Auswahl-Region wieder aktiv).
-    if (tab === "transcription") setTimingWord(null);
+    if (tab === "transcription") {
+      setTimingWord(null);
+      // Change 209: die Nachbar-Marker verschwinden mit dem aktiven Wort.
+      setTimingNeighbors(null);
+      timingNeighborsBaseRef.current = null;
+    }
   }
 
   function handleEdited(
@@ -1459,6 +1506,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             // Change 137: Timing-Tab — Wort laden (30 %-Zoom + Markierung),
             // Drag-Handles live + Commit per PATCH.
             timingWord={timingWord}
+            timingNeighbors={timingNeighbors}
+            onTimingSelectWord={handleTimingWordSelect}
             onTimingChange={handleTimingChange}
             onTimingCommit={handleTimingCommit}
           />
