@@ -188,11 +188,20 @@ play_res_x − margin_l − margin_r − 2 × outline_width − schatten
 
 ### Praxiserfahrung
 
-An einer Aufnahme mit gemischten Satzlängen: feste Größe 56 px → Zeilen 728 bis
-942 px von 1833 px verfügbar. Mit `balanced`: 108 px → 1236 bis 1816 px. Keine
-Zeile läuft über, alle Zeilen sind deutlich breiter. Die Zeilen *innerhalb* eines
-Satzes werden gleichmäßig; zwischen Sätzen können die Breiten abweichen, weil
-das Satzende eine harte Grenze bleibt.
+An einer Aufnahme mit gemischten Satzlängen, gemessen über die ganze Aufnahme
+(breiteste Zeile entscheidet, weil eine gemeinsame Größe gilt):
+
+| | feste Größe (`off`) | `balanced` |
+|---|---|---|
+| Schriftgröße im ASS | 56 px | 108 px |
+| breiteste Zeile im Video | 559 px = 46 % der Breite | 1079 px = 88 % |
+| Zeilen im Testbeispiel | 728–942 px | 1236–1816 px |
+
+Die Zeilen *innerhalb* eines Satzes werden gleichmäßig; zwischen Sätzen können
+die Breiten abweichen, weil das Satzende eine harte Grenze bleibt. Die letzten
+Prozente bis zur vollen Breite bleiben absichtlich frei: der Zuschlag für Kontur
+und Schatten, die Abrundung auf ganze Pixel und der Unterschied zwischen
+Vorschubbreite (gemessen) und tatsächlicher Tintenbreite (gerendert).
 
 
 **Was auf dem Handy funktioniert:**

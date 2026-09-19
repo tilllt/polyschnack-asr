@@ -62,7 +62,7 @@
 
 ## 8. Ausrollen und abnehmen
 
-- [ ] Deploy, dann echte Aufnahme rendern (Vergleich `off` gegen `balanced`) und
+- [x] Deploy, dann echte Aufnahme rendern (Vergleich `off` gegen `balanced`) und
       die Textbreite im Video messen
 
 ## Stand 18.09.2026
@@ -121,3 +121,20 @@ Dienst läuft aber über `uv run` in der Projektumgebung. Behoben — die Prüfu
 benutzt jetzt **denselben Interpreter wie das CMD** (`uv run python`). Dieselbe
 Lehre wie beim Render-Image: der Bau muss mit der Umgebung prüfen, die der
 Dienst benutzt, nicht mit irgendeiner.
+### Abnahme im Betrieb (Revision 20d030f7, Aufnahme 8bd205ae…)
+
+Pipeline 5371: `test-webapp` 733 s success, `build-webapp` 129 s success — der
+Bau meldet „Schriftmessung OK: LiberationSans-Bold.ttf 481.5 px bei 100".
+
+Über die öffentliche API:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Regler im Dialog | `fit_mode` in `used_params` **aller** Presets, Werte `off`/`balanced` |
+| ASS-Schriftgröße, gleiche Aufnahme | `off` 56 px (5691 B) gegen `balanced` 108 px (5692 B) — Dateien unterschiedlich |
+| Render-Ergebnis | `off` 72.389 B gegen `balanced` 111.512 B, beide `done` |
+| breiteste Zeile im Video (alle 0,5 s gemessen, 1227 px verfügbar) | `off` 559 px = 45,6 % → `balanced` 1079 px = **87,9 %** |
+
+Der Rest bis zur vollen Breite bleibt bewusst frei: Zuschlag für Kontur und
+Schatten, Abrundung auf ganze Pixel, Vorschubbreite (gemessen) gegen
+Tintenbreite (gerendert).
