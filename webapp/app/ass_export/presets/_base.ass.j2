@@ -9,6 +9,11 @@
   Kontext:
     meta.title, meta.play_res_x|y  — Szenengroesse in Pixeln
     styles[]                       — fertige ASS-Stil-Felder (Farben &HAABBGGRR)
+    line.fs_tag / st.fs_tag        — Schriftgroessen-Tag "{\fs108}" fuer die
+                                     jeweilige Zeile (Change 202, fit_mode=per_line);
+                                     leer bei off/balanced. Gehoert an den ANFANG
+                                     des Text-Feldes — ohne ihn bleibt der Text in
+                                     der Stilgroesse, und der Export meldet das.
 -#}
 {% macro document(meta, styles) -%}
 [Script Info]

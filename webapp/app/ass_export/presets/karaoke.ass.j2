@@ -1,6 +1,6 @@
 {#- Karaoke: eine Zeile pro Caption; \kf-Dauern summieren sich auf die Event-Dauer. -#}
 {% import "_base.ass.j2" as base %}{% call base.document(meta, styles) -%}
 {% for line in lines -%}
-Dialogue: 0,{{ line.start_tc }},{{ line.end_tc }},Default,{{ line.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{% for w in line.words %}{\kf{{ w.k_cs }}}{{ w.text | ass_escape }}{% if not loop.last %} {% endif %}{% endfor %}
+Dialogue: 0,{{ line.start_tc }},{{ line.end_tc }},Default,{{ line.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{{ line.fs_tag }}{% for w in line.words %}{\kf{{ w.k_cs }}}{{ w.text | ass_escape }}{% if not loop.last %} {% endif %}{% endfor %}
 {% endfor -%}
 {%- endcall %}

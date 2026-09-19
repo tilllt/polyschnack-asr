@@ -237,6 +237,13 @@ export function ExportDialog({
       return t("ass_warn_fit_overflow").replace("{n}", n);
     }
     if (w.startsWith("fit_unavailable:")) return t("ass_warn_fit_unavailable");
+    // Change 202: Vorlage übernimmt die berechnete Größe je Zeile nicht
+    if (w.startsWith("fit_tag_missing:")) {
+      const preset = w.slice("fit_tag_missing:".length);
+      return t("ass_warn_fit_tag_missing")
+        .replace("{tag}", "fs_tag")
+        .replace("{preset}", preset);
+    }
     return w;
   }
 

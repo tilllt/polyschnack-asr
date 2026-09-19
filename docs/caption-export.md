@@ -146,7 +146,7 @@ brechen nach fester Wortzahl (`words_per_line`). Auf dem Bildschirm bleibt
 dadurch oft Breite ungenutzt: vier kurze Wörter füllen bei 1920 px vielleicht
 ein Drittel, obwohl Platz für deutlich größere Schrift wäre.
 
-Der Parameter **„Schrift füllt die Breite"** (`fit_mode`) schaltet das um:
+Der Parameter **„Schrift an die Bildbreite anpassen"** (`fit_mode`) schaltet das um:
 
 * **`off`** (Vorgabe) — alles wie bisher: feste Größe, feste Wortzahl.
 * **`balanced`** — die Zeilen werden nach **Breite** ausbalanciert und daraus
@@ -155,6 +155,66 @@ Der Parameter **„Schrift füllt die Breite"** (`fit_mode`) schaltet das um:
   wie viele Wörter höchstens in eine Zeile dürfen. Harte Grenzen bleiben
   bestehen — Sprecherwechsel, Abschnittswechsel und (wenn eingeschaltet) das
   Satzende trennen weiterhin.
+* **`per_line`** — die Zeilenbildung bleibt bei der eingestellten Wortzahl, und
+  **jede Zeile bekommt ihre eigene Schriftgröße**: ein Wort riesig, zehn Wörter
+  kleiner. Die Größe **springt** also von Anzeige zu Anzeige — das Aussehen der
+  „Full-Screen"-Untertitel in sozialen Netzen. Mit `words_per_line=1` springt
+  sie bei jedem Wort.
+
+## Schriftgröße je Zeile (`fit_mode=per_line`)
+
+Die Größe einer Zeile wird aus **zwei** Messungen bestimmt; die kleinere gewinnt:
+
+* **Breite:** `verfügbare Breite / Zeilenbreite × Referenzgröße`. Maßgeblich ist
+  die *Vorschubbreite* (advance width), nicht die Tinte: läuft der Vorschub über
+  den Rand, bricht libass die Zeile um und die Caption steht zweizeilig im Bild.
+  Deshalb erreicht die sichtbare Tinte etwa 88–95 % der Zeile — die letzten
+  Prozentpunkte sind Seitenrand der Buchstaben und Abrundung.
+* **Höhe:** die Zeile muss zwischen `margin_v` (unten) und dem oberen
+  Sicherheitsrand Platz haben. Begrenzt wird auf die **Zeilenbox** (Auf- +
+  Abstieg ≈ 1,14 em bei Liberation Sans), nicht auf die Tinte. Der Unterschied
+  ist nicht theoretisch: ein Wort wie „ist" hat nur 0,78 em Tinte, die
+  reservierte Box ist trotzdem 1,14 em hoch — mit der Tinte als Grenze wurde die
+  Zeile im Test oben abgeschnitten. Ohne Höhengrenze bekäme ein einzelnes kurzes
+  Wort eine Schriftgröße von weit über 1000 px und liefe aus dem Bild.
+
+Anders als bei `balanced` gibt es hier **keinen** Deckel auf 3 × `font_size`:
+der Sprung ist ja das Ziel. Die eingestellte `font_size` wirkt als Untergrenze
+(Richtung) und bleibt im ASS-Stil stehen; jede Zeile trägt zusätzlich ihr eigenes
+`{\fs…}` im Event-Text. Zu klein wird nichts: die Untergrenze ist
+`max(8 px, 0,5 × font_size)`.
+
+## Sicherheitsrand (`safe_margin_pct`)
+
+Der Rand in Prozent **je Seite** (Vorgabe 5, einstellbar 0–20) hält die Schrift
+von den Bildrändern fern:
+
+* **waagerecht** — `MarginL`/`MarginR` des ASS-Stils werden
+  `max(40 px, pct % von play_res_x)`. Bei 1920 px und 5 % sind das 96 px je
+  Seite; derselbe Wert geht in die Schriftberechnung ein (eine Wahrheit, nicht
+  zwei).
+* **senkrecht** — der obere Sicherheitsrand (`pct % von play_res_y`) begrenzt die
+  Zeilenbox.
+
+Der Rand wirkt in **allen** Modi, auch bei `off` — er ist eine Eigenschaft des
+Bildes, nicht der Schriftanpassung. `0` stellt den Stand vor Change 202 exakt
+wieder her (40 px Ränder). Mit der Vorgabe 5 % wird auch `balanced` etwas
+kleiner als früher, weil die Ränder jetzt wirken (verfügbare Breite bei 1920 px:
+1833 → 1721 px).
+
+## Eigene Vorlagen und die Größe je Zeile
+
+Die Größe je Zeile kann nicht im ASS-**Stil** stehen (der gilt für alle Events),
+sondern nur im Event-Text. Deshalb bekommen Vorlagen zwei neue Variablen:
+
+* `{{ line.fs_tag }}` — z. B. `{\fs108}`, bei `off`/`balanced` leer
+* `{{ st.fs_tag }}` — dasselbe für die Wort-Schritte (Presets „Aufpoppen" und
+  „Social Media")
+
+Die mitgelieferten Vorlagen setzen den Tag an den Anfang des Text-Feldes. Eine
+eigene Vorlage **ohne** diesen Platzhalter wird nicht stillschweigend ohne
+Wirkung exportiert: der Export meldet, dass die Vorlage die berechnete Größe
+nicht übernimmt, und der Text bleibt in der Stilgröße.
 
 ### Gemessen, nicht geschätzt
 
@@ -203,6 +263,24 @@ Prozente bis zur vollen Breite bleiben absichtlich frei: der Zuschlag für Kontu
 und Schatten, die Abrundung auf ganze Pixel und der Unterschied zwischen
 Vorschubbreite (gemessen) und tatsächlicher Tintenbreite (gerendert).
 
+
+### Praxiserfahrung `per_line` (gemessen)
+
+Beispielaufnahme mit einem Wort, kurzen Wörtern und einem Wortungeheuer
+(1920 × 1080, `safe_margin_pct=5`, Ränder 96 px → 1721 px verfügbar):
+
+| Zeile | `per_line` |
+|---|---|
+| „Ich" (1 Wort) | 830 px |
+| „langes" | 543 px |
+| „eines Donaudampfschifffahrtsgesellschaftskapitaen" | 69 px |
+| vier Wörter je Zeile: „Ich bin ein sehr" | 234 px |
+| vier Wörter je Zeile: „langes Wort und noch" | 164 px |
+
+Die Ein-Wort-Zeile ist also rund zwölfmal so groß wie die längste Zeile — genau
+der Sprung, den der Modus erzeugt. Bei einer Größe von 830 px füllt die
+Zeilenbox (1,14 em = 946 px) den Platz zwischen `margin_v` und oberem
+Sicherheitsrand aus; weiter geht es physikalisch nicht, ohne oben abzuschneiden.
 
 **Was auf dem Handy funktioniert:**
 

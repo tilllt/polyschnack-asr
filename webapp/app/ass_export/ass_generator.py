@@ -17,7 +17,8 @@ Zeitbasis: alles intern in Millisekunden, ASS bekommt ``h:mm:ss.cc``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence
+import re
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import fitwidth, textfit
 from .presets import (
@@ -39,6 +40,10 @@ MIN_EVENT_MS = 20
 MIN_WORD_MS = 80
 #: Satzzeichen, nach denen eine Caption-Zeile enden darf.
 SENTENCE_END = ".!?…:;"
+
+#: Schriftgrößen-Tag ``{\fs108}`` im Event-Text (Change 202). Bewusst mit Ziffer:
+#: ``\fscx`` und ``\fscy`` sind Skalierungen und keine Schriftgrößen.
+_FS_TAG_RE = re.compile(r"\\fs\d+")
 
 GENERATOR = "PolySchnack ASS-Export (Change 193)"
 
@@ -428,16 +433,22 @@ def _word_view(word: Word, params: Dict[str, Any], span_ms: int,
     return view
 
 
-def _line_context(line: Line, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Zeilen-Kontext inkl. ``\\k``-Dauern.
+def _line_context(line: Line, params: Dict[str, Any],
+                  font_size: int = 0) -> Dict[str, Any]:
+    """Zeilen-Kontext inkl. ``\\k``-Dauern und ``\\fs``-Tag.
 
     Karaoke-Regel: ``k_cs`` eines Wortes ist der Abstand bis zum nächsten Wort
     (der letzte bekommt seine ECHTE Wortdauer). Damit füllt sich der letzte
     Balken genau beim Sprechen und bleibt danach gefüllt, statt sich in den
     Nachlauf hinein zu ziehen. Die Summe ist deshalb ``<=`` Event-Dauer und
     exakt gleich, wenn kein Nachlauf (``tail_ms=0``) anfällt.
+
+    *font_size* (Change 202) ist die Größe **dieser** Zeile; sie wird als
+    fertiger ``fs_tag`` an Vorlage und Schritt gereicht (``0`` → leerer Tag,
+    dann greift der Stil wie bisher).
     """
     words = line.words
+    fs_tag = font_size_tag(font_size)
 
     def span(i: int) -> int:
         word = words[i]
@@ -465,6 +476,7 @@ def _line_context(line: Line, params: Dict[str, Any]) -> Dict[str, Any]:
             "start_tc": tc(step.start_ms),
             "end_tc": tc(step.end_ms),
             "speaker": line.speaker,
+            "fs_tag": fs_tag,
             "text": line.text.upper() if params.get("uppercase") else line.text,
             "words": [
                 _word_view(word, params, span(i), active=active_index)
@@ -478,6 +490,7 @@ def _line_context(line: Line, params: Dict[str, Any]) -> Dict[str, Any]:
         "start_tc": tc(line.start_ms),
         "end_tc": tc(line.end_ms),
         "speaker": line.speaker,
+        "fs_tag": fs_tag,
         "text": line.text.upper() if params.get("uppercase") else line.text,
         "words": views,
         "steps": step_views,
@@ -501,6 +514,7 @@ def _styles(preset: Preset, params: Dict[str, Any],
         return name
 
     box = bool(params["box"])
+    margin_l, margin_r = _style_margins(params)
     return [{
         "name": "Default",
         "fontname": params["font_name"],
@@ -522,8 +536,8 @@ def _styles(preset: Preset, params: Dict[str, Any],
         "outline_px": params["outline_width"],
         "shadow": params["shadow"],
         "alignment": POSITION_ALIGNMENT[params["position"]],
-        "margin_l": STYLE_MARGIN_L,
-        "margin_r": STYLE_MARGIN_R,
+        "margin_l": margin_l,
+        "margin_r": margin_r,
         "margin_v": params["margin_v"],
         "encoding": 1,
     }]
@@ -542,23 +556,63 @@ def _uniform_timing(words: Sequence[Word]) -> bool:
     return len(deltas) <= 2
 
 
+def textfit_extra_px(params: Dict[str, Any]) -> float:
+    """Kontur-/Schatten-Zuschlag (eine Quelle: ``textfit``)."""
+    return textfit.extra_px(params)
+
+
+def _style_margins(params: Dict[str, Any]) -> Tuple[int, int]:
+    """Seitliche Ränder des ASS-Stils aus ``safe_margin_pct`` (Change 202).
+
+    ``safe_margin_pct`` ist der Sicherheitsrand in Prozent **je Seite**. Die
+    Ränder waren vor Change 202 fest 40 px; ``max(40, …)`` hält diesen Stand
+    bei ``safe_margin_pct=0`` exakt fest, damit sich am Bestand nichts
+    verschiebt.
+    """
+    pct = float(params.get("safe_margin_pct", 0) or 0)
+    play_res_x = float(params.get("play_res_x", 1920) or 1920)
+    rand = int(round(play_res_x * max(0.0, pct) / 100.0))
+    return max(STYLE_MARGIN_L, rand), max(STYLE_MARGIN_R, rand)
+
+
 def _available_width(params: Dict[str, Any]) -> float:
     """Breite, die eine Zeile belegen darf — mit den Rändern des ASS-Stils."""
+    margin_l, margin_r = _style_margins(params)
     return textfit.available_width({**params,
-                                    "margin_l": STYLE_MARGIN_L,
-                                    "margin_r": STYLE_MARGIN_R})
+                                    "margin_l": margin_l,
+                                    "margin_r": margin_r})
 
 
-def _width_measure(params: Dict[str, Any],
-                   warnings: List[str]) -> Optional[Callable[[str], float]]:
-    """Messfunktion für Zeilenbreiten — oder ``None`` (feste Wortzahl/Größe).
+def _available_height(params: Dict[str, Any]) -> float:
+    """Höhe, die die Tinte einer einzelnen Zeile belegen darf (Change 202).
 
-    Ist ``fit_mode`` nicht ``balanced``, wird nicht gemessen. Kann nicht
-    gemessen werden (Pillow oder fontconfig fehlt), wird das GEMELDET
+    Von unten begrenzt der Abstand ``margin_v`` (dort sitzt die Grundlinie),
+    von oben der Sicherheitsrand. Die Tinte wächst beim Vergrößern nach oben —
+    ohne diese Grenze liefe ein einzelnes kurzes Wort aus dem Bild.
+    """
+    play_res_y = float(params.get("play_res_y", 1080) or 1080)
+    pct = float(params.get("safe_margin_pct", 0) or 0)
+    oben = play_res_y * max(0.0, pct) / 100.0
+    frei = play_res_y - float(params.get("margin_v", 0) or 0) - oben
+    frei -= textfit_extra_px(params)
+    return max(1.0, frei)
+
+
+def _measure(params: Dict[str, Any],
+             warnings: List[str]) -> Optional[Tuple[Callable[[str], float],
+                                                    Callable[[str], float]]]:
+    """Messfunktionen ``(breite, hoehe)`` in PlayRes-Pixeln — oder ``None``.
+
+    Gemessen wird nur, wenn ein Modus mit Schriftanpassung gewählt ist. Kann
+    nicht gemessen werden (Pillow oder fontconfig fehlt), wird das GEMELDET
     (``fit_unavailable``) und es bleibt bei der festen Größe — statt still auf
     eine geratene Zahl auszuweichen.
+
+    Die **Höhe** (Change 202) ist die Grenze nach oben im Modus ``per_line``.
+    Eine feste Zahl ginge nicht: gemessen bei 200 px Schriftgröße reicht die
+    Tinte von 127 px („WEG") bis 192 px („ÄÖÜgjpqy").
     """
-    if str(params.get("fit_mode", "off")) != "balanced":
+    if str(params.get("fit_mode", "off")) not in ("balanced", "per_line"):
         return None
 
     fehlt: List[str] = []
@@ -573,12 +627,31 @@ def _width_measure(params: Dict[str, Any],
         warnings.append("fit_unavailable:font")
         return None
 
-    def measure(text: str) -> float:
-        breite = textfit.text_width(text.upper() if upper else text,
-                                    font_name=font_name, bold=bold)
-        return float(breite or 0.0)
+    def prepare(text: str) -> str:
+        return text.upper() if upper else text
 
-    return measure
+    #: Höhe der Zeilenbox — sie ist die Grenze, nicht die Tinte: libass
+    #: reserviert Auf- + Abstieg (Liberation Sans ≈ 1,14 em). Mit der Tinte
+    #: („ist" = 0,78 em) als Grenze wurde die Zeile oben abgeschnitten.
+    box = textfit.line_box_height(font_name=font_name, bold=bold) or 0.0
+
+    def breite(text: str) -> float:
+        return float(textfit.text_width(prepare(text), font_name=font_name,
+                                       bold=bold) or 0.0)
+
+    def hoehe(text: str) -> float:
+        tinte = float(textfit.text_height(prepare(text), font_name=font_name,
+                                         bold=bold) or 0.0)
+        return max(tinte, box)
+
+    return breite, hoehe
+
+
+def _width_measure(params: Dict[str, Any],
+                   warnings: List[str]) -> Optional[Callable[[str], float]]:
+    """Nur die Breitenmessung (Change 201) — ``None``, wenn nicht messbar."""
+    messung = _measure(params, warnings)
+    return messung[0] if messung else None
 
 
 def _fit_font_size(lines: Sequence[Line], params: Dict[str, Any],
@@ -608,6 +681,42 @@ def _fit_font_size(lines: Sequence[Line], params: Dict[str, Any],
     return {**params, "font_size": groesse}
 
 
+def _per_line_font_sizes(lines: Sequence[Line], params: Dict[str, Any],
+                         messung: Tuple[Callable[[str], float],
+                                        Callable[[str], float]],
+                         warnings: List[str]) -> Dict[int, int]:
+    """Schriftgröße **je Zeile** (Change 202) — Zeilen-Index → Größe.
+
+    Anders als bei ``balanced`` bleibt die Zeilenbildung bei der eingestellten
+    Wortzahl; nur die Größe unterscheidet sich von Zeile zu Zeile. Die
+    eingestellte ``font_size`` bleibt im Stil stehen (Untergrenze/Richtung),
+    jede Zeile bekommt ihren eigenen ``{\\fs…}``-Tag in den Event-Text.
+    """
+    breite, hoehe = messung
+    breiten: List[float] = []
+    hoehen: List[float] = []
+    for line in lines:
+        text = line.text
+        breiten.append(max(0.0, breite(text)))
+        hoehen.append(max(0.0, hoehe(text)))
+
+    groessen, ueberlauf = fitwidth.per_line_sizes(
+        _available_width(params), _available_height(params),
+        breiten, hoehen, params["font_size"])
+    if ueberlauf:
+        warnings.append(f"fit_overflow:{ueberlauf}")
+    return {line.index: groesse for line, groesse in zip(lines, groessen)}
+
+
+def font_size_tag(groesse: int) -> str:
+    """``{\\fs108}`` für den Anfang eines Event-Textes; leer, wenn keine Größe.
+
+    Der Tag steht im Text und nicht im Stil: der Stil gilt für alle Events,
+    die Größe soll sich aber von Zeile zu Zeile unterscheiden.
+    """
+    return f"{{\\fs{int(groesse)}}}" if groesse else ""
+
+
 def generate_ass(recording: Any, preset_name: str = "highlight",
                  overrides: Optional[Dict[str, Any]] = None) -> AssResult:
     """Erzeugt eine ``.ass``-Datei für *recording*.
@@ -626,16 +735,25 @@ def generate_ass(recording: Any, preset_name: str = "highlight",
 
     warnings: List[str] = []
 
-    # Schriftgröße an die Bildschirmbreite anpassen (Change 201)? Dann werden
-    # die Zeilen nach Breite ausbalanciert und EINE Größe daraus berechnet,
-    # die die breiteste Zeile ausfüllt.
-    measure = _width_measure(params, warnings)
-    verfuegbare_breite = _available_width(params) if measure is not None else 0.0
+    # Schriftgröße an die Bildschirmbreite anpassen? Change 201 ("balanced":
+    # Zeilen nach Breite ausbalanciert, EINE Größe aus der breitesten Zeile)
+    # bzw. Change 202 ("per_line": Zeilen bleiben bei der eingestellten
+    # Wortzahl, Größe JE ZEILE aus Breite und Höhe — die Größe springt).
+    fit_mode = str(params.get("fit_mode", "off"))
+    messung = _measure(params, warnings)
+    if messung is None:
+        fit_mode = "off"  # ohne Messung bleibt es bei der festen Größe
+    verfuegbare_breite = _available_width(params) if messung is not None else 0.0
+    breite_messen = messung[0] if messung is not None else None
     lines = build_lines(words, params["words_per_line"],
-                        params["sentence_breaks"], measure=measure,
+                        params["sentence_breaks"],
+                        measure=breite_messen if fit_mode == "balanced" else None,
                         available=verfuegbare_breite)
-    if measure is not None:
-        params = _fit_font_size(lines, params, measure, warnings)
+    line_sizes: Dict[int, int] = {}
+    if fit_mode == "balanced" and messung is not None:
+        params = _fit_font_size(lines, params, messung[0], warnings)
+    elif fit_mode == "per_line" and messung is not None:
+        line_sizes = _per_line_font_sizes(lines, params, messung, warnings)
     duration_ms = apply_timing(lines, params["lead_ms"], params["tail_ms"])
     if stats["distributed"]:
         warnings.append("fallback_timing_words")
@@ -648,7 +766,8 @@ def generate_ass(recording: Any, preset_name: str = "highlight",
     title = _clean_text(str(getattr(recording, "original_name", "") or ""))
     title = title.rsplit(".", 1)[0] or "captions"
 
-    line_context = [_line_context(line, params) for line in lines]
+    line_context = [_line_context(line, params, line_sizes.get(line.index, 0))
+                    for line in lines]
 
     context = {
         "meta": {
@@ -672,6 +791,15 @@ def generate_ass(recording: Any, preset_name: str = "highlight",
         },
     }
     content = render_preset_file(preset.template_file, context)
+    if line_sizes:
+        # Ausgabe prüfen, nicht die Absicht: eine Vorlage ohne den Platzhalter
+        # `line.fs_tag`/`st.fs_tag` würde die berechnete Größe stillschweigend
+        # fallen lassen. \fs<zahl> suchen — "\fscx" ist eine Skalierung und
+        # darf nicht als Schriftgröße durchgehen.
+        events = [ln for ln in content.splitlines() if ln.startswith("Dialogue:")]
+        ohne = [ln for ln in events if not _FS_TAG_RE.search(ln)]
+        if ohne:
+            warnings.append(f"fit_tag_missing:{preset.name}")
     return AssResult(
         content=content,
         filename=f"{title}.ass",

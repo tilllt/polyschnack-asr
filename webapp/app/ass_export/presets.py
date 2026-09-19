@@ -65,8 +65,15 @@ PARAM_SPECS: Dict[str, Dict[str, Any]] = {
     "words_per_line": {"type": "int", "default": 4, "min": 1, "max": 12},
     # Change 201: Schriftgröße an die Bildschirmbreite anpassen. "balanced"
     # balanciert die Zeilen nach Breite und berechnet daraus EINE Größe, die
-    # die breiteste Zeile ausfüllt.
-    "fit_mode": {"type": "enum", "default": "off", "values": ["off", "balanced"]},
+    # die breiteste Zeile ausfüllt. "per_line" (Change 202) lässt die Zeilen
+    # bei der eingestellten Wortzahl und berechnet die Größe JE ZEILE aus
+    # Breite und Höhe — die Größe springt also von Anzeige zu Anzeige.
+    "fit_mode": {"type": "enum", "default": "off",
+                 "values": ["off", "balanced", "per_line"]},
+    # Change 202: Sicherheitsrand (Safe Title) in Prozent je Seite. Waagerecht
+    # als MarginL/MarginR des ASS-Stils, senkrecht als Grenze für die Höhe der
+    # Schrift. 0 = Rand wie vor Change 202 (40 px).
+    "safe_margin_pct": {"type": "int", "default": 5, "min": 0, "max": 20},
     "sentence_breaks": {"type": "bool", "default": True},
     "lead_ms": {"type": "int", "default": 0, "min": 0, "max": 1500},
     "tail_ms": {"type": "int", "default": 300, "min": 0, "max": 2000},
@@ -86,6 +93,7 @@ COLOR_PARAMS = tuple(k for k, v in PARAM_SPECS.items() if v["type"] == "color")
 LAYOUT_PARAM_KEYS = (
     "words_per_line",
     "fit_mode",
+    "safe_margin_pct",
     "sentence_breaks",
     "lead_ms",
     "tail_ms",

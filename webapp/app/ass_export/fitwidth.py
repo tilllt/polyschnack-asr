@@ -129,3 +129,56 @@ def font_size_for(available_px: float, line_widths: Sequence[float],
 
     ueberlauf = sum(1 for w in line_widths if w * groesse / 100.0 > available_px + 0.5)
     return groesse, ueberlauf
+
+
+def per_line_sizes(available_w: float, available_h: float,
+                   widths: Sequence[float], heights: Sequence[float],
+                   base_size: float, min_factor: float = MIN_FACTOR,
+                   min_abs: float = 8.0) -> Tuple[List[int], int]:
+    """Schriftgroesse **je Zeile** aus Breite UND Hoehe (Change 202).
+
+    *widths* / *heights* sind Vorschubbreite und Tintenhoehe der jeweiligen
+    Zeile bei :data:`textfit.REFERENCE_SIZE` (gleiche Reihenfolge).
+
+    Zwei Grenzen, die kleinere gewinnt:
+
+    * **Breite** — ``available_w / breite × 100``: die Zeile soll die
+      verfuegbare Breite fuellen. Massgeblich ist die Vorschubbreite, nicht die
+      Tinte: laeuft der Vorschub ueber den Rand, bricht libass die Zeile um und
+      die Caption steht zweizeilig im Bild.
+    * **Hoehe** — ``available_h / hoehe × 100``: ohne diese Grenze bekaeme ein
+      einzelnes kurzes Wort eine Schriftgroesse von ueber 1000 px und liefe
+      oben aus dem Bild.
+
+    Es gibt hier **keinen** Faktor-Deckel nach oben (anders als bei
+    :func:`font_size_for`): der Sprung von Zeile zu Zeile ist das Ziel, die
+    Hoehe ist die physikalische Grenze. Nach unten gilt ``max(min_abs,``
+    ``base × min_factor)`` — kleiner ist nicht mehr lesbar.
+
+    Rueckgabe: ``(groessen, ueberlauf)`` — *ueberlauf* zaehlt die Zeilen, die
+    auch bei der Untergrenze breiter als *available_w* bleiben (z. B. ein sehr
+    langes Einzelwort). Sie werden gemeldet, nicht still ueber den Rand
+    geschrieben.
+    """
+    if not widths:
+        return [], 0
+
+    base = float(base_size)
+    untergrenze = max(float(min_abs), base * min_factor)
+    groessen: List[int] = []
+    ueberlauf = 0
+
+    for i, breite in enumerate(widths):
+        hoehe = heights[i] if i < len(heights) else 0.0
+        if available_w <= 0 or breite <= 0:
+            groessen.append(max(1, int(math.floor(untergrenze))))
+            continue
+        ideal = available_w / breite * 100.0
+        if available_h > 0 and hoehe > 0:
+            ideal = min(ideal, available_h / hoehe * 100.0)
+        groesse = max(int(math.floor(untergrenze)), int(math.floor(ideal)))
+        groessen.append(max(1, groesse))
+        if breite * groesse / 100.0 > available_w + 0.5:
+            ueberlauf += 1
+
+    return groessen, ueberlauf

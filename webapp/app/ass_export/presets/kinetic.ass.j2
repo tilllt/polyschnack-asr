@@ -1,6 +1,6 @@
 {#- Aufpoppen: das aktive Wort startet vergroessert und schrumpft per \t auf Normalgroesse. -#}
 {% import "_base.ass.j2" as base %}{% call base.document(meta, styles) -%}
 {% for st in steps -%}
-Dialogue: 0,{{ st.start_tc }},{{ st.end_tc }},Default,{{ st.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{% for w in st.words %}{% if w.is_active %}{\c&H{{ params.accent_color | bgr }}&\fscx{{ params.pop_scale }}\fscy{{ params.pop_scale }}\t(0,{{ params.pop_ms }},\fscx100\fscy100)}{{ w.text | ass_escape }}{% else %}{\c&H{{ params.text_color | bgr }}&}{{ w.text | ass_escape }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}
+Dialogue: 0,{{ st.start_tc }},{{ st.end_tc }},Default,{{ st.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{{ st.fs_tag }}{% for w in st.words %}{% if w.is_active %}{\c&H{{ params.accent_color | bgr }}&\fscx{{ params.pop_scale }}\fscy{{ params.pop_scale }}\t(0,{{ params.pop_ms }},\fscx100\fscy100)}{{ w.text | ass_escape }}{% else %}{\c&H{{ params.text_color | bgr }}&}{{ w.text | ass_escape }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}
 {% endfor -%}
 {%- endcall %}

@@ -1,6 +1,6 @@
 {#- Social Media: grosse Schrift, kuenftige Woerter unsichtbar, das aktive Wort waechst. -#}
 {% import "_base.ass.j2" as base %}{% call base.document(meta, styles) -%}
 {% for st in steps -%}
-Dialogue: 0,{{ st.start_tc }},{{ st.end_tc }},Default,{{ st.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{% for w in st.words %}{% if w.is_active %}{\alpha&H00&\c&H{{ params.accent_color | bgr }}&\fscx{{ params.active_scale }}\fscy{{ params.active_scale }}}{{ w.text | ass_escape }}{% elif w.is_past %}{\alpha&H00&\c&H{{ params.text_color | bgr }}&}{{ w.text | ass_escape }}{% else %}{% if params.hide_upcoming %}{\alpha&HFF&}{% else %}{\alpha&H00&\c&H{{ params.dim_color | bgr }}&}{% endif %}{{ w.text | ass_escape }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}
+Dialogue: 0,{{ st.start_tc }},{{ st.end_tc }},Default,{{ st.speaker }},0,0,0,,{% if params.fade_ms %}{\fad({{ params.fade_ms }},{{ params.fade_ms }})}{% endif %}{{ st.fs_tag }}{% for w in st.words %}{% if w.is_active %}{\alpha&H00&\c&H{{ params.accent_color | bgr }}&\fscx{{ params.active_scale }}\fscy{{ params.active_scale }}}{{ w.text | ass_escape }}{% elif w.is_past %}{\alpha&H00&\c&H{{ params.text_color | bgr }}&}{{ w.text | ass_escape }}{% else %}{% if params.hide_upcoming %}{\alpha&HFF&}{% else %}{\alpha&H00&\c&H{{ params.dim_color | bgr }}&}{% endif %}{{ w.text | ass_escape }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}
 {% endfor -%}
 {%- endcall %}
