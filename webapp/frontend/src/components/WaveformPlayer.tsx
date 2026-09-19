@@ -436,13 +436,37 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             const region = (regionsPlugin as any).addRegion({
               start: timingWord.start,
               end: timingWord.end,
-              color: "rgba(46,160,67,0.18)",
+              // Change 210: kräftiger — die Markierung war zu blass, um sie im
+              // Zoom sicher zu treffen (User-Befund 19.09.2026).
+              color: "rgba(46,160,67,0.30)",
               drag: true,
               resize: true,
               minLength: MIN_WORD_DURATION_S,
             });
+            // Change 210: eigene Klasse + Rahmen, damit das aktive Wort klar
+            // als solches erkennbar ist (siehe index.css).
+            try {
+              const el = region.element as HTMLElement | undefined;
+              if (el) {
+                el.classList.add("ps-timing-region", "ps-timing-region-active");
+                el.style.border = "2px solid rgba(46,160,67,0.95)";
+              }
+            } catch {
+              /* Element nicht verfügbar — Markierung bleibt ohne Rahmen */
+            }
             // Live-Constraint-Clamping bei Update
             region.on("update", (side?: UpdateSide) => {
+              // Change 210: die GEGRIFFENE Kante hervorheben — sonst ist beim
+              // Ziehen nicht zu sehen, welches Ende man gerade hält.
+              try {
+                const el = region.element as HTMLElement | undefined;
+                if (el) {
+                  el.classList.toggle("ps-edge-start", side === "start");
+                  el.classList.toggle("ps-edge-end", side === "end");
+                }
+              } catch {
+                /* Element nicht verfügbar */
+              }
               const tw = timingWordRef.current;
               if (!tw) return;
               const s = region.start, e = region.end;
@@ -456,6 +480,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             });
             // Commit nach Loslassen
             region.on("update-end", () => {
+              // Change 210: Hervorhebung der gegriffenen Kante wieder lösen.
+              try {
+                const el = region.element as HTMLElement | undefined;
+                el?.classList.remove("ps-edge-start", "ps-edge-end");
+              } catch {
+                /* Element nicht verfügbar */
+              }
               const r = timingRegionRef.current;
               if (r) onTimingCommitRef.current?.(r.start, r.end);
             });
@@ -532,12 +563,29 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             const created = plugin.addRegion({
               start: n.start,
               end: n.end,
-              // Blasser als das aktive Wort (grün) — reiner Kontext.
-              color: "rgba(139,148,158,0.22)",
+              // Change 210: als KONTEXT deutlich sichtbar (Bernstein, gestrichelt)
+              // — vorher zu blass (User-Befund 19.09.2026).
+              color: "rgba(210,153,34,0.20)",
               drag: false,
               resize: true, // sichtbare Marker; Anfassen macht das Wort aktiv
               minLength: MIN_WORD_DURATION_S,
             });
+            // Change 210: Rahmen + Beschriftung („davor"/„danach"), damit die
+            // Nachbar-Marker nicht mit dem aktiven Wort verwechselt werden.
+            try {
+              const nbEl = created.element as HTMLElement | undefined;
+              if (nbEl) {
+                nbEl.classList.add("ps-timing-region", "ps-timing-region-neighbor");
+                nbEl.style.border = "1px dashed rgba(210,153,34,0.9)";
+                const lab = document.createElement("span");
+                lab.className = "ps-timing-label";
+                lab.textContent =
+                  which === "prev" ? t("timing_neighbor_prev") : t("timing_neighbor_next");
+                nbEl.appendChild(lab);
+              }
+            } catch {
+              /* Element nicht verfügbar — Kontext ohne Rahmen/Label */
+            }
             // Klick, Anfassen oder Ziehen eines Nachbar-Markers: dieses Wort
             // wird das aktive Wort. Bewusst OHNE eigenen Timing-Commit — der
             // Zoom lädt es neu, gezogen wird dann an seinen Handles.
@@ -700,6 +748,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         }
         w.zoom(pps);
         setTimingZoom(true);
+        // Change 210 (User-Befund 19.09.2026): Die Waveform in den Blick holen.
+        // Sonst „passiert nichts", wenn die Ansicht weggescrollt ist — der
+        // Zoom und die Marker entstehen dann außerhalb des Sichtfelds.
+        try {
+          containerRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } catch {
+          /* kein Scroll nötig oder nicht verfügbar */
+        }
         // Change 155: progressive Peaks — MediaElement-Backend (> 30 min)
         // dekodiert NICHT → die 2000-Punkt-Basis begrenzt den Zoom hart.
         // Feinere Peaks nachladen (einmal je Länge, Browser-Cache) →
