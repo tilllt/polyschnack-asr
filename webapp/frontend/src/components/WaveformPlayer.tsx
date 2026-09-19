@@ -567,7 +567,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               // — vorher zu blass (User-Befund 19.09.2026).
               color: "rgba(210,153,34,0.20)",
               drag: false,
-              resize: true, // sichtbare Marker; Anfassen macht das Wort aktiv
+              resize: false, // reine Anzeige — Greifpunkte nur am aktiven Wort
               minLength: MIN_WORD_DURATION_S,
             });
             // Change 211 (Nutzer-Vorgabe 19.09.2026): Nur die SEITLICHEN Kanten —
@@ -581,6 +581,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
                 nbEl.style.borderBottom = "none";
                 nbEl.style.borderLeft = "1px dashed rgba(210,153,34,0.9)";
                 nbEl.style.borderRight = "1px dashed rgba(210,153,34,0.9)";
+                // Change 211 (Nutzer-Vorgabe): das jeweilige WORT statt
+                // „davor"/„danach" — sehr klein, 3 px Abstand zum Startmarker,
+                // damit die Schrift nicht auf der Linie beginnt.
+                const lab = document.createElement("span");
+                lab.className = "ps-timing-word ps-timing-word-neighbor";
+                lab.textContent = n.text || "";
+                nbEl.appendChild(lab);
               }
             } catch {
               /* Element nicht verfügbar — Kontext ohne Rahmen */
