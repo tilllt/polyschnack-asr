@@ -1,7 +1,6 @@
 # Status — Change 205
 
-**Stand 19.09.2026:** Ursache belegt, Änderung umgesetzt und im Container nachgewiesen.
-CI-Bau und Deploy stehen noch aus.
+**Stand 19.09.2026: umgesetzt, gebaut, deployt und im Betrieb nachgewiesen.**
 
 ## Beweiskette (am Gerät, KineMaster 7.1)
 
@@ -10,6 +9,21 @@ CI-Bau und Deploy stehen noch aus.
 - `hvcC` nur mit Alpha-SEI, Versions-SEI entfernt → **importiert** (Warnung IDR-Intervall).
 - SEI in den Samples statt im `hvcC` → **importiert**.
 - Referenz-Testclips (x265-CLI + Stream-Copy, SEI in den Samples) → importiert.
+
+## Abnahme im Betrieb
+
+- CI: Pipeline #5397 für Commit `8679982` — `build-render` 51 s und `test-render` 132 s grün.
+- Deploy: `ps-render` mit vier Overlays plus `--profile render` neu erstellt;
+  Revision im Image `86799825`, Container gesund, `/health` = `ok` mit `libx265`-Fähigkeit.
+- **Ende-zu-Ende mit dem deployten Code:** `build_ffmpeg_args` für `hevc_alpha` enthält
+  `-g 50 -x265-params info=0`; ein Probe-Export über diesen Pfad läuft mit rc 0 und liefert eine
+  Datei mit `hvcC` = VPS 1×, SPS 2×, PPS 2×, **SEI 1×** und **ohne** die x265-Versions-SEI.
+- Am Gerät geprüft: korrigierter Export (gleiche Untertitel, gleiche Größe) importiert.
+
+## Offen (Nutzer)
+
+- Echter Export aus der Webapp und Import am Handy.
+
 
 ## Nachweis der Behebung (Container, noch ohne Deploy)
 
