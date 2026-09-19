@@ -265,14 +265,17 @@ audio {
   max-width: calc(100% - 8px);
   overflow: hidden;
   white-space: nowrap;
-  font-size: 6px;
+  font-size: 5px;
   line-height: 1.1;
   letter-spacing: 0.01em;
   pointer-events: none;
   user-select: none;
 }
-.ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); }
-.ps-timing-word-active { color: #7ee787; }
+/* Change 211 (Nutzer-Vorgabe 19.09.2026): Beschriftungen kleiner (5px) und
+   versetzt angeordnet — Nachbarwörter unten, aktives Wort oben. So kollidieren
+   die Labels nicht, wenn Flächen direkt aneinandergrenzen. */
+.ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); top: auto; bottom: 1px; }
+.ps-timing-word-active { color: #7ee787; top: 1px; bottom: auto; }
 
 /* Change 211 (Nutzer-Vorgabe 19.09.2026): dauerhafte Gestenhilfe am
    Record-Knopf. Drei dezente Animationen: pulsierender Ring für „halten",
