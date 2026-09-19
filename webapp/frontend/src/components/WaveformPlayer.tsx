@@ -1227,6 +1227,11 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Decode-Buffer/MediaElement readyState>=3); sonst nur Seek pausiert.
       // So funktioniert „klicken zum Hören" wie gewohnt, aber nie stumm.
       const onContainerClick = (e: MouseEvent) => {
+        // Change 211 (Nutzer-Vorgabe 19.09.2026): Im Timing-Modus startet ein
+        // Klick in die Waveform KEIN Playback und sucht auch nicht — dort
+        // arbeitet man an Wortzeiten. Einziger Weg zur Wiedergabe ist der
+        // Play-Knopf. Im Transkriptionsmodus bleibt alles wie gewohnt.
+        if (timingWordRef.current) return;
         if (!canPlayRef.current) return; // kein Play-Pfad vor Decode
         const el = containerRef.current;
         if (!el) return;
