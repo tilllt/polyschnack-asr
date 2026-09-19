@@ -23,7 +23,11 @@ interface Props {
   isPlaying?: boolean;
   searchQuery?: string;
   searchJump?: { idx: number; nonce: number } | null;
+  /** Seek für den Transkriptions-Tab. Im Timing-Modus wird er bewusst NICHT
+   *  durchgereicht — er startet das Playback (siehe Kommentar an der
+   *  Wortliste). */
   onSeekTo?: (seconds: number) => void;
+  /** Seek ohne Abspielen. */
   onSeekPaused?: (seconds: number) => void;
   /** Klick auf ein Wort → in die Waveform laden (Zoom + Markierung). */
   onWordClick: (segIdx: number, wordIdx: number) => void;
@@ -47,7 +51,6 @@ export function TimingEditor({
   isPlaying,
   searchQuery,
   searchJump,
-  onSeekTo,
   onSeekPaused,
   onWordClick,
   followPlayback = true,
@@ -106,7 +109,12 @@ export function TimingEditor({
           </span>
         )}
       </div>
-      {/* Wortliste: read-only, Klick lädt das Wort in die Waveform */}
+      {/* Wortliste: read-only, Klick lädt das Wort in die Waveform.
+          Change 208 (User-Vorgabe 19.09.2026): Im Timing-Modus startet ein
+          Klick kein Playback — er zoomt auf das Wort und zeigt die Markierung.
+          Deshalb wird `onSeekTo` (spielt ab) NICHT durchgereicht: hier wird
+          ausschließlich pausiert gesprungen. Fehlt der pausierte Seek, bleibt
+          der Klick ganz ohne Seek — Abspielen ist hier nie gewollt. */}
       <SegmentList
         segments={segments}
         activeIdx={activeIdx}
@@ -115,7 +123,7 @@ export function TimingEditor({
         isPlaying={isPlaying}
         searchQuery={searchQuery}
         searchJump={searchJump}
-        onSeekTo={onSeekTo}
+        onSeekTo={onSeekPaused}
         onSeekPaused={onSeekPaused}
         readOnly
         onWordClick={onWordClick}

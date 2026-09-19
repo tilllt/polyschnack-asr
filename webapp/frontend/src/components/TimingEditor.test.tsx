@@ -121,4 +121,30 @@ describe("TimingEditor (Change 137)", () => {
     // Das ✎-Icon hat aria-label rename_speaker_placeholder (i18n-Fallback)
     expect(queryByLabelText("rename_speaker_placeholder")).toBeNull();
   });
+
+  it("Wort-Klick startet kein Playback und lädt nur das Wort (Change 208)", async () => {
+    const onWordClick = vi.fn();
+    const onSeekTo = vi.fn();
+    const onSeekPaused = vi.fn();
+    const { getByText } = renderEditor({ onWordClick, onSeekTo, onSeekPaused });
+    fireEvent.click(getByText("Hallo"));
+    await waitFor(() => expect(onWordClick).toHaveBeenCalledWith(0, 0));
+    // Über den 280-ms-Klick-Timer hinaus warten — sonst käme ein spätes Seek
+    // (Zeilen-Klick) erst nach dem Test.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(onSeekTo).not.toHaveBeenCalled();
+    expect(onSeekPaused).not.toHaveBeenCalled();
+  });
+
+  it("Zeilen-Klick seekt PAUSIERT, spielt aber nicht ab (Change 208)", async () => {
+    const onSeekTo = vi.fn();
+    const onSeekPaused = vi.fn();
+    const { container } = renderEditor({ onSeekTo, onSeekPaused });
+    // Erste Segmentzeile (role=button) — der Klick neben ein Wort landet dort.
+    const row = container.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.click(row);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(onSeekPaused).toHaveBeenCalled();
+    expect(onSeekTo).not.toHaveBeenCalled();
+  });
 });

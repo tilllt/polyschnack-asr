@@ -1168,6 +1168,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     setTimingWord({ segIdx, wordIdx, start: w.start, end: w.end, minStart, maxEnd });
     setTimingOverride(!!w.override);
     setActiveSegIdx(segIdx);
+    // Change 208 (User-Vorgabe 19.09.2026): Im Timing-Modus spielt der Klick
+    // NUR die Wortspanne und hält am Ende an; der Cursor steht danach am
+    // Wortanfang, damit Play von dort weiterläuft. (Die Wortliste selbst
+    // startet kein Playback mehr — sie zoomt nur und setzt die Markierung.)
+    wsRef.current?.playRange(w.start, w.end);
   }
 
   // Live-Update während des Drags: nur die Zeiten ändern (der 30 %-Zoom
@@ -1562,10 +1567,16 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             )}
 
-            {/* Start: oben gewählte Aktion + mittig gewählte Optionen */}
+            {/* Start: oben gewählte Aktion + mittig gewählte Optionen.
+                Change 208 (User-Vorgabe 19.09.2026): Im Timing-Tab wird der
+                Start-Knopf NICHT gezeigt. Dort arbeitet man an Wortzeiten, und
+                der Knopf sitzt direkt beim Player — er wird leicht mit Play
+                verwechselt (er startet aber eine Transkription/Ausrichtung). */}
+            {editorTab !== "timing" && (
             <div className="mt-2 flex items-center gap-[10px]">
               <button
                 type="button"
+                data-testid="process-btn"
                 onClick={handleStartAction}
                 disabled={startDisabled}
                 // Change 141: nicht mit dem Waveform-Play verwechselbar —
@@ -1580,6 +1591,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 {t("start_cap").replace("{a}", actionLabel)}
               </span>
             </div>
+            )}
           </div>
         )}
         {r.status === "queued" && (

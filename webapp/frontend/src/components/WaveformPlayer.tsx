@@ -23,6 +23,10 @@ export interface WaveSurferHandle {
   seekTo: (seconds: number) => void;
   /** Seek OHNE Autoplay (2026-08-16: Cursor-Wort-Navigation springt nur). */
   seekToPaused: (seconds: number) => void;
+  /** Change 208 (Timing-Modus): NUR die Wortspanne abspielen und am Ende
+   *  anhalten. Der Cursor bleibt danach am Wortanfang stehen — ein
+   *  anschließender Play-Druck läuft ab dem Wort weiter. */
+  playRange: (start: number, end: number) => void;
   playPause: () => void;
   getCurrentTime: () => number;
   isPlaying: () => boolean;
@@ -192,6 +196,16 @@ export function decidePlayPause(playing: boolean, atEnd: boolean, canPlay: boole
   return "play";
 }
 
+/** Change 208 (Timing-Modus): Ist die angeforderte Wortspanne durchgelaufen?
+ *  Pur gehalten (ohne WaveSurfer), damit die Abbruch-Bedingung prüfbar ist. */
+export function rangeFinished(
+  current: number,
+  range: { start: number; end: number } | null,
+): boolean {
+  if (!range) return false;
+  return current >= range.end;
+}
+
 /** Change 105: WS7 7.12 resumt den WebAudio-Context NIE (Autoplay-Policy:
  *  `new AudioContext()` startet auf Chrome/Android im Zustand „suspended“ —
  *  `bufferNode.start()` läuft dann stumm, obwohl der Play-State gesetzt ist.
@@ -313,6 +327,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // Ref für getPlaybackRate aus dem Handle (stale-closure-sicher).
     const [playRate, setPlayRate] = useState(1);
     const playRateRef = useRef(1);
+    // Change 208 (Timing-Modus): angeforderte Wortspanne. Läuft sie durch,
+    // hält der Player an und stellt den Cursor auf den Wortanfang zurück.
+    const playRangeRef = useRef<{ start: number; end: number } | null>(null);
+    // Change 208: Der Exklusiv-Player (`me`) entsteht im Init-Effekt — hier
+    // gemerkt, damit die imperative Schnittstelle ihn auch nutzen kann.
+    const meRef = useRef<Playable | null>(null);
     playRateRef.current = playRate;
     // Play erst möglich, wenn das echte Audio dekodiert ist (2026-08-16):
     // das `ready`-Event feuert mit Server-Peaks VOR dem Hintergrund-Decode
@@ -980,6 +1000,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       // Change 195: NICHT claimExclusivePlayback — pausiert den Vorgänger
       // nicht beim Mount (das passiert erst beim Play).
       registerActivePlayer(me);
+      meRef.current = me; // Change 208: für die imperative Schnittstelle
       ws.on("play", () => {
         claimExclusivePlayback(me);
         setPlaying(true);
@@ -1077,6 +1098,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           setCurrentTime(t);
           onTimeUpdateRef.current?.(t);
         }
+        // Change 208 (Timing-Modus): Wortspanne durchgelaufen → anhalten und
+        // den Cursor auf den Wortanfang zurückstellen. Damit läuft ein
+        // anschließender Play-Druck wieder ab dem Wort (User-Vorgabe).
+        const range = playRangeRef.current;
+        if (rangeFinished(t, range) && range) {
+          playRangeRef.current = null;
+          try { ws.pause(); } catch { /* WS7 ohne Audio */ }
+          try { ws.setTime(range.start); } catch { /* WS7 ohne Audio */ }
+          lastT = range.start;
+          setCurrentTime(range.start);
+          onTimeUpdateRef.current?.(range.start);
+        }
       };
       const syncLoop = () => {
         doSync();
@@ -1154,13 +1187,40 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
 
     useImperativeHandle(ref, () => ({
       seekTo: (s: number) => {
+        playRangeRef.current = null; // Change 208: Navigation hebt die Wortspanne auf
         if (!canPlayRef.current) return;
         ensureAudioContext(wsRef.current!);
         wsRef.current?.setTime(s); wsRef.current?.play();
       },
-      seekToPaused: (s: number) => { wsRef.current?.setTime(s); },
+      seekToPaused: (s: number) => {
+        playRangeRef.current = null; // Change 208: Navigation hebt die Wortspanne auf
+        wsRef.current?.setTime(s);
+      },
+      // Change 208 (User-Vorgabe 19.09.2026): Im Timing-Modus wird die
+      // Wortspanne abgespielt und am Ende angehalten. Der Cursor steht danach
+      // wieder am Wortanfang — ein anschließender Play-Druck läuft ab dem Wort
+      // (nicht ab dem Wortende) weiter.
+      playRange: (start: number, end: number) => {
+        const w = wsRef.current;
+        playRangeRef.current = null;
+        if (!w || !(end > start)) return;
+        if (!canPlayRef.current) {
+          // Audio noch nicht abspielbar (Decode läuft): nur den Cursor setzen.
+          try { w.setTime(start); } catch { /* WS7 noch ohne Audio */ }
+          return;
+        }
+        const active = meRef.current;
+        if (active) claimExclusivePlayback(active);
+        ensureAudioContext(w);
+        try { w.setTime(start); } catch { /* WS7 noch ohne Audio */ }
+        setCurrentTime(start);
+        onTimeUpdateRef.current?.(start);
+        playRangeRef.current = { start, end };
+        w.play();
+      },
       playPause: () => {
         const w = wsRef.current;
+        playRangeRef.current = null; // Change 208: Play/Stop hebt die Wortspanne auf
         if (!w) return;
         const playing = w.isPlaying();
         const atEnd = w.getDuration() > 0 && w.getCurrentTime() >= w.getDuration() - 0.02;

@@ -242,6 +242,35 @@ describe("RecordingCard — Change 014 Defekt-Badge", () => {
   });
 });
 
+describe("RecordingCard — Change 208: Timing-Tab", () => {
+  const wortSegmente = [
+    {
+      start: 0,
+      end: 2,
+      text: "Hallo Welt",
+      words: [
+        { word: "Hallo", start: 0, end: 1 },
+        { word: "Welt", start: 1, end: 2 },
+      ],
+    },
+  ];
+
+  test("Start-Knopf fehlt im Timing-Tab — im Transkriptions-Tab ist er da", async () => {
+    renderCard(makeRec({ segments: wortSegmente as never }), false);
+    // Transkriptions-Tab (Standard): Start-Knopf sichtbar.
+    await waitFor(() => expect(screen.getByTestId("process-btn")).toBeTruthy());
+
+    // Timing-Tab: nur Wortzeiten — der Start-Knopf wird dort nicht gezeigt
+    // (sonst mit dem Play-Knopf des Players verwechselbar).
+    screen.getByTestId("editor-tab-timing").click();
+    await waitFor(() => expect(screen.queryByTestId("process-btn")).toBeNull());
+
+    // Zurück in die Transkription: Knopf ist wieder da.
+    screen.getByTestId("editor-tab-tr").click();
+    await waitFor(() => expect(screen.getByTestId("process-btn")).toBeTruthy());
+  });
+});
+
 describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () => {
   test("Aktions-Tab 'New word timestamps' aktiv bei done + Schreibzugriff", () => {
     renderCard(makeRec(), false); // expandiert → Aktionsleiste sichtbar
