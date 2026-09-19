@@ -41,6 +41,10 @@ interface Props {
   /** Reset: Override-Flag entfernen (Wort behält Zeit bis zum nächsten
    *  Re-Align). */
   onResetOverride?: () => void;
+  /** Change 210: die Wortliste füllt die verfügbare Höhe (Edit-Vollbild) —
+   *  sonst bleibt sie im Timing-Tab bei ~62vh, damit deutlich mehr Wörter
+   *  ohne Scrollen erreichbar sind. */
+  listFillHeight?: boolean;
 }
 
 export function TimingEditor({
@@ -57,6 +61,7 @@ export function TimingEditor({
   timing,
   override,
   onResetOverride,
+  listFillHeight,
 }: Props) {
   const { t } = useT();
   const word =
@@ -83,6 +88,30 @@ export function TimingEditor({
             <span className="text-[11px] text-muted2 tabular-nums">
               {t("timing_length")}{" "}
               {fmtShortTimecode(Math.max(0, timing.end - timing.start))}
+            </span>
+            {/* Change 210: Farblegende — sonst ist nicht klar, welche Markierung
+                welches Wort ist (Befund: „nicht deutlich genug zu sehen"). */}
+            <span
+              data-testid="timing-legend"
+              className="text-[10.5px] text-muted2 flex items-center gap-1.5"
+            >
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-sm"
+                style={{
+                  background: "rgba(46,160,67,0.35)",
+                  border: "2px solid rgba(46,160,67,0.95)",
+                }}
+              />
+              {t("timing_legend_active")}
+              <span className="mx-0.5">·</span>
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-sm"
+                style={{
+                  background: "rgba(210,153,34,0.22)",
+                  border: "1px dashed rgba(210,153,34,0.95)",
+                }}
+              />
+              {t("timing_legend_neighbor")}
             </span>
             {override && (
               <span
@@ -128,6 +157,10 @@ export function TimingEditor({
         readOnly
         onWordClick={onWordClick}
         followPlayback={followPlayback}
+        // Change 210: deutlich mehr Wörter ohne Scrollen erreichbar; im
+        // Vollbild füllt die Liste die Höhe.
+        tall
+        fillHeight={listFillHeight}
       />
     </div>
   );

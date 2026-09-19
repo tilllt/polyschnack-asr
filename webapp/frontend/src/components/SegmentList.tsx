@@ -67,6 +67,10 @@ interface Props {
   /** Feature 2026-08-16 (Edit-Vollbild): true = Liste füllt die verfügbare
    *  Höhe des Parents statt der kompakten 260px-Begrenzung. */
   fillHeight?: boolean;
+  /** Change 210 (User-Befund 19.09.2026): höhere Liste (Timing-Tab). Vorher
+   *  waren nur ~die ersten drei Zeilen erreichbar (max-h-[260px]); die
+   *  restlichen Wörter brauchten Scrollen im engen Kasten. */
+  tall?: boolean;
   /** Feature 2026-08-16 (Edit): Text-Markierung in einem Segment →
    *  eigenes Segment. Callback bekommt Segment-Index + Zeichen-Range +
    *  den gewählten Sprecher (Persistenz macht der Parent via PUT). */
@@ -170,7 +174,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
 }
 
 export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest,
- expectedUpdatedAt, onStaleWrite, onBoundaryDragEnd, onSegmentDelete, fillHeight, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
+ expectedUpdatedAt, onStaleWrite, onBoundaryDragEnd, onSegmentDelete, fillHeight, tall = false, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
   // + Leiste nur sichtbar, wenn ANDERE gerade aktiv bearbeiten.
@@ -1197,7 +1201,7 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
         bg-seg-bg border border-border rounded-sm
         relative overflow-y-auto scroll-smooth
         scrollbar-thin
-        ${fillHeight ? "h-full max-h-none flex-1" : "max-h-[260px]"}
+        ${fillHeight ? "h-full max-h-none flex-1" : tall ? "max-h-[62vh]" : "max-h-[260px]"}
       `}
     >
       {/* Change 087: Virtualisierung — totalSize-Wrapper + absolute Zeilen.

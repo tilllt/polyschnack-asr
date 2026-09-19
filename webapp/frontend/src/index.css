@@ -233,3 +233,46 @@ audio {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ============================================================
+   TIMING-MARKER (Change 210, User-Befund 19.09.2026)
+
+   Die WaveSurfer-Regionen im Wort-Zoom waren zu blass, um sie sicher zu
+   treffen. Jetzt: aktives Wort = kräftiges Grün, Nachbarn = Bernstein,
+   gestrichelt und beschriftet („davor"/„danach"). Die Handles heißen in
+   wavesurfer.js 7.12 `region-handle-left` / `region-handle-right`; das
+   Region-Element selbst markieren wir mit `ps-timing-region`, damit wir
+   nicht an Vendor-Klassen hängen.
+   ============================================================ */
+.ps-timing-region { border-radius: 2px; }
+.ps-timing-region-active { box-shadow: inset 0 0 0 1px rgba(46, 160, 67, 0.75); }
+
+.ps-timing-label {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font-size: 9.5px;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  color: rgba(233, 196, 106, 0.95);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Gegriffene Kante: Handle deutlich dicker + leuchtend, dazu ein Saum —
+   beim Ziehen ist damit klar, welches Ende man gerade hält. */
+.ps-timing-region.ps-edge-start .region-handle-left,
+.ps-timing-region.ps-edge-end .region-handle-right {
+  width: 4px !important;
+  background: #2ea043 !important;
+  box-shadow: 0 0 0 2px rgba(46, 160, 67, 0.45), 0 0 10px rgba(46, 160, 67, 0.85);
+}
+.ps-timing-region.ps-edge-start,
+.ps-timing-region.ps-edge-end {
+  box-shadow: inset 0 0 0 1px rgba(46, 160, 67, 0.95);
+}
+.ps-timing-region-active .region-handle-left:hover,
+.ps-timing-region-active .region-handle-right:hover {
+  background: #2ea043 !important;
+}

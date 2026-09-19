@@ -255,19 +255,29 @@ describe("RecordingCard — Change 208: Timing-Tab", () => {
     },
   ];
 
-  test("Start-Knopf fehlt im Timing-Tab — im Transkriptions-Tab ist er da", async () => {
+  test("Start-Knopf bleibt sichtbar, ist im Timing-Tab aber nicht bedienbar (Change 210)", async () => {
     renderCard(makeRec({ segments: wortSegmente as never }), false);
-    // Transkriptions-Tab (Standard): Start-Knopf sichtbar.
-    await waitFor(() => expect(screen.getByTestId("process-btn")).toBeTruthy());
+    // Transkriptions-Tab (Standard): Start-Knopf sichtbar UND bedienbar.
+    const start = (await waitFor(() => screen.getByTestId("process-btn"))) as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    expect(start.getAttribute("data-timing-disabled")).toBeNull();
 
-    // Timing-Tab: nur Wortzeiten — der Start-Knopf wird dort nicht gezeigt
-    // (sonst mit dem Play-Knopf des Players verwechselbar).
+    // Timing-Tab: sichtbar, aber deaktiviert + begründet (nicht mit Play
+    // verwechselbar). Vorher wurde der Knopf dort AUSGEBLENDET.
     screen.getByTestId("editor-tab-timing").click();
-    await waitFor(() => expect(screen.queryByTestId("process-btn")).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByTestId("process-btn").getAttribute("data-timing-disabled")).toBe("true"),
+    );
+    expect((screen.getByTestId("process-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("process-btn").getAttribute("title")).toBeTruthy();
 
-    // Zurück in die Transkription: Knopf ist wieder da.
+    // Zurück in die Transkription: Knopf wieder BEDIENBAR — das war der
+    // Befund („danach fehlt der process button immer noch").
     screen.getByTestId("editor-tab-tr").click();
-    await waitFor(() => expect(screen.getByTestId("process-btn")).toBeTruthy());
+    await waitFor(() =>
+      expect((screen.getByTestId("process-btn") as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.getByTestId("process-btn").getAttribute("data-timing-disabled")).toBeNull();
   });
 });
 

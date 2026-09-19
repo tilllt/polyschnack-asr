@@ -1164,7 +1164,15 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     const seg = segs?.[segIdx];
     const w = seg?.words?.[wordIdx];
     const words = seg?.words ?? [];
-    if (!seg || !w || words.length === 0 || typeof w.start !== "number" || typeof w.end !== "number") return;
+    if (!seg || !w) return;
+    // Change 210 (User-Befund 19.09.2026): Klicks, die nichts tun konnten,
+    // waren bisher STILL wirkungslos — ein Wort ohne eigene Zeit ist der
+    // einzige legitime Grund, und der Nutzer muss ihn sehen.
+    if (typeof w.start !== "number" || typeof w.end !== "number") {
+      toast(t("timing_word_no_time"), "info");
+      return;
+    }
+    if (words.length === 0) return;
     // Change 209: die Nachbarwörter (n-1/n+1) im WORT-FLOW zeigen und ihre
     // Ränder als Zieh-Grenzen nutzen. Vorher endete der Zug an der INNENKANTE
     // des Nachbarn (Überlappung verboten) — jetzt darf man bis an seinen
@@ -1617,17 +1625,22 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             )}
 
             {/* Start: oben gewählte Aktion + mittig gewählte Optionen.
-                Change 208 (User-Vorgabe 19.09.2026): Im Timing-Tab wird der
-                Start-Knopf NICHT gezeigt. Dort arbeitet man an Wortzeiten, und
-                der Knopf sitzt direkt beim Player — er wird leicht mit Play
-                verwechselt (er startet aber eine Transkription/Ausrichtung). */}
-            {editorTab !== "timing" && (
+                Change 208 (User-Vorgabe 19.09.2026): Im Timing-Tab ist der
+                Start-Knopf NICHT bedienbar — dort arbeitet man an Wortzeiten,
+                und der Knopf sitzt direkt beim Player (Verwechslung mit Play).
+                Change 210 (User-Befund 19.09.2026): Er bleibt aber SICHTBAR.
+                Vorher wurde der ganze Block im Timing-Tab nicht gerendert —
+                beim Zurückwechseln wirkte er dann „verschwunden". Ein
+                deaktivierter Knopf MIT Begründung kann nicht fehlen und ist
+                nicht mit Play zu verwechseln. */}
             <div className="mt-2 flex items-center gap-[10px]">
               <button
                 type="button"
                 data-testid="process-btn"
                 onClick={handleStartAction}
-                disabled={startDisabled}
+                disabled={startDisabled || editorTab === "timing"}
+                data-timing-disabled={editorTab === "timing" ? "true" : undefined}
+                title={editorTab === "timing" ? t("start_disabled_timing") : undefined}
                 // Change 141: nicht mit dem Waveform-Play verwechselbar —
                 // Send-Icon statt Play, dezenter Outline-Stil, passt zu
                 // den Aktions-Tabs darüber.
@@ -1637,10 +1650,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 {t("start_btn")}
               </button>
               <span className="text-[10.5px] text-muted leading-[1.4]">
-                {t("start_cap").replace("{a}", actionLabel)}
+                {editorTab === "timing"
+                  ? t("start_disabled_timing")
+                  : t("start_cap").replace("{a}", actionLabel)}
               </span>
             </div>
-            )}
           </div>
         )}
         {r.status === "queued" && (
@@ -1887,6 +1901,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     timing={timingWord ? { segIdx: timingWord.segIdx, wordIdx: timingWord.wordIdx, start: timingWord.start, end: timingWord.end } : null}
                     override={timingOverride}
                     onResetOverride={timingOverride ? handleTimingReset : undefined}
+                    // Change 210: im Vollbild füllt die Wortliste die Höhe.
+                    listFillHeight={focusMode}
                   />
                 ) : (
                 <>
