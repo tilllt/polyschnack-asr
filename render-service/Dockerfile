@@ -22,8 +22,14 @@ ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
 
+# Laufzeit-Bibliotheken fuer das mitgebaute ffmpeg. Bewusst OHNE das Debian-Paket
+# `ffmpeg`: das kann kein HEVC-Alpha und lag bisher als zweites Binary unter
+# /usr/bin — genau die Falle, in der ein Aufruf `ffmpeg` (ohne vollen Pfad) die
+# alte Version erwischte. Die Bibliotheksliste entspricht dem Laufzeit-Stage des
+# ffalpha-Baus.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg \
+      libass9 libfreetype6 libfontconfig1 libfribidi0 libharfbuzz0b \
+      libvpx9 libx264-164 zlib1g \
       fonts-liberation \
       fontconfig \
       curl \
@@ -55,6 +61,18 @@ COPY --from=harbor.rand0m.me/public/polyschnack-asr-ffalpha:v1 /opt/ffalpha /opt
 ENV RENDER_FFMPEG=/opt/ffalpha/bin/ffmpeg \
     RENDER_FFPROBE=/opt/ffalpha/bin/ffprobe
 
+# Das Alpha-ffmpeg ist auch das STANDARD-ffmpeg des Containers: /usr/local/bin
+# steht in PATH vor /usr/bin. Damit tut jeder beliebige Aufruf (`ffmpeg`,
+# `ffprobe`, `x265`) das Richtige, ohne Sonderpfad — der Container ist als
+# allgemeine ffmpeg-Schicht benutzbar (auch fuer Ad-hoc-Arbeit im Container).
+RUN ln -sf /opt/ffalpha/bin/ffmpeg  /usr/local/bin/ffmpeg \
+ && ln -sf /opt/ffalpha/bin/ffprobe /usr/local/bin/ffprobe \
+ && ln -sf /opt/ffalpha/bin/x265    /usr/local/bin/x265 \
+ && test -x /usr/local/bin/ffmpeg
+# Die x265-CLI findet ihre geteilte Bibliothek ueber diesen Pfad; das ffmpeg hat
+# sein rpath einkompiliert und braucht die Variable nicht.
+ENV LD_LIBRARY_PATH=/opt/ffalpha/lib
+
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -65,9 +83,17 @@ COPY app.py .
 # nicht erst der Nutzer beim Rendern (Lehre aus dem crispasr-Image, das gruen
 # baute und auf der Box crashte).
 # Geprueft wird das ffmpeg, das der Dienst WIRKLICH benutzt (RENDER_FFMPEG) —
-# das Debian-ffmpeg im Image kann kein HEVC-Alpha und taugt nicht als Nachweis.
+# und zusaetzlich, dass der gewoehnliche PATH-Aufruf `ffmpeg` DASSELBE Alpha-Build
+# trifft und dass keine zweite, alpha-lose Version mehr im Image liegt.
 RUN set -e; \
     ffm="${RENDER_FFMPEG}"; fp="${RENDER_FFPROBE}"; \
+    command -v ffmpeg | grep -q "^/usr/local/bin/" \
+      || { echo "FEHLT: 'ffmpeg' im PATH zeigt nicht auf das Alpha-Build ($(command -v ffmpeg))"; exit 1; }; \
+    ffmpeg -hide_banner -h encoder=libx265 | grep -q "yuva420p" \
+      || { echo "FEHLT: das ffmpeg im PATH kann kein HEVC-Alpha"; exit 1; }; \
+    ffprobe -version >/dev/null || { echo "FEHLT: ffprobe im PATH"; exit 1; }; \
+    test ! -e /usr/bin/ffmpeg \
+      || { echo "FEHLT: zweites ffmpeg unter /usr/bin vorhanden (Debian-Paket installiert?)"; exit 1; }; \
     test -x "$ffm" || { echo "FEHLT: RENDER_FFMPEG nicht ausfuehrbar ($ffm)"; exit 1; }; \
     $ffm -hide_banner -filters | grep -qE '\bass\b +V->V' || { echo "FEHLT: libass (ass-Filter)"; exit 1; }; \
     for enc in libx264 libvpx-vp9 prores_ks png libx265; do \
