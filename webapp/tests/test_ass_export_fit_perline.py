@@ -25,6 +25,14 @@ from tests.test_ass_export import ALL_PRESETS, recording, seg  # noqa: E402
 FS_RE = re.compile(r"\\fs(\d+)")
 TAGS_RE = re.compile(r"\{[^}]*\}")
 
+#: Ohne Schriftmessung (Image ohne Pillow/fontconfig) fällt ``fit_mode`` auf
+#: ``off`` zurück — alles, was die berechnete Größe prüft, muss dann übersprungen
+#: werden statt fehlzuschlagen. Der CI-Testjob installiert Pillow NICHT.
+needs_font = pytest.mark.skipif(
+    textfit.text_width("M", font_name="Arial", bold=True) is None,
+    reason="keine Schrift/Pillow im Prüflauf (im Image-Bau geprüft)",
+)
+
 
 def recordings():
     """Eine Ein-Wort-Zeile, eine Vier-Wort-Zeile und eine sehr lange Zeile."""
@@ -122,6 +130,7 @@ def test_sicherheitsrand_setzt_die_stilraender():
     assert style_margins(alt)[:2] == (40, 40), "0 % = Stand vor Change 202"
 
 
+@needs_font
 def test_sicherheitsrand_verkleinert_die_schrift():
     """Der Rand muss auch in der Rechnung ankommen, nicht nur im Kopf."""
     rec = recordings()["lang"]
@@ -136,6 +145,7 @@ def test_sicherheitsrand_verkleinert_die_schrift():
 # --------------------------------------------------------------------------
 # Erzeugte Datei
 # --------------------------------------------------------------------------
+@needs_font
 @pytest.mark.parametrize("preset", ALL_PRESETS)
 def test_jedes_event_traegt_genau_eine_schriftgroesse(preset):
     """Ein Event ohne Größe fiele still auf den Stil zurück — das wäre ein Fehler."""
@@ -153,6 +163,7 @@ def test_off_schreibt_keine_schriftgroesse(preset):
     assert not FS_RE.search(ass)
 
 
+@needs_font
 def test_groesse_springt_mit_der_zeile():
     """Bei einem Wort je Zeile unterscheiden sich die Größen deutlich."""
     ass = generate_ass(recordings()["lang"], "classic",
@@ -172,6 +183,7 @@ def test_zeilen_bleiben_bei_der_eingestellten_wortzahl():
     assert [len(event_text(e).split()) for e in events(ass)] == [2, 2]
 
 
+@needs_font
 def test_balanced_bleibt_eine_groesse():
     """Change 201 muss unangetastet bleiben: dort gilt EINE Größe."""
     ass = generate_ass(recordings()["lang"], "classic",
@@ -182,6 +194,16 @@ def test_balanced_bleibt_eine_groesse():
 
 
 def test_vorlage_ohne_platzhalter_wird_gemeldet(monkeypatch):
+    """Auch OHNE Pillow prüfbar: die Messfähigkeit wird im Test hergestellt.
+
+    Sonst hängt der Test an der Umgebung (im CI fehlt Pillow) und prüft statt
+    der Warnung nur den Rückfall auf die feste Größe.
+    """
+    monkeypatch.setattr(ass_generator.textfit, "available", lambda fehlt: True)
+    monkeypatch.setattr(ass_generator.textfit, "text_width",
+                        lambda text, **kw: 50.0 * max(1, len(text)))
+    monkeypatch.setattr(ass_generator.textfit, "text_height", lambda text, **kw: 70.0)
+    monkeypatch.setattr(ass_generator.textfit, "line_box_height", lambda **kw: 80.0)
     """Fehlt ``fs_tag`` in einer Vorlage, wird das gemeldet statt verschluckt."""
     import app.ass_export.ass_generator as gen
 
@@ -193,12 +215,8 @@ def test_vorlage_ohne_platzhalter_wird_gemeldet(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Mit der echten Schrift
+# Mit der echten Schrift (übersprungen, wenn nicht messbar — s. o.)
 # --------------------------------------------------------------------------
-needs_font = pytest.mark.skipif(
-    textfit.text_width("M", font_name="Arial", bold=True) is None,
-    reason="keine Schrift/Pillow im Prüflauf (im Image-Bau geprüft)",
-)
 
 
 @needs_font
