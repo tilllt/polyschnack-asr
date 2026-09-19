@@ -74,6 +74,22 @@ kann nicht mit Play verwechselt werden und macht einen Layout-Sprung unmöglich.
   im Timing-Tab sichtbar aber **deaktiviert** mit Titel, nach dem Zurückwechseln wieder bedienbar.
 - `tsc --noEmit` sauber; volle Frontend-Suite grün.
 
+## Nachtrag (Nutzer-Vorgabe 19.09.2026, nach der Abnahme)
+
+> „Entferne bitte den previous und next Text aus dem timingview. Und die Rahmen oben und unten.
+> Die weniger transparente Fläche und Farben sind gut."
+
+Umgesetzt: Die Beschriftungen an den Nachbar-Markern („davor"/„danach") sind entfernt (inkl. der
+Sprachschlüssel `timing_neighbor_prev/_next` in de/en/pt), und die Markierungen haben nur noch
+**seitliche** Kanten — kein Rahmen mehr oben und unten:
+
+- aktives Wort: `inset 1px 0 0` + `inset -1px 0 0` statt eines vollen Rahmens
+- gegriffene Kante: 2 px seitlich statt eines vollen Rahmens
+- Nachbar-Marker: gestrichelte Kanten nur links/rechts (`border-top/bottom: none`)
+- Fläche und Farben unverändert (das war ausdrücklich gewünscht)
+
+`tsc` sauber, volle Frontend-Suite 495 Tests grün.
+
 ## Offen
 
 - **Gegenprobe am Gerät:** Klick auf ein Wort weit unten in einer langen Transkription. Bleibt es

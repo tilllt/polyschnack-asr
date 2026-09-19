@@ -570,21 +570,20 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               resize: true, // sichtbare Marker; Anfassen macht das Wort aktiv
               minLength: MIN_WORD_DURATION_S,
             });
-            // Change 210: Rahmen + Beschriftung („davor"/„danach"), damit die
-            // Nachbar-Marker nicht mit dem aktiven Wort verwechselt werden.
+            // Change 211 (Nutzer-Vorgabe 19.09.2026): Nur die SEITLICHEN Kanten —
+            // kein Rahmen oben/unten und keine Beschriftung („davor"/„danach"
+            // entfernt). Fläche und Farben bleiben unverändert.
             try {
               const nbEl = created.element as HTMLElement | undefined;
               if (nbEl) {
                 nbEl.classList.add("ps-timing-region", "ps-timing-region-neighbor");
-                nbEl.style.border = "1px dashed rgba(210,153,34,0.9)";
-                const lab = document.createElement("span");
-                lab.className = "ps-timing-label";
-                lab.textContent =
-                  which === "prev" ? t("timing_neighbor_prev") : t("timing_neighbor_next");
-                nbEl.appendChild(lab);
+                nbEl.style.borderTop = "none";
+                nbEl.style.borderBottom = "none";
+                nbEl.style.borderLeft = "1px dashed rgba(210,153,34,0.9)";
+                nbEl.style.borderRight = "1px dashed rgba(210,153,34,0.9)";
               }
             } catch {
-              /* Element nicht verfügbar — Kontext ohne Rahmen/Label */
+              /* Element nicht verfügbar — Kontext ohne Rahmen */
             }
             // Klick, Anfassen oder Ziehen eines Nachbar-Markers: dieses Wort
             // wird das aktive Wort. Bewusst OHNE eigenen Timing-Commit — der
