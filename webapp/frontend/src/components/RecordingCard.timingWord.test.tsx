@@ -149,6 +149,10 @@ const rec = {
 
 describe("Change 208: Wortklick im Timing-Tab", () => {
   beforeEach(() => {
+    // jsdom kennt Element.scrollTo nicht — der echte SegmentList zentriert die
+    // aktive Zeile damit (centerWord). Ohne Polyfill endet der Lauf mit einem
+    // unbehandelten Fehler.
+    HTMLElement.prototype.scrollTo = vi.fn();
     playRange.mockClear();
     seekTo.mockClear();
     seekToPaused.mockClear();
