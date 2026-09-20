@@ -19,6 +19,7 @@ import {
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 import { ensureAudioSessionForRecording, restoreAudioSessionAfterRecording, isWebKitAudioSession } from "../audioSession";
+import { Zone } from "./Zone";
 
 interface Props {
   user?: UserInfo | null;
@@ -691,7 +692,8 @@ function TabButton({ active, disabled, onClick, children }: { active: boolean; d
 
 function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClick, handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handleInputChange, fileRef, t }: any) {
   return (
-    <div
+    <Zone
+      variant="dashed"
       role="button"
       tabIndex={0}
       aria-label={t("drag_zone")}
@@ -700,48 +702,30 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`
-        border-2 border-dashed rounded-card
-        px-4 py-6 sm:px-6 sm:py-9 text-center cursor-pointer
-        select-none transition-all duration-200
-        bg-panel
-        ${
-          active
-            ? "border-accent bg-[rgba(46,160,67,0.08)] text-txt"
-            : "border-border2 text-muted hover:border-accent hover:bg-[rgba(46,160,67,0.08)] hover:text-txt"
-        }
-      `}
+      className={`ps-zone-drop${active ? " ps-zone-active" : ""}`}
     >
-      <div className="text-[32px] mb-2 leading-none">
+      <div className="ps-zone-stack">
         {isUploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-[18px]">⏳</span>
-            <div className="w-[200px] h-2 bg-border rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              />
+          <>
+            <div className="ps-zone-icon" aria-hidden="true">⏳</div>
+            <div className="ps-zone-bar">
+              <div style={{ width: `${uploadProgress}%` }} />
             </div>
-            <span className="text-[11px] text-muted2">{uploadProgress}%</span>
-            {/* Dateiname unter dem Balken — was lade ich gerade hoch? */}
-            {uploadName && (
-              <span className="text-[11px] text-muted max-w-[280px] truncate">
-                📄 {uploadName}
-              </span>
-            )}
-          </div>
+            <div className="ps-zone-hint">
+              {uploadProgress}%{uploadName ? ` · 📄 ${uploadName}` : ""}
+            </div>
+            <div className="ps-zone-title">{t("uploading")}</div>
+          </>
         ) : (
-          <Mic size={32} className="mx-auto text-muted" />
+          <>
+            <div className="ps-zone-icon">
+              <Mic size={26} className="text-muted" aria-hidden="true" />
+            </div>
+            <div className="ps-zone-title">{t("drag_here")}</div>
+            <div className="ps-zone-hint">{t("multi_files")}</div>
+            <div className="ps-zone-note">{t("upload_formats")}</div>
+          </>
         )}
-      </div>
-      <div className="font-semibold text-[15px] text-txt">
-        {isUploading ? t("uploading") : t("drag_here")}
-      </div>
-      <div className="text-[12.5px] mt-1 text-muted">
-        {t("multi_files")}
-      </div>
-      <div className="mt-[10px] text-[11px] text-muted2 tracking-[.03em]">
-        {t("upload_formats")}
       </div>
       <input
         ref={fileRef}
@@ -751,7 +735,7 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
         className="hidden"
         onChange={handleInputChange}
       />
-    </div>
+    </Zone>
   );
 }
 
@@ -1263,7 +1247,10 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher.
           Change 211 (Nutzer-Vorgabe 19.09.2026): Die Nutzungshinweise stehen
           groß NEBEN dem Knopf und werden nacheinander eingeblendet. */}
-      <div className={isTouch ? "flex items-center justify-center gap-6" : ""}>
+      {/* Change 215: Der Aufnahmeknopf steht in derselben Zone wie die
+          anderen Quellen — Linienart durchgezogen, Maße identisch. */}
+      <Zone variant="solid" className="ps-zone-record">
+        <div className="ps-zone-row">
       <div className="relative">
         <button
           onClick={isTouch ? undefined : (recording ? stopRecording : startRecording)}
@@ -1302,7 +1289,8 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
             <div className="ps-tips-text">{t(usageTips[tipIdx].key)}</div>
           </div>
         )}
-      </div>
+        </div>
+      </Zone>
 
       {/* Statuszeile bleibt bestehen (Pause/Daueraufnahme) */}
 
@@ -1551,14 +1539,18 @@ function UrlTab({ toast, qc, t, values, onStartJob }: {
 
   return (
     <div className="flex flex-col items-center gap-3 py-6">
-      <div className="text-[12px] text-muted">{t("url_placeholder")}</div>
-      <div className="flex gap-2 w-full max-w-[500px]">
+      {/* Change 215: dieselbe Zone wie im Upload- und Aufnahme-Tab —
+          Beschriftung und Eingabefeld liegen darin, die Anmeldung darunter. */}
+      <Zone variant="solid" className="ps-zone-url">
+        <div className="ps-zone-stack">
+          <div className="ps-zone-hint">{t("url_placeholder")}</div>
+          <div className="flex gap-2 w-full">
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://youtube.com/watch?v=…"
-          className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+          className="flex-1 min-w-0 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
           onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
         />
         <button
@@ -1568,7 +1560,9 @@ function UrlTab({ toast, qc, t, values, onStartJob }: {
         >
           {isDownloading ? "⏳ " + t("url_downloading") : "🔗 " + t("url_download")}
         </button>
-      </div>
+          </div>
+        </div>
+      </Zone>
       {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar) */}
       <div className="w-full max-w-[500px]">
         <button

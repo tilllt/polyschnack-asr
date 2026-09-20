@@ -36,14 +36,24 @@ recording nichts etc. Die area bleibt immer gleich gross."
    „hier kann abgelegt werden", durchgezogen in den anderen Zonen. Randstärke
    und Radius bleiben trotzdem gleich, damit der Wechsel nicht sichtbar
    springt.
-3. **Die Fläche ändert ihre Größe nie — auch nicht beim Inhaltswechsel.**
-   Eine einzige feste Höhe und Breite für alle drei Zonen, definiert an einer
-   Stelle (CSS-Variable), nicht je Tab von Hand. Kein Inhalt darf die Zone
-   vergrößern oder verkleinern: Hinweistexte, Dateilisten, Fortschrittszeilen
-   und Fehlermeldungen liegen **innerhalb** der festen Fläche oder außerhalb
-   der Zone, nie als Höhengeber. Die Zone ist **etwa drei Viertel** der
-   heutigen Upload-Fläche — also Höhe auf rund 75 % des jetzigen Werts, und
-   diese kleinere Höhe gilt dann für alle drei Tabs.
+3. **Die Fläche ändert ihre Größe nie — innerhalb eines Breakpoints.**
+   Nutzer-Ergänzung 20.09.2026: „Die fixe Größe der area muss sich allerdings den
+   Screen Breakpoints anpassen und bei Desktop größer sein."
+
+   Also: **drei feste Größen**, an einer Stelle als CSS-Variablen definiert und
+   über Medienabfragen umgeschaltet — Mobil, ab 640 px, ab 1024 px. Innerhalb
+   eines Breakpoints ändert sich die Fläche **nie**, auch nicht beim Inhaltswechsel
+   oder beim Umschalten des Tabs; die drei Zonen eines Breakpoints sind exakt
+   gleich groß. Zwischen den Breakpoints wird sie stufenweise größer, auf dem
+   Desktop deutlich größer als auf dem Handy.
+
+   Ausgangsgröße: Mobil rund **75 %** der heutigen Upload-Fläche; ab 640 px rund
+   15 % mehr; ab 1024 px rund 40 % mehr. Die genauen Pixelwerte werden vor dem
+   Umbau an der jetzigen Upload-Zone **gemessen**, nicht geschätzt.
+
+   Kein Inhalt darf die Zone als Höhengeber benutzen: Hinweistexte, Dateilisten,
+   Fortschrittszeilen und Fehlermeldungen liegen **innerhalb** der festen Fläche
+   oder außerhalb der Zone.
 4. **Die Aufnahme bekommt eine echte Zone.** Der Aufnahmeknopf steht mittig in
    dieser Zone, ihre Höhe richtet sich nach derselben Festlegung wie bei den
    anderen — nicht nach der Texthöhe der Hinweise.

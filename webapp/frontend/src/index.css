@@ -367,3 +367,136 @@ audio {
 .ps-timing-region-active .region-handle-right:hover {
   background: #2ea043 !important;
 }
+
+/* ============================================================
+   Change 215 (Nutzer-Vorgabe 20.09.2026) — EINE Zone für alle drei Quellen
+   (Datei-Upload, Aufnahme, URL-Import).
+
+   Gemessene Ausgangswerte der bisherigen Upload-Dropzone (Browser-Messung
+   mit getBoundingClientRect, 20.09.2026, jsdom kann keine Pixel messen):
+     bis 639 px : 165,67 px hoch, Breite = Fensterbreite − 24 px,
+                  Innenabstand 24 px oben/unten und 16 px seitlich,
+                  Rand 2 px, Eckenradius 12 px, Linienart gestrichelt.
+     ab 640 px  : 189,67 px hoch, Innenabstand 36 px oben/unten, 24 px seitlich.
+
+   Daraus die drei festen Stufen (Mobil = 75 % der bisherigen Fläche):
+     bis 639 px : 124 px   (0,75 × 165,67 = 124,3)
+     ab 640 px  : 143 px   (+15 % gegenüber Mobil)
+     ab 1024 px : 174 px   (+40 % gegenüber Mobil — Desktop deutlich größer)
+
+   Innerhalb einer Stufe ändert sich die Fläche NIE: Höhe kommt aus
+   --ps-zone-h, Breite ist 100 % bis --ps-zone-maxw. `overflow: hidden` und
+   die feste Höhe sorgen dafür, dass kein Inhalt (Hinweistext, Dateiliste,
+   Fortschrittszeile, Fehlermeldung) als Höhengeber wirken kann.
+   ============================================================ */
+:root {
+  --ps-zone-h: 124px;
+  --ps-zone-maxw: 100%;
+  --ps-zone-border: #2c3d2d;
+  --ps-zone-accent: #2ea043;
+}
+@media (min-width: 640px) {
+  :root {
+    --ps-zone-h: 143px;
+    --ps-zone-maxw: 560px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --ps-zone-h: 174px;
+    --ps-zone-maxw: 640px;
+  }
+}
+
+.ps-zone {
+  box-sizing: border-box;
+  height: var(--ps-zone-h);
+  width: 100%;
+  max-width: var(--ps-zone-maxw);
+  margin-left: auto;
+  margin-right: auto;
+  border: 2px solid var(--ps-zone-border);
+  border-radius: 12px;
+  background: #0d130e;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+}
+/* Nur die Linienart unterscheidet sich — Randstärke und Radius sind gleich. */
+.ps-zone-dashed { border-style: dashed; }
+.ps-zone-solid { border-style: solid; }
+
+/* Ablegefläche: Zeiger + Hervorhebung beim Ziehen (wie vorher). */
+.ps-zone-drop {
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+@media (hover: hover) {
+  .ps-zone-drop:hover {
+    border-color: var(--ps-zone-accent);
+    background: rgba(46, 160, 67, 0.08);
+  }
+}
+.ps-zone-drop.ps-zone-active {
+  border-color: var(--ps-zone-accent);
+  background: rgba(46, 160, 67, 0.08);
+}
+
+/* Waagerechte Reihe in der Zone (Aufnahmeknopf + Nutzungshinweise). */
+.ps-zone-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  max-width: 100%;
+}
+
+/* Inhalt in der Zone — bewusst kompakt, damit er in die feste Fläche passt. */
+.ps-zone-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+}
+.ps-zone-icon {
+  font-size: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ps-zone-title { font-size: 14px; line-height: 1.25; font-weight: 600; color: #d2e8cd; }
+.ps-zone-hint { font-size: 11.5px; line-height: 1.3; color: #7d9c74; }
+.ps-zone-note { font-size: 10.5px; line-height: 1.25; letter-spacing: 0.03em; color: #556b4f; }
+.ps-zone-bar {
+  width: 180px;
+  max-width: 100%;
+  height: 8px;
+  background: #1f2b21;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ps-zone-bar > div {
+  height: 100%;
+  background: #2ea043;
+  border-radius: 999px;
+  transition: width 0.3s;
+}
+
+/* Nutzungshinweise IN der Aufnahme-Zone: etwas kleiner als zuvor, damit sie
+   die feste Fläche auch bei langem Text nicht sprengen. */
+.ps-zone .ps-tips { width: 170px; flex: 0 0 170px; min-height: 0; }
+.ps-zone .ps-tips-arrow { font-size: 28px; width: 34px; height: 34px; }
+.ps-zone .ps-tips-text { font-size: 13px; line-height: 1.2; min-height: calc(2 * 1.2em); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-zone-drop { transition: none; }
+  .ps-zone-bar > div { transition: none; }
+}
