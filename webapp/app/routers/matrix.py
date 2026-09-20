@@ -96,3 +96,58 @@ def build_matrix(docker: Optional[DockerProxyClient] = None) -> List[Dict[str, A
 @router.get("/matrix")
 def models_matrix() -> List[Dict[str, Any]]:
     return build_matrix()
+
+
+# ---------------------------------------------------------------------------
+# Backend-Fähigkeiten für die UI (Change 212)
+# ---------------------------------------------------------------------------
+#
+# Das Optionen-Panel leitet die Verfügbarkeit seiner Optionen aus einer
+# deklarativen Matrix ab. Alles, was dabei vom Backend abhängt (Live-Erkennung,
+# native Satzzeichen/Großschreibung), kommt ausschließlich von hier — die
+# Fähigkeiten werden aus den Adaptern gelesen (`get_client(name).capabilities`),
+# nicht im Frontend hartkodiert. Je Fähigkeit gibt es damit genau eine Wahrheit.
+
+backends_router = APIRouter(prefix="/api", tags=["backends"])
+
+
+def build_backend_capabilities() -> Dict[str, Any]:
+    """Fähigkeiten je aktivem Backend + für den Server-Default.
+
+    Schlüssel ``""`` steht für „Server-Default“ (Aufnahme ohne explizite
+    Backend-Wahl). Backends, deren Fähigkeiten nicht lesbar sind (Adapter-
+    Fehler), fehlen in den Maps — das Frontend bietet die betroffene Option
+    dann nicht an, statt einen Wert zu erfinden.
+    """
+    from ..asr_client import get_client
+    from ..config import settings
+    from ..service_registry import available_services
+
+    default = settings.POLYSCHNACK_DEFAULT_BACKEND
+    names = [s["name"] for s in available_services()]
+
+    streaming: Dict[str, bool] = {}
+    native_punctuation: Dict[str, bool] = {}
+    # "" (Default) zuerst, dann alle aktiven Backends (Default nicht doppelt).
+    for key in ["", *[n for n in names if n != default]]:
+        backend = default if key == "" else key
+        try:
+            caps = get_client(backend).capabilities
+        except Exception as exc:  # unbekanntes Backend / Adapter-Fehler
+            log.warning("backends: capabilities for %r unavailable (%s)", backend, exc)
+            continue
+        streaming[key] = bool(caps.streaming)
+        native_punctuation[key] = bool(caps.native_punctuation)
+
+    return {
+        "backends": names,
+        "default": default,
+        "streaming_supported": streaming.get("", False),
+        "streaming_by_backend": streaming,
+        "native_punctuation": native_punctuation,
+    }
+
+
+@backends_router.get("/backends")
+def backends_capabilities() -> Dict[str, Any]:
+    return build_backend_capabilities()

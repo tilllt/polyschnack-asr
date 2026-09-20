@@ -32,7 +32,7 @@ from .routers.api_docs import router as api_docs_router
 from .routers.openai_proxy import router as openai_proxy_router
 from .routers.cancel import router as cancel_router
 from .routers.models import router as models_router, _check_vad, _check_diarize
-from .routers.matrix import router as matrix_router
+from .routers.matrix import backends_router, router as matrix_router
 from .routers.queue_api import router as queue_api_router
 from .routers.admin import router as admin_router
 from .routers.auth import router as auth_router
@@ -327,6 +327,7 @@ app.include_router(openai_proxy_router)
 app.include_router(cancel_router)
 app.include_router(models_router)
 app.include_router(matrix_router)
+app.include_router(backends_router)
 app.include_router(queue_api_router)
 app.include_router(admin_router)
 app.include_router(segments_router)
