@@ -2573,6 +2573,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
     duration = None
     language = None
     segments: List[Dict[str, Any]] = []
+    # Change-217-Nachtrag: Roh-Stand (ASR-Ergebnis nach Interpunktion/Enhance,
+    # VOR der LLM-Nachbearbeitung) für die eigene Versions-Stufe.
+    raw_text: Optional[str] = None
+    raw_segments: Optional[List[Dict[str, Any]]] = None
     error = None
     # Change 157: Diar-Fehler degradieren statt Run abbrechen — die
     # Transkription bleibt, der Fehler wird ehrlich angezeigt.
@@ -2973,6 +2977,15 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             if enable_llm_enhance:
                 text, segments = run_llm_enhance(text, segments)
 
+            # Change-217-Nachtrag: Roh-Stand festhalten, BEVOR die
+            # Nachbearbeitung den Text ersetzt. Die Pipeline schreibt den
+            # nachbearbeiteten Text in denselben Datensatz; ohne diesen Griff
+            # trüge die einzige Version den LLM-Text unter kind='transcribe'
+            # (falsche Stufe) und die Stufe „Nachbearbeitung" wäre in der
+            # Versionsliste gar nicht mehr nachvollziehbar — genau das passierte,
+            # seit die Inhalts-Deduplizierung (Change 217) die damals
+            # inhaltsgleiche zweite Version zu Recht unterdrückt.
+            raw_text, raw_segments = text, segments
             # Post-Processing mit Prompt-Template (Task D4) — LLM, nur bei Auswahl
             if prompt_template_id or enable_llm_enhance or llm_endpoint_id:
                 with Session(engine) as s:
@@ -3089,12 +3102,25 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 from .versions import list_versions, snapshot
 
                 prior = list_versions(session, rec_id)
-                snapshot(
-                    session, rec, "retranscribe" if prior else "transcribe",
-                    user_id=owner_id,
-                )
+                stage_kind = "retranscribe" if prior else "transcribe"
                 if prompt_template_id and rec.text is not None:
+                    # Change-217-Nachtrag: ZWEI nachvollziehbare Stufen statt
+                    # zweimal derselbe Inhalt. Zuerst die Roh-Transkription
+                    # (Stand VOR der LLM-Nachbearbeitung), dann das Ergebnis der
+                    # Nachbearbeitung. Vorher entstand zweimal derselbe Text
+                    # (kind='transcribe' trug schon den LLM-Text); seit der
+                    # Inhalts-Deduplizierung (Change 217) fiel die zweite,
+                    # inhaltsgleiche Version weg — der Nutzer sah die Stufe
+                    # „Nachbearbeitung" gar nicht mehr in der Versionsliste.
+                    snapshot(
+                        session, rec, stage_kind, user_id=owner_id,
+                        text=raw_text if raw_text is not None else rec.text,
+                        segments=(raw_segments if raw_segments is not None
+                                  else rec.segments),
+                    )
                     snapshot(session, rec, "postprocess", user_id=owner_id)
+                else:
+                    snapshot(session, rec, stage_kind, user_id=owner_id)
                 if delivery_target_id:  # Change 099: aus dem Run
                     from .deliver import deliver
                     from .models import DeliveryTarget

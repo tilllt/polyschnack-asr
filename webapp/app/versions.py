@@ -112,9 +112,17 @@ def _latest_version(session: Session, rec_id: int) -> Optional[TranscriptVersion
 
 
 def snapshot(
-    session: Session, rec, kind: str, user_id: Optional[int] = None
+    session: Session, rec, kind: str, user_id: Optional[int] = None,
+    text: Optional[str] = None, segments: Optional[Any] = None,
 ) -> Optional[TranscriptVersion]:
     """Voll-Snapshot von *rec* als neue Version anlegen (nur bei Ergebnissen).
+
+    ``text`` / ``segments``: Inhalt, der versioniert werden soll. Ohne Angabe
+    gilt der aktuelle Stand von *rec*. Die Pipeline reicht für die Stufe
+    ``transcribe``/``retranscribe`` den ROH-Stand herein (Stand VOR der
+    LLM-Nachbearbeitung): der Datensatz trägt zu diesem Zeitpunkt schon den
+    nachbearbeiteten Text — ohne diesen Griff wäre die Roh-Transkription keine
+    eigene, nachvollziehbare Stufe mehr (Change-217-Nachtrag).
 
     Change 217: Eine Version entsteht NUR, wenn sich der Inhalt wirklich
     geändert hat. Trägt die jüngste vorhandene Version denselben
@@ -126,9 +134,11 @@ def snapshot(
     entstehen — damit ALLE Schreibpfade (Autosave, Edit-Mode-Ende, Grenz-Drag,
     Undo/Redo, Restore, Pipeline) gleichermaßen geschützt sind.
     """
-    if not (rec.text or rec.segments):
+    content_text = rec.text if text is None else text
+    content_segments = rec.segments if segments is None else segments
+    if not (content_text or content_segments):
         return None
-    fp = content_fingerprint(rec.text, rec.segments)
+    fp = content_fingerprint(content_text, content_segments)
     last = _latest_version(session, rec.id)
     if last is not None and content_fingerprint(last.text, last.segments) == fp:
         log.info(
@@ -146,8 +156,8 @@ def snapshot(
         rec_id=rec.id,
         version_no=int(max_no) + 1,
         kind=kind,
-        text=rec.text,
-        segments=list(rec.segments) if rec.segments else None,
+        text=content_text,
+        segments=list(content_segments) if content_segments else None,
         backend=rec.backend or "",
         language=rec.language,
         created_by_user_id=user_id,
