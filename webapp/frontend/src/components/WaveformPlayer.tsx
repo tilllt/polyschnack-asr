@@ -286,6 +286,41 @@ export function toggleActivePlayback(): void {
   p.playPause();
 }
 
+/**
+ * Fix 2026-09-20 (Nutzer-Befund 20.09.2026: „Aktuelle zeigen die Labels nicht
+ * immer das aktuelle Wort und die beiden Nachbarwörter"):
+ *
+ * Setzt bzw. aktualisiert das Wort-Label EINER Region. Existiert das Label
+ * schon, wird AUSSCHLIESSLICH `textContent` getauscht — die Region und damit
+ * die Position des Wortes werden nie neu aufgebaut (kein Neuaufbau des
+ * Blocks, keine Positionsänderung). `regionEl = null` entfernt ein vorhandenes
+ * Label ausdrücklich, statt eine alte Beschriftung stehen zu lassen.
+ *
+ * Rein DOM-lokal und zustandslos: wird von den Effekten des Players nach jedem
+ * Wechsel von Wort, Worttext oder Nachbarwörtern aufgerufen.
+ */
+function applyWordLabel(
+  regionEl: HTMLElement | null | undefined,
+  prev: HTMLElement | null,
+  cls: string,
+  text: string,
+): HTMLElement | null {
+  if (!regionEl) {
+    // Keine Fläche (kein aktives Wort / Region weg) → Beschriftung entfernen.
+    prev?.remove();
+    return null;
+  }
+  let lab = prev && regionEl.contains(prev) ? prev : null;
+  if (!lab) lab = regionEl.querySelector<HTMLElement>(`.${cls}`);
+  if (!lab) {
+    lab = document.createElement("span");
+    lab.className = `ps-timing-word ${cls}`;
+    regionEl.appendChild(lab);
+  }
+  if (lab.textContent !== text) lab.textContent = text;
+  return lab;
+}
+
 export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
   function WaveformPlayer({ audioUrl, peaks, durationHint, onRegionChange, onTimeUpdate, onPlayStateChange, onLoadError, height = 80, annotations, onMarkerClick, timingWord = null, timingWordText, timingNeighbors = null, onTimingSelectWord, recordingId, onTimingChange, onTimingCommit }, ref) {
     const { t } = useT();
@@ -432,6 +467,50 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const neighborDataRef = useRef(timingNeighbors);
     neighborDataRef.current = timingNeighbors;
 
+    // Fix 2026-09-20 (Nutzer-Befund: „Labels zeigen nicht immer das aktuelle
+    // Wort und die beiden Nachbarwörter"): Die Beschriftungen hängen an TEXT
+    // und NACHBARN — nicht nur an der Identität des Wort-Objekts. Die Regionen
+    // werden weiterhin wiederverwendet (wie bisher), nur die Label-Texte
+    // werden nachgeführt; dafür halten wir die Label-Elemente als Refs, statt
+    // sie bei jedem Lauf neu zu erzeugen.
+    const timingWordLabelRef = useRef<HTMLElement | null>(null);
+    const neighborLabelRefs = useRef<{ prev: HTMLElement | null; next: HTMLElement | null }>({
+      prev: null,
+      next: null,
+    });
+
+    /**
+     * Fix 2026-09-20: Schreibt den AKTUELLEN Stand (aktives Wort + n-1/n+1) in
+     * die Beschriftungen. Liest ausschließlich Refs, die bei jedem Render
+     * aktualisiert werden (timingWordRef/timingWordTextRef/neighborDataRef) —
+     * deshalb genügt ein stabiler Callback, der aus jedem Effekt aufgerufen
+     * werden kann, ohne selbst Abhängigkeiten zu erzeugen.
+     *
+     * Idempotent: schreibt nur, wenn der Text abweicht; ohne aktives Wort
+     * werden die Beschriftungen ausdrücklich entfernt.
+     */
+    const syncTimingLabels = useCallback(() => {
+      const active = timingWordRef.current;
+      const activeEl = timingRegionRef.current?.element as HTMLElement | null | undefined;
+      timingWordLabelRef.current = applyWordLabel(
+        active && activeEl ? activeEl : null,
+        timingWordLabelRef.current,
+        "ps-timing-word-active",
+        timingWordTextRef.current ?? "",
+      );
+      const nb = neighborDataRef.current;
+      for (const which of ["prev", "next"] as const) {
+        const n = nb?.[which] ?? null;
+        const el = neighborRegionsRef.current[which]?.element as HTMLElement | null | undefined;
+        neighborLabelRefs.current[which] = applyWordLabel(
+          n && el ? el : null,
+          neighborLabelRefs.current[which],
+          "ps-timing-word-neighbor",
+          n?.text ?? "",
+        );
+      }
+    }, []);
+
     // Change 137: Crop-Auswahl-Region (✂ Transcribe) in der Timing-Ansicht
     // ausblenden (Change 196: jetzt auch Timing-Region verwalten).
     useEffect(() => {
@@ -465,12 +544,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               if (el) {
                 el.classList.add("ps-timing-region", "ps-timing-region-active");
                 el.style.border = "2px solid rgba(46,160,67,0.95)";
-                // Change 211 (Nutzer-Vorgabe 19.09.2026): das jeweilige WORT
-                // sehr klein am Startmarker — wie bei den Nachbarflächen.
-                const lab = document.createElement("span");
-                lab.className = "ps-timing-word ps-timing-word-active";
-                lab.textContent = timingWordTextRef.current || "";
-                el.appendChild(lab);
+                // Fix 2026-09-20: Das Wort-Label setzt ausschließlich
+                // syncTimingLabels() — genau EIN Label je Region, kein
+                // Neuaufbau beim Wortwechsel.
               }
             } catch {
               /* Element nicht verfügbar — Markierung bleibt ohne Rahmen */
@@ -512,6 +588,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               if (r) onTimingCommitRef.current?.(r.start, r.end);
             });
             timingRegionRef.current = region;
+            // Fix 2026-09-20: Beschriftung sofort an den aktuellen Stand
+            // bringen (der Text kann später ohne neues Wort nachkommen — der
+            // Sync-Effekt unten führt ihn dann nach).
+            syncTimingLabels();
           }
         }
       } else {
@@ -520,6 +600,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           timingRegionRef.current.remove();
           timingRegionRef.current = null;
         }
+        // Fix 2026-09-20: Ohne aktives Wort dürfen KEINE Beschriftungen
+        // stehen bleiben — auch nicht als Rest des vorherigen Wortes.
+        syncTimingLabels();
         // Crop wiederherstellen (wie bisher)
         if (!cropRegionRef.current) {
           const dur = wsRef.current?.getDuration?.() ?? 0;
@@ -553,17 +636,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       } catch {
         /* setOptions nicht verfügbar — Region bleibt an alter Stelle */
       }
-      // Change 211 (Nutzer-Vorgabe): Das Label muss mit dem Wortwechsel
-      // mitwandern — die Region wird wiederverwendet, sonst bliebe der Text
-      // des vorherigen Wortes stehen.
-      try {
-        const rEl = timingRegionRef.current?.element as HTMLElement | undefined;
-        const rLab = rEl?.querySelector(".ps-timing-word-active") as HTMLElement | null;
-        if (rLab) rLab.textContent = timingWordTextRef.current || "";
-      } catch {
-        /* kein Label vorhanden */
-      }
-    }, [timingWord, ready]);
+      // Fix 2026-09-20 (Nutzer-Befund: „Labels zeigen nicht immer das aktuelle
+      // Wort …"): Das Label wird NICHT mehr hier gesetzt — es hängt an TEXT
+      // und NACHBARN, nicht nur am Wortwechsel. syncTimingLabels() führt es
+      // nach (auch wenn nur der Text nachkommt und das Wort-Objekt dasselbe
+      // bleibt); der vorzeitige `key`-Rücksprung oben darf es nicht auslassen.
+      syncTimingLabels();
+    }, [timingWord, timingWordText, timingNeighbors, ready, syncTimingLabels]);
 
     // ── Change 209: Range-Marker der Nachbarwörter (n-1 / n+1) ──
     useEffect(() => {
@@ -583,6 +662,8 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       if (!timingWord || !ready || !plugin) {
         clear("prev");
         clear("next");
+        // Fix 2026-09-20: auch hier die Beschriftungen ausdrücklich entfernen.
+        syncTimingLabels();
         return;
       }
 
@@ -612,13 +693,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
                 nbEl.style.borderBottom = "none";
                 nbEl.style.borderLeft = "1px dashed rgba(210,153,34,0.9)";
                 nbEl.style.borderRight = "1px dashed rgba(210,153,34,0.9)";
-                // Change 211 (Nutzer-Vorgabe): das jeweilige WORT statt
-                // „davor"/„danach" — sehr klein, 3 px Abstand zum Startmarker,
-                // damit die Schrift nicht auf der Linie beginnt.
-                const lab = document.createElement("span");
-                lab.className = "ps-timing-word ps-timing-word-neighbor";
-                lab.textContent = n.text || "";
-                nbEl.appendChild(lab);
+                // Fix 2026-09-20: Das Wort-Label setzt ausschließlich
+                // syncTimingLabels() — es hängt am TEXT des Nachbarn, nicht an
+                // der Region-Erzeugung (sonst bliebe beim Wiederverwenden der
+                // Fläche der Text des VORHERIGEN Nachbarn stehen).
               }
             } catch {
               /* Element nicht verfügbar — Kontext ohne Rahmen */
@@ -652,7 +730,29 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       else clear("prev");
       if (timingNeighbors?.next) make("next", timingNeighbors.next);
       else clear("next");
-    }, [timingWord, timingNeighbors, ready]);
+      // Fix 2026-09-20: Die Flächen sind jetzt da bzw. wurden wiederverwendet —
+      // die Beschriftungen auf den AKTUELLEN Stand bringen (Text kann sich ohne
+      // neue Fläche geändert haben).
+      syncTimingLabels();
+    }, [timingWord, timingNeighbors, ready, syncTimingLabels]);
+
+    // Fix 2026-09-20 (Nutzer-Befund 20.09.2026, wörtlich: „Aktuelle zeigen die
+    // Labels nicht immer das aktuelle Wort und die beiden Nachbarwörter"):
+    //
+    // Text und Nachbarwörter ändern sich auch OHNE neues Wort-Objekt — z. B.
+    // wenn die Segmentliste/Transkription erst nachgeliefert wird, eine
+    // Text-Korrektur eintrifft oder die Nachbarn aus der Server-Antwort frisch
+    // kommen. Der Region-Effekt oben hing nur an [timingWord, ready] und lief
+    // dann NICHT (Worttext blieb der alte); die Nachbar-Regionen wurden zwar
+    // wiederverwendet, ihr Label-Text aber nur beim ERZEUGEN gesetzt (blieb der
+    // Text des vorherigen Wortes).
+    //
+    // Dieser Effekt führt die Beschriftungen an den aktuellen Stand nach. Er
+    // baut NICHTS neu auf und ändert keine Positionen — er tauscht nur
+    // textContent aus bzw. entfernt Beschriftungen, wenn kein Wort aktiv ist.
+    useEffect(() => {
+      syncTimingLabels();
+    }, [timingWord, timingWordText, timingNeighbors, ready, syncTimingLabels]);
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst
