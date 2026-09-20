@@ -2029,6 +2029,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   onSeekTo={(sec) => wsRef.current?.seekTo(sec)}
                   onSeekPaused={(sec) => wsRef.current?.seekToPaused(sec)}
                   recordingId={r.uid}
+                  // Change 216: Meldungen nennen die Aufnahme beim Namen.
+                  recordingTitle={r.title ?? r.original_name}
                   expectedUpdatedAt={r.updated_at ?? null}
                   onStaleWrite={() => setStaleWrite(true)}
                   onEdited={handleEdited}

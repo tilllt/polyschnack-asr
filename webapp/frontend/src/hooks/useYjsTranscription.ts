@@ -23,8 +23,21 @@ import { editorsFromStates, type EditLock } from "../collabLock";
 
 export type YjsConnState = "solo" | "connecting" | "connected" | "offline";
 
+/** Change 216 (Nutzer-Befund 20.09.2026): Zusatz zur Meldung. `reason` bleibt
+ *  der stabile Schlüssel (z. B. "empty_text"); `segmentIndex` nennt das
+ *  betroffene Segment, damit die Oberfläche Aufnahme UND Segment benennen
+ *  kann — vorher stand nur „nicht gespeichert" ohne Gegenstand. */
+export interface SaveErrorDetail {
+  segmentIndex?: number;
+}
+
 /** Change 068: Debounce für den Autosave (ms). */
 const AUTOSAVE_DEBOUNCE_MS = 1500;
+
+/** true, wenn KEIN Text vorhanden ist (Ladephase-Erkennung „Leerstand"). */
+function noneHasText(texts: readonly (string | undefined | null)[]): boolean {
+  return !texts.some((t) => String(t ?? "").trim());
+}
 
 interface SegmentLike {
   id?: number;
@@ -49,7 +62,9 @@ export function useYjsTranscription<T extends { text: string }>(
   // Change 207: Fehler des Autosaves sichtbar machen. Vorher wurden sie still
   // geschluckt (`catch { return false }`) — der Nutzer sah nicht, dass seine
   // Bearbeitung nie gespeichert wurde.
-  onSaveError?: (reason: string) => void,
+  // Change 216: zweiter Parameter nennt das betroffene Segment (Meldung mit
+  // Gegenstand) — siehe SaveErrorDetail.
+  onSaveError?: (reason: string, detail?: SaveErrorDetail) => void,
 ) {
   const [conn, setConn] = useState<YjsConnState>("solo");
   // Change 067-Fix (User-Befund 2026-08-21): NUR ANDERE Clients, die
@@ -71,6 +86,14 @@ export function useYjsTranscription<T extends { text: string }>(
   const savingRef = useRef(false);
   // Change 207: Fehlversuche zählen → Backoff statt Hämmern; Fehler einmal melden.
   const failuresRef = useRef(0);
+  // Change 216 (Nutzer-Befund 20.09.2026): Ladephase ≠ Nutzeraktion.
+  // Solange niemand getippt oder ein Segment zum Bearbeiten geöffnet hat, ist
+  // der Stand allein aus dem Laden entstanden: er darf NIE gespeichert werden
+  // und NIE eine Meldung erzeugen. Vorher löste der Autosave schon beim
+  // Seitenaufbau aus, was der Nutzer falsch als „Not saved yet" sah.
+  const userTouchedRef = useRef(false);
+  // Change 216: Segment, das zuletzt angefasst wurde (für die Meldung).
+  const lastTouchedIdxRef = useRef<number | null>(null);
   const onSaveErrorRef = useRef(onSaveError);
   onSaveErrorRef.current = onSaveError;
   const docRef = useRef<Y.Doc | null>(null);
@@ -98,37 +121,91 @@ export function useYjsTranscription<T extends { text: string }>(
     return parts.join("\u0000");
   }, []);
 
+  /** Change 216: Serverstand (DB-Segmente) in das Yjs-Doc schreiben und
+   *  anzeigen. Wird NUR in der Ladephase angewandt, wenn der Raum einen
+   *  Leerstand liefert: der Leerstand wird dann nicht gespeichert, sondern
+   *  der Serverstand geladen und angezeigt (nichts überschreiben).
+   *  Der Ausgangs-Fingerprint wird auf den Zielzustand gesetzt — das Befüllen
+   *  löst damit keinen Autosave und keine Meldung aus. */
+  const reseedFromServer = useCallback((): boolean => {
+    const doc = docRef.current;
+    const base = segmentsRef.current;
+    if (!doc || !base.length) return false;
+    const next = base.map((s) => s.text ?? "");
+    lastSavedRef.current = next.join("\u0000");
+    const map = doc.getMap<Y.Text>("segments");
+    doc.transact(() => {
+      const keys: string[] = [];
+      map.forEach((_t, k) => keys.push(k));
+      keys.forEach((k) => {
+        if (Number(k) >= next.length) map.delete(k);
+      });
+      next.forEach((txt, i) => {
+        const key = String(i);
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, new Y.Text(txt));
+          return;
+        }
+        if (existing.toString() !== txt) {
+          existing.delete(0, existing.length);
+          existing.insert(0, txt);
+        }
+      });
+    });
+    remoteCbRef.current?.(next);
+    return true;
+  }, []);
+
   /** Change 068: Yjs-Stand atomar in die DB schreiben (mit/ohne Version). */
   const save = useCallback(
     async (withVersion: boolean): Promise<boolean> => {
       if (!recordingId || savingRef.current) return false;
+      // Change 216: Ladephase — reiner Seitenaufbau ist keine Nutzeraktion.
+      // Kein Speichervorgang, keine Meldung (der Nutzer sah den Toast sonst
+      // beim Laden, ohne etwas getan zu haben).
+      if (!userTouchedRef.current) return false;
       const fp = docFingerprint();
       if (fp === null || fp === lastSavedRef.current) return false;
       savingRef.current = true;
       setSaving(true);
       try {
-        const texts = fp.split("\u0000");
         const base = segmentsRef.current;
-        if (!base.length || texts.length !== base.length) return false;
-        const merged = base.map((s, i) => ({ ...s, text: texts[i] ?? s.text }));
+        const map = docRef.current?.getMap<Y.Text>("segments") ?? null;
+        if (!map || !base.length) return false;
+        // Change 216: Pro Index direkt aus dem Doc lesen. Ein FEHLENDER
+        // Schlüssel behält den Servertext — vorher wurde er zu "" gemacht
+        // (Join/Split des Fingerprints kann „fehlt" und „leer" nicht
+        // unterscheiden), ein nur halb gefüllter Raum löschte damit Text.
+        const merged = base.map((s, i) => {
+          const t = map.get(String(i));
+          return { ...s, text: t ? t.toString() : s.text ?? "" };
+        });
         // Change 213 (Nutzer-Befunde 19.09.2026): Ein leeres Segment ist eine
         // LÖSCHUNG, kein Fehlerzustand. Vorher (Change 207) brach die Prüfung den
         // GESAMTEN Speichervorgang ab: ein einzelnes leeres Segment verhinderte,
         // dass irgendeine Änderung gespeichert wurde — und weil genau dieser
         // Speichervorgang den Zustand bereinigt hätte, blieb er bei jedem Laden
-        // erhalten (Toast „Not saved yet" ohne Zutun des Nutzers, Altbestand im
-        // Zusammenarbeits-Dokument). Der Server ersetzt die Segmentliste
-        // vollständig — ein weggelassenes Segment ist damit gelöscht, samt seinen
-        // Wörtern. Es gilt die Invariante „kein Segment ohne Text".
+        // erhalten (Toast „Not saved yet", Altbestand im Zusammenarbeits-Dokument).
+        // Der Server ersetzt die Segmentliste vollständig — ein weggelassenes
+        // Segment ist damit gelöscht, samt seinen Wörtern. Es gilt die Invariante
+        // „kein Segment ohne Text".
         const gefuellt = merged.filter((s) => String(s.text ?? "").trim());
         if (!gefuellt.length) {
-          // Sonderfall: ALLE Segmente wurden geleert. Das würde die Aufnahme
-          // inhaltslos machen; hier ist ein Hinweis berechtigt — anders als beim
-          // einzelnen leeren Segment, das schlicht verschwindet.
+          // Change 216: Sonderfall ALLE Segmente leer — hier ist ein Hinweis
+          // berechtigt, ABER nur wenn der Nutzer das verursacht hat (die
+          // Ladephase ist oben bereits abgefangen: reines Laden schreibt und
+          // meldet nie). Die Meldung nennt das betroffene Segment, damit die
+          // Oberfläche Aufnahme UND Segment nennen kann.
           failuresRef.current = 0;
           savingRef.current = false;
           setSaving(false);
-          onSaveErrorRef.current?.("empty_text");
+          const idx =
+            lastTouchedIdxRef.current ??
+            merged.findIndex((s) => !String(s.text ?? "").trim());
+          onSaveErrorRef.current?.("empty_text", {
+            segmentIndex: idx >= 0 ? idx : undefined,
+          });
           return false;
         }
         const result = await replaceSegments(recordingId, gefuellt as never[], withVersion);
@@ -143,6 +220,10 @@ export function useYjsTranscription<T extends { text: string }>(
         if (failuresRef.current === 1) {
           onSaveErrorRef.current?.(
             err instanceof Error ? err.message : "save_failed",
+            // Change 216: echte Fehler bleiben sichtbar — mit Gegenstand.
+            lastTouchedIdxRef.current === null
+              ? undefined
+              : { segmentIndex: lastTouchedIdxRef.current },
           );
         }
         return false;
@@ -233,7 +314,22 @@ export function useYjsTranscription<T extends { text: string }>(
       segmentsMap.forEach((t, k) => {
         texts[Number(k)] = t.toString();
       });
-      remoteCbRef.current?.(texts.filter((x) => x !== undefined));
+      const next = texts.filter((x) => x !== undefined);
+      // Change 216 (Nutzer-Befund 20.09.2026): Ladephase — liefert der
+      // Zusammenarbeits-Raum einen LEERSTAND (alle Segmente leer), während der
+      // Serverstand Text hat, dann wird dieser Leerstand NICHT gespeichert und
+      // NICHTS gemeldet. Stattdessen wird der Serverstand geladen und angezeigt
+      // (nichts überschreiben). Vorher lief hier der Autosave los und meldete
+      // „Not saved yet" — schon beim Laden der Seite, ohne Zutun des Nutzers.
+      if (
+        !userTouchedRef.current &&
+        noneHasText(next) &&
+        !noneHasText(segmentsRef.current.map((s) => s.text ?? ""))
+      ) {
+        reseedFromServer();
+        return;
+      }
+      remoteCbRef.current?.(next);
       scheduleAutosave();
     };
     doc.on("update", onDocUpdate);
@@ -283,7 +379,7 @@ export function useYjsTranscription<T extends { text: string }>(
       provRef.current = null;
       initedRef.current = false;
     };
-  }, [recordingId, enabled, roomStamp, save, scheduleAutosave]);
+  }, [recordingId, enabled, roomStamp, save, scheduleAutosave, reseedFromServer]);
 
   /** Eigene Bearbeitungs-Aktivität melden; beim Verlassen des Edit-Mode
    *  (aktiv → inaktiv) genau EINE Version anlegen (Change 068).
@@ -291,6 +387,12 @@ export function useYjsTranscription<T extends { text: string }>(
    *  andere Clients sehen damit, WELCHES Segment gesperrt ist. */
   const setEditingActive = useCallback(
     (idx: number | null) => {
+      // Change 216: Ein geöffnetes Textfeld ist eine Nutzeraktion — ab hier
+      // darf (und muss) gespeichert und gemeldet werden.
+      if (idx !== null) {
+        userTouchedRef.current = true;
+        lastTouchedIdxRef.current = idx;
+      }
       provRef.current?.awareness.setLocalStateField(
         "editing",
         idx === null ? false : idx,
@@ -304,6 +406,10 @@ export function useYjsTranscription<T extends { text: string }>(
 
   /** Ein Segment-Text lokal ändern → wird live an alle Clients gesynct. */
   const setSegmentText = useCallback((idx: number, text: string) => {
+    // Change 216: Tippen ist eine Nutzeraktion — ab hier wird gespeichert
+    // und (nur bei echten Fehlern/Leerstand) gemeldet.
+    userTouchedRef.current = true;
+    lastTouchedIdxRef.current = idx;
     const doc = docRef.current;
     if (!doc) return;
     const map = doc.getMap<Y.Text>("segments");

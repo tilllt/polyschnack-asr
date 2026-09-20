@@ -397,7 +397,9 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_legend_neighbor: "vizinha",
     timing_word_no_time: "Esta palavra não tem tempo próprio — re-alinhe a gravação.",
     edit_save_error: "Não foi possível salvar a edição — tente novamente",
-    collab_save_empty_text: "Ainda não salvo — um segmento está vazio. Adicione texto e será salvo automaticamente.",
+    collab_save_all_empty: "Ainda não salvo — \"{title}\", segmento {segment}: isso esvaziaria toda a gravação. Adicione texto e será salvo automaticamente.",
+    collab_save_error_named: "Alteração não salva — \"{title}\", segmento {segment}. Tente novamente.",
+    recording_unnamed: "gravação",
     stale_write_error: "Gravação alterada entretanto — recarregue a página (a sua edição não foi enviada)",
     stale_write_reload: "Recarregar",
     // Change 141: „Folgen"-Toggle
@@ -890,9 +892,11 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_legend_neighbor: "Nachbar (schrumpft mit)",
     timing_word_no_time: "Dieses Wort hat keine eigene Zeit — bitte die Aufnahme neu ausrichten (Re-Align).",
     edit_save_error: "Bearbeitung konnte nicht gespeichert werden — bitte erneut versuchen",
-    // Change 207: Der Autosave sendet keinen Stand mit leerem Segment (der
-    // Server lehnt ihn ab). Das muss der Nutzer wissen, statt still zu tippen.
-    collab_save_empty_text: "Noch nicht gespeichert — ein Segment ist leer. Text ergänzen, dann speichert es automatisch.",
+    // Change 216: Meldungen nur noch bei echter Nutzeraktion — und dann mit
+    // Gegenstand (Aufnahme + Segment). Reines Laden meldet nie.
+    collab_save_all_empty: "Noch nicht gespeichert — \"{title}\", Segment {segment}: das würde die ganze Aufnahme leeren. Text ergänzen, dann speichert es automatisch.",
+    collab_save_error_named: "Änderung nicht gespeichert — \"{title}\", Segment {segment}. Bitte erneut versuchen.",
+    recording_unnamed: "Aufnahme",
     stale_write_error: "Aufnahme wurde zwischenzeitlich geändert — bitte neu laden (deine Änderung wurde nicht gesendet)",
     stale_write_reload: "Neu laden",
     // Change 141: „Folgen"-Toggle
@@ -1380,7 +1384,9 @@ const dict: Record<Lang, Record<string, string>> = {
     timing_legend_neighbor: "neighbour",
     timing_word_no_time: "This word has no word-level timing — please re-align the recording.",
     edit_save_error: "Could not save the edit — please try again",
-    collab_save_empty_text: "Not saved yet — one segment is empty. Add text and it saves automatically.",
+    collab_save_all_empty: "Not saved — \"{title}\", segment {segment}: that would empty the whole recording. Add text and it saves automatically.",
+    collab_save_error_named: "Change not saved — \"{title}\", segment {segment}. Please try again.",
+    recording_unnamed: "recording",
     stale_write_error: "Recording changed in the meantime — please reload (your change was not sent)",
     stale_write_reload: "Reload",
     // Change 141: "Follow" toggle
@@ -1479,14 +1485,22 @@ const dict: Record<Lang, Record<string, string>> = {
 interface LocaleCtx {
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (key: string) => string;
+  /** Change 216: optionale Platzhalter ({title}, {segment}) — Meldungen nennen
+   *  Aufnahme und Segment, statt nur „nicht gespeichert" zu sagen. */
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 const Ctx = createContext<LocaleCtx | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>("en");
-  const t = (key: string) => dict[lang][key] ?? key;
+  const t = (key: string, params?: Record<string, string | number>) => {
+    const text = dict[lang][key] ?? key;
+    if (!params) return text;
+    return text.replace(/\{(\w+)\}/g, (m, name: string) =>
+      name in params ? String(params[name]) : m,
+    );
+  };
   return createElement(Ctx.Provider, { value: { lang, setLang, t } }, children);
 }
 

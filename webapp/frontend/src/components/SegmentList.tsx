@@ -23,6 +23,10 @@ interface Props {
   activeIdx: number;
   onActiveChange: (idx: number) => void;
   recordingId?: string;
+  /** Change 216 (Nutzer-Befund 20.09.2026): Titel der Aufnahme — Meldungen
+   *  nennen damit den Gegenstand („Aufnahme X, Segment 3"), statt nur
+   *  „nicht gespeichert" zu sagen. */
+  recordingTitle?: string;
   /** Change 189: `updated_at`-Stand, den der Parent geladen hat — wird beim
    *  vollen Listen-PUT mitgeschickt (optimistische Sperre). */
   expectedUpdatedAt?: string | null;
@@ -173,7 +177,7 @@ function wordCharRanges(words: readonly { word: string }[]): Array<{ start: numb
   });
 }
 
-export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest,
+export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onSeekPaused, activeIdx, onActiveChange, recordingId, recordingTitle, onEdited, currentTime, isPlaying, searchQuery, searchJump, onDisplayChange, replaceRequest,
  expectedUpdatedAt, onStaleWrite, onBoundaryDragEnd, onSegmentDelete, fillHeight, tall = false, onSplitSegment, onAnnotate, annotations, activeAnnotationId, onAnnotateJump, collabEnabled = false, readOnly = false, onWordClick, followPlayback = true, onUndoSnapshot }: Props) {
   // Change 053: Yjs-Kollaboration (Live-Sync, Awareness, Fallback Solo).
   // Change 067-Fix: Verbindung nur bei geteilten Aufnahmen (collabEnabled)
@@ -207,11 +211,16 @@ export function SegmentList({ segments: segmentsProp, persistBase, onSeekTo, onS
     // wurde er still geschluckt — der Nutzer tippte weiter, ohne zu ahnen,
     // dass nichts gespeichert wurde (gemessen: 1090 Fehlversuche für eine
     // Aufnahme, kein einziger Erfolg).
-    (reason) => {
+    // Change 216 (Nutzer-Befund 20.09.2026): Eine Meldung nennt den
+    // Gegenstand — Aufnahmetitel und Segment. Reines Laden der Seite erzeugt
+    // keine Meldung mehr (der Autosave läuft in der Ladephase gar nicht).
+    (reason, detail) => {
+      const seg = (detail?.segmentIndex ?? 0) + 1;
+      const label = recordingTitle?.trim() || t("recording_unnamed");
       if (reason === "empty_text") {
-        toast(t("collab_save_empty_text"), "info");
+        toast(t("collab_save_all_empty", { title: label, segment: seg }), "info");
       } else {
-        toast(t("edit_save_error"), "err");
+        toast(t("collab_save_error_named", { title: label, segment: seg }), "err");
       }
     });
   const containerRef = useRef<HTMLDivElement>(null);
