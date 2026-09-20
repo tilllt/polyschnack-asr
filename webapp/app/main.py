@@ -265,6 +265,19 @@ app.openapi = _custom_openapi
 async def _noindex_header(request, call_next):
     resp = await call_next(request)
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+
+    # Change 212 (Nutzer-Befund 19.09.2026): Nach einem Deploy zeigte das Handy
+    # weiter den alten Stand — für index.html waren keine Cache-Header gesetzt,
+    # der Browser durfte also heuristisch lange cachen. Jetzt ausdrücklich:
+    # HTML nie cachen (jede Anfrage holt die aktuelle Version), die gehashten
+    # Assets dagegen unbegrenzt — ihr Dateiname ändert sich mit dem Inhalt.
+    path = request.url.path
+    ctype = resp.headers.get("content-type", "")
+    if path.startswith("/assets/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif "text/html" in ctype or path == "/":
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
     return resp
 
 

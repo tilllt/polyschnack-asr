@@ -248,6 +248,15 @@ audio {
    ============================================================ */
 .ps-timing-region { border-radius: 2px; }
 
+/* Change 211 (Nutzer-Befund 19.09.2026): „Der Kasten um das aktive Wort hat
+   immer noch Ränder oben und unten." Unsere eigenen Schatten zeichnen nur
+   seitlich (siehe unten) — der Rahmen kam von WaveSurfer selbst: die Regions
+   sind mit borderColor: null konfiguriert, und die Bibliothek setzt dann keinen
+   Rahmen ab, sondern fällt auf ihren Standard zurück, der ringsum läuft.
+   Darum wird der Rahmen hier ausdrücklich abgeschaltet; !important, weil er am
+   Element selbst sitzt. */
+.ps-timing-region { border: 0 !important; }
+
 /* Change 211 (Nutzer-Befund 19.09.2026): Klicks müssen die Fläche erreichen —
    die Nachbarregionen sollen beim Anklicken das Wort aktivieren. Ohne das
    greift der Klick-Handler der Waveform und startet dort ein Playback. */
