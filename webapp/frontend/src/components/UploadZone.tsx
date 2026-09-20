@@ -1160,7 +1160,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
 
         {/* Change 211: Nutzungshinweise — nacheinander, groß, mit Pfeil. */}
         {isTouch && (
-          <div className="ps-tips" key={tipIdx}>
+          <div className="ps-tips">
             <div className={`ps-tips-arrow ${usageTips[tipIdx].anim}`} aria-hidden="true">
               {usageTips[tipIdx].glyph}
             </div>

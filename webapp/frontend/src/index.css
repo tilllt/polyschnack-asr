@@ -294,17 +294,26 @@ audio {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  max-width: 200px;
+  width: 200px;
+  flex: 0 0 200px;
+  min-height: 96px;
+  justify-content: flex-start;
   animation: ps-tip-in 0.4s ease-out;
 }
 .ps-tips-arrow {
   font-size: 34px;
   line-height: 1;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--ps-accent, #2ea043);
 }
 .ps-tips-text {
   font-size: 15px;
   line-height: 1.25;
+  min-height: calc(2 * 1.25em);
   text-align: center;
   color: var(--ps-text, #e6edf3);
 }
