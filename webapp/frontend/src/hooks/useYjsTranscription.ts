@@ -111,20 +111,27 @@ export function useYjsTranscription<T extends { text: string }>(
         const base = segmentsRef.current;
         if (!base.length || texts.length !== base.length) return false;
         const merged = base.map((s, i) => ({ ...s, text: texts[i] ?? s.text }));
-        // Change 207: Nichts senden, was der Server garantiert ablehnt. Ein
-        // Segment mit leerem Text ist ein Zwischenstand (gerade am Tippen) —
-        // vorher ging er als 400 zurück, der Autosave wiederholte sich immer
-        // wieder und NICHTS wurde gespeichert. Jetzt: warten, bis der Text
-        // wieder gefüllt ist; der nächste Doc-Update stößt den Autosave an.
-        const leerIdx = merged.findIndex((s) => !String(s.text ?? "").trim());
-        if (leerIdx >= 0) {
+        // Change 213 (Nutzer-Befunde 19.09.2026): Ein leeres Segment ist eine
+        // LÖSCHUNG, kein Fehlerzustand. Vorher (Change 207) brach die Prüfung den
+        // GESAMTEN Speichervorgang ab: ein einzelnes leeres Segment verhinderte,
+        // dass irgendeine Änderung gespeichert wurde — und weil genau dieser
+        // Speichervorgang den Zustand bereinigt hätte, blieb er bei jedem Laden
+        // erhalten (Toast „Not saved yet" ohne Zutun des Nutzers, Altbestand im
+        // Zusammenarbeits-Dokument). Der Server ersetzt die Segmentliste
+        // vollständig — ein weggelassenes Segment ist damit gelöscht, samt seinen
+        // Wörtern. Es gilt die Invariante „kein Segment ohne Text".
+        const gefuellt = merged.filter((s) => String(s.text ?? "").trim());
+        if (!gefuellt.length) {
+          // Sonderfall: ALLE Segmente wurden geleert. Das würde die Aufnahme
+          // inhaltslos machen; hier ist ein Hinweis berechtigt — anders als beim
+          // einzelnen leeren Segment, das schlicht verschwindet.
           failuresRef.current = 0;
           savingRef.current = false;
           setSaving(false);
           onSaveErrorRef.current?.("empty_text");
           return false;
         }
-        const result = await replaceSegments(recordingId, merged as never[], withVersion);
+        const result = await replaceSegments(recordingId, gefuellt as never[], withVersion);
         lastSavedRef.current = fp;
         remoteCbRef.current?.(result.segments.map((s) => s.text));
         return true;
