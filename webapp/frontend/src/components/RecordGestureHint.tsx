@@ -132,10 +132,14 @@ export const RECORD_ARC_PATH_D =
  * Wechsel der Hinweise (Change 219, Punkt 6): Ausblenden dauert
  * TIP_FADE_OUT_MS, danach wechseln Text und Geste gemeinsam und blenden
  * TIP_FADE_IN_MS ein. Beide Werte stehen genauso in src/index.css — alt waren
- * 180 ms / 220 ms, also jetzt rund das Doppelte.
+ * 180 ms / 220 ms, dann 360 ms / 440 ms; auf Nutzerwunsch (20.09.2026:
+ * „Fade out / fade in ist immer noch viel zu schnell") jetzt 900 ms / 1100 ms.
+ * Hintergrund: Der Hinweis läuft 30 s je Umdrehung um den Knopf — ein
+ * Überblenden von einer knappen Sekunde passt zu dieser Ruhe. Kürzer wirkt
+ * wie ein Zucken, und der Nutzer sieht den Wechsel der Geste nicht.
  */
-export const TIP_FADE_OUT_MS = 360;
-export const TIP_FADE_IN_MS = 440;
+export const TIP_FADE_OUT_MS = 900;
+export const TIP_FADE_IN_MS = 1100;
 
 /** Dauer einer vollen Umdrehung des Textes um den Knopf (langsam). */
 export const RECORD_ARC_SPIN_MS = 30000;

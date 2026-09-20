@@ -308,4 +308,43 @@ describe("Change 220 — Quellen-Kreise, URL-Zeile, Optionen unten", () => {
     expect(text.querySelector("textPath")).toBeTruthy();
     expect((text.querySelector("textPath")!.textContent ?? "").length).toBeGreaterThan(0);
   });
+
+  test("(g) der Kreistext sitzt NAH am Ring — und in jeder Knopfgröße gleich nah", () => {
+    // Nutzer-Vorgabe 20.09.2026: „die drehende Schrift um die Buttons soll ganz
+    // nah an den Kreisen sein, nicht so weit entfernt."
+    // Knopfgrößen aus SOURCE_CIRCLE_SHAPE: 64 px (w-16) bzw. 80 px (sm:w-20) —
+    // Außenkante des 2 px starken Rings also 34 px bzw. 42 px.
+    const ringAussenMobil = 64 / 2 + SOURCE_CIRCLE_BORDER / 2;
+    const ringAussenDesktop = 80 / 2 + SOURCE_CIRCLE_BORDER / 2;
+
+    // Die Schrift läuft auf dem Kreis mit dem Radius r (Grundlinie).
+    const abstandMobil = SOURCE_CIRCLE_ARC.r - ringAussenMobil;
+    const abstandDesktop = SOURCE_CIRCLE_ARC.r * 1.25 - ringAussenDesktop;
+
+    // NAH heißt hier: höchstens 6 px — vorher waren es 14 px (mobil).
+    expect(abstandMobil, "Textabstand mobil").toBeLessThanOrEqual(6);
+    expect(abstandDesktop, "Textabstand Desktop").toBeLessThanOrEqual(6);
+    // … und nie im Ring (sonst läge die Schrift über der Ringlinie).
+    expect(abstandMobil, "Text darf den Ring nicht berühren").toBeGreaterThan(0);
+    expect(abstandDesktop, "Text darf den Ring nicht berühren").toBeGreaterThan(0);
+    // Beide Stufen liegen gleich nah (Unterschied unter 2 px).
+    expect(Math.abs(abstandDesktop - abstandMobil)).toBeLessThan(2);
+
+    // Damit das auch auf dem Gerät gilt, MUSS die Zeichenfläche mit dem Knopf
+    // wachsen: Prozentwerte relativ zur Knopfgröße, KEINE festen px und KEINE
+    // zusätzliche Medienabfrage (die Werte gelten für beide Stufen, das
+    // Verhältnis 140/52 zur Zeichenfläche bleibt erhalten).
+    const flaeche = rule(".ps-src-arc {");
+    expect(flaeche, "Breite prozentual zur Knopfgröße").toContain("218.75%");
+    expect(flaeche, "Höhe prozentual zur Knopfgröße").toContain("81.25%");
+    expect(flaeche, "keine feste Breite in px").not.toMatch(/width:\s*\d+px/);
+    expect(flaeche, "keine feste Höhe in px").not.toMatch(/height:\s*\d+px/);
+    // Die Prozentwerte müssen die Zeichenfläche der SVG genau treffen:
+    // 218,75 % / 81,25 % = 140 / 52 (sonst verzerrt der Text oder rutscht).
+    const verhaeltnisCss = (140 / 64) / (52 / 64);
+    const verhaeltnisWerte = 218.75 / 81.25;
+    expect(verhaeltnisWerte).toBeCloseTo(verhaeltnisCss, 3);
+    // Und die Zeichenfläche selbst (viewBox) bleibt das Seitenverhältnis 140/52.
+    expect(SOURCE_CIRCLE_ARC.width / SOURCE_CIRCLE_ARC.height).toBeCloseTo(140 / 52, 6);
+  });
 });

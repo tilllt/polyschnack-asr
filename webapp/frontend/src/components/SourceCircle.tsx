@@ -46,14 +46,21 @@ export const SOURCE_CIRCLE_BORDER = 2;
  * Maße des Kreistextes (px in der Zeichenfläche des SVG) — EIN Satz für alle
  * drei Knöpfe.
  *   Ringradius      32 px (mobil) bzw. 40 px (ab 640 px), siehe SOURCE_CIRCLE_SHAPE.
- *   r = 46 px       Der Textkreis liegt damit außen vor dem Ring: kleinster
- *                   Abstand 6 px (Desktop), 14 px (mobil). Der Text kann den
- *                   Ring nie berühren.
- *   Höhe 52 px      = r + Versalhöhe bei 10 px Schrift (46 + 6). `.ps-source-row`
- *                   hält darüber 28 px Luft, damit die Schrift nicht an der
- *                   URL-Zeile hängt.
- *   Breite 140 px   = 2 × 46 + 48 px Luft für die Textlänge links/rechts.
- *   Länge des Halbkreises π × 46 ≈ 144 px. Die längste Beschriftung
+ *   r = 37 px       Der Textkreis liegt unmittelbar am Ring: bei 64-px-Knopf
+ *                   (Ringaußenkante 34 px) sind das 3 px Luft. Ab 640 px ist
+ *                   der Knopf 80 px groß (Ringaußenkante 42 px) — die
+ *                   Zeichenfläche in index.css wächst prozentual mit dem Knopf
+ *                   (218,75 % × 81,25 % → ×1,25), also liegt der Text dort bei
+ *                   46,25 px und der Abstand bleibt derselbe (4,25 px).
+ *                   Schrift und Kreis wachsen mit (10 → 12,5 px); das
+ *                   Verhältnis Knopf/Ring/Schrift ist in jeder Größe gleich.
+ *                   Nur Unterlängen („p" in „Upload") reichen bis auf ~1 px an
+ *                   den Ring — berühren ihn nicht.
+ *   Höhe 52 px      Zeichenfläche — bleibt bewusst, damit die Luft über der
+ *                   Reihe (28 px) unverändert ist; der Text sitzt jetzt nur
+ *                   weiter innen in dieser Fläche.
+ *   Breite 140 px   = 2 × 37 + 66 px Luft für die Textlänge links/rechts.
+ *   Länge des Halbkreises π × 37 ≈ 116 px. Die längste Beschriftung
  *                   („Aufnehmen", 9 Zeichen) braucht bei 10 px rund 50 px —
  *                   sie läuft also nie ineinander und wird nie abgeschnitten.
  */
@@ -63,8 +70,10 @@ export const SOURCE_CIRCLE_ARC = {
   /** Kreismittelpunkt in der Zeichenfläche (= Knopfmitte). */
   cx: 70,
   cy: 52,
-  /** EIN Radius für beide Achsen — ein echter Kreis, keine Ellipse. */
-  r: 46,
+  /** EIN Radius für beide Achsen — ein echter Kreis, keine Ellipse.
+   *  Abstand Ringaußenkante → Schriftgrundlinie: 3 px (64-px-Knopf) bzw.
+   *  4,25 px (80-px-Knopf, Zeichenfläche ×1,25 in index.css). */
+  r: 37,
   /** Schriftgröße des Kreistextes in px. */
   fontSize: 10,
 } as const;

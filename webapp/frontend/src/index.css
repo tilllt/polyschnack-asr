@@ -605,8 +605,9 @@ audio {
   background: var(--ps-ghost-fill, rgba(46, 160, 67, 0.16));
   /* Change 219 (Punkt 2/6): Kopie und Text blenden IMMER gleich lang — der
      ganze Hinweis wirkt dadurch wie EIN Vorgang, nicht wie zwei. Ausblenden
-     360 ms, Einblenden 440 ms (siehe .ps-record-hint-out). */
-  transition: opacity 440ms ease-out;
+     900 ms, Einblenden 1100 ms (siehe .ps-record-hint-out); Change 221:
+     auf Nutzerwunsch deutlich langsamer als die 360/440 ms davor. */
+  transition: opacity 1100ms ease-out;
 }
 
 /* Pulsierender Ring — steht für „Aufnahme läuft". */
@@ -712,8 +713,9 @@ audio {
   user-select: none;
   color: var(--ps-hint-ink);
   opacity: 1;
-  /* Change 219 (Punkt 6): 220 → 440 ms — doppelt so lang, ruhiger. */
-  transition: opacity 440ms ease-out;
+  /* Change 219 (Punkt 6), Change 221: Ein-/Ausblenden in Sekundenlänge —
+     Einblenden 1100 ms, Ausblenden 900 ms (.ps-record-hint-out). */
+  transition: opacity 1100ms ease-out;
 }
 
 /* Der Kreis selbst: der Text läuft auf dem Pfad (RecordGestureHint.tsx).
@@ -751,12 +753,13 @@ audio {
    ist ein Überblenden — der alte blendet aus, danach steht der neue Text und
    blendet ein (siehe oben). Diese Regel steht absichtlich HINTER
    .ps-record-ghost/.ps-record-tip, damit sie deren Deckkraft überschreibt.
-   Change 219 (Punkt 2/6): Kopie und Text tragen dieselbe Klasse und dieselbe
-   Dauer — es gibt also GENAU EIN Aus- und EIN Einblenden je Hinweis, nicht
-   zwei getrennte Vorgänge. Ausblenden 180 → 360 ms. */
+   Change 219 (Punkt 2/6), Change 221: Kopie und Text tragen dieselbe Klasse und
+   dieselbe Dauer — es gibt also GENAU EIN Aus- und EIN Einblenden je Hinweis,
+   nicht zwei getrennte Vorgänge. Ausblenden 180 → 360 → 900 ms (Nutzerwunsch
+   20.09.2026: „immer noch viel zu schnell"). */
 .ps-record-hint-out {
   opacity: 0;
-  transition-duration: 360ms;
+  transition-duration: 900ms;
   transition-timing-function: ease-in;
 }
 
@@ -859,9 +862,12 @@ audio {
      - Zeichen und Kreistext grün (--ps-accent) statt grau.
    ============================================================ */
 
-/* Höhe des Ringtextes über den Kreisen (für die Luft im Container). */
+/* Luft über der Kreis-Reihe für den Kreistext (er liegt außerhalb des Rings).
+   Die Zeichenfläche des Textes selbst hat KEINE feste Höhe mehr: sie wächst
+   prozentual mit dem Knopf (.ps-src-arc, 81,25 % = 52/64) — nur diese Luft
+   hier bleibt ein fester Wert, damit die Reihe in allen Stufen gleich hoch
+   anfängt. */
 :root {
-  --ps-src-arc-h: 52px;
   --ps-src-arc-air: 28px;
 }
 
@@ -955,20 +961,32 @@ audio {
 .ps-src-btn.ps-src-off { opacity: 0.4; cursor: not-allowed; }
 
 /* Der Kreistext läuft außen um den Ring und dreht langsam
-   (Dauer aus SOURCE_CIRCLE_SPIN_MS in SourceCircle.tsx = 30 s, linear). */
+   (Dauer aus SOURCE_CIRCLE_SPIN_MS in SourceCircle.tsx = 30 s, linear).
+   Change 221 (Nutzer-Vorgabe 20.09.2026: „ganz nah an den Kreisen"):
+   Der Textabstand (SOURCE_CIRCLE_ARC.r) sitzt jetzt direkt am Ring — und zwar
+   in BEIDEN Knopfgrößen (64 px mobil, 80 px ab 640 px). Deshalb sind Breite
+   und Höhe hier PROZENTUAL zur Knopfgröße angegeben und nicht in festen px:
+     Breite 218,75 % = 140/64   → 140 px bei 64 px, 175 px bei 80 px
+     Höhe    81,25 % =  52/64   →  52 px bei 64 px,  65 px bei 80 px
+   Die Zeichenfläche (viewBox 140 × 52) wird dadurch genau mit dem Knopf
+   skaliert — samt Schrift (10 → 12,5 px) —, und der Abstand zum Ring bleibt in
+   jeder Stufe gleich (3 px bzw. 4,25 px). Feste px wären hier falsch: beim
+   großen Knopf läge der Text dann IM Ring, beim kleinen zu weit weg.
+   Der Drehpunkt rechnet weiter in Zeichenflächen-Einheiten
+   (transform-box: view-box), das Skalieren ändert daran nichts. */
 .ps-src-arc {
   position: absolute;
   left: 50%;
   bottom: 50%;
   transform: translateX(-50%);
-  width: 140px;
-  height: var(--ps-src-arc-h);
+  width: 218.75%;
+  height: 81.25%;
   pointer-events: none;
   user-select: none;
   color: inherit;
 }
 .ps-src-btn.ps-src-on + .ps-src-arc { color: var(--ps-accent, #2ea043); }
-.ps-src-arc-svg { display: block; overflow: visible; }
+.ps-src-arc-svg { display: block; overflow: visible; width: 100%; height: 100%; }
 .ps-src-arc-spin {
   animation: ps-src-spin 30000ms linear infinite;
   transform-box: view-box;
