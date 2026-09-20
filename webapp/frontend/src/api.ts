@@ -744,7 +744,17 @@ export async function replaceSegments(
   segments: Segment[],
   createVersion = true,
   expectedUpdatedAt?: string | null,
-): Promise<{ segments: Segment[]; text: string; segments_manual: boolean; updated_at?: string }> {
+): Promise<{
+  segments: Segment[];
+  text: string;
+  segments_manual: boolean;
+  updated_at?: string;
+  /** Change 217: false = der Inhalt war identisch, es wurde NICHTS geschrieben
+   *  (kein Fehler, aber auch kein Speichererfolg). */
+  changed?: boolean;
+  /** Change 217: true nur, wenn wirklich eine neue Version entstanden ist. */
+  version_created?: boolean;
+}> {
   const qs = createVersion ? "" : "?create_version=false";
   const body: Record<string, unknown> = { segments };
   if (expectedUpdatedAt) body.expected_updated_at = expectedUpdatedAt;

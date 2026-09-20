@@ -227,7 +227,12 @@ def test_put_segments_validation(client):
 def test_put_segments_sets_manual_flag(client):
     """Change 009: PUT /segments markiert die Aufteilung als manuell —
     Antwort UND DB tragen segments_manual == true (Anzeige nutzt segments
-    direkt, keine erneute Re-Segmentierung nach segMaxDuration)."""
+    direkt, keine erneute Re-Segmentierung nach segMaxDuration).
+
+    Change 217: Ein PUT mit UNVERÄNDERTEM Inhalt schreibt gar nicht mehr
+    (keine Version, kein Flag) — deshalb sendet dieser Test einen geänderten
+    Stand, wie es die Oberfläche bei einer echten Grenzen-Änderung tut.
+    """
     rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
 
     from app.db import engine
@@ -239,9 +244,10 @@ def test_put_segments_sets_manual_flag(client):
         assert rec.segments_manual is False  # Default: Auto-Aufteilung
 
     r = client.put(f"/api/recordings/{rid}/segments",
-                   json={"segments": [_seg(0, 10, _long_words())]})
+                   json={"segments": [_seg(0, 8, _long_words())]})
     assert r.status_code == 200, r.text
     assert r.json()["segments_manual"] is True
+    assert r.json()["changed"] is True
 
     with Session(engine) as s:
         rec = s.exec(select(Recording).where(Recording.uid == rid)).first()
@@ -307,7 +313,12 @@ def _count_versions(rid: str) -> int:
 def test_put_segments_create_version_false_no_snapshot(client):
     """Change 068: Autosave (create_version=false) schreibt die Segmente,
     aber erzeugt KEINE neue TranscriptVersion — die Version entsteht erst
-    beim Verlassen des Edit-Mode (create_version=True, Default)."""
+    beim Verlassen des Edit-Mode (create_version=True, Default).
+
+    Change 217: Der Default erzeugt die Version nur bei echtem
+    Inhaltsunterschied — deshalb wird hier ein GEÄNDERTER Stand gesendet
+    (ein identischer Stand würde gar nicht geschrieben).
+    """
     rid = _make_done_recording(client, [_seg(0, 10, _long_words())])
     before = _count_versions(rid)
 
@@ -319,12 +330,21 @@ def test_put_segments_create_version_false_no_snapshot(client):
     # DB-Stand ist aktuell, aber keine neue Version
     assert _count_versions(rid) == before
 
-    # Default (True) erzeugt eine Version
+    # Default (True) mit geändertem Text erzeugt eine Version
     r = client.put(
         f"/api/recordings/{rid}/segments",
-        json={"segments": [_seg(0, 10, _long_words())]},
+        json={"segments": [_seg(0, 10, _long_words() + [("neu", 10.0, 11.0)])]},
     )
     assert r.status_code == 200, r.text
+    assert _count_versions(rid) == before + 1
+
+    # Identischer Stand erneut → keine weitere Version (Change 217)
+    r = client.put(
+        f"/api/recordings/{rid}/segments",
+        json={"segments": [_seg(0, 10, _long_words() + [("neu", 10.0, 11.0)])]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["version_created"] is False
     assert _count_versions(rid) == before + 1
 
 

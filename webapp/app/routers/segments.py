@@ -14,6 +14,7 @@ from ..config import settings
 from ..crud import get_recording_by_uid
 from ..db import get_session
 from ..permissions import ensure_access
+from ..versions import content_fingerprint
 from ..word_anchors import enforce_min_word_durations, enforce_word_anchored_bounds
 
 log = logging.getLogger(__name__)
@@ -1069,12 +1070,39 @@ def replace_segments(
         stored = reconcile_words_to_text(stored)
     except Exception:
         log.warning("replace_segments: reconcile_words_to_text übersprungen (rid=%s)", rid, exc_info=True)
+
+    new_text = " ".join(str(s["text"]).strip() for s in stored)
+
+    # Change 217: Inhalt unverändert → NICHT schreiben und keine Version.
+    # Verglichen wird der Inhalts-Fingerabdruck (Text + Segmente, siehe
+    # versions.content_fingerprint) — nicht der Zeitstempel: der würde bei
+    # jedem Schreiben neu gesetzt und täuschte eine Änderung vor. Genau so
+    # entstanden hunderte inhaltsgleiche Versionen (Autosave + Edit-Mode-Ende
+    # + Grenz-Drag + Undo/Redo schreiben denselben Stand erneut).
+    # Ehrliche Antwort: ``changed: false`` — kein Fehler (der Aufrufer hat
+    # nichts falsch gemacht), aber auch kein gemeldeter Erfolg.
+    if content_fingerprint(new_text, stored) == content_fingerprint(rec.text, rec.segments):
+        from ..timeutil import iso_utc
+
+        log.info(
+            "Change 217: PUT /recordings/%s/segments übernommen, aber Inhalt "
+            "unverändert — kein Schreibvorgang, keine Version", rid,
+        )
+        return {
+            "segments": rec.segments,
+            "text": rec.text,
+            "segments_manual": rec.segments_manual,
+            "changed": False,
+            "version_created": False,
+            "updated_at": iso_utc(rec.updated_at) if isinstance(rec.updated_at, dt.datetime) else "",
+        }
+
     rec.segments = stored
     # Change 009: jede Segment-Struktur-Operation (Grenz-Drag, +/−, Split,
     # Re-Segmentierung) markiert die Aufteilung als manuell — die Anzeige
     # nutzt segments direkt und re-segmentiert nie automatisch darüber.
     rec.segments_manual = True
-    rec.text = " ".join(str(s["text"]).strip() for s in stored)
+    rec.text = new_text
     rec.updated_at = dt.datetime.now(dt.timezone.utc)  # Change 054: „Last edit date"
     session.add(rec)
     session.commit()
@@ -1083,10 +1111,19 @@ def replace_segments(
     # Change 068: Autosave (create_version=False) → nur DB-Write, keine
     # TranscriptVersion (keine Versions-Spam je Tastenanschlag). Version
     # erst beim Verlassen des Edit-Mode (True, Default).
+    # Change 217: Auch mit create_version=True entsteht die Version nur bei
+    # echtem Inhaltsunterschied — snapshot() vergleicht und liefert None,
+    # wenn die jüngste Version denselben Fingerabdruck trägt.
+    created = None
     if create_version:
         from ..versions import snapshot
 
-        snapshot(session, rec, "edit", user_id=uid)
+        created = snapshot(session, rec, "edit", user_id=uid)
+
+    from ..timeutil import iso_utc
 
     return {"segments": rec.segments, "text": rec.text,
-            "segments_manual": rec.segments_manual}
+            "segments_manual": rec.segments_manual,
+            "changed": True,
+            "version_created": created is not None,
+            "updated_at": iso_utc(rec.updated_at) if isinstance(rec.updated_at, dt.datetime) else ""}

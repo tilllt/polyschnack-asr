@@ -34,6 +34,23 @@ export interface SaveErrorDetail {
 /** Change 068: Debounce für den Autosave (ms). */
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
+/**
+ * Change 217: Fingerabdruck der Segmenttexte in ihrer REIHENFOLGE.
+ *
+ * Das ist die Client-Seite derselben Definition, die der Server in
+ * `app/versions.py: content_fingerprint()` benutzt: verglichen wird der
+ * Inhalt, nie ein Zeitstempel (`updated_at` wird bei JEDEM Schreiben neu
+ * gesetzt und täuscht sonst eine Änderung vor — daraus entstand die
+ * Versionsflut). Getrimmt wird wie beim Server (`rec.text = " ".join(
+ * text.strip())`), damit beide Seiten denselben Stand gleich bewerten.
+ * Der Client kennt im Yjs-Doc nur die Texte — der Server prüft zusätzlich
+ * Segmente, Sprecher, Grenzen und Wörter und ist maßgeblich: er entscheidet,
+ * ob geschrieben und ob eine Version angelegt wird.
+ */
+export function textsFingerprint(texts: readonly (string | undefined | null)[]): string {
+  return texts.map((t) => String(t ?? "").trim()).join("\u0000");
+}
+
 /** true, wenn KEIN Text vorhanden ist (Ladephase-Erkennung „Leerstand"). */
 function noneHasText(texts: readonly (string | undefined | null)[]): boolean {
   return !texts.some((t) => String(t ?? "").trim());
@@ -109,7 +126,9 @@ export function useYjsTranscription<T extends { text: string }>(
   const remoteCbRef = useRef(onRemoteChange);
   remoteCbRef.current = onRemoteChange;
 
-  /** Fingerprint des aktuellen Yjs-Doc-Stands (null wenn kein Doc). */
+  /** Fingerprint des aktuellen Yjs-Doc-Stands (null wenn kein Doc).
+   *  Change 217: getrimmt wie der Server (textsFingerprint) — beide Seiten
+   *  müssen denselben Stand gleich bewerten. */
   const docFingerprint = useCallback((): string | null => {
     const doc = docRef.current;
     if (!doc) return null;
@@ -118,7 +137,7 @@ export function useYjsTranscription<T extends { text: string }>(
     map.forEach((t, k) => {
       parts[Number(k)] = t.toString();
     });
-    return parts.join("\u0000");
+    return textsFingerprint(parts);
   }, []);
 
   /** Change 216: Serverstand (DB-Segmente) in das Yjs-Doc schreiben und
@@ -132,7 +151,7 @@ export function useYjsTranscription<T extends { text: string }>(
     const base = segmentsRef.current;
     if (!doc || !base.length) return false;
     const next = base.map((s) => s.text ?? "");
-    lastSavedRef.current = next.join("\u0000");
+    lastSavedRef.current = textsFingerprint(next);
     const map = doc.getMap<Y.Text>("segments");
     doc.transact(() => {
       const keys: string[] = [];
@@ -211,6 +230,12 @@ export function useYjsTranscription<T extends { text: string }>(
         const result = await replaceSegments(recordingId, gefuellt as never[], withVersion);
         lastSavedRef.current = fp;
         remoteCbRef.current?.(result.segments.map((s) => s.text));
+        // Change 217: Der Server meldet ehrlich, was er getan hat. Bei
+        // ``changed === false`` war der Inhalt identisch — es wurde nichts
+        // geschrieben und keine Version angelegt. Das ist KEIN Fehler (keine
+        // Meldung, kein Backoff), aber auch kein Speichererfolg: der Aufruf
+        // meldet dann ``false`` statt ``true``.
+        if (result.changed === false) return false;
         return true;
       } catch (err) {
         // Change 207: NICHT mehr still schlucken. Der Nutzer muss wissen, dass
@@ -261,9 +286,7 @@ export function useYjsTranscription<T extends { text: string }>(
 
     // Change 068: Ausgangs-Fingerprint = aktueller DB-Stand → das
     // initiale Doc-Befüllen erzeugt keinen unnötigen Autosave.
-    lastSavedRef.current = segmentsRef.current
-      .map((s) => s.text ?? "")
-      .join("\u0000");
+    lastSavedRef.current = textsFingerprint(segmentsRef.current.map((s) => s.text ?? ""));
 
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const wsBase = `${proto}://${window.location.host}/yjs`;

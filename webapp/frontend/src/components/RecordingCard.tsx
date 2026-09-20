@@ -832,7 +832,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       // Change 145: erfolgreiche Grenzen-Änderung → Undo-Snapshot des
       // Zustands VOR der Mutation.
       if (prevSegments) pushUndo(prevSegments);
-      toast(t("boundary_saved"), "ok");
+      // Change 217: Erfolg nur melden, wenn wirklich geschrieben wurde.
+      // ``changed === false`` heißt: der Inhalt war identisch, der Server hat
+      // nichts geschrieben und keine Version angelegt — kein Fehler, aber
+      // auch kein Speichererfolg (keine „gespeichert"-Meldung).
+      if (result.changed !== false) toast(t("boundary_saved"), "ok");
     } catch (err) {
       if (persistSeq.current !== seq) return;
       // Rollback auf den vorherigen Modell-Stand + sichtbarer Fehler.
@@ -869,7 +873,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
       // des Zustands VOR der Mutation (segments ist hier der alte Wert).
       if (segments) pushUndo(segments);
       handleEdited(result.segments, result.text, result.segments_manual);
-      toast(t("segment_saved"), "ok");
+      // Change 217: siehe handleBoundaryDragEnd — nur melden, was passiert ist.
+      if (result.changed !== false) toast(t("segment_saved"), "ok");
     } catch (err) {
       if (persistSeq.current !== seq) return;
       handleEdited(prevSegments ?? null, prevText, prevManual);
