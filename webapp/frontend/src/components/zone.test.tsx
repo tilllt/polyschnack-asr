@@ -138,9 +138,9 @@ describe("Change 215 — einheitliche Zonen", () => {
     expect(rule(".ps-zone-solid")).not.toContain("border-radius");
   });
 
-  test("drei feste Stufen über Medienabfragen, Desktop deutlich größer", () => {
-    const iMobil = css.lastIndexOf("--ps-zone-h: 124px");
-    const i640 = css.lastIndexOf("--ps-zone-h: 143px");
+  test("drei feste Stufen über Medienabfragen, Desktop größer als mobil", () => {
+    const iMobil = css.lastIndexOf("--ps-zone-h: 144px");
+    const i640 = css.lastIndexOf("--ps-zone-h: 160px");
     const i1024 = css.lastIndexOf("--ps-zone-h: 174px");
     expect(iMobil).toBeGreaterThan(-1);
     expect(i640).toBeGreaterThan(iMobil);
@@ -157,19 +157,39 @@ describe("Change 215 — einheitliche Zonen", () => {
     expect(w1024).toBeGreaterThan(w640);
   });
 
-  test("mobil rund 75 % der bisherigen Upload-Fläche, Desktop größer als mobil", () => {
-    const anteil = 124 / GEMESSEN_MOBIL_HOEHE;
-    expect(anteil).toBeGreaterThan(0.70);
-    expect(anteil).toBeLessThan(0.80);
-    // „bei Desktop deutlich größer": mindestens ein Drittel mehr Höhe.
-    expect(174 / 124).toBeGreaterThan(1.35);
+  test("die Stufen bleiben kleiner als die ursprüngliche Upload-Fläche", () => {
+    // Change 217: Die 75 % waren der Ausgangspunkt, nicht die Obergrenze. Die
+    // Stufen dürfen wachsen, wenn sonst Inhalte fehlen — aber weiterhin klar
+    // unter der Fläche bleiben, die die Upload-Zone vorher hatte.
+    const anteil = 144 / GEMESSEN_MOBIL_HOEHE;
+    expect(anteil).toBeLessThan(1);
+    expect(anteil).toBeGreaterThan(0.8);
+    // „bei Desktop größer als mobil": mindestens 15 % mehr Höhe.
+    expect(174 / 144).toBeGreaterThan(1.15);
+    // Die mittlere Stufe liegt zwischen den beiden anderen.
+    expect(160).toBeGreaterThan(144);
+    expect(174).toBeGreaterThan(160);
   });
 
-  test("Nutzungshinweise in der Aufnahme-Zone bleiben in der festen Fläche", () => {
-    // Sie waren vorher der Höhengeber (min-height 96px). Innerhalb der Zone
-    // sind sie kleiner und ohne Mindesthöhe — sonst sprengt langer Text die
-    // feste Fläche und wird abgeschnitten.
-    expect(rule(".ps-zone .ps-tips ")).toContain("min-height: 0");
-    expect(rule(".ps-zone .ps-tips-text")).toContain("font-size: 13px");
+  test("Gestenhinweise bleiben in der festen Fläche und geben keine Höhe vor", () => {
+    // Change 216: Der frühere Hinweisblock NEBEN dem Knopf (eigene
+    // Mindesthöhe 96 px) ist entfernt. Die Hinweise liegen jetzt
+    // absolut über bzw. unter dem Knopf und können keine Höhe vorgeben.
+    expect(/\.ps-tips\s*[,{]/.test(css)).toBe(false);
+    expect(/\.ps-tips-/.test(css)).toBe(false);
+    expect(rule(".ps-record-tip {")).toContain("position: absolute");
+    expect(rule(".ps-record-ghost {")).toContain("position: absolute");
+    expect(rule(".ps-record-stage {")).toContain("position: relative");
+  });
+
+  test("alle drei Tabs benutzen denselben Höhenrahmen", () => {
+    // Change 217: Ein Rahmen für alle drei Quellen — dieselbe Mindesthöhe,
+    // gleicher Innenabstand, damit kein Tab höher ist als die anderen.
+    const body = rule(".ps-tab-body {");
+    expect(body).toContain("min-height: calc(var(--ps-zone-h) + 48px)");
+    expect(body).toContain("padding: 8px 0");
+    expect(body).toContain("gap: 8px");
+    // Dieselbe Zeile in jedem Tab (Zeit/Status, URL-Anmeldung).
+    expect(rule(".ps-tab-line {")).toContain("min-height: 16px");
   });
 });

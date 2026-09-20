@@ -286,67 +286,10 @@ audio {
 .ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); top: auto; bottom: 1px; }
 .ps-timing-word-active { color: #7ee787; top: 1px; bottom: auto; }
 
-/* Change 211 (Nutzer-Vorgabe 19.09.2026): Nutzungshinweise neben dem
-   Record-Knopf — groß, nacheinander eingeblendet, mit animiertem Pfeil.
-   Bewusst deutlich größer als vorher; sie sollen sofort ins Auge fallen. */
-.ps-tips {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 200px;
-  flex: 0 0 200px;
-  min-height: 96px;
-  justify-content: flex-start;
-  animation: ps-tip-in 0.4s ease-out;
-}
-.ps-tips-arrow {
-  font-size: 34px;
-  line-height: 1;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ps-accent, #2ea043);
-}
-.ps-tips-text {
-  font-size: 15px;
-  line-height: 1.25;
-  min-height: calc(2 * 1.25em);
-  text-align: center;
-  color: var(--ps-text, #e6edf3);
-}
-@keyframes ps-tip-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes ps-tip-up {
-  0%, 100% { transform: translateY(4px); opacity: 0.6; }
-  50%      { transform: translateY(-6px); opacity: 1; }
-}
-@keyframes ps-tip-down {
-  0%, 100% { transform: translateY(-4px); opacity: 0.6; }
-  50%      { transform: translateY(6px); opacity: 1; }
-}
-@keyframes ps-tip-hold {
-  0%, 100% { transform: scale(1); opacity: 0.65; }
-  50%      { transform: scale(1.25); opacity: 1; }
-}
-.ps-tip-up { animation: ps-tip-up 1.6s ease-in-out infinite; }
-.ps-tip-down { animation: ps-tip-down 1.6s ease-in-out infinite; }
-.ps-tip-hold { animation: ps-tip-hold 1.6s ease-in-out infinite; }
-
-/* Wer Bewegung reduziert haben will, bekommt die Hinweise statisch. */
-@media (prefers-reduced-motion: reduce) {
-  .ps-tips,
-  .ps-tip-up,
-  .ps-tip-down,
-  .ps-tip-hold {
-    animation: none;
-    opacity: 0.95;
-  }
-}
+/* Change 216 (Nutzer-Vorgabe 20.09.2026): Die früheren Nutzungshinweise
+   NEBEN dem Knopf (Klasse .ps-tips mit Pfeil und Textblock) sind ersetzt —
+   an ihre Stelle tritt die halbtransparente Knopfkopie, siehe Abschnitt
+   „Change 216" weiter unten. */
 .ps-timing-region-active {
   box-shadow: inset 1px 0 0 rgba(46, 160, 67, 0.85), inset -1px 0 0 rgba(46, 160, 67, 0.85);
 }
@@ -384,20 +327,29 @@ audio {
      ab 640 px  : 143 px   (+15 % gegenüber Mobil)
      ab 1024 px : 174 px   (+40 % gegenüber Mobil — Desktop deutlich größer)
 
+   Change 217 (Nutzer-Vorgabe 20.09.2026): Reicht der Platz in einem Tab nicht
+   für alle Bedienelemente, werden ALLE drei Stufen gemeinsam größer — Inhalte
+   werden nicht verdichtet und nicht abgeschnitten. Ein Tab kann nicht mehr
+   höher sein als die anderen. Neue Stufen (gemessen, siehe unten):
+     bis 639 px : 144 px   (87 % der bisherigen Fläche)
+     ab 640 px  : 160 px   (84 % der bisherigen Fläche)
+     ab 1024 px : 174 px   (unverändert — hier reichte der Platz schon)
+
    Innerhalb einer Stufe ändert sich die Fläche NIE: Höhe kommt aus
    --ps-zone-h, Breite ist 100 % bis --ps-zone-maxw. `overflow: hidden` und
    die feste Höhe sorgen dafür, dass kein Inhalt (Hinweistext, Dateiliste,
-   Fortschrittszeile, Fehlermeldung) als Höhengeber wirken kann.
+   Fortschrittszeile, Fehlermeldung) als Höhengeber wirken kann — die Stufen
+   sind aber so bemessen, dass nichts abgeschnitten wird.
    ============================================================ */
 :root {
-  --ps-zone-h: 124px;
+  --ps-zone-h: 144px;
   --ps-zone-maxw: 100%;
   --ps-zone-border: #2c3d2d;
   --ps-zone-accent: #2ea043;
 }
 @media (min-width: 640px) {
   :root {
-    --ps-zone-h: 143px;
+    --ps-zone-h: 160px;
     --ps-zone-maxw: 560px;
   }
 }
@@ -447,13 +399,18 @@ audio {
   background: rgba(46, 160, 67, 0.08);
 }
 
-/* Waagerechte Reihe in der Zone (Aufnahmeknopf + Nutzungshinweise). */
-.ps-zone-row {
+/* Change 216 (Nutzer-Vorgabe 20.09.2026): Bezugsrahmen für den Aufnahmeknopf.
+   Die frühere waagerechte Reihe (Knopf + Hinweisblock daneben, .ps-zone-row)
+   ist entfallen — der Knopf steht jetzt mittig, die Hinweise liegen als
+   halbtransparente Kopie ÜBER ihm.
+   Der Rahmen ist genau so groß wie der Knopf, weil NUR der Knopf im Fluss
+   liegt (Kopie und Hinweiszeile sind absolut positioniert). Dadurch können
+   sie die Position des Knopfes baulich nicht verändern. */
+.ps-record-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
-  max-width: 100%;
 }
 
 /* Inhalt in der Zone — bewusst kompakt, damit er in die feste Fläche passt. */
@@ -490,11 +447,163 @@ audio {
   transition: width 0.3s;
 }
 
-/* Nutzungshinweise IN der Aufnahme-Zone: etwas kleiner als zuvor, damit sie
-   die feste Fläche auch bei langem Text nicht sprengen. */
-.ps-zone .ps-tips { width: 170px; flex: 0 0 170px; min-height: 0; }
-.ps-zone .ps-tips-arrow { font-size: 28px; width: 34px; height: 34px; }
-.ps-zone .ps-tips-text { font-size: 13px; line-height: 1.2; min-height: calc(2 * 1.2em); }
+/* ============================================================
+   Change 216 (Nutzer-Vorgabe 20.09.2026) — Gestenhinweise als halbtransparente
+   Kopie des Aufnahmeknopfes.
+
+   Der gemeldete Fehler war ein springender Knopf, weil die Hinweise daneben
+   standen und als Höhengeber wirkten. Hier ist deshalb jedes Hinweis-Bauteil
+   absolut positioniert; der Knopf ist das einzige Element im Fluss. Die Kopie
+   liegt mit `inset: 0` exakt auf dem Knopf (gleiche Größe, gleiche Kreisform
+   aus .ps-record-ghost + Größenklassen des Knopfes), ist halbtransparent
+   (0,55) und fängt mit `pointer-events: none` keine Klicks ab.
+   ============================================================ */
+
+/* Halbtransparente Kopie — Größe und Form wie der Knopf, keine Klicks. */
+.ps-record-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+  border: 2px solid var(--ps-ghost-line, #2ea043);
+  background: var(--ps-ghost-fill, rgba(46, 160, 67, 0.28));
+}
+
+/* Pulsierender Ring — steht für „Aufnahme läuft". */
+.ps-record-ghost-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2px solid var(--ps-ghost-line, #2ea043);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Farben je Hinweis aus der eigenen Palette, ein- bzw. zweifarbig — und die
+   Bewegung dazu, ausschließlich mit `transform`, also ohne jeden Einfluss auf
+   das Layout (der Knopf kann sich dadurch nicht bewegen). */
+@keyframes ps-ghost-up {
+  0%, 100% { transform: translateY(0); }
+  45%      { transform: translateY(-12px); }
+}
+@keyframes ps-ghost-down {
+  0%, 100% { transform: translateY(0); }
+  45%      { transform: translateY(4px); }
+}
+@keyframes ps-ghost-sink {
+  0%, 100% { transform: scale(1); }
+  35%, 70% { transform: scale(0.86); }
+}
+@keyframes ps-ghost-rise {
+  0%, 100% { transform: scale(0.92); }
+  40%      { transform: scale(1.06); }
+}
+@keyframes ps-ghost-ring {
+  0%   { transform: scale(0.92); opacity: 0.8; }
+  100% { transform: scale(1.3);  opacity: 0; }
+}
+.ps-ghost-lock {
+  --ps-ghost-line: var(--ps-accent, #2ea043);
+  --ps-ghost-fill: rgba(46, 160, 67, 0.28);
+  animation: ps-ghost-up 1.9s ease-in-out infinite;
+}
+.ps-ghost-stop {
+  --ps-ghost-line: var(--ps-err, #f85149);
+  --ps-ghost-fill: rgba(248, 81, 73, 0.28);
+  animation: ps-ghost-down 1.9s ease-in-out infinite;
+}
+.ps-ghost-sink {
+  --ps-ghost-line: #2ea043;
+  --ps-ghost-fill: rgba(46, 160, 67, 0.28);
+  animation: ps-ghost-sink 1.9s ease-in-out infinite;
+}
+.ps-ghost-rise {
+  --ps-ghost-line: #d99e2b;
+  --ps-ghost-fill: rgba(217, 158, 43, 0.28);
+  animation: ps-ghost-rise 1.9s ease-in-out infinite;
+}
+.ps-ghost-sink .ps-record-ghost-ring { animation: ps-ghost-ring 1.5s ease-out infinite; }
+
+/* Eine Zeile Hinweistext unter dem Knopf — absolut positioniert, damit sie
+   die Höhe der festen Zone nicht beeinflussen kann. 12 px Abstand zum Knopf:
+   so kann die Kopie nach unten wischen, ohne den Text zu berühren. */
+.ps-record-tip {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  white-space: nowrap;
+  max-width: min(92vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 1.2;
+  color: #d2e8cd;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ============================================================
+   Change 217 (Nutzer-Vorgabe 20.09.2026) — alle drei Quellen-Tabs gleich hoch.
+
+   Der Aufnahme-Tab wirkte fast doppelt so hoch wie Datei-Upload und URL:
+   unsichtbare Wellenform (60 px reserviert), große Aufnahmezeit (22/28 px),
+   eigene Mikrofon-Zeile und eigene Statuszeile. Alles davon lag UNTER bzw.
+   ÜBER der Zone und summierte sich.
+
+   Jetzt gilt für alle drei Tabs derselbe Rahmen `.ps-tab-body`: gleicher
+   Innenabstand oben/unten (8 px), gleicher Abstand zwischen den Teilen (8 px)
+   und dieselbe Mindesthöhe (Zonenhöhe + 48 px = zweimal 8 px Rand, zweimal
+   8 px Abstand und eine 16-px-Zeile). Damit kann kein Tab höher werden als
+   die anderen, ohne dass dabei etwas abgeschnitten wird.
+   ============================================================ */
+.ps-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  min-height: calc(var(--ps-zone-h) + 48px);
+  width: 100%;
+}
+
+/* EINE kompakte Zeile je Tab (Zeit + Status + Mikrofonauswahl, URL-Anmeldung).
+   Sie darf umbrechen, ist im Ruhezustand aber genau 16 px hoch. */
+.ps-tab-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 16px;
+  line-height: 16px;
+  font-size: 12px;
+  color: #7d9c74;
+  text-align: center;
+  max-width: var(--ps-zone-maxw);
+  margin: 0 auto;
+}
+
+/* Wer Bewegung reduziert haben will, bekommt ein Standbild des Hinweises:
+   keine Animation, aber die jeweilige Stellung bleibt erkennbar. */
+@media (prefers-reduced-motion: reduce) {
+  .ps-record-ghost,
+  .ps-record-ghost-ring {
+    animation: none !important;
+  }
+  .ps-ghost-lock { transform: translateY(-9px); }
+  .ps-ghost-stop { transform: translateY(4px); }
+  .ps-ghost-sink { transform: scale(0.88); }
+  .ps-ghost-rise { transform: scale(1.04); }
+  .ps-ghost-sink .ps-record-ghost-ring { opacity: 0.5; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ps-zone-drop { transition: none; }

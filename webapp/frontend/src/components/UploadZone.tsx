@@ -20,6 +20,12 @@ import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.js";
 import { ensureAudioSessionForRecording, restoreAudioSessionAfterRecording, isWebKitAudioSession } from "../audioSession";
 import { Zone } from "./Zone";
+import {
+  RECORD_BUTTON_SHAPE,
+  RECORD_GESTURE_TIPS,
+  RecordGestureHint,
+  gestureTipAt,
+} from "./RecordGestureHint";
 
 interface Props {
   user?: UserInfo | null;
@@ -512,7 +518,7 @@ export function UploadZone({ user }: Props) {
         </div>
       )}
       {inputMode === "upload" && (
-        <>
+        <div className="ps-tab-body">
           <UploadTab
             isUploading={isUploading}
             isDragging={isDragging}
@@ -608,7 +614,7 @@ export function UploadZone({ user }: Props) {
               </button>
             </div>
           )}
-        </>
+        </div>
       )}
       {inputMode === "record" && (
         <RecordTab
@@ -745,19 +751,17 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
-  // Change 211 (Nutzer-Vorgabe 19.09.2026): Nutzungshinweise nacheinander —
-  // groß neben dem Record-Knopf, einer nach dem anderen, mit animiertem Pfeil.
-  const usageTips = [
-    { key: "gesture_lock_up", glyph: "▲", anim: "ps-tip-up" },
-    { key: "gesture_stop_down", glyph: "▼", anim: "ps-tip-down" },
-    { key: "gesture_hold", glyph: "◉", anim: "ps-tip-hold" },
-    { key: "gesture_release_pause", glyph: "❙❙", anim: "ps-tip-hold" },
-  ] as const;
+  // Change 216 (Nutzer-Vorgabe 20.09.2026): Die Hinweise stehen nicht mehr
+  // als Block neben dem Knopf, sondern als halbtransparente Kopie ÜBER ihm.
+  // Die Reihenfolge und die Bewegung stehen in RecordGestureHint.tsx.
   const [tipIdx, setTipIdx] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setTipIdx((i) => (i + 1) % usageTips.length), 2600);
+    const id = window.setInterval(
+      () => setTipIdx((i) => (i + 1) % RECORD_GESTURE_TIPS.length),
+      2600
+    );
     return () => window.clearInterval(id);
-  }, [usageTips.length]);
+  }, []);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -1226,15 +1230,31 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
+  // Change 217: Status für die eine kompakte Zeile unter der Zone. Auf
+  // Touch-Geräten steht die Geste schon in der Hinweiszeile der Kopie —
+  // dort bleibt nur die Uhrzeit (kein doppelter Hinweis, keine zweite Zeile).
+  const statusText = !recording
+    ? t("rec_btn")
+    : paused
+      ? t("push_record_paused")
+      : isTouch
+        ? null
+        : t("push_record_continuous");
+
   return (
-    <div className="flex flex-col items-center gap-3 py-4">
-      {/* WaveSurfer waveform container — only visible during recording.
-          Höhe IMMER reservieren (min-h), damit der Layout-Shift beim Start
-          entfällt: ohne feste Höhe schiebt das Sichtbarwerden den Button
-          nach unten und die Seite wirkt, als würde sie hochscrollen. */}
+    <div className="ps-tab-body">
+      {/* Change 217 (Nutzer-Vorgabe 20.09.2026): Die Wellenform belegt im
+          Ruhezustand KEINEN Platz mehr. Vorher reservierte sie immer 60 px
+          (min-h), obwohl sie unsichtbar war — das war ein guter Teil des
+          „leeren Bereichs darüber", der den Tab fast doppelt so hoch machte
+          wie die anderen. Während der Aufnahme erscheint sie und bekommt
+          ihre 60 px; im Ruhezustand ist sie 0 px hoch. */}
       <div
         ref={containerRef}
-        className={`w-full max-w-[500px] px-2 sm:px-0 min-h-[60px] ${recording ? "" : "invisible"}`}
+        data-testid="record-wave"
+        className={`w-full max-w-[500px] px-2 sm:px-0 ${
+          recording ? "min-h-[60px]" : "h-0 min-h-0 overflow-hidden invisible"
+        }`}
       />
 
       {/* Offline-Puffer-Banner: liegt jetzt in der Hauptkomponente
@@ -1245,91 +1265,95 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           dauerhafte, animierte Hilfe direkt am Record-Knopf. */}
 
       {/* Aufnahme-Button — Mobile: Push-to-Record, Desktop: wie bisher.
-          Change 211 (Nutzer-Vorgabe 19.09.2026): Die Nutzungshinweise stehen
-          groß NEBEN dem Knopf und werden nacheinander eingeblendet. */}
-      {/* Change 215: Der Aufnahmeknopf steht in derselben Zone wie die
-          anderen Quellen — Linienart durchgezogen, Maße identisch. */}
+          Change 215: Der Aufnahmeknopf steht in derselben Zone wie die anderen
+          Quellen — Linienart durchgezogen, Maße identisch.
+          Change 216 (Nutzer-Vorgabe 20.09.2026): Der Knopf steht MITTIG in der
+          Zone. Die Hinweise stehen nicht mehr als Block daneben, sondern als
+          halbtransparente Kopie ÜBER dem Knopf (RecordGestureHint). Die Kopie
+          liegt absolut in `.ps-record-stage` und kann die Knopfposition
+          deshalb nicht verändern. */}
       <Zone variant="solid" className="ps-zone-record">
-        <div className="ps-zone-row">
-      <div className="relative">
-        <button
-          onClick={isTouch ? undefined : (recording ? stopRecording : startRecording)}
-          onTouchStart={isTouch ? onTouchStart : undefined}
-          onTouchMove={isTouch ? onTouchMove : undefined}
-          onTouchEnd={isTouch ? onTouchEnd : undefined}
-          onTouchCancel={isTouch ? onTouchCancel : undefined}
-          className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full text-xl sm:text-2xl flex items-center justify-center transition-all shrink-0 select-none touch-none
-            ${recording
-              ? continuous
-                ? "bg-accent text-white shadow-lg animate-pulse"
-                : paused
-                  ? "bg-[#d99e2b] text-white shadow-lg"
-                  : "bg-err text-white shadow-lg animate-pulse"
-              : "bg-accent text-white hover:bg-accent/90"
-            }
-          `}
-        >
-          {recording
-            ? paused
-              ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="7" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b" fillOpacity="0.6"/></svg>
-              : continuous
-                ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg>
-                : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" fill="var(--ps-err, #f85149)" fillOpacity="0.3"/><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="var(--ps-err, #f85149)"/></svg>
-            : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="var(--ps-accent, #2ea043)"/><path d="M17 11a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" fill="var(--ps-accent, #2ea043)" fillOpacity="0.6"/></svg>}
-        </button>
+        <div className="ps-record-stage">
+          <button
+            data-testid="record-button"
+            onClick={isTouch ? undefined : (recording ? stopRecording : startRecording)}
+            onTouchStart={isTouch ? onTouchStart : undefined}
+            onTouchMove={isTouch ? onTouchMove : undefined}
+            onTouchEnd={isTouch ? onTouchEnd : undefined}
+            onTouchCancel={isTouch ? onTouchCancel : undefined}
+            className={`ps-record-btn ${RECORD_BUTTON_SHAPE} text-xl sm:text-2xl flex items-center justify-center transition-all shrink-0 select-none touch-none
+              ${recording
+                ? continuous
+                  ? "bg-accent text-white shadow-lg animate-pulse"
+                  : paused
+                    ? "bg-[#d99e2b] text-white shadow-lg"
+                    : "bg-err text-white shadow-lg animate-pulse"
+                : "bg-accent text-white hover:bg-accent/90"
+              }
+            `}
+          >
+            {recording
+              ? paused
+                ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="7" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b" fillOpacity="0.6"/></svg>
+                : continuous
+                  ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg>
+                  : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" fill="var(--ps-err, #f85149)" fillOpacity="0.3"/><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="var(--ps-err, #f85149)"/></svg>
+              : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="var(--ps-accent, #2ea043)"/><path d="M17 11a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" fill="var(--ps-accent, #2ea043)" fillOpacity="0.6"/></svg>}
+          </button>
 
-      </div>
-
-        {/* Change 211: Nutzungshinweise — nacheinander, groß, mit Pfeil. */}
-        {isTouch && (
-          <div className="ps-tips">
-            <div className={`ps-tips-arrow ${usageTips[tipIdx].anim}`} aria-hidden="true">
-              {usageTips[tipIdx].glyph}
-            </div>
-            <div className="ps-tips-text">{t(usageTips[tipIdx].key)}</div>
-          </div>
-        )}
+          {/* Change 216: halbtransparente Kopie des Knopfes + eine Zeile Text.
+              Nur auf Touch-Geräten — dort gibt es die Wischgesten. */}
+          {isTouch && (
+            <RecordGestureHint tipIdx={tipIdx} label={t(gestureTipAt(tipIdx).key)} />
+          )}
         </div>
       </Zone>
 
-      {/* Statuszeile bleibt bestehen (Pause/Daueraufnahme) */}
+      {/* Change 217 (Nutzer-Vorgabe 20.09.2026): Eingangsquelle (Mikrofon),
+          Aufnahmezeit und Status stehen in EINER kompakten Zeile unter der
+          Zone. Vorher waren das drei eigene Blöcke (Mikrofon-Auswahl,
+          Statuszeile, große Aufnahmezeit 22/28 px) — sie machten den Tab
+          höher als die anderen. Diese Zeile ist jetzt gleich hoch wie die
+          eine Zeile der anderen Tabs. */}
+      <div className="ps-tab-line">
+        <span className="tabular-nums font-mono font-semibold text-txt">{fmt(duration)}</span>
+        {statusText ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className={paused && recording ? "text-[#d99e2b] font-semibold" : undefined}>
+              {statusText}
+            </span>
+          </>
+        ) : null}
+        {micDevices.length > 1 && !recording && (
+          <label className="inline-flex items-center gap-1">
+            <span aria-hidden="true">🎙</span>
+            <span className="sr-only">{t("mic_select_label")}</span>
+            <select
+              value={micDeviceId}
+              onChange={onMicDeviceChange}
+              aria-label={t("mic_select_label")}
+              className="bg-panel2 border border-border rounded-sm px-1 text-[11px] leading-none h-[18px] text-txt max-w-[150px]"
+            >
+              <option value="">{t("mic_select_default")}</option>
+              {micDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `${t("mic_select_unnamed")} ${d.deviceId.slice(0, 4)}…`}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
-      {/* Mikrofon-Auswahl — nur wenn mehrere Inputs existieren */}
-      {micDevices.length > 1 && !recording && (
-        <label className="flex items-center gap-2 text-[12px] text-muted">
-          <span>🎙 {t("mic_select_label")}</span>
-          <select
-            value={micDeviceId}
-            onChange={onMicDeviceChange}
-            className="bg-panel2 border border-border rounded-sm px-2 py-1 text-[12px] text-txt max-w-[220px]"
-          >
-            <option value="">{t("mic_select_default")}</option>
-            {micDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `${t("mic_select_unnamed")} ${d.deviceId.slice(0, 4)}…`}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {/* Statuszeile für Mobile-Modus */}
-      {isTouch && recording && (
-        <div className="text-[12px] text-center">
-          {paused ? (
-            <span className="text-[#d99e2b] font-semibold inline-flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="7" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b" fillOpacity="0.6"/></svg> {t("push_record_paused")}</span>
-          ) : (
-            <span className="text-accent font-semibold inline-flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg> {t("push_record_continuous")}</span>
-          )}
+      {/* Nur während/nach einer Aufnahme — im Ruhezustand nicht vorhanden,
+          damit kein Element die Tab-Höhe vergrößert. */}
+      {wakelock && (
+        <div className="text-[11px] text-muted2 flex items-center gap-1">
+          <span>🔒</span> {t("rec_wakelock")}
         </div>
       )}
 
-      {/* Change 211 (Nutzer-Vorgabe 19.09.2026): Die kleine Hinweiszeile ist
-          ersetzt — die Nutzungshinweise stehen jetzt groß neben dem Knopf. */}
-
-      <div className="text-[22px] sm:text-[28px] font-mono tabular-nums">{fmt(duration)}</div>
-
-      {/* Sichtbares Upload-Feedback — direkt nach Stop, kein stummes Warten */}
       {uploadPhase !== "idle" && (
         <div className="w-full max-w-[500px] bg-panel2 border border-border rounded-sm px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 text-[12px] text-txt">
@@ -1355,14 +1379,6 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
           )}
         </div>
       )}
-
-      {wakelock && (
-        <div className="text-[11px] text-muted2 flex items-center gap-1">
-          <span>🔒</span> {t("rec_wakelock")}
-        </div>
-      )}
-
-      <div className="text-[12px] text-muted">{t("rec_btn")}</div>
     </div>
   );
 }
@@ -1538,7 +1554,7 @@ function UrlTab({ toast, qc, t, values, onStartJob }: {
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 py-6">
+    <div className="ps-tab-body">
       {/* Change 215: dieselbe Zone wie im Upload- und Aufnahme-Tab —
           Beschriftung und Eingabefeld liegen darin, die Anmeldung darunter. */}
       <Zone variant="solid" className="ps-zone-url">
@@ -1563,15 +1579,20 @@ function UrlTab({ toast, qc, t, values, onStartJob }: {
           </div>
         </div>
       </Zone>
-      {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar) */}
+      {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar).
+          Change 217: Der Aufklapp-Knopf steht in derselben kompakten Zeile wie
+          der Hinweis im Aufnahme-Tab, damit alle drei Tabs gleich hoch sind. */}
       <div className="w-full max-w-[500px]">
+        <div className="ps-tab-line">
         <button
           type="button"
           onClick={() => setShowAuth((s) => !s)}
+          aria-expanded={showAuth}
           className="text-[12px] text-muted hover:text-accent underline underline-offset-2"
         >
           {showAuth ? "▾ " : "▸ "}{t("url_auth_toggle")}
         </button>
+        </div>
         {showAuth && (
           <div className="mt-2 flex flex-col gap-2 rounded-sm border border-border2 bg-panel p-3">
             <div className="flex flex-col sm:flex-row gap-2">

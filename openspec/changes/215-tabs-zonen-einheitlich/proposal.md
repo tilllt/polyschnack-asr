@@ -57,6 +57,39 @@ recording nichts etc. Die area bleibt immer gleich gross."
 4. **Die Aufnahme bekommt eine echte Zone.** Der Aufnahmeknopf steht mittig in
    dieser Zone, ihre Höhe richtet sich nach derselben Festlegung wie bei den
    anderen — nicht nach der Texthöhe der Hinweise.
+5. **Lieber gemeinsam größer als verdichten (Change 217, Nutzer-Vorgabe
+   20.09.2026).** Wörtlich: „Wenn der Platz in einem der Tabs nicht für alle UI
+   Elemente reicht, mache alle tab-areas etwas größer."
+
+   Regel daraus:
+   - Reicht der Platz in **einem** Tab nicht für alle Bedienelemente, werden
+     die drei Stufen **für alle Tabs gemeinsam** erhöht. Es gibt weiterhin nur
+     **einen** Satz Stufen — nie eine Sonderhöhe für einen einzelnen Tab.
+   - **Nicht verdichten und nicht abschneiden:** kein Element darf durch
+     `overflow: hidden` verschwinden. Die Stufen sind so bemessen, dass jedes
+     Bedienelement jedes Tabs vollständig sichtbar ist (in jedem Tab
+     nachgemessen).
+   - Die 75-%-Vorgabe für Mobil war der **Ausgangspunkt**, nicht die Obergrenze.
+     Sie gilt nur so lange, wie dadurch keine Inhalte fehlen.
+   - Bedienelemente eines Tabs liegen möglichst **innerhalb** der Zone. Passt
+     eines dort nicht sauber hinein, kommt es in **eine** kompakte Zeile
+     darunter — die Gesamthöhe des Tabs bleibt trotzdem in allen drei Tabs
+     gleich.
+   - **Kein Element doppelt:** derselbe Hinweis steht nicht gleichzeitig in der
+     Hinweiszeile der Knopfkopie und in der Statuszeile.
+
+   Umsetzung (Change 216/217, gemessen im Browser am 20.09.2026): Alle drei
+   Tabs benutzen den gemeinsamen Rahmen `.ps-tab-body` mit fester Mindesthöhe
+   („Zonenhöhe + 48 px"). Die neuen Stufen der Zonenhöhe:
+
+   | Breite | vorher | jetzt | Fläche im Tab |
+   | --- | --- | --- | --- |
+   | bis 639 px | 124 px | **144 px** | 192 px |
+   | ab 640 px | 143 px | **160 px** | 208 px |
+   | ab 1024 px | 174 px | **174 px** | 222 px |
+
+   Die Werte liegen weiterhin deutlich unter der ursprünglichen Upload-Fläche
+   (165,67 px mobil, 189,67 px ab 640 px) und sind in allen drei Tabs gleich.
 
 ## Unverhandelbar (aus früheren Aufträgen)
 - Der Aufnahmeknopf bleibt **mittig** und ändert seine Position nicht. Die
