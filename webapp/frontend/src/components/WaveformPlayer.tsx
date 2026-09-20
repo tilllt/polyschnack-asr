@@ -135,6 +135,145 @@ const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
 /** Vertikaler Kopfraum der Wellenform in px (oben+unten, 2026-08-16). */
 const WAVE_PAD = 5;
 
+// ────────────────────────────────────────────────────────────────────────
+// Change 217 (Nutzer-Vorgabe 20.09.2026): animierte Übergänge im Timing-Modus
+// ────────────────────────────────────────────────────────────────────────
+// „Könnten wir die Übergänge zwischen den markierten Wörtern animiert blenden?
+//  … es zoomt rein (oder raus), die Markierung wechselt ihre Farbe von Nachbar
+//  zu markiertem Wort, markiertes Wort wechselt auf Nachbarfarbe, Zentrierung
+//  scrollt smooth (mit ease out)?"
+//
+// FARBE: aktives Wort grün, Nachbarn bernstein — die Werte stehen EINMAL hier
+// und werden sowohl beim ANLEGEN der Flächen als auch bei der Farbgleitung
+// benutzt (sonst liefen Anlegen und Gleiten auseinander).
+export const TIMING_ACTIVE_REGION = "rgba(46,160,67,0.30)";
+export const TIMING_NEIGHBOR_REGION = "rgba(210,153,34,0.20)";
+export const TIMING_ACTIVE_LABEL = "#7ee787";
+export const TIMING_NEIGHBOR_LABEL = "rgba(233, 196, 106, 0.95)";
+/** Dauer der Farbgleitung (ms) — identisch zur CSS-Regel in index.css. */
+export const TIMING_COLOR_MS = 200;
+/** Dauer der Zoom-/Zentrierungsfahrt (ms). Zoom und Zentrierung laufen
+ *  GLEICH LANG, damit es als EINE Bewegung wirkt und nicht als zwei. */
+export const TIMING_MOTION_MS = 260;
+
+/** Weiche Kurve für Zoom/Zentrierung (Ease-out, kubisch). t wird geklemmt —
+ *  ein zu spät kommendes Bild landet am Endwert, nie darüber hinaus. */
+export function easeOutCubic(t: number): number {
+  const k = Math.min(1, Math.max(0, t));
+  return 1 - Math.pow(1 - k, 3);
+}
+
+/** Lineare Interpolation — ein Zwischenwert der Fahrt. */
+export function lerp(from: number, to: number, k: number): number {
+  return from + (to - from) * k;
+}
+
+/** Hat der Nutzer reduzierte Bewegung angefordert? Ohne matchMedia (jsdom,
+ *  alte Browser) gilt „nein" — dann läuft die Animation. */
+export function reduceMotionRequested(): boolean {
+  try {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Change 217: Fährt px/s UND Scroll-Position in EINER Bewegung von `from` nach
+ * `to`. WaveSurfer kennt keinen animierten Zoom — deshalb wird der Wert pro
+ * Bild in einer weichen Kurve interpoliert und der Zwischenwert gesetzt.
+ *
+ * Rückgabe: Abbruchfunktion. Nach dem Abbruch schreibt KEIN Bild mehr — der
+ * Aufrufer merkt sie sich und bricht vor der nächsten Fahrt ab (es läuft nie
+ * mehr als eine Animation auf derselben Ansicht).
+ *
+ * Bei reduzierter Bewegung wird der Endwert SOFORT gesetzt (wie bisher, ohne
+ * Übergang) — kein rAF, kein Zwischenschritt.
+ */
+export function animateTimingView(params: {
+  from: { pps: number; scroll: number };
+  to: { pps: number; scroll: number };
+  durationMs?: number;
+  reduced?: boolean;
+  /** Setzt einen Zwischen- oder Endwert (zoom + setScroll). */
+  apply: (pps: number, scroll: number) => void;
+  /** Letzter Wert nach dem Ende — für Anzeige-Zustand (sichtbares Fenster). */
+  done?: (pps: number, scroll: number) => void;
+  /** Injizierbar für Tests. */
+  raf?: (cb: (t: number) => void) => number;
+  cancelRaf?: (id: number) => void;
+  now?: () => number;
+}): () => void {
+  const { from, to, apply, done, durationMs = TIMING_MOTION_MS, reduced = false } = params;
+  const raf = params.raf ?? ((cb: (t: number) => void) => requestAnimationFrame(cb));
+  const cancelRaf = params.cancelRaf ?? ((id: number) => cancelAnimationFrame(id));
+  const now =
+    params.now ??
+    (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
+  if (reduced || !(durationMs > 0)) {
+    apply(to.pps, to.scroll);
+    done?.(to.pps, to.scroll);
+    return () => {};
+  }
+  let id: number | null = null;
+  let cancelled = false;
+  const start = now();
+  const step = () => {
+    if (cancelled) return;
+    const t = (now() - start) / durationMs;
+    if (t >= 1) {
+      apply(to.pps, to.scroll);
+      done?.(to.pps, to.scroll);
+      return;
+    }
+    const k = easeOutCubic(t);
+    apply(lerp(from.pps, to.pps, k), lerp(from.scroll, to.scroll, k));
+    id = raf(step);
+  };
+  id = raf(step);
+  return () => {
+    cancelled = true;
+    if (id != null) cancelRaf(id);
+    id = null;
+  };
+}
+
+/**
+ * Change 217 (Farbgleitung): setzt den Startwert eines Elements OHNE Übergang
+ * (Klasse .ps-no-transition + erzwungenes Reflow), nimmt die Klasse ab und
+ * setzt danach den Endwert — den Rest interpoliert CSS (200 ms ease-out).
+ * Rein DOM-lokal: kein JS-Timer, kein Zwischenwert von Hand.
+ */
+export function crossfadeStyle(
+  el: HTMLElement | null | undefined,
+  prop: "backgroundColor" | "color",
+  from: string,
+  to: string,
+): void {
+  if (!el) return;
+  try {
+    el.classList.add("ps-no-transition");
+    el.style[prop] = from;
+    // Reflow erzwingen: ohne Lesen des Layouts fasst der Browser beide
+    // Zuweisungen zusammen — es gäbe keinen Übergang.
+    void el.offsetWidth;
+    el.classList.remove("ps-no-transition");
+  } catch {
+    el.classList.remove("ps-no-transition");
+    return;
+  }
+  const finish = () => {
+    try {
+      el.style[prop] = to;
+    } catch {
+      /* Element inzwischen entfernt — nichts zu tun */
+    }
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(finish);
+  else finish();
+}
+
 // Change 096: Preview-Fetch + -DECODE im Web-Worker — der ArrayBuffer
 // (bei Worker-Decode: 16-bit-PCM-WAV, sonst Originalformat) kommt
 // transferable zurück; Progress 0–100 speist den Fortschritts-Background
@@ -466,6 +605,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const neighborRegionsRef = useRef<{ prev: any; next: any }>({ prev: null, next: null });
     const neighborDataRef = useRef(timingNeighbors);
     neighborDataRef.current = timingNeighbors;
+    // Change 217 (Nutzer-Vorgabe 20.09.2026): Abbruch der laufenden Zoom-/
+    // Zentrierungsfahrt. Es läuft immer HÖCHSTENS EINE — ein neuer Klick
+    // (Wortwechsel) bricht die vorige ab und startet die neue.
+    const flyCancelRef = useRef<(() => void) | null>(null);
+    // Change 217 (Farbgleitung): zuletzt eingefärbtes Wort + seine Spanne —
+    // daraus ergibt sich, welches Element von Grün nach Bernstein gleiten muss.
+    const colorKeyRef = useRef<string | null>(null);
+    const lastActiveSpanRef = useRef<{ start: number; end: number } | null>(null);
 
     // Fix 2026-09-20 (Nutzer-Befund: „Labels zeigen nicht immer das aktuelle
     // Wort und die beiden Nachbarwörter"): Die Beschriftungen hängen an TEXT
@@ -532,7 +679,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               end: timingWord.end,
               // Change 210: kräftiger — die Markierung war zu blass, um sie im
               // Zoom sicher zu treffen (User-Befund 19.09.2026).
-              color: "rgba(46,160,67,0.30)",
+              color: TIMING_ACTIVE_REGION,
               drag: true,
               resize: true,
               minLength: MIN_WORD_DURATION_S,
@@ -677,7 +824,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               end: n.end,
               // Change 210: als KONTEXT deutlich sichtbar (Bernstein, gestrichelt)
               // — vorher zu blass (User-Befund 19.09.2026).
-              color: "rgba(210,153,34,0.20)",
+              color: TIMING_NEIGHBOR_REGION,
               drag: false,
               resize: false, // reine Anzeige — Greifpunkte nur am aktiven Wort
               minLength: MIN_WORD_DURATION_S,
@@ -753,6 +900,52 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     useEffect(() => {
       syncTimingLabels();
     }, [timingWord, timingWordText, timingNeighbors, ready, syncTimingLabels]);
+
+    // ── Change 217 (Nutzer-Vorgabe 20.09.2026): Farben GLEITEN beim Wortwechsel ──
+    // Wörtlich: „die Markierung wechselt ihre Farbe von Nachbar zu markiertem
+    // Wort, markiertes Wort wechselt auf Nachbarfarbe".
+    //
+    // Die Flächen und Beschriftungen werden beim Wechsel WIEDERVERWENDET und
+    // wandern mit (die grüne Fläche springt auf das neue Wort, die bernstein-
+    // farbene nimmt deren alten Platz ein). Deshalb wird die Farbe AN DER NEUEN
+    // POSITION angesetzt: Startwert ohne Übergang, danach der Zielwert — den
+    // Rest der 200 ms interpoliert CSS (.ps-timing-region-*/.ps-timing-word-*).
+    // Kein JS-Timer, keine Zwischenwerte von Hand.
+    //
+    // Läuft NACH den Flächen-/Nachbar-Effekten (Reihenfolge der Deklaration),
+    // weil erst dann feststeht, welche Nachbarfläche das alte Wort überdeckt.
+    // Bei einem Drag bleibt der Schlüssel gleich → hier passiert nichts
+    // (Ziehen an den Zeitgrenzen animiert nie).
+    useEffect(() => {
+      const key = timingWord ? `${timingWord.segIdx}:${timingWord.wordIdx}` : null;
+      const prevSpan = lastActiveSpanRef.current;
+      const isFirst = colorKeyRef.current === null;
+      if (key === colorKeyRef.current) return; // kein Wortwechsel
+      colorKeyRef.current = key;
+      if (!timingWord) {
+        lastActiveSpanRef.current = null;
+        return;
+      }
+      lastActiveSpanRef.current = { start: timingWord.start, end: timingWord.end };
+      if (isFirst || !prevSpan) return; // erster Aufbau: nichts, von dem geglitten würde
+      // Die Nachbarfläche, die JETZT auf dem alten Wort liegt — nur sie war
+      // grün und geht in die Nachbarfarbe über (keine fremden Flächen färben).
+      const neighbors = [neighborRegionsRef.current.prev, neighborRegionsRef.current.next];
+      const oldRegion = neighbors.find(
+        (r) => r && Math.abs((r.start ?? NaN) - prevSpan.start) < 1e-3,
+      );
+      const oldEl = oldRegion?.element as HTMLElement | null | undefined;
+      const oldLabel = oldEl?.querySelector<HTMLElement>(".ps-timing-word") ?? null;
+      crossfadeStyle(
+        timingRegionRef.current?.element as HTMLElement | null | undefined,
+        "backgroundColor",
+        TIMING_NEIGHBOR_REGION,
+        TIMING_ACTIVE_REGION,
+      );
+      crossfadeStyle(oldEl, "backgroundColor", TIMING_ACTIVE_REGION, TIMING_NEIGHBOR_REGION);
+      crossfadeStyle(timingWordLabelRef.current, "color", TIMING_NEIGHBOR_LABEL, TIMING_ACTIVE_LABEL);
+      crossfadeStyle(oldLabel, "color", TIMING_ACTIVE_LABEL, TIMING_NEIGHBOR_LABEL);
+    }, [timingWord, timingNeighbors, ready, syncTimingLabels]);
 
     const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
       // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst
@@ -873,7 +1066,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           MIN_PPS,
           effectiveMaxPps(w.getDuration?.() ?? duration),
         );
-        ppsRef.current = pps;
+        // Change 217 (Nutzer-Vorgabe 20.09.2026): Ausgangswerte der weichen
+        // Fahrt = der AKTUELL ANGEZEIGTE Stand. Die Fahrt unten führt ppsRef
+        // pro Bild nach; ein Klick mitten in eine laufende Fahrt startet damit
+        // dort, wo sie steht — kein Rücksprung.
+        const fromPps = ppsRef.current;
+        const fromScroll = (w as unknown as { getScroll?: () => number }).getScroll?.() ?? 0;
         // Change 142: Im Timing-Zoom sind die Balken (barWidth 2/gap 1) zu
         // gestreckten Strichen mit Lücken entartet — man erkennt das Wort
         // nicht mehr. Durchgehende Wellenform (barWidth 0 = gefüllte Kurve);
@@ -883,7 +1081,9 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         } catch {
           /* setOptions nicht verfügbar — Zoom läuft mit bisheriger Optik */
         }
-        w.zoom(pps);
+        // Change 217 (Nutzer-Vorgabe 20.09.2026): NICHT mehr schlagartig
+        // zoomen — die Fahrt unten setzt jeden Zwischenwert (WaveSurfer kennt
+        // keinen animierten Zoom).
         setTimingZoom(true);
         // Change 210 (User-Befund 19.09.2026): Die Waveform in den Blick holen.
         // Sonst „passiert nichts", wenn die Ansicht weggescrollt ist — der
@@ -919,7 +1119,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
                 zoom?: (pps: number) => void;
               };
               cur?.setPeaks?.([fine]);
-              cur?.zoom?.(ppsRef.current);
+              // Change 217: den ZIELWERT neu setzen (lokale Variable), nicht
+              // ppsRef — die führt während der Fahrt den Zwischenwert und
+              // würde die laufende Fahrt sonst für ein Bild zurückwerfen.
+              cur?.zoom?.(pps);
             } catch {
               /* setPeaks nicht verfügbar — Basis-Peaks bleiben */
             }
@@ -927,25 +1130,58 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           });
         }
         
+        // Change 2026-09-15: Center the word in the visible view.
         try {
-          // Change 2026-09-15: Center the word in the visible view
+          // Der Cursor springt sofort an den Wortanfang (kein Übergang) —
+          // animiert werden Zoom und Zentrierung, nicht der Abspiel-Cursor.
           w.setTime(tw.start);
-          // Calculate scroll position so the word appears centered
-          // (word midpoint at 50% of the visible width)
-          const wDur = w.getDuration?.() ?? 0;
-          const cw = containerRef.current?.clientWidth ?? 800;
-          const wordMid = (tw.start + tw.end) / 2;
-          const targetScroll = Math.max(0, pps * wordMid - cw / 2);
-          if (wDur > 0 && targetScroll >= 0) {
-            (w as any).setScroll?.(targetScroll);
-            // Change 199: Fenster sofort setzen — der Scroll-Listener feuert
-            // bei programmatischem setScroll nicht in jedem Browser.
-            setViewWin(visibleWindow(cw, targetScroll, pps, wDur));
-          }
         } catch {
           /* WS7 noch ohne geladenes Audio — Seek überspringen */
         }
+        const cw = width;
+        const wordMid = (tw.start + tw.end) / 2;
+        const targetScroll = Math.max(0, pps * wordMid - cw / 2);
+        // Change 199: Fenster sofort auf den Ausgangsstand setzen — der
+        // Scroll-Listener feuert bei programmatischem setScroll nicht in
+        // jedem Browser.
+        if (wDur > 0) setViewWin(visibleWindow(cw, fromScroll, fromPps, wDur));
+        // ── Change 217 (Nutzer-Vorgabe 20.09.2026): Zoom UND Zentrierung
+        // als EINE weiche Fahrt. Beide Werte laufen über dieselbe Dauer
+        // (260 ms, ease-out) — zwei getrennte Bewegungen wären sichtbar.
+        // Die vorige Fahrt wird VORHER abgebrochen: es läuft nie mehr als
+        // eine Animation auf dieser Ansicht.
+        flyCancelRef.current?.();
+        flyCancelRef.current = animateTimingView({
+          from: { pps: fromPps, scroll: fromScroll },
+          to: { pps, scroll: targetScroll },
+          durationMs: TIMING_MOTION_MS,
+          reduced: reduceMotionRequested(),
+          apply: (p, s) => {
+            // ppsRef führt den ANGEZEIGTEN Wert (Klick-Seek rechnet damit).
+            ppsRef.current = p;
+            if (!wsReadyRef.current) return; // neuer ws ohne Audio → nicht zoomen
+            try {
+              w.zoom(p);
+            } catch {
+              /* WS7 ohne geladenes Audio — Zwischenwert übersprungen */
+            }
+            try {
+              (w as any).setScroll?.(s);
+            } catch {
+              /* setScroll nicht verfügbar — Zentrierung bleibt aus */
+            }
+          },
+          done: (p, s) => {
+            ppsRef.current = p;
+            if (wDur > 0) setViewWin(visibleWindow(cw, s, p, wDur));
+          },
+        });
       } else {
+        // Change 217: kein Nachlauf in den Fit-Zustand — hier wird (wie
+        // bisher) sofort auf „fit" gestellt, aber eine noch laufende Fahrt
+        // wird vorher abgebrochen (sonst kämpften Fahrt und Reset).
+        flyCancelRef.current?.();
+        flyCancelRef.current = null;
         setTimingZoom(false);
         // Change 142: zurück zur Balken-Optik (Kopfraum-Design).
         try {
@@ -956,6 +1192,20 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         doZoom(w, 0);
       }
     }, [ready, timingWord, doZoom]);
+
+    // Change 217: Beim Unmount läuft keine Fahrt weiter — die rAF-Schleife
+    // würde sonst auf einen bereits zerstörten WaveSurfer schreiben. Bewusst
+    // ein eigener Effekt OHNE weitere Abhängigkeiten: der Effekt oben läuft
+    // bei nachgelieferten Peaks/Annotations erneut (doZoom ändert seine
+    // Identität) — ein Cleanup dort würde eine laufende Fahrt mittendrin
+    // abbrechen.
+    useEffect(
+      () => () => {
+        flyCancelRef.current?.();
+        flyCancelRef.current = null;
+      },
+      [],
+    );
 
     // Change 083-Fix (2026-08-22): Initial-Zoom erst NACH dem
     // Sichtbarwerden. Der ready-Handler lief mit display:none-Container

@@ -286,6 +286,37 @@ audio {
 .ps-timing-word-neighbor { color: rgba(233, 196, 106, 0.95); top: auto; bottom: 1px; }
 .ps-timing-word-active { color: #7ee787; top: 1px; bottom: auto; }
 
+/* Change 217 (Nutzer-Vorgabe 20.09.2026): „Könnten wir die Übergänge zwischen
+   den markierten Wörtern animiert blenden?" — Beim Wortwechsel GLEITEN die
+   Farben: das alte Wort verlässt sein Grün Richtung Nachbarfarbe, das neue
+   wird grün. Interpoliert wird vom Browser (CSS), JavaScript setzt nur die
+   Zielwerte (crossfadeStyle in WaveformPlayer.tsx). 200 ms ease-out. */
+.ps-timing-word-active,
+.ps-timing-word-neighbor {
+  transition: color 200ms ease-out;
+}
+.ps-timing-region-active,
+.ps-timing-region-neighbor {
+  transition: background-color 200ms ease-out;
+}
+/* Startwert einer Farbgleitung: EINE Zuweisung OHNE Übergang — sonst liefe
+   der Übergang vom alten Endwert los statt von der Position des neuen Wortes. */
+.ps-no-transition,
+.ps-no-transition * {
+  transition: none !important;
+}
+
+/* Wer Bewegung reduziert haben will, bekommt den Wechsel wie bisher ohne
+   Übergang (Standbild statt Bewegung). */
+@media (prefers-reduced-motion: reduce) {
+  .ps-timing-word-active,
+  .ps-timing-word-neighbor,
+  .ps-timing-region-active,
+  .ps-timing-region-neighbor {
+    transition: none;
+  }
+}
+
 /* Change 216 (Nutzer-Vorgabe 20.09.2026): Die früheren Nutzungshinweise
    NEBEN dem Knopf (Klasse .ps-tips mit Pfeil und Textblock) sind ersetzt —
    an ihre Stelle tritt die halbtransparente Knopfkopie, siehe Abschnitt
