@@ -8,6 +8,7 @@ import {
   MIN_WORD_DURATION_S,
   MIN_PPS,
   RESIDENT_BIN_BUDGET,
+  ZOOM_FACTOR,
   clampMoveWordTiming,
   clampWordTiming,
   detailByteRange,
@@ -22,6 +23,9 @@ import {
   timingTargetReachable,
   visibleWindow,
   windowBinRange,
+  zoomLabel,
+  zoomStep,
+  zoomStepExhausted,
 } from "./waveformTime";
 
 describe("timeFromClick (Change 083)", () => {
@@ -292,5 +296,66 @@ describe("Detailfenster im Sidecar (Change 199)", () => {
     const gepuffertVorher = detailByteRange({ start: 100, end: 101 }, 15718, 0.5);
     const gepuffertNachher = detailByteRange({ start: 100.1, end: 101.1 }, 15718, 0.5);
     expect(gepuffertNachher.end).toBeGreaterThan(gepuffertVorher.end);
+  });
+});
+
+// ── Change 219 (Nutzer-Vorgabe 20.09.2026): Zoom relativ, mit Grenzen ──
+
+describe("Zoom-Schritt RELATIV zur letzten Stufe (Change 219)", () => {
+  const fit = fitPps(800, 40);          // 20 px/s
+  const max = effectiveMaxPps(40);      // 48000 px/s (kurze Datei)
+
+  it("der Faktor ist 1,5 und rein/raus ist zueinander umkehrbar", () => {
+    expect(ZOOM_FACTOR).toBe(1.5);
+    const rein = zoomStep(fit, ZOOM_FACTOR, fit, max);
+    expect(rein).toBeCloseTo(fit * 1.5, 9);
+    // genau EINE Stufe zurück — nicht die Gesamtansicht
+    const zurueck = zoomStep(rein, 1 / ZOOM_FACTOR, fit, max);
+    expect(zurueck).toBeCloseTo(fit, 9);
+    expect(zurueck).not.toBeCloseTo(MIN_PPS, 9);
+  });
+
+  it("rechnet vom AKTUELLEN Wert, nicht von einem Festwert", () => {
+    // Aus dem Wort-Zoom (hier 240 px/s) ist „−" der 1,5-te Teil DAVON.
+    const wortZoom = 240;
+    expect(zoomStep(wortZoom, 1 / ZOOM_FACTOR, fit, max)).toBeCloseTo(160, 9);
+    // und NICHT der frühere Sonderzweig (20 px/s ≈ Gesamtansicht)
+    expect(zoomStep(wortZoom, 1 / ZOOM_FACTOR, fit, max)).toBeGreaterThan(fit);
+  });
+
+  it("Untergrenze ist die Gesamtansicht — darunter geht es nicht", () => {
+    expect(zoomStep(fit, 1 / ZOOM_FACTOR, fit, max)).toBe(fit);
+    expect(zoomStep(fit * 0.1, 1 / ZOOM_FACTOR, fit, max)).toBe(fit);
+  });
+
+  it("Obergrenze ist der effektive Deckel", () => {
+    expect(zoomStep(max, ZOOM_FACTOR, fit, max)).toBe(max);
+    expect(zoomStep(max * 10, ZOOM_FACTOR, fit, max)).toBe(max);
+    // lange Datei: die Browser-Breite deckelt, nicht MAX_TIMING_PPS
+    const lang = effectiveMaxPps(15718);
+    expect(zoomStep(4000, ZOOM_FACTOR, fitPps(800, 15718), lang)).toBe(lang);
+  });
+
+  it("an der Grenze gilt der Schritt als wirkungslos (Knopf aus)", () => {
+    expect(zoomStepExhausted(fit, 1 / ZOOM_FACTOR, fit, max)).toBe(true);
+    expect(zoomStepExhausted(max, ZOOM_FACTOR, fit, max)).toBe(true);
+    expect(zoomStepExhausted(fit, ZOOM_FACTOR, fit, max)).toBe(false);
+    expect(zoomStepExhausted(max, 1 / ZOOM_FACTOR, fit, max)).toBe(false);
+  });
+});
+
+describe("Zoom-Anzeige relativ zur Gesamtansicht (Change 219)", () => {
+  const fit = fitPps(800, 40);
+
+  it("Gesamtansicht heißt „fit", () => {
+    expect(zoomLabel(fit, fit)).toBe("fit");
+    expect(zoomLabel(fit * 1.0005, fit)).toBe("fit"); // Rundungsunschärfe
+  });
+
+  it("eine Stufe: 1,5× — und Wort-Zoom bleibt lesbar (ganzzahlig)", () => {
+    expect(zoomLabel(fit * 1.5, fit)).toBe("1.5×");
+    expect(zoomLabel(fit * 3, fit)).toBe("3.0×");
+    expect(zoomLabel(fit * 24.4, fit)).toBe("24×");
+    expect(zoomLabel(fit * 960, fit)).toBe("960×");
   });
 });

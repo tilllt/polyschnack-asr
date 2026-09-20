@@ -280,6 +280,59 @@ audio {
 }
 .ps-timing-region-neighbor { cursor: pointer; }
 
+/* Change 219 (Nutzer-Vorgabe 20.09.2026, wörtlich): „Wenn ein langes Wort die
+   ganze Waveserver area ausfüllt, kann man nirgendwo mehr anfassen zum
+   scrollen. Können wir die Markierungen nur von oben bis zur Hälfte der
+   Timeline anzeigen, so das man den unteren Teil fürs scrollen anfassen
+   könnte?" Und: „Die seitlichen Start/end Marker können über die ganze Höhe
+   gehen."
+
+   BELEGTE URSACHE für die volle Höhe: das RegionsPlugin setzt die Größe
+   INLINE — `initElement()` (regions.js 7.12) legt am Flächen-Element
+   `position:absolute; top:0; height:100%` an, `addResizeHandles()` an beiden
+   Handles `height:100%; top:0`. Inline schlägt jede normale Klassenregel, eine
+   reine CSS-Lösung bliebe also wirkungslos (derselbe Mechanismus wie beim
+   Inline-Rahmen aus Change 218). Darum setzt WaveformPlayer.tsx dieselben
+   Werte INLINE beim Erzeugen der Region (applyMarkGeometry) — und diese Regeln
+   halten sie mit !important zusätzlich fest.
+
+   Die Hälfte oben = 50 % (Fläche), die seitlichen Kanten = 200 % DAVON, weil
+   sich die Prozentangabe der Handles auf die Fläche bezieht: 200 % × 50 % =
+   volle Timeline-Höhe.
+   Prüfbar nach dem Bau (eindeutige Suche in dist/assets/*.css):
+     grep -o "height:50%!important" dist/assets/*.css      (Fläche)
+     grep -o "height:200%!important" dist/assets/*.css     (Handles) */
+.ps-mark-half {
+  top: 0 !important;
+  height: 50% !important;
+  /* Die untere Hälfte fängt KEINE Zeigerereignisse ab: die Fläche ist dort
+     (wegen height) gar nicht vorhanden — was hier noch nötig ist, erledigt
+     `pointer-events: auto` am oberen Teil. Ein `touch-action`-Wert wird NICHT
+     gesetzt, damit Wischen im unteren Bereich weiter scrollt. */
+  pointer-events: auto;
+}
+.ps-mark-half [part~="region-handle-left"],
+.ps-mark-half [part~="region-handle-right"] {
+  top: 0 !important;
+  height: 200% !important;
+}
+/* Die Handles tragen im Markup KEINE Klassen, sondern `part`-Attribute
+   (regions.js: part="region-handle region-handle-left") — die früheren
+   `.region-handle-*`-Selektoren griffen deshalb nie. Hier dieselbe Geometrie
+   über den Attribut-Selektor, unabhängig von unserer Klassenzuweisung. */
+[part~="region-handle-left"],
+[part~="region-handle-right"] {
+  height: 200% !important;
+  top: 0 !important;
+}
+/* Change 219: die Fläche darf unten nichts abfangen — die sichtbare Kante
+   (aktives Wort: inset-Schatten links/rechts) liegt weiterhin ganz oben in
+   der oberen Hälfte; der untere Rand der Timeline bleibt frei. */
+.ps-timing-region-active,
+.ps-timing-region-neighbor {
+  touch-action: auto;
+}
+
 /* Change 211 (Nutzer-Vorgabe 19.09.2026): das jeweilige WORT in der Fläche —
    sehr klein, einzeilig, am Startmarker mit 3 px Abstand, damit die Schrift
    nicht auf der Linie beginnt. pointer-events: none, damit die Kante greifbar
@@ -780,4 +833,164 @@ audio {
 @media (prefers-reduced-motion: reduce) {
   .ps-zone-drop { transition: none; }
   .ps-zone-bar > div { transition: none; }
+}
+
+/* ============================================================
+   Change 220 (Nutzer-Vorgabe 20.09.2026) — Quellen-Auswahl als drei
+   gleichrangige Kreis-Knöpfe: Upload, Aufnehmen, Download (URL).
+
+   Aufbau dieser Fläche von oben nach unten:
+     1. `.ps-url-row`   — die URL-Zeile über die VOLLE Breite des Containers,
+                          Beispiel-Adresse als Platzhalter.
+     2. `.ps-source-row`— die drei Kreise.
+   Darunter folgt der Bereich der gewählten Quelle, ganz unten das
+   Optionen-Panel (Reihenfolge steht in UploadZone.tsx).
+
+   EINHEITLICH heißt hier: Ringstärke, Größe, Schriftgröße des Kreistextes und
+   Drehzeit stehen genau einmal — die drei Knöpfe holen ihre Maße aus
+   SourceCircle.tsx (SOURCE_CIRCLE_SHAPE / SOURCE_CIRCLE_ARC /
+   SOURCE_CIRCLE_SPIN_MS) und tragen alle dieselben Klassen. Es gibt keinen
+   Sonderfall für einen der drei Kreise; die Werte unten gelten für alle.
+
+   Der gewählte Kreis ist nicht nur farbig zu erkennen:
+     - Ring durchgezogen (.ps-src-on) statt gestrichelt — dieselbe
+       Linien-Logik wie bei den Zonen (.ps-zone-solid/.ps-zone-dashed);
+     - zusätzlicher Innenring (::after, 4 px eingerückt);
+     - Zeichen und Kreistext grün (--ps-accent) statt grau.
+   ============================================================ */
+
+/* Höhe des Ringtextes über den Kreisen (für die Luft im Container). */
+:root {
+  --ps-src-arc-h: 52px;
+  --ps-src-arc-air: 28px;
+}
+
+.ps-sources {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+/* Die URL-Zeile: VOLLE Containerbreite, direkt über der Kreis-Reihe. */
+.ps-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--ps-zone-maxw);
+  margin: 0 auto;
+}
+.ps-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d130e;
+  border: 2px solid var(--ps-zone-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #d2e8cd;
+  outline: none;
+}
+.ps-url-input::placeholder { color: #556b4f; }
+.ps-url-input:focus { border-color: var(--ps-accent, #2ea043); }
+
+/* Die drei Kreise: gleicher Abstand, gleiche Höhe, gemeinsame Mitte.
+   `padding-top` schafft die Luft für den Kreistext (er liegt außerhalb des
+   Rings), damit die Schrift nicht in die URL-Zeile hineinragt. */
+.ps-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  width: 100%;
+  padding-top: var(--ps-src-arc-air);
+}
+
+.ps-src {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7d9c74;
+  flex: 0 0 auto;
+}
+
+/* Der Ring: nur eine Outline, kein Füllkörper. */
+.ps-src-btn {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border: 2px solid var(--ps-zone-border);
+  border-style: dashed;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, border-style 0.2s;
+}
+@media (hover: hover) {
+  .ps-src-btn:hover { border-color: var(--ps-src-ink-hover, #7d9c74); color: #d2e8cd; }
+}
+/* Der gewählte Kreis: durchgezogener Ring + Innenring + grüne Schrift. */
+.ps-src-btn.ps-src-on {
+  border-style: solid;
+  border-color: var(--ps-accent, #2ea043);
+  color: var(--ps-accent, #2ea043);
+}
+.ps-src-btn.ps-src-on::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(46, 160, 67, 0.55);
+  border-radius: 999px;
+  pointer-events: none;
+}
+.ps-src-btn.ps-src-off { opacity: 0.4; cursor: not-allowed; }
+
+/* Der Kreistext läuft außen um den Ring und dreht langsam
+   (Dauer aus SOURCE_CIRCLE_SPIN_MS in SourceCircle.tsx = 30 s, linear). */
+.ps-src-arc {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: var(--ps-src-arc-h);
+  pointer-events: none;
+  user-select: none;
+  color: inherit;
+}
+.ps-src-btn.ps-src-on + .ps-src-arc { color: var(--ps-accent, #2ea043); }
+.ps-src-arc-svg { display: block; overflow: visible; }
+.ps-src-arc-spin {
+  animation: ps-src-spin 30000ms linear infinite;
+  transform-box: view-box;
+  transform-origin: 70px 52px; /* cx/cy aus SOURCE_CIRCLE_ARC */
+}
+@keyframes ps-src-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.ps-src-arc-text {
+  fill: currentColor;
+  opacity: 1;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+/* Zeichen im Ring: reines Strichzeichnen in der Farbe des Knopfes. */
+.ps-src-icon { color: inherit; }
+.ps-src-ink { color: #7d9c74; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Standbild: die Namen stehen still, die Kreise bleiben voll bedienbar. */
+  .ps-src-arc-spin { animation: none !important; }
+  .ps-src-btn { transition: none; }
 }

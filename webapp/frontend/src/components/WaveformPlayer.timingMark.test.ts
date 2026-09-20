@@ -278,3 +278,74 @@ describe("Change 218 — Übergang aktives Wort ↔ Nachbar: länger und Ease-ou
     expect(body).toMatch(/transition:\s*none\s*!important/);
   });
 });
+
+// ── Change 219 (Nutzer-Vorgabe 20.09.2026) ─────────────────────────────
+// „Markierungen nur von oben bis zur Hälfte der Timeline" + „Die seitlichen
+// Start/end Marker können über die ganze Höhe gehen."
+//
+// Warum zusätzlich zum DOM-Test (WaveformPlayer.markHeight.test.tsx) auch hier
+// der Quelltext geprüft wird: das RegionsPlugin setzt `height`/`top` INLINE
+// (regions.js: initElement 100 %, addResizeHandles 100 %). jsdom rechnet keine
+// Kaskade — ob eine !important-Regel den Inline-Stil wirklich schlägt, ist nur
+// am Regelwerk selbst und am ausgelieferten CSS prüfbar (genau der Mechanismus,
+// an dem Change 211 gescheitert ist).
+describe("Change 219 — halbe Höhe (Flächen) und volle Höhe (seitliche Kanten)", () => {
+  const DETAIL_TSX = readFileSync(nebenDatei("DetailWaveformLayer.tsx"), "utf8");
+
+  it("CSS: die Fläche ist 50 % hoch und klebt oben — mit !important (gegen Inline)", () => {
+    const h = decls(".ps-mark-half").filter((d) => d.prop === "height");
+    const top = decls(".ps-mark-half").filter((d) => d.prop === "top");
+    expect(h.length).toBeGreaterThan(0);
+    expect(top.length).toBeGreaterThan(0);
+    expect(h.some((d) => d.value === "50% !important")).toBe(true);
+    expect(top.some((d) => d.value === "0 !important" || d.value === "0px !important")).toBe(true);
+  });
+
+  it("CSS: seitliche Kanten 200 % — auch über den part-Selektor (Handles tragen keine Klassen)", () => {
+    for (const sel of [
+      '.ps-mark-half [part~="region-handle-left"]',
+      '.ps-mark-half [part~="region-handle-right"]',
+      '[part~="region-handle-left"]',
+      '[part~="region-handle-right"]',
+    ]) {
+      const h = decls(sel).filter((d) => d.prop === "height");
+      expect(h.length, sel).toBeGreaterThan(0);
+      expect(h.some((d) => d.value === "200% !important"), sel).toBe(true);
+    }
+  });
+
+  it("Code: setzt dieselben Werte INLINE beim Erzeugen der Region", () => {
+    // Konstanten + Helfer im Quelltext …
+    expect(TSX_CODE).toMatch(/TIMING_MARK_HEIGHT\s*=\s*"50%"/);
+    expect(TSX_CODE).toMatch(/TIMING_HANDLE_HEIGHT\s*=\s*"200%"/);
+    expect(TSX_CODE).toMatch(/el\.style\.height\s*=\s*TIMING_MARK_HEIGHT/);
+    expect(TSX_CODE).toMatch(/h\.style\.height\s*=\s*TIMING_HANDLE_HEIGHT/);
+    // … und für JEDE Flächen-Erzeugung aufgerufen: aktives Wort, Nachbarn,
+    // Crop-Auswahl (Reihenfolge im Code: applyMarkGeometry(el)/(nbEl)/(cEl)).
+    const aufrufe = TSX_CODE.match(/applyMarkGeometry\(/g) ?? [];
+    expect(aufrufe.length).toBeGreaterThanOrEqual(4); // 1 Deklaration + 3 Aufrufe
+    expect(TSX_CODE).toMatch(/applyMarkGeometry\(el\)/);
+    expect(TSX_CODE).toMatch(/applyMarkGeometry\(nbEl\)/);
+    expect(TSX_CODE).toMatch(/applyMarkGeometry\(cEl\)/);
+  });
+
+  it("die obere Hälfte fängt Zeigerereignisse ab, die untere NICHT", () => {
+    // Die Fläche selbst bleibt greifbar (Ziehen an den Kanten/der Fläche) …
+    const pe = decls(".ps-mark-half").filter((d) => d.prop === "pointer-events");
+    expect(pe.some((d) => d.value === "auto")).toBe(true);
+    // … aber NICHTS darf dort blockieren: kein touch-action am Element, keine
+    // Regel im Stylesheet, die das Wischen/Scrollen abfängt.
+    expect(OHNE_KOMMENTARE).not.toMatch(/touch-action\s*:\s*none/);
+    expect(TSX_CODE).not.toMatch(/touchAction/);
+    // Der Detail-Overlay (liegt über der ganzen Wellenform) ist durchlässig —
+    // sonst wäre die untere Hälfte trotz halber Markierungsfläche verdeckt.
+    expect(DETAIL_TSX).toMatch(/pointer-events-none/);
+  });
+
+  it("die Fläche ist nicht mehr 100 % hoch (der alte Zustand ist belegt weg)", () => {
+    // Weder über die Klasse noch über eine Höhen-Regel an .ps-timing-region.
+    const h = decls(".ps-timing-region").filter((d) => d.prop === "height");
+    for (const d of h) expect(d.value).not.toContain("100%");
+    expect(OHNE_KOMMENTARE).not.toMatch(/\.ps-mark-half\s*\{[^}]*height\s*:\s*100%/);
+  });
+});

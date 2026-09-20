@@ -137,6 +137,55 @@ export function timingPps(
   return Math.max(minPps, Math.min(maxPps, pps));
 }
 
+/** Change 219 (Nutzer-Vorgabe 20.09.2026): fester FAKTOR eines Zoom-Schritts.
+ *  Wörtlich: „Plus und minus müssen immer relativ zur letzten Zoomstufe sein."
+ *  Beide Knöpfe rechnen deshalb mit der AKTUELL angezeigten px/s: „+" mal
+ *  1,5, „−" durch 1,5. Kein Rücksprung auf einen Festwert und keine
+ *  Rückkehr zur Gesamtansicht. */
+export const ZOOM_FACTOR = 1.5;
+
+/** Change 219: px/s nach EINEM Schritt relativ zum aktuellen Wert.
+ *
+ *  Grenzen (minPps = Fit-Ansicht, maxPps = effektiver Browser-/Auflösungs-
+ *  deckel): der Wert wird VOR und NACH dem Schritt geklemmt, damit an der
+ *  Grenze kein Zwischenwert entsteht, der nicht mehr angezeigt werden kann. */
+export function zoomStep(
+  pps: number,
+  factor: number,
+  minPps: number = MIN_PPS,
+  maxPps: number = MAX_TIMING_PPS,
+): number {
+  const lo = Math.max(MIN_PPS, minPps);
+  const hi = Math.max(lo, maxPps);
+  const base = Math.min(hi, Math.max(lo, pps));
+  return Math.min(hi, Math.max(lo, base * factor));
+}
+
+/** Change 219: „dieser Schritt ändert nichts mehr" — dann ist der Knopf aus
+ *  (kein wirkungsloser Knopf, Nutzer-Vorgabe 20.09.2026). */
+export function zoomStepExhausted(
+  pps: number,
+  factor: number,
+  minPps: number = MIN_PPS,
+  maxPps: number = MAX_TIMING_PPS,
+): boolean {
+  const lo = Math.max(MIN_PPS, minPps);
+  const hi = Math.max(lo, maxPps);
+  const base = Math.min(hi, Math.max(lo, pps));
+  const next = zoomStep(base, factor, lo, hi);
+  return Math.abs(next - base) <= Math.abs(base) * 1e-9 + 1e-12;
+}
+
+/** Change 219: Zoom-Anzeige RELATIV zur Gesamtansicht („fit" = 1×).
+ *  Unter 10× eine Nachkommastelle (1,5×/2,3×), darüber ganzzahlig (24×) —
+ *  sonst würde die Anzeige im Wort-Zoom (oft dreistellig) unlesbar. */
+export function zoomLabel(pps: number, fit: number): string {
+  const f = Math.max(fit, MIN_PPS);
+  const r = Math.max(0, pps) / f;
+  if (r <= 1.001) return "fit";
+  return r < 10 ? `${r.toFixed(1)}×` : `${Math.round(r)}×`;
+}
+
 /** Change 137 (Timing-Tab): Wort-Timing auf erlaubte Grenzen clammen.
  *  Regeln (Design Change 137): start < end, Mindestdauer, Monotonie gegen
  *  die Nachbarn (minStart = Ende des Vorgängers, maxEnd = Start des

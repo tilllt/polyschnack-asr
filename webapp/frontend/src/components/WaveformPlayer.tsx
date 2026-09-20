@@ -19,6 +19,10 @@ import {
   timeFromClick,
   timingPps,
   visibleWindow,
+  zoomLabel,
+  zoomStep,
+  zoomStepExhausted,
+  ZOOM_FACTOR,
 } from "../waveformTime";
 
 export interface WaveSurferHandle {
@@ -131,9 +135,63 @@ export interface TimingWord {
   maxEnd?: number;
 }
 
-const ZOOM_STEPS = [1, 2, 4, 6, 10, 20, 50];
+// Change 219 (Nutzer-Vorgabe 20.09.2026): die festen ZOOM_STEPS [1,2,4,6,10,
+// 20,50] sind entfallen. Belegt: „+" rief `doZoom(w, zoomIdx + 1)` und „−"
+// `doZoom(w, Math.max(0, zoomIdx - 1))` — beide setzten also eine STUFE der
+// Liste, also einen absoluten px/s-Wert. Im Timing-Modus (Wort-Zoom) sprang „−"
+// zusätzlich in einen eigenen Zweig (`doZoom(w, ZOOM_STEPS.length - 1)` = 20
+// px/s) und damit von der Wort-Ansicht (oft hunderte px/s) direkt auf fast
+// „fit" — genau der gemeldete „komplett raus"-Sprung. Jetzt rechnen beide
+// Knöpfe relativ zur AKTUELL angezeigten px/s mit ZOOM_FACTOR (waveformTime.ts).
 /** Vertikaler Kopfraum der Wellenform in px (oben+unten, 2026-08-16). */
 const WAVE_PAD = 5;
+
+// ────────────────────────────────────────────────────────────────────────
+// Change 219 (Nutzer-Vorgabe 20.09.2026): Markierungen nur bis zur HALBEN
+// Höhe der Timeline — der untere Teil bleibt zum Scrollen greifbar
+// ────────────────────────────────────────────────────────────────────────
+// Wörtlich: „… die Markierungen nur von oben bis zur Hälfte der Timeline
+// anzeigen, so dass man den unteren Teil fürs Scrollen anfassen könnte?"
+// Und: „Die seitlichen Start/end Marker können über die ganze Höhe gehen."
+/** Höhe der Markierungsflächen (= obere Hälfte der Timeline). */
+export const TIMING_MARK_HEIGHT = "50%";
+/** Höhe der seitlichen Greifkanten. Prozentangaben der Handles beziehen sich
+ *  auf die FLÄCHE (50 % der Timeline) — 200 % davon ist wieder die volle
+ *  Timeline-Höhe. Die Kanten dürfen deshalb weiterhin über die ganze Höhe
+ *  laufen und bleiben überall greifbar. */
+export const TIMING_HANDLE_HEIGHT = "200%";
+
+/**
+ * Change 219: Geometrie einer Markierungsfläche setzen (obere Hälfte) und die
+ * seitlichen Kanten auf volle Höhe strecken.
+ *
+ * MUSS INLINE gesetzt werden — belegte Ursache aus dem Regionen-Plugin
+ * (wavesurfer.js 7.12, regions.js): `initElement()` setzt am Flächen-Element
+ *   style = { position:"absolute", top:`${e}%`, height:`${i}%`, … }
+ * für einkanalige Dateien also `top: 0`, `height: 100%`. Und
+ * `addResizeHandles()` setzt an beiden Handles `height: "100%", top: "0"`.
+ * Ein Inline-Stil schlägt jede normale Klassenregel — eine reine CSS-Lösung
+ * bliebe wirkungslos (genau der Fall, der beim Vorgänger-Auftrag (Change 218,
+ * Inline-Rahmen) belegt wurde). Darum hier inline UND als Gürtel+Hose
+ * dieselben Werte in index.css (`!important`).
+ */
+export function applyMarkGeometry(el: HTMLElement | null | undefined): void {
+  if (!el) return;
+  try {
+    el.style.top = "0";
+    el.style.height = TIMING_MARK_HEIGHT;
+    // Die Handles tragen nur `part`-Attribute (keine Klassen) — deshalb der
+    // Attribut-Selektor, nicht `.region-handle-left`.
+    for (const part of ["region-handle-left", "region-handle-right"]) {
+      const h = el.querySelector<HTMLElement>(`[part~="${part}"]`);
+      if (!h) continue;
+      h.style.top = "0";
+      h.style.height = TIMING_HANDLE_HEIGHT;
+    }
+  } catch {
+    /* Element nicht verfügbar — Fläche bleibt in ihrer Standardgröße */
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────
 // Change 217 (Nutzer-Vorgabe 20.09.2026): animierte Übergänge im Timing-Modus
@@ -521,9 +579,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     const [error, setError] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
-    const [zoomIdx, setZoomIdx] = useState(0);
-    // Spiegelt zoomIdx für Handler außerhalb von React-Render (Klick-Seek).
-    const zoomIdxRef = useRef(0);
+    const [zoomPps, setZoomPps] = useState(0);
+    // Change 219: die angezeigte px/s ist der Zustand, aus dem „+"/„−" rechnen
+    // (Ref für Handler außerhalb von React-Render: Klick-Seek, Zoom-Knöpfe).
+    const zoomPpsRef = useRef(0);
+    // Change 219: wird die Ansicht gerade als GANZE Aufnahme gezeigt? Dann
+    // rechnet der Klick-Seek mit der LIVE gemessenen Container-Breite
+    // (Change 083-Fix) statt mit dem gespeicherten px/s-Wert.
+    const atFitRef = useRef(true);
     // Change 100: true erst, wenn der AKTUELLE ws echtes Audio geladen hat
     // (ready-Event). doZoom bricht ab, wenn nicht — sonst wirft WS7
     // „Error: No audio loaded“ (Re-Init-Fenster nach Change-059-Re-Init,
@@ -710,10 +773,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             try {
               const el = region.element as HTMLElement | undefined;
               if (el) {
-                el.classList.add("ps-timing-region", "ps-timing-region-active");
+                el.classList.add("ps-timing-region", "ps-timing-region-active", "ps-mark-half");
                 el.style.border = "none";
                 el.style.borderTop = "none";
                 el.style.borderBottom = "none";
+                // Change 219: Fläche nur obere Hälfte, seitliche Kanten volle
+                // Höhe (INLINE, weil das RegionsPlugin height/top selbst inline
+                // setzt — s. applyMarkGeometry).
+                applyMarkGeometry(el);
                 // Fix 2026-09-20: Das Wort-Label setzt ausschließlich
                 // syncTimingLabels() — genau EIN Label je Region, kein
                 // Neuaufbau beim Wortwechsel.
@@ -777,13 +844,24 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         if (!cropRegionRef.current) {
           const dur = wsRef.current?.getDuration?.() ?? 0;
           if (dur > 0) {
-            cropRegionRef.current = (regionsPlugin as any).addRegion({
+            const crop = (regionsPlugin as any).addRegion({
               start: 0,
               end: dur,
               color: "rgba(46,160,67,0.03)",
               drag: true,
               resize: true,
             });
+            cropRegionRef.current = crop;
+            // Change 219 (Nutzer-Vorgabe 20.09.2026): „alle Regionen" nur in
+            // der oberen Hälfte — auch diese Auswahlfläche. Die untere Hälfte
+            // der Timeline bleibt damit in JEDEM Modus zum Scrollen frei.
+            try {
+              const cEl = crop?.element as HTMLElement | undefined;
+              cEl?.classList.add("ps-mark-half");
+              applyMarkGeometry(cEl);
+            } catch {
+              /* Element nicht verfügbar — Fläche bleibt in Standardgröße */
+            }
           }
         }
       }
@@ -864,11 +942,14 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             try {
               const nbEl = created.element as HTMLElement | undefined;
               if (nbEl) {
-                nbEl.classList.add("ps-timing-region", "ps-timing-region-neighbor");
+                nbEl.classList.add("ps-timing-region", "ps-timing-region-neighbor", "ps-mark-half");
                 nbEl.style.borderTop = "none";
                 nbEl.style.borderBottom = "none";
                 nbEl.style.borderLeft = "1px dashed rgba(210,153,34,0.9)";
                 nbEl.style.borderRight = "1px dashed rgba(210,153,34,0.9)";
+                // Change 219: auch die Nachbarflächen nur in der oberen Hälfte
+                // (die gestrichelten Kanten bleiben unverändert erhalten).
+                applyMarkGeometry(nbEl);
                 // Fix 2026-09-20: Das Wort-Label setzt ausschließlich
                 // syncTimingLabels() — es hängt am TEXT des Nachbarn, nicht an
                 // der Region-Erzeugung (sonst bliebe beim Wiederverwenden der
@@ -976,27 +1057,38 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       crossfadeStyle(oldLabel, "color", TIMING_ACTIVE_LABEL, TIMING_NEIGHBOR_LABEL);
     }, [timingWord, timingNeighbors, ready, syncTimingLabels]);
 
-    const doZoom = useCallback((ws: WaveSurfer, idx: number) => {
+    // Change 219 (Nutzer-Vorgabe 20.09.2026): Grenzen des Zooms für den
+    // AKTUELLEN Player. Untergrenze = Fit-Ansicht (ganze Aufnahme sichtbar —
+    // weiter heraus ergibt nichts), Obergrenze = effektiver Deckel
+    // (MAX_TIMING_PPS bzw. die Browser-Breitengrenze 2^25 / Dauer).
+    const zoomLimits = useCallback((): { min: number; max: number } => {
+      const w = wsRef.current;
+      const dur = w?.getDuration?.() ?? duration;
+      const cw = containerRef.current?.clientWidth ?? 800;
+      const min = fitPps(cw, dur);
+      return { min, max: Math.max(min, effectiveMaxPps(dur)) };
+    }, [duration]);
+
+    /** Change 219: px/s setzen (geklemmt) — EIN Weg für Knöpfe, Wort-Klick und
+     *  Fit. Vorher setzte `doZoom(ws, idx)` einen Wert aus der festen Stufen-
+     *  liste; der aktuelle Wert war keine Größe, aus der ein Schritt rechnen
+     *  konnte (Ursache des Sprungs, siehe Kommentar bei ZOOM_FACTOR). */
+    const applyZoom = useCallback((ws: WaveSurfer, targetPps: number) => {
       // Change 100: kein zoom() ohne geladenes Audio — WS7 wirft sonst
-      // „Error: No audio loaded“ (z. B. im Re-Init-Fenster nach asynchron
-      // nachgelieferten Peaks, Change 059).
+      // „Error: No audio loaded“ (Re-Init-Fenster nach Change 059).
       if (!wsReadyRef.current) return;
-      // Change 083: Index 0 = „fit“ (ganze Audiolänge sichtbar, exakter
-      // px/s-Wert statt Runden auf die kleinste Zoomstufe); danach die
-      // festen Stufen ZOOM_STEPS.
-      const pps =
-        idx === 0
-          ? fitPps(containerRef.current?.clientWidth ?? 800, ws.getDuration())
-          : ZOOM_STEPS[idx - 1];
+      const { min, max } = zoomLimits();
+      const pps = Math.min(max, Math.max(min, targetPps));
       ppsRef.current = pps;
+      zoomPpsRef.current = pps;
+      atFitRef.current = pps <= min * (1 + 1e-6);
+      setZoomPps(pps);
       ws.zoom(pps);
-      setZoomIdx(idx);
-      zoomIdxRef.current = idx;
       // Change 056: Timeline-Breite hat sich geändert → Marker neu setzen.
       updateMarkers();
-      // Change 2026-09-15: Progressive Peaks auch beim manuellen Zoom —
-      // ab 10× sind 2000 Basispunkte pixelig.
-      if (recordingId && idx >= 3) {
+      // Change 2026-09-15: Progressive Peaks auch beim manuellen Zoom — ab
+      // 4× der Gesamtansicht sind 2000 Basispunkte pixelig.
+      if (recordingId && min > 0 && pps / min >= 4) {
         const dur = ws.getDuration?.() ?? 0;
         const needed = Math.min(
           300000,
@@ -1021,7 +1113,27 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
           });
         }
       }
-    }, [updateMarkers, recordingId]);
+    }, [zoomLimits, updateMarkers, recordingId]);
+
+    /** Change 219: EIN Schritt relativ zur letzten Stufe. factor > 1 zoomt
+     *  hinein, factor < 1 heraus — an den Grenzen bleibt der Wert stehen
+     *  (Knöpfe sind dort deaktiviert, siehe unten). */
+    const zoomByFactor = useCallback((ws: WaveSurfer, factor: number) => {
+      if (!wsReadyRef.current) return;
+      // Change 219: eine noch laufende Wort-Fahrt abbrechen — sonst schriebe
+      // ihr nächstes Bild den manuellen Schritt wieder weg. (Bewusst NUR hier:
+      // der Initial-Fit darf eine soeben gestartete Wort-Fahrt nicht abwürgen.)
+      flyCancelRef.current?.();
+      flyCancelRef.current = null;
+      const { min, max } = zoomLimits();
+      const base = zoomPpsRef.current > 0 ? zoomPpsRef.current : min;
+      applyZoom(ws, zoomStep(base, factor, min, max));
+    }, [applyZoom, zoomLimits]);
+
+    /** Change 219: ganze Aufnahme sichtbar („fit") — die Untergrenze. */
+    const zoomToFit = useCallback((ws: WaveSurfer) => {
+      applyZoom(ws, zoomLimits().min);
+    }, [applyZoom, zoomLimits]);
 
     // Change 199: residentes Envelope aus dem Sidecar. Es trägt die Timeline
     // (ersetzt die 2000-Punkte-Basis) und liefert — anders als der feste
@@ -1101,6 +1213,13 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // dort, wo sie steht — kein Rücksprung.
         const fromPps = ppsRef.current;
         const fromScroll = (w as unknown as { getScroll?: () => number }).getScroll?.() ?? 0;
+        // Change 219: die Zoom-ANZEIGE folgt dem Zielwert dieser Fahrt. Der
+        // Zustand `zoomPps` speist Beschriftung und Knopf-Grenzen — setzte ihn
+        // nur applyZoom, bliebe die Anzeige nach einem Wort-Klick auf „fit"
+        // stehen, obwohl die Ansicht längst im Wort-Zoom ist.
+        setZoomPps(pps);
+        zoomPpsRef.current = pps;
+        atFitRef.current = pps <= zoomLimits().min * (1 + 1e-6);
         // Change 142: Im Timing-Zoom sind die Balken (barWidth 2/gap 1) zu
         // gestreckten Strichen mit Lücken entartet — man erkennt das Wort
         // nicht mehr. Durchgehende Wellenform (barWidth 0 = gefüllte Kurve);
@@ -1218,9 +1337,10 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         } catch {
           /* setOptions nicht verfügbar */
         }
-        doZoom(w, 0);
+        // Change 219: „fit" ist jetzt die Untergrenze des Zooms (zoomToFit).
+        zoomToFit(w);
       }
-    }, [ready, timingWord, doZoom]);
+    }, [ready, timingWord, zoomToFit, zoomLimits]);
 
     // Change 217: Beim Unmount läuft keine Fahrt weiter — die rAF-Schleife
     // würde sonst auf einen bereits zerstörten WaveSurfer schreiben. Bewusst
@@ -1242,18 +1362,23 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
     // Welle nur 285 px statt Container-Breite und der Klick-Seek um
     // Faktor ~3,4 verzerrt („Klick bei 9 min → Playback bei 31 min“).
     // Change 100 (Zoom-Reset 2026-08-23): Der Effekt darf NUR EINMAL
-    // feuern. doZoom hängt an updateMarkers ← [annotations, ready,
+    // feuern. doZoom/zoomToFit hängt an updateMarkers ← [annotations, ready,
     // duration] — späte asynchrone Detail-Daten (Peaks/Annotations,
-    // Change 059) ändern die doZoom-Referenz erneut → der Effekt rief
-    // doZoom(0) und verwarf jeden User-Zoom (Repro: Zoom-in → nach
+    // Change 059) ändern die Referenz erneut → der Effekt rief fit und
+    // verwarf jeden User-Zoom (Repro: Zoom-in → nach
     // ~300 ms wieder „fit“). initialZoomRef sperrt den Initial-Fit.
     const initialZoomRef = useRef(false);
     useEffect(() => {
       if (ready && !error && wsRef.current && !initialZoomRef.current) {
+        // Change 219: Ist beim ersten Ready schon ein Timing-Wort aktiv, hat
+        // die Wort-Fahrt (Effekt oben, läuft in derselben Runde ZUERST) den
+        // Zoom bereits gesetzt — ein „fit" hier überschriebe sie wieder mit
+        // der Gesamtansicht. Dann bleibt der Initial-Fit aus.
+        if (timingWord) return;
         initialZoomRef.current = true;
-        doZoom(wsRef.current, 0);
+        zoomToFit(wsRef.current);
       }
-    }, [ready, error, doZoom]);
+    }, [ready, error, zoomToFit, timingWord]);
 
     // Change 052: Lazy-Loading — Audio erst laden, wenn der Player in den
     // Viewport kommt (IntersectionObserver, 200 px Vorlauf). Ohne das
@@ -1623,7 +1748,7 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
         // nach dem Initial-Zoom (der frühere fixe ppsRef-Wert verzerrte
         // den Seek um Faktor 3,4: „Klick bei 9 min → 31 min“).
         const pps =
-          zoomIdxRef.current === 0 ? fitPps(el.clientWidth, dur) : ppsRef.current;
+          atFitRef.current ? fitPps(el.clientWidth, dur) : ppsRef.current;
         const t = timeFromClick(
           e.clientX - rect.left,
           ws.getScroll?.() ?? 0,
@@ -1820,6 +1945,18 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
       getPlaybackRate: () => playRateRef.current,
     }), []);
 
+    // Change 219 (Nutzer-Vorgabe 20.09.2026): Anzeige + Grenzen der Zoom-
+    // knöpfe. Basis ist die AKTUELL ANGEZEIGTE Stufe (zoomPps) — vor dem
+    // ersten Zoom die Fit-Ansicht (zoomPps = 0). `zoomStepExhausted` sagt, ob
+    // ein Schritt den Wert überhaupt noch ändert: an der Grenze wird der Knopf
+    // deaktiviert, statt wirkungslos zu bleiben.
+    const zoomFit = fitPps(containerRef.current?.clientWidth ?? 800, duration);
+    const zoomMax = Math.max(zoomFit, effectiveMaxPps(duration));
+    const zoomBase = zoomPps > 0 ? zoomPps : zoomFit;
+    const canZoomOut = !zoomStepExhausted(zoomBase, 1 / ZOOM_FACTOR, zoomFit, zoomMax);
+    const canZoomIn = !zoomStepExhausted(zoomBase, ZOOM_FACTOR, zoomFit, zoomMax);
+    const zoomText = zoomLabel(zoomBase, zoomFit);
+
     // Change 095: Spinner als SVG — der alte CSS-Ring (border-2 mit
     // border-t-transparent) sah auf Mobile wie ein „drehendes U" aus.
     const spinnerSvg = (size: number) => (
@@ -1970,32 +2107,34 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               ))}
             </span>
             <span className="flex-1" />
+            {/* Change 219 (Nutzer-Vorgabe 20.09.2026): „−" rechnet RELATIV zur
+                letzten Stufe (÷1,5) — auch im Timing-Modus (dort vorher:
+                Sonderzweig `doZoom(w, ZOOM_STEPS.length - 1)`, der aus dem
+                Wort-Zoom fast bis „fit" zurücksprang). An der Untergrenze
+                (Gesamtansicht) ist der Knopf aus: kein wirkungsloser Klick. */}
             <button
               onClick={() => {
                 const w = wsRef.current;
                 if (!w) return;
-                // Change 137: Im Timing-Zoom („Wort“) zoomt − auf die größte
-                // normale Stufe zurück (danach laufen die Stufen normal weiter).
-                if (timingZoom) {
-                  setTimingZoom(false);
-                  doZoom(w, ZOOM_STEPS.length - 1);
-                } else {
-                  doZoom(w, Math.max(0, zoomIdx - 1));
-                }
+                zoomByFactor(w, 1 / ZOOM_FACTOR);
               }}
-              disabled={!timingZoom && zoomIdx <= 0}
+              disabled={!canZoomOut}
               className="btn-ghost-sm text-[13px] px-1 disabled:opacity-30"
               title="Zoom out"
             >−</button>
             <span className="text-[11px] text-muted2 tabular-nums min-w-[36px] text-center">
-              {timingZoom ? "Wort" : zoomIdx === 0 ? "fit" : `${ZOOM_STEPS[zoomIdx - 1]}×`}
+              {zoomText}
             </span>
+            {/* Change 219: „+" ebenfalls relativ (×1,5). Im Timing-Modus
+                früher gesperrt — jetzt sinnvoll (ein Schritt zurück in die
+                Wort-Detailansicht), deshalb nicht mehr deaktiviert. */}
             <button
               onClick={() => {
                 const w = wsRef.current;
-                if (w && !timingZoom) doZoom(w, Math.min(ZOOM_STEPS.length - 1, zoomIdx + 1));
+                if (!w) return;
+                zoomByFactor(w, ZOOM_FACTOR);
               }}
-              disabled={timingZoom || zoomIdx >= ZOOM_STEPS.length - 1}
+              disabled={!canZoomIn}
               className="btn-ghost-sm text-[13px] px-1 disabled:opacity-30"
               title="Zoom in"
             >+</button>

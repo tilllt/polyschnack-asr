@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Mic } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchBackendCapabilities, fetchLlmEndpoints, fetchModelStatus, fetchModelsMatrix, fetchTemplates, fetchTargets, importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
 import { fmtBytes } from "../format";
@@ -26,6 +26,7 @@ import {
   RecordGestureHint,
   gestureTipAt,
 } from "./RecordGestureHint";
+import { SourceCircle, SourceIcon } from "./SourceCircle";
 
 interface Props {
   user?: UserInfo | null;
@@ -144,6 +145,75 @@ export function UploadZone({ user }: Props) {
     });
   }, []);
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
+
+  // ── Change 220 (Nutzer-Vorgabe 20.09.2026): Die URL-Zeile sitzt ÜBER der
+  //    Quellen-Auswahl (volle Containerbreite, Beispiel-Adresse als
+  //    Platzhalter) und nicht mehr im Bereich darunter. Ihr Zustand liegt
+  //    deshalb hier oben — so kann auch der Download-Kreis denselben Absatz
+  //    auslösen (Adresse steht schon da, ein Druck startet den Import: kein
+  //    wirkungsloser Knopf). Anmeldedaten/Cookies bleiben reiner
+  //    Komponenten-Zustand und werden nach dem Import geleert (Change 080).
+  const [url, setUrl] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [videoPassword, setVideoPassword] = useState("");
+  const [cookiesFile, setCookiesFile] = useState<File | null>(null);
+
+  /**
+   * Change 220: Der Aufnahme-Kreis in der Quellen-Reihe ist KEIN zweiter
+   * Knopf. Er hält hier nur den Zugriff auf den BESTEHENDEN Aufnahmeknopf im
+   * Bereich darunter (RecordTab meldet seine Start/Stop-Funktion an).
+   */
+  const recordCtl = useRef<{ toggle: () => void } | null>(null);
+
+  /** Change 212/220: Der URL-Import ist ein fertiger Auftrag → sofort starten. */
+  const submitUrl = useCallback(async () => {
+    if (!url.trim() || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const result = await importFromUrl(
+        url.trim(),
+        values.vad !== "off", values.diarize, values.streaming,
+        values.noise, values.enhance,
+        values.numSpeakers ? Number(values.numSpeakers) : undefined,
+        diarSensToMinDurationOff(values.diarSens),
+        values.diarMethod || undefined,
+        username.trim() || undefined,
+        password || undefined,
+        videoPassword || undefined,
+        cookiesFile,
+        values.separate,
+        values.vad,
+      );
+      toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
+      if (result?.uid) await startJob(result.uid, result.original_name ?? url.trim(), values);
+      await qc.invalidateQueries({ queryKey: ["recordings"] });
+      await qc.invalidateQueries({ queryKey: ["stats"] });
+      setUrl("");
+      // Change 080: Anmeldedaten nach dem Import leeren.
+      setUsername("");
+      setPassword("");
+      setVideoPassword("");
+      setCookiesFile(null);
+      setShowAuth(false);
+    } catch (e) {
+      toast(`Import failed: ${(e as Error).message}`, "err");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [url, isDownloading, values, username, password, videoPassword, cookiesFile, toast, startJob, qc]);
+
+  /**
+   * Auswahl einer Quelle: der Kreis schaltet den Bereich darunter wirklich um.
+   * Ist die Quelle schon gewählt, bleibt der Kreis trotzdem wirksam —
+   *   Aufnehmen     → startet/stoppt über den bestehenden Aufnahmeknopf,
+   *   Download(URL) → startet den Import, wenn eine Adresse eingetragen ist.
+   */
+  function selectSource(next: "upload" | "record" | "url") {
+    setInputMode(next);
+  }
 
   // ── Offline-Puffer: Recovery in der IMMER gemounteten Komponente ──
   // (2026-08-16: lag vorher im RecordTab und lief beim App-Start nicht,
@@ -424,6 +494,42 @@ export function UploadZone({ user }: Props) {
 
   const active = isDragging || isUploading;
 
+  /**
+   * Change 212/220: EIN Optionen-Panel für alle drei Quellen — inhaltlich
+   * unverändert (Matrix aus src/optionMatrix.ts, Abschicken startet den
+   * Auftrag). Change 220 (Nutzer-Vorgabe 20.09.2026): Das Panel steht jetzt
+   * GANZ UNTEN, unter dem Bereich der gewählten Quelle — nicht mehr über den
+   * Quellen. Der Zustand bleibt hier oben, damit alle drei Quellen weiterhin
+   * denselben Satz Einstellungen benutzen.
+   */
+  const optionsPanel = (
+    <div className="border border-border rounded-sm bg-panel" data-testid="options-panel">
+      <button
+        type="button"
+        onClick={() => setOptsOpen((o) => !o)}
+        aria-expanded={optsOpen}
+        className="w-full inline-flex items-center gap-[6px] text-[11.5px] font-semibold text-muted px-3 py-2 cursor-pointer hover:text-txt"
+      >
+        {t("opts_toggle")}
+        <ChevronDown size={12} className={`transition-transform ${optsOpen ? "rotate-180" : ""}`} />
+      </button>
+      {optsOpen && (
+        <div className="px-2 pb-2">
+          <OptionsPanel
+            source={inputMode}
+            values={values}
+            backends={availableBackends}
+            caps={caps}
+            flags={flags}
+            pp={{ templates, targets, endpoints, isOidc }}
+            action="tr"
+            onChange={patchValues}
+          />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-4">
       {/* Anon-Retention-Hinweis: anonyme User werden gewarnt */}
@@ -436,47 +542,61 @@ export function UploadZone({ user }: Props) {
           )}
         </div>
       )}
-      {/* ── Change 212: EIN Optionen-Panel für alle drei Quellen ──
-          Der Zustand liegt hier oberhalb der Tabs; was angeboten wird,
-          leitet die Matrix (src/optionMatrix.ts) aus gewählter Quelle und
-          Backend-Fähigkeiten (/api/backends) ab. Kein Tab pflegt mehr eine
-          eigene Optionsliste, und es gibt keine Chips mit Fachbegriffen. */}
-      <div className="border border-border rounded-sm bg-panel">
-        <button
-          type="button"
-          onClick={() => setOptsOpen((o) => !o)}
-          aria-expanded={optsOpen}
-          className="w-full inline-flex items-center gap-[6px] text-[11.5px] font-semibold text-muted px-3 py-2 cursor-pointer hover:text-txt"
-        >
-          {t("opts_toggle")}
-          <ChevronDown size={12} className={`transition-transform ${optsOpen ? "rotate-180" : ""}`} />
-        </button>
-        {optsOpen && (
-          <div className="px-2 pb-2">
-            <OptionsPanel
-              source={inputMode}
-              values={values}
-              backends={availableBackends}
-              caps={caps}
-              flags={flags}
-              pp={{ templates, targets, endpoints, isOidc }}
-              action="tr"
-              onChange={patchValues}
-            />
-          </div>
-        )}
-      </div>
-      {/* Tab bar */}
-      <div className="flex gap-0 border-b border-border">
-        <TabButton active={inputMode === "upload"} disabled={recording} onClick={() => setInputMode("upload")}>
-          📤 {t("tab_upload")}
-        </TabButton>
-        <TabButton active={inputMode === "record"} disabled={recording} onClick={() => setInputMode("record")}>
-          🎤 {t("tab_record")}
-        </TabButton>
-        <TabButton active={inputMode === "url"} disabled={recording} onClick={() => setInputMode("url")}>
-          🔗 {t("tab_url")}
-        </TabButton>
+      {/* ── Change 220 (Nutzer-Vorgabe 20.09.2026): Quellen-Auswahl ──
+          Drei gleichrangige Kreis-Knöpfe ersetzen die frühere Tab-Leiste.
+          Aufbau von oben nach unten: URL-Zeile (volle Containerbreite),
+          darunter die drei Kreise, darunter der Bereich der gewählten Quelle,
+          GANZ UNTEN das Optionen-Panel (Change 212 — Inhalt unverändert). */}
+      <div className="ps-sources" data-testid="sources" role="group" aria-label={t("src_picker_label")}>
+        {/* Die URL-Zeile sitzt direkt über der Kreis-Reihe und läuft über die
+            volle Breite des Containers. Der Beispieltext ist der Platzhalter
+            (YouTube-Adresse, wie vom Nutzer vorgegeben). */}
+        <div className="ps-url-row" data-testid="url-line">
+          <label className="sr-only" htmlFor="ps-url-input">{t("url_line_label")}</label>
+          <input
+            id="ps-url-input"
+            data-testid="url-input"
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={t("url_placeholder")}
+            autoComplete="off"
+            spellCheck={false}
+            className="ps-url-input"
+            onKeyDown={(e) => { if (e.key === "Enter") void submitUrl(); }}
+          />
+        </div>
+
+        <div className="ps-source-row" data-testid="source-row">
+          <SourceCircle
+            kind="upload"
+            label={t("src_upload")}
+            selected={inputMode === "upload"}
+            disabled={recording}
+            onSelect={() => selectSource("upload")}
+          />
+          <SourceCircle
+            kind="record"
+            label={t("src_record")}
+            selected={inputMode === "record"}
+            onSelect={() => {
+              if (inputMode === "record") recordCtl.current?.toggle();
+              else selectSource("record");
+            }}
+          />
+          <SourceCircle
+            kind="download"
+            label={t("src_download")}
+            selected={inputMode === "url"}
+            disabled={recording}
+            onSelect={() => {
+              // Auswahl schaltet den Bereich darunter um; steht schon eine
+              // Adresse in der Zeile, startet der Kreis den Import.
+              if (inputMode === "url" && url.trim() && !isDownloading) void submitUrl();
+              else selectSource("url");
+            }}
+          />
+        </div>
       </div>
 
       {/* Tab content */}
@@ -518,7 +638,7 @@ export function UploadZone({ user }: Props) {
         </div>
       )}
       {inputMode === "upload" && (
-        <div className="ps-tab-body">
+        <div className="ps-tab-body" data-testid="area-upload">
           <UploadTab
             isUploading={isUploading}
             isDragging={isDragging}
@@ -617,7 +737,9 @@ export function UploadZone({ user }: Props) {
         </div>
       )}
       {inputMode === "record" && (
+        <div data-testid="area-record">
         <RecordTab
+          ctlRef={recordCtl}
           setIsUploading={setIsUploading}
           onRecordingChange={setRecording}
           toast={toast}
@@ -628,14 +750,19 @@ export function UploadZone({ user }: Props) {
           refreshPending={refreshPending}
           onStartJob={(uid: string, label: string) => startJob(uid, label, values)}
         />
+        </div>
       )}
       {inputMode === "url" && (
-        <UrlTab
-          toast={toast}
-          qc={qc}
+        <UrlArea
           t={t}
-          values={values}
-          onStartJob={(uid, label) => startJob(uid, label, values)}
+          onSubmit={() => void submitUrl()}
+          canSubmit={!!url.trim()}
+          isDownloading={isDownloading}
+          showAuth={showAuth} setShowAuth={setShowAuth}
+          username={username} setUsername={setUsername}
+          password={password} setPassword={setPassword}
+          videoPassword={videoPassword} setVideoPassword={setVideoPassword}
+          setCookiesFile={setCookiesFile}
         />
       )}
 
@@ -671,28 +798,20 @@ export function UploadZone({ user }: Props) {
       {/* Task 9: globale Feature-Toggles entfernt — Toggles docken jetzt an die
           Transcribe-Zeile der jeweiligen Aufnahme (RecordingCard) an. */}
 
+      {/* ── Change 220 (Nutzer-Vorgabe 20.09.2026): Das Optionen-Panel steht
+          GANZ UNTEN — unter der Quellen-Auswahl und unter dem Bereich der
+          gewählten Quelle. Inhaltlich unverändert (Change 212). ── */}
+      {optionsPanel}
+
       {/* CPU/GPU-Badge ist in die Stats-Leiste (Header) gewandert (Settings-UI-Task). */}
     </div>
   );
 }
 
 // ── Tab button ──
-
-function TabButton({ active, disabled, onClick, children }: { active: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`px-3 py-[6px] sm:px-4 sm:py-2 text-[12px] sm:text-[13px] font-semibold border-b-2 transition-colors ${
-        active
-          ? "border-accent text-accent"
-          : "border-transparent text-muted hover:text-txt"
-      } ${disabled ? "opacity-40 pointer-events-none" : ""}`}
-    >
-      {children}
-    </button>
-  );
-}
+// Change 220 (Nutzer-Vorgabe 20.09.2026): Die frühere Tab-Leiste ist entfallen.
+// Die Quellen-Auswahl sind jetzt die drei Kreis-Knöpfe (SourceCircle.tsx) —
+// eine zweite Bedienleiste daneben würde nur doppelt anbieten, was es schon gibt.
 
 // ── Upload tab ──
 
@@ -724,8 +843,11 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
           </>
         ) : (
           <>
-            <div className="ps-zone-icon">
-              <Mic size={26} className="text-muted" aria-hidden="true" />
+            <div className="ps-zone-icon text-muted">
+              {/* Change 220: dasselbe selbst gezeichnete Upload-Zeichen wie im
+                  Quellen-Kreis (monochrom, Inline-SVG) — die Ablegefläche ist
+                  damit kein Fremd-Emoji mehr. */}
+              <SourceIcon kind="upload" size={26} />
             </div>
             <div className="ps-zone-title">{t("drag_here")}</div>
             <div className="ps-zone-hint">{t("multi_files")}</div>
@@ -747,7 +869,7 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
 
 // ── Record tab ──
 
-function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, refreshPending, onStartJob }: any) {
+function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, refreshPending, onStartJob }: any) {
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
@@ -1131,6 +1253,26 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
     setContinuous(false);
   }
 
+  // ── Change 220 (Nutzer-Vorgabe 20.09.2026): Der Quellen-Kreis „Aufnehmen"
+  //    ist KEIN zweiter Knopf und hat keinen eigenen Zustand: er delegiert an
+  //    genau diesen bestehenden Aufnahmeknopf (starten/stoppen). Die Funktionen
+  //    werden nach jedem Rendern veröffentlicht — der Kreis arbeitet damit
+  //    immer mit dem aktuellen Stand (laufende Aufnahme, Pause, Mikrofonwahl)
+  //    und kann nie ins Leere greifen. Beim Verlassen des Bereichs wird
+  //    abgemeldet, damit kein alter Aufruf liegen bleibt.
+  useEffect(() => {
+    if (!ctlRef) return;
+    ctlRef.current = {
+      toggle: () => {
+        if (recording) void stopRecording();
+        else void startRecording();
+      },
+    };
+    return () => {
+      ctlRef.current = null;
+    };
+  });
+
   // ── Mobile Push-to-Record Gesten ──
   // Drücken = aufnehmen / fortsetzen · Loslassen = Pause (gleiche Datei!)
   // Swipe ↑ = Daueraufnahme · Swipe ↓ = Stop + Upload
@@ -1298,7 +1440,7 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
                 : continuous
                   ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg>
                   : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" fill="var(--ps-err, #f85149)" fillOpacity="0.3"/><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="var(--ps-err, #f85149)"/></svg>
-              : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="var(--ps-accent, #2ea043)"/><path d="M17 11a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" fill="var(--ps-accent, #2ea043)" fillOpacity="0.6"/></svg>}
+              : <SourceIcon kind="record" size={28} />}
           </button>
 
           {/* Change 216: halbtransparente Kopie des Knopfes + eine Zeile Text.
@@ -1495,88 +1637,63 @@ function writeStr(view: DataView, offset: number, str: string) {
 
 // ── URL tab ──
 
-function UrlTab({ toast, qc, t, values, onStartJob }: {
-  toast: ReturnType<typeof useToast>["toast"];
-  qc: ReturnType<typeof useQueryClient>;
+function UrlArea({
+  t,
+  onSubmit,
+  canSubmit,
+  isDownloading,
+  showAuth,
+  setShowAuth,
+  username,
+  setUsername,
+  password,
+  setPassword,
+  videoPassword,
+  setVideoPassword,
+  setCookiesFile,
+}: {
   t: ReturnType<typeof useT>["t"];
-  /** Change 212: dieselben Optionswerte wie Datei-Upload und Aufnahme. */
-  values: FeatureValues;
-  /** Change 212: Abschicken startet den Auftrag (kein zweiter Klick). */
-  onStartJob: (uid: string, label: string) => void | Promise<void>;
+  /** Change 220: Der Absatz liegt in der URL-Zeile bzw. am Download-Kreis. */
+  onSubmit: () => void;
+  /** Steht eine Adresse in der Zeile? Ohne Adresse ist der Absatz gesperrt. */
+  canSubmit: boolean;
+  isDownloading: boolean;
+  /** Change 080: optionale Anmeldedaten — reiner Komponenten-Zustand in
+   *  UploadZone, wird nach dem Import geleert und nie persistiert. */
+  showAuth: boolean;
+  setShowAuth: React.Dispatch<React.SetStateAction<boolean>>;
+  username: string;
+  setUsername: (v: string) => void;
+  password: string;
+  setPassword: (v: string) => void;
+  videoPassword: string;
+  setVideoPassword: (v: string) => void;
+  setCookiesFile: (f: File | null) => void;
 }) {
-  const [url, setUrl] = useState("");
-  const [isDownloading, setIsDownloading] = useState(false);
-  // Change 080: optionale Anmeldedaten — reiner Komponenten-State,
-  // wird nach dem Import geleert und nie persistiert.
-  const [showAuth, setShowAuth] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [videoPassword, setVideoPassword] = useState("");
-  const [cookiesFile, setCookiesFile] = useState<File | null>(null);
-
-  async function handleSubmit() {
-    if (!url.trim() || isDownloading) return;
-    setIsDownloading(true);
-    try {
-      const result = await importFromUrl(
-        url.trim(),
-        values.vad !== "off", values.diarize, values.streaming,
-        values.noise, values.enhance,
-        values.numSpeakers ? Number(values.numSpeakers) : undefined,
-        diarSensToMinDurationOff(values.diarSens),
-        values.diarMethod || undefined,
-        username.trim() || undefined,
-        password || undefined,
-        videoPassword || undefined,
-        cookiesFile,
-        values.separate,
-        values.vad,
-      );
-      toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
-      // Change 212: Der Import ist ein fertiger Auftrag → sofort starten.
-      // Ohne das bleibt er „wartend" auf der Aufnahmekarte liegen (der
-      // Server reiht beim Import bewusst nicht selbst ein).
-      if (result?.uid) await onStartJob(result.uid, result.original_name ?? url.trim());
-      await qc.invalidateQueries({ queryKey: ["recordings"] });
-      await qc.invalidateQueries({ queryKey: ["stats"] });
-      setUrl("");
-      // Change 080: Anmeldedaten nach dem Import leeren.
-      setUsername("");
-      setPassword("");
-      setVideoPassword("");
-      setCookiesFile(null);
-      setShowAuth(false);
-    } catch (e) {
-      toast(`Import failed: ${(e as Error).message}`, "err");
-    } finally {
-      setIsDownloading(false);
-    }
-  }
-
   return (
-    <div className="ps-tab-body">
-      {/* Change 215: dieselbe Zone wie im Upload- und Aufnahme-Tab —
-          Beschriftung und Eingabefeld liegen darin, die Anmeldung darunter. */}
+    <div className="ps-tab-body" data-testid="area-url">
+      {/* Change 215: dieselbe Zone wie im Upload- und Aufnahme-Tab.
+          Change 220 (Nutzer-Vorgabe 20.09.2026): Die Eingabezeile ist aus der
+          Zone heraus nach OBEN gewandert (direkt über die Quellen-Kreise,
+          volle Containerbreite). Hier bleibt der Bereich der Quelle „Download":
+          Symbol, Zustand und die optionale Anmeldung — die Zone behält
+          unverändert ihre festen Maße aus Change 215. */}
       <Zone variant="solid" className="ps-zone-url">
         <div className="ps-zone-stack">
-          <div className="ps-zone-hint">{t("url_placeholder")}</div>
-          <div className="flex gap-2 w-full">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://youtube.com/watch?v=…"
-          className="flex-1 min-w-0 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
-          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={isDownloading || !url.trim()}
-          className="btn-accent text-[13px] px-4 py-2 rounded-sm whitespace-nowrap"
-        >
-          {isDownloading ? "⏳ " + t("url_downloading") : "🔗 " + t("url_download")}
-        </button>
+          <div className="ps-zone-icon ps-src-ink" aria-hidden="true">
+            <SourceIcon kind="download" size={26} />
           </div>
+          <div className="ps-zone-hint">{t("url_zone_hint")}</div>
+          {/* Change 220: Derselbe Absatz wie am Download-Kreis — beides ruft
+              `onSubmit` auf, es gibt keinen wirkungslosen Knopf. */}
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={!canSubmit || isDownloading}
+            className="btn-accent text-[12px] px-3 py-1.5 rounded-sm whitespace-nowrap"
+          >
+            {isDownloading ? t("url_downloading") : t("url_download")}
+          </button>
         </div>
       </Zone>
       {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar).

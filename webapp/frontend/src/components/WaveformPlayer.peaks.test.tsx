@@ -239,8 +239,10 @@ describe("WaveformPlayer Change 100 — Zoom bleibt bei späten Annotationen sta
     // User zoomt rein → 2. zoom()-Aufruf, Zoom-Label „1×"
     fireEvent.click(screen.getByTitle("Zoom in"));
     expect(zoomMock).toHaveBeenCalledTimes(2);
-    // Zoom-Label (min-w-[36px]) — NICHT der Speed-Button „1×"
-    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
+    // Change 219: der Zoom ist jetzt RELATIV — eine Stufe = ×1,5 der
+    // Gesamtansicht, die Anzeige nennt das Verhältnis („1.5×"), nicht mehr
+    // einen Wert aus der früheren Feststufen-Liste („1×").
+    expect(screen.getByText("1.5×", { selector: "[class*='min-w-']" })).toBeTruthy();
 
     // Annotationen treffen asynchron ein (Detail-Fetch) → Re-Render
     act(() => {
@@ -258,7 +260,7 @@ describe("WaveformPlayer Change 100 — Zoom bleibt bei späten Annotationen sta
 
     // Change 100: KEIN erneuter doZoom(0) — der User-Zoom bleibt erhalten
     expect(zoomMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
+    expect(screen.getByText("1.5×", { selector: "[class*='min-w-']" })).toBeTruthy();
   });
 
   it("ruft ws.zoom NICHT auf, solange der neue ws nach Re-Init noch lädt (kein „No audio loaded“)", () => {
@@ -300,7 +302,7 @@ describe("WaveformPlayer Change 100 — Zoom bleibt bei späten Annotationen sta
     act(() => ready2());
     fireEvent.click(screen.getByTitle("Zoom in"));
     expect(zoomMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("1×", { selector: "[class*='min-w-']" })).toBeTruthy();
+    expect(screen.getByText("1.5×", { selector: "[class*='min-w-']" })).toBeTruthy();
   });
 });
 
