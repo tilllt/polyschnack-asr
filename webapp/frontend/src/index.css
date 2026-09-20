@@ -633,10 +633,14 @@ audio {
   transition: opacity 1100ms ease-out;
 }
 
-/* Pulsierender Ring — steht für „Aufnahme läuft". */
+/* Pulsierender Ring — steht für „Aufnahme läuft".
+   Change 223: `inset: -4px` → `inset: 0`. Der Ring lag 4 px außerhalb des
+   Knopfrandes; das ist mit dem dicht sitzenden Textkreis (r = 36 → 4 px Abstand)
+   genau die Textlinie. Er wächst jetzt aus dem Knopfrand heraus (scale bis 1,09
+   → 34,9 px) und bleibt damit innerhalb der Schrift. */
 .ps-record-ghost-ring {
   position: absolute;
-  inset: -4px;
+  inset: 0;
   border-radius: 999px;
   border: 2px solid var(--ps-ghost-line, #2ea043);
   opacity: 0;
@@ -647,44 +651,48 @@ audio {
    Bewegung dazu, ausschließlich mit `transform`, also ohne jeden Einfluss auf
    das Layout (der Knopf kann sich dadurch nicht bewegen).
 
-   Change 218 (Nutzer-Vorgabe 20.09.2026): Der Weg ist deutlich größer als
-   vorher (hoch 12 → 26 px, runter 4 → 18 px, Senken 0,86 → 0,72, Heben
-   1,06 → 1,12). Die 26 px sind die Obergrenze, die die feste Zone hergibt: im
-   kleinsten Fall (144 px Zone, 2 px Rand, 12 px Innenabstand, 64 px Knopf)
-   bleiben über und unter dem Knopf je 26 px bis zur Innenkante der Zone —
-   danach greift `overflow: hidden`. Die Kopie pendelt also bis an die
-   Innenkante, verlässt die Zone aber nicht.
+   Change 218 (Nutzer-Vorgabe 20.09.2026): Der Weg war damals deutlich größer
+   als vorher. Die 26 px galten für den Textkreis mit r = 60 px.
 
    Change 219 (Nutzer-Vorgabe 20.09.2026, Punkt 5): Der Puls geht NUR NOCH NACH
-   AUSSEN. Vorher schrumpfte „senken" auf 0,72 und „heben" begann bei 0,82 —
-   beides zog die Kopie nach innen, also unter die Ausgangsgröße. Jetzt ist
-   `scale(1)` der kleinste Wert, den irgendeine dieser Animationen annimmt:
-     senken (Halten)  1 → 1,16 und bleibt dort („es läuft"), dann zurück
-     heben (Loslassen) 1 → 1,22 kurz aufgefedert, dann zurück
-     Ring             1 → 1,35 und verblasst
-   Die Wischwege hoch/runter bleiben unverändert (26 px / 18 px).
-   Obergrenze: 1,22 × 40 px Knopfradius = 48,8 px < 60 px Halbmesser des
-   Textkreises — die pulsierende Kopie bleibt immer innerhalb des Textes, und
-   mit 1,35 × 40 = 54 px auch der Ring. */
+   AUSSEN — `scale(1)` ist der kleinste Wert, den irgendeine dieser Animationen
+   annimmt.
+
+   Change 223 (Nutzer-Vorgabe 20.09.2026): „Die ui hints im record Menü sind
+   immer noch sehr weit vom Button weg, auch hier 5px Entfernung." Der Textkreis
+   sitzt jetzt unmittelbar am Ring (r = 36 → 4 px Abstand am 64-px-Knopf, 5 px
+   am 80-px-Knopf). DAS BEGRENZT DIE BEWEGUNG: die Kopie und ihr Ring dürfen den
+   Text nicht durchlaufen, sonst wandert der Kreis durch die Schrift und die
+   Beschriftung wird unleserlich. Der freie Ring ist 4 px breit (mobil: Text 36,
+   Knopf 32) bzw. 5 px (ab 640 px: 45 zu 40) — maßgeblich ist die ENGERE Stufe:
+
+     Kopie wandern   |t| + 32 px ≤ 35 px (1 px Luft)  →  |t| ≤ 3 px
+     Kopie wachsen   32 px × s ≤ 35 px                →  s ≤ 1,09
+     Ring (inset 0)  32 px × s ≤ 35 px                →  s ≤ 1,09
+
+   Gemessen wird das in recordGestureHint.test.tsx gegen RECORD_ARC — wer die
+   Amplituden erhöht, ohne den Text weiter nach außen zu legen, wird dort rot.
+   Wem die Bewegung zu klein ist: der Text muss dann wieder weiter vom Ring weg
+   (das ist eine Entscheidung des Nutzers, nicht eine des Codes). */
 @keyframes ps-ghost-up {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(-26px); }
+  45%      { transform: translateY(-3px); }
 }
 @keyframes ps-ghost-down {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(18px); }
+  45%      { transform: translateY(3px); }
 }
 @keyframes ps-ghost-sink {
   0%, 100% { transform: scale(1); }
-  35%, 70% { transform: scale(1.16); }
+  35%, 70% { transform: scale(1.09); }
 }
 @keyframes ps-ghost-rise {
   0%, 100% { transform: scale(1); }
-  40%      { transform: scale(1.22); }
+  40%      { transform: scale(1.09); }
 }
 @keyframes ps-ghost-ring {
   0%   { transform: scale(1);    opacity: 0.8; }
-  100% { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.09); opacity: 0; }
 }
 .ps-ghost-lock {
   --ps-ghost-line: var(--ps-accent, #2ea043);
@@ -730,8 +738,17 @@ audio {
   top: 50%;
   transform: translate(-50%, -50%);
   z-index: 2;
-  width: 240px;
-  height: 240px;
+  /* Change 223 (Nutzer-Vorgabe 20.09.2026): „Die ui hints im record Menü sind
+     immer noch sehr weit vom Button weg, auch hier 5px Entfernung." — Die
+     Zeichenfläche wächst jetzt PROZENTUAL mit dem Knopf, genau wie die
+     Beschriftung der Kreise in den Zonen (218,75 % = 140/64 → 140 px am
+     64-px-Knopf, 175 px am 80-px-Knopf; der Rahmen .ps-record-stage ist genau
+     so groß wie der Knopf). Damit sitzt der Text in BEIDEN Knopfgrößen rund
+     5 px außerhalb der Ringaußenkante (genau: 4 px / 5 px, Maße und Rechnung
+     in RecordGestureHint.tsx bei RECORD_ARC). Feste px wären hier falsch: beim
+     großen Knopf läge der Text dann IM Ring, beim kleinen zu weit weg. */
+  width: 218.75%;
+  height: 218.75%;
   /* Change 219 (Punkt 4): EINE Farbquelle für alle vier Hinweise. Die
      Gestenklassen (.ps-ghost-*) dürfen den Text NICHT übersteuern. */
   --ps-hint-ink: #d2e8cd;
@@ -754,14 +771,17 @@ audio {
    „Generell lassen wir die Animation der Texte sein, die ist zu unruhig").
    Die frühere Drehklasse .ps-record-arc-spin samt @keyframes ist entfallen. */
 /* Change 219 (Punkt 4): Farbe, Deckkraft und Schriftgröße des Hinweistextes
-   stehen genau EINMAL — für alle vier Hinweise gleich. 10 → 9 px, damit der
-   längste Hinweis (35 Zeichen) auf den Halbkreis passt (π × 60 ≈ 188 px,
-   Text ≈ 167 px). */
+   stehen genau EINMAL — für alle vier Hinweise gleich.
+   Change 223: 9 → 10 px, dieselbe Größe wie die Kreis-Beschriftungen in den
+   Zonen. Die Schrift skaliert mit der Zeichenfläche (×1,25 ab 640 px → 12,5 px)
+   und bleibt deshalb in beiden Knopfgrößen proportional zum Ring. Die Hinweise
+   selbst sind dafür kürzer gefasst (siehe RECORD_GESTURE_TIPS): der Halbkreis
+   ist mit r = 36 nur noch ~113 px lang (mobil) bzw. ~141 px (ab 640 px). */
 .ps-record-arc-text {
   fill: var(--ps-hint-ink, #d2e8cd);
   opacity: 1;
   font-family: inherit;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.02em;
 }
 
@@ -836,10 +856,10 @@ audio {
   .ps-record-ghost-ring {
     animation: none !important;
   }
-  .ps-ghost-lock { transform: translateY(-20px); }
-  .ps-ghost-stop { transform: translateY(14px); }
-  .ps-ghost-sink { transform: scale(1.16); }
-  .ps-ghost-rise { transform: scale(1.22); }
+  .ps-ghost-lock { transform: translateY(-3px); }
+  .ps-ghost-stop { transform: translateY(3px); }
+  .ps-ghost-sink { transform: scale(1.09); }
+  .ps-ghost-rise { transform: scale(1.09); }
   .ps-ghost-sink .ps-record-ghost-ring { opacity: 0.5; }
   /* Kein Überblenden: der neue Hinweis steht sofort da. */
   .ps-record-tip,
@@ -1037,6 +1057,16 @@ audio {
   user-select: none;
   color: inherit;
 }
+/* Change 223 (Nutzer-Vorgabe 20.09.2026): „Mache die Button Beschreibung unten
+   an den Kreis." — Die Zeichenfläche liegt dann auf der anderen Seite der
+   Knopfmitte (derselbe Kasten, gleiche Maße, gleiche Schrift). Der Kreis selbst
+   bewegt sich dabei NICHT: das Label ist absolut positioniert und damit nicht
+   layoutwirksam (Nutzer: „Achte darauf das alle Kreise an der gleichen Position
+   bleiben"). */
+.ps-src-arc--bottom {
+  top: 50%;
+  bottom: auto;
+}
 .ps-src-arc-svg { display: block; overflow: visible; width: 100%; height: 100%; }
 .ps-src-arc-text {
   fill: currentColor;
@@ -1055,6 +1085,22 @@ audio {
 .ps-zone-url .ps-url-row {
   width: 100%;
   max-width: 460px;
+}
+
+/* Change 223 (Nutzer-Vorgaben 20.09.2026): Die Erklärzeile der Adress-Zone ist
+   entfallen („mit dem Beispieltext in der textarea und dem mit Download
+   beschrifteten Button erklärt sich die Funktion"). Der Stapel ist damit um
+   ihre Höhe kürzer, und `justify-content: center` zöge den Kreis um die halbe
+   Differenz nach unten — er verrutschte. Nutzer-Vorgabe: „Achte darauf das alle
+   Kreise an der gleichen Position bleiben." Der Platz der entfernten Zeile
+   steht deshalb als Abstand UNTEN im Stapel: der Inhalt rutscht um die halbe
+   Reserve (10 px) wieder nach oben und der Kreis sitzt genau wie vorher.
+   IM BROWSER NACHGEMESSEN (Chrome, Zonenmitte = 0): Kreis „Download" live
+   120,11 px von der Zonenoberkante; ohne diese Reserve 130,06 px; mit Reserve
+   wieder 120,11 px. Wer die Zeile zurückholt, muss diese Regel entfernen —
+   sonst steht sie doppelt im Platz. */
+.ps-zone-url .ps-zone-stack {
+  padding-bottom: 20px;
 }
 
 @media (prefers-reduced-motion: reduce) {

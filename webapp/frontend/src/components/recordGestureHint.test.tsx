@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import {
   RECORD_ARC,
   RECORD_ARC_PATH_D,
+  RECORD_ARC_SIZE_PERCENT,
   RECORD_BUTTON_SHAPE,
   RECORD_GESTURE_TIPS,
   RecordGestureHint,
@@ -251,9 +252,13 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     const tipCss = rule(".ps-record-tip {");
     expect(tipCss).toContain("top: 50%");
     expect(tipCss).toContain("translate(-50%, -50%)");
-    expect(tipCss).toContain(`height: ${RECORD_ARC.height}px`);
-    expect(tipCss, "feste Höhe aus der Konstante").toContain(`width: ${RECORD_ARC.width}px`);
+    // Change 223: Die Zeichenfläche ist PROZENTUAL zur Knopfgröße (wie die
+    // Beschriftung an den Kreisen in den Zonen) und quadratisch — nur so sitzt
+    // der Text in beiden Knopfgrößen gleich weit vom Ring.
+    expect(tipCss).toContain(`height: ${RECORD_ARC_SIZE_PERCENT}`);
+    expect(tipCss, "quadratisch").toContain(`width: ${RECORD_ARC_SIZE_PERCENT}`);
     expect(tipCss).not.toContain("height: auto");
+    expect(tipCss, "feste px wären in einer Knopfgröße falsch").not.toContain("px;");
   });
 
   test("die Kopie ist sichtbarer als vorher, verdeckt den Knopf aber nicht", () => {
@@ -292,7 +297,9 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       "mehr als eine Regel für den Hinweistext"
     ).toBe(1);
     const text = rule(".ps-record-arc-text {");
-    expect(text).toContain("font-size: 9px");
+    // Change 223: 9 → 10 px — dieselbe Größe wie die Beschriftung der Kreise in
+    // den Zonen (die Schrift skaliert mit der Zeichenfläche, ×1,25 ab 640 px).
+    expect(text).toContain("font-size: 10px");
     expect(text).toContain("opacity: 1");
     const textFarbe = /fill:\s*([^;]+);/.exec(text)?.[1].trim();
     expect(textFarbe).toBe("var(--ps-hint-ink, #d2e8cd)");
@@ -385,10 +392,14 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       expect(werte.length, `${name} hat keinen scale-Wert`).toBeGreaterThan(0);
       expect(Math.min(...werte), `${name} zieht nach innen`).toBeGreaterThanOrEqual(1);
     }
-    // Nach außen heißt: über 1 hinaus.
-    expect(Math.max(...bloecke[0][1]), "Senken (Halten)").toBeGreaterThan(1.1);
-    expect(Math.max(...bloecke[1][1]), "Heben (Loslassen)").toBeGreaterThan(1.15);
-    expect(Math.max(...bloecke[2][1]), "Ring").toBeGreaterThan(1.2);
+    // Nach außen heißt: über 1 hinaus — aber NICHT durch die Schrift hindurch.
+    // Change 223: Der Textkreis sitzt nur noch 4 px (mobil) bzw. 5 px (Desktop)
+    // außerhalb des Rings; mehr Puls als diese Lücke liefe durch die Schrift und
+    // machte sie unleserlich. Senken 1,16 → 1,09, Heben 1,22 → 1,09,
+    // Ring 1,35 → 1,09.
+    expect(Math.max(...bloecke[0][1]), "Senken (Halten)").toBeGreaterThan(1.05);
+    expect(Math.max(...bloecke[1][1]), "Heben (Loslassen)").toBeGreaterThan(1.05);
+    expect(Math.max(...bloecke[2][1]), "Ring").toBeGreaterThan(1.05);
 
     // Auch das Standbild bei reduzierter Bewegung bleibt draußen.
     const standbild = reduzierteBewegungBlock();
@@ -396,26 +407,37 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(stands.length).toBeGreaterThanOrEqual(2);
     expect(Math.min(...stands)).toBeGreaterThanOrEqual(1);
 
-    // Und die Kopie bleibt trotz Puls innerhalb des Textkreises: sonst läge
-    // sie unter dem Text.
+    // Und die Kopie bleibt trotz Puls INNERHALB des Textkreises: sonst liefe sie
+    // durch die Schrift. Maßgeblich ist die engere Stufe (64-px-Knopf).
+    const knopfRadiusMobil = KNOPF_MOBIL / 2;
     const groessterPuls = Math.max(
       ...[...bloecke[0][1], ...bloecke[1][1], ...bloecke[2][1]].filter((v) => v > 0)
     );
-    expect(groessterPuls * (KNOPF_AB_640 / 2)).toBeLessThan(RECORD_ARC.r);
+    expect(
+      groessterPuls * knopfRadiusMobil + 1,
+      `Puls ${groessterPuls} × ${knopfRadiusMobil} px + 1 px Luft gegen r = ${RECORD_ARC.r} px`
+    ).toBeLessThanOrEqual(RECORD_ARC.r);
   });
 
-  test("(Punkt 5) die Wischwege hoch/runter bleiben unverändert", () => {
-    // Change 218: hoch 26 px, runter 18 px — unverändert gültig.
+  test("(Punkt 5/Change 223) die Wischwege bleiben in der Lücke bis zur Schrift", () => {
     const hoch = Math.max(...zahlen(block("@keyframes ps-ghost-up {"), "translateY").map(Math.abs));
     const runter = Math.max(
       ...zahlen(block("@keyframes ps-ghost-down {"), "translateY").map(Math.abs)
     );
-    expect(hoch, "Wischweg nach oben in px").toBe(26);
-    expect(runter, "Wischweg nach unten in px").toBe(18);
+    // Change 218: hoch 26 px, runter 18 px — die galten für den Textkreis mit
+    // r = 60 px. Change 223 (Nutzer: „auch hier 5px Entfernung") setzt den Text
+    // dicht an den Ring; die Lücke ist damit nur noch 4 px breit (mobil). Die
+    // Kopie darf mit ihrem Rand die Schrift nicht erreichen:
+    const knopfRadiusMobil = KNOPF_MOBIL / 2;
+    expect(hoch + knopfRadiusMobil + 1, "Weg nach oben").toBeLessThanOrEqual(RECORD_ARC.r);
+    expect(runter + knopfRadiusMobil + 1, "Weg nach unten").toBeLessThanOrEqual(RECORD_ARC.r);
+    expect(hoch, "die Geste muss sichtbar bleiben").toBeGreaterThan(0);
+    expect(runter).toBeGreaterThan(0);
+    expect(runter).toBe(hoch);
 
-    // Grenze der Zone: Die Kopie darf mit ihrem Weg die Innenkante der
-    // kleinsten Zone nicht überschreiten — sonst schneidet `overflow: hidden`
-    // sie ab. Innenkante = halbe Zone − halber Knopf.
+    // Grenze der Zone (Change 215): Die Kopie darf auch mit ihrem Weg die
+    // Innenkante der kleinsten Zone nicht überschreiten — sonst schneidet
+    // `overflow: hidden` sie ab. Innenkante = halbe Zone − halber Knopf.
     const { hoehe, innenabstand, rand } = zonenmasse();
     const luft = (hoehe - 2 * rand - 2 * innenabstand) / 2 - KNOPF_MOBIL / 2;
     expect(hoch).toBeLessThanOrEqual(luft);
@@ -629,16 +651,28 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     // RECORD_ARC.cy als Knopfmittelpunkt für alle Knopfgrößen (Change 222).
     const tipCss = rule(".ps-record-tip {");
     expect(tipCss).toContain("top: 50%");
-    expect(tipCss).toContain(`width: ${RECORD_ARC.width}px`);
-    expect(tipCss).toContain(`height: ${RECORD_ARC.height}px`);
+    // Change 223: prozentual (218,75 % = 140/64) — mit festen px stimmt der
+    // Abstand in einer der beiden Knopfgrößen nicht.
+    expect(tipCss).toContain(`width: ${RECORD_ARC_SIZE_PERCENT}`);
+    expect(tipCss).toContain(`height: ${RECORD_ARC_SIZE_PERCENT}`);
     expect(y1).toBeCloseTo(y2, 3); // linkes und rechtes Ende auf gleicher Höhe
     expect(y1).toBe(RECORD_ARC.cy);
 
-    // 1. Der Kreis liegt außen um den Knopf: ab 640 px ist der Knopf 80 px
-    //    breit (Radius 40) — der Kreis läuft mit Luft darum herum.
-    expect(rx).toBeGreaterThanOrEqual(KNOPF_AB_640 / 2 + 2);
-    //    Und zwar außerhalb des größten Pulses der Kopie (Punkt 5).
-    expect(rx).toBeGreaterThan(1.22 * (KNOPF_AB_640 / 2));
+    // 1. Der Textabstand zum Ring — Nutzer-Vorgabe 20.09.2026: „Die ui hints im
+    //    record Menü sind immer noch sehr weit vom Button weg, auch hier 5px
+    //    Entfernung." Die Zeichenfläche skaliert mit dem Knopf (218,75 % →
+    //    ×1,25 ab 640 px), der Abstand ist deshalb in beiden Stufen derselbe:
+    const skalaAb640 = 1.25; // 175 px Zeichenfläche / 140 px
+    const abstandMobil = RECORD_ARC.r - KNOPF_MOBIL / 2;
+    const abstandAb640 = RECORD_ARC.r * skalaAb640 - KNOPF_AB_640 / 2;
+    expect(abstandMobil, "Abstand am 64-px-Knopf").toBeGreaterThanOrEqual(3.5);
+    expect(abstandMobil).toBeLessThanOrEqual(6.5);
+    expect(abstandAb640, "Abstand am 80-px-Knopf").toBeGreaterThanOrEqual(3.5);
+    expect(abstandAb640).toBeLessThanOrEqual(6.5);
+    expect(Math.abs(abstandAb640 - abstandMobil), "beide Stufen gleich nah").toBeLessThanOrEqual(1.5);
+    //    Und die Kopie bleibt auch mit ihrem größten Puls innerhalb des Textes
+    //    (Punkt 5) — sonst liefe sie durch die Schrift.
+    expect(rx).toBeGreaterThan(1.05 * (KNOPF_MOBIL / 2));
 
     // 2. Bleibt der Text in der Zone? Die Schnittkante von `overflow: hidden`
     //    ist die Innenkante des Randes (Zonenhöhe − 2 × Rand), halbiert. Das
@@ -807,28 +841,31 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     const ohneBewegung = reduzierteBewegungBlock();
     expect(ohneBewegung).toContain(".ps-record-ghost");
     expect(ohneBewegung).toContain("animation: none !important");
-    // Standbild je Hinweis, alle Werte außen (Change 219 statt 9/4/0,88/1,04).
-    expect(ohneBewegung).toContain("translateY(-20px)");
-    expect(ohneBewegung).toContain("translateY(14px)");
-    expect(ohneBewegung).toContain("scale(1.16)");
-    expect(ohneBewegung).toContain("scale(1.22)");
+    // Standbild je Hinweis, alle Werte außen (Change 219) und in der Lücke bis
+    // zur Schrift (Change 223: 5 px Abstand = maximal ~3 px Weg / 1,09 Puls).
+    expect(ohneBewegung).toContain("translateY(-3px)");
+    expect(ohneBewegung).toContain("translateY(3px)");
+    expect(ohneBewegung).toContain("scale(1.09)");
     expect(ohneBewegung.includes("scale(0.")).toBe(false);
   });
 
   test("die Farben kommen aus der eigenen Palette, kein currentColor", () => {
-    let farben = "";
+    // Change 223 (Nutzer: „Entferne aus den overlay Animationen die Inhalte der
+    // Kreise, man versteht die Gesten auch ohne den Pfeil in der Mitte usw."):
+    // In der Kopie steckt KEIN Zeichen mehr — ihre Farben kommen allein aus den
+    // Gestenklassen (--ps-ghost-line/-fill). Genau das wird hier geprüft.
     for (let i = 0; i < RECORD_GESTURE_TIPS.length; i++) {
       const { container, unmount } = renderBuehne(i);
-      farben += container.querySelector("[data-testid='record-ghost'] svg")?.outerHTML ?? "";
+      const kopie = container.querySelector("[data-testid='record-ghost']");
+      expect(kopie, "keine Kopie gerendert").toBeTruthy();
+      expect(kopie!.querySelector("svg"), "Zeichen in der Kopie (Change 223)").toBeNull();
+      const stil = kopie!.getAttribute("style") ?? "";
+      expect(stil.includes("currentColor")).toBe(false);
       unmount();
     }
-    expect(farben).toContain("var(--ps-accent, #2ea043)");
-    expect(farben).toContain("var(--ps-err, #f85149)");
-    expect(farben).toContain("#d99e2b");
-    expect(farben.includes("currentColor")).toBe(false);
-    // Die Farben der Kopie stehen ebenfalls in der Palette.
     expect(rule(".ps-ghost-lock {")).toContain("var(--ps-accent, #2ea043)");
     expect(rule(".ps-ghost-stop {")).toContain("var(--ps-err, #f85149)");
+    expect(rule(".ps-ghost-sink {")).toContain("#2ea043");
     expect(rule(".ps-ghost-rise {")).toContain("#d99e2b");
     // Der Hinweistext bleibt in der bisherigen Farbe (keine neue Farbe).
     expect(rule(".ps-record-tip {")).toContain("--ps-hint-ink: #d2e8cd");
@@ -839,6 +876,29 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       .filter((z) => !/^\s*(\*|\/\*|\/\/)/.test(z))
       .join("\n");
     expect(ohneKommentare.includes("currentColor")).toBe(false);
+    expect(ohneKommentare.includes("<GestureIcon"), "Zeichen der Kopie").toBe(false);
+  });
+
+  test("(Change 223) die Kopie trägt kein Zeichen mehr — nur den Ring", () => {
+    // Nutzer-Vorgabe 20.09.2026: „Entferne aus den overlay Animationen die
+    // Inhalte der Kreise, man versteht die Gesten auch ohne den Pfeil in der
+    // Mitte usw."
+    const bauteil = quelle("components/RecordGestureHint.tsx");
+    expect(bauteil.includes("GestureIcon"), "Zeichen im Bauteil").toBe(false);
+    expect(bauteil.includes("stroke="), "gezeichnete Striche im Bauteil").toBe(false);
+    for (let i = 0; i < RECORD_GESTURE_TIPS.length; i++) {
+      const { container, unmount } = renderBuehne(i);
+      const kopie = container.querySelector("[data-testid='record-ghost']")!;
+      expect(kopie.children.length, "nur der Ring in der Kopie").toBe(1);
+      expect(kopie.children[0].className).toBe("ps-record-ghost-ring");
+      expect(kopie.textContent, "kein Text in der Kopie").toBe("");
+      expect(kopie.querySelectorAll("svg, path, circle, rect").length).toBe(0);
+      unmount();
+    }
+    // Der Ring bleibt (er pulsiert), liegt aber jetzt INNERHALB der Schrift —
+    // vorher stand er 4 px außerhalb des Knopfrandes, also genau auf der
+    // Textlinie (Change 223).
+    expect(rule(".ps-record-ghost-ring {")).toContain("inset: 0");
   });
 
   test("der echte Aufnahme-Knopf benutzt dieselbe Kopie und keinen Hinweisblock", () => {

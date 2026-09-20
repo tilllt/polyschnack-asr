@@ -108,6 +108,40 @@ export const SOURCE_CIRCLE_ARC_PATH_D =
   `M ${SOURCE_CIRCLE_ARC.cx - SOURCE_CIRCLE_ARC.r} ${SOURCE_CIRCLE_ARC.cy} ` +
   `A ${SOURCE_CIRCLE_ARC.r} ${SOURCE_CIRCLE_ARC.r} 0 0 1 ${SOURCE_CIRCLE_ARC.cx + SOURCE_CIRCLE_ARC.r} ${SOURCE_CIRCLE_ARC.cy}`;
 
+/**
+ * Auf welcher Seite des Kreises steht seine Beschriftung? (Change 223)
+ *
+ *   top    — Vorgabe: Bogen ÜBER dem Kreis (Zeichenfläche endet mit der
+ *            Knopfmitte, `bottom: 50%` in index.css).
+ *   bottom — Bogen UNTER dem Kreis, aufrecht lesbar wie eine Bildunterschrift
+ *            (Nutzer-Vorgabe 20.09.2026 zum Kreis „Download": „Mache die Button
+ *            Beschreibung unten an den Kreis.").
+ *
+ * WICHTIG: Die Lage der Beschriftung ändert die Lage des KREISES nicht — das
+ * Label ist absolut positioniert (`.ps-src-arc`) und damit nicht layoutwirksam.
+ * Nutzer-Vorgabe 20.09.2026: „Achte darauf das alle Kreise an der gleichen
+ * Position bleiben."
+ */
+export type LabelSide = "top" | "bottom";
+
+/**
+ * `d` des Bogens für eine Seite. Die Zeichenfläche ist für BEIDE Seiten
+ * 140 × 52 px; sie liegt beim unteren Bogen nur auf der anderen Seite der
+ * Knopfmitte (deshalb cy = 0 statt 52):
+ *   top     M (cx-r, cy) A r r 0 0 1 (cx+r, cy)  → Bogen nach oben (sweep 1)
+ *   bottom  M (cx-r, 0)  A r r 0 0 0 (cx+r, 0)   → Bogen nach unten (sweep 0)
+ * Beim unteren Bogen zeigt der Buchstabenrücken nach UNTEN (weg vom Kreis) —
+ * der Text steht also aufrecht unter dem Kreis, nicht auf dem Kopf.
+ */
+export function sourceArcPathD(side: LabelSide): string {
+  const { cx, cy, r } = SOURCE_CIRCLE_ARC;
+  if (side === "bottom") return `M ${cx - r} 0 A ${r} ${r} 0 0 0 ${cx + r} 0`;
+  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
+}
+
+/** Bogen der Beschriftung UNTER dem Kreis (Change 223). */
+export const SOURCE_CIRCLE_ARC_BOTTOM_PATH_D = sourceArcPathD("bottom");
+
 /** Kennung des SVG-Pfades einer Quelle (je Kreis eigener Pfad, sonst kollidieren sie). */
 export function sourceArcPathId(kind: SourceKind): string {
   return `ps-source-arc-${kind}`;
@@ -175,15 +209,26 @@ export function SourceIcon({ kind, size = SOURCE_TAB_ICON_SIZE }: { kind: Source
 }
 
 /**
- * Die Beschriftung eines Kreises — gebogener Text auf einem Kreis am oberen
- * Rand, STILL (Change 222; die Drehung aus Change 220/219 ist entfallen).
+ * Die Beschriftung eines Kreises — gebogener Text auf einem Kreis, STILL
+ * (Change 222; die Drehung aus Change 220/219 ist entfallen).
  * Bewusst ohne eigenen React-Zustand: der Text steht fest im DOM, es gibt
  * keine Animation, die laufen oder angehalten werden könnte.
+ *
+ * Change 223: Die Seite ist wählbar (`side`, Vorgabe „top"). Beide Lagen sind
+ * absolut positioniert und verschieben den Kreis nicht (siehe LabelSide).
  */
-export function CircleLabel({ kind, label }: { kind: SourceKind; label: string }): ReactNode {
+export function CircleLabel({
+  kind,
+  label,
+  side = "top",
+}: {
+  kind: SourceKind;
+  label: string;
+  side?: LabelSide;
+}): ReactNode {
   const pfadId = sourceArcPathId(kind);
   return (
-    <span className="ps-src-arc" aria-hidden="true">
+    <span className={`ps-src-arc${side === "bottom" ? " ps-src-arc--bottom" : ""}`} aria-hidden="true">
       <svg
         className="ps-src-arc-svg"
         viewBox={SOURCE_CIRCLE_ARC_VIEWBOX}
@@ -192,7 +237,7 @@ export function CircleLabel({ kind, label }: { kind: SourceKind; label: string }
         focusable="false"
       >
         <defs>
-          <path id={pfadId} d={SOURCE_CIRCLE_ARC_PATH_D} />
+          <path id={pfadId} d={sourceArcPathD(side)} />
         </defs>
         <text className="ps-src-arc-text" textAnchor="middle">
           {/* Beide Schreibweisen: `href` ist SVG 2, `xlinkHref` die alte
@@ -250,6 +295,12 @@ export interface ZoneCircleProps {
   kind: SourceKind;
   /** Beschriftung: Knopfname (aria-label) UND Text auf dem Kreis. */
   label: string;
+  /**
+   * Seite der Beschriftung: „top" (Vorgabe, Bogen über dem Kreis) oder
+   * „bottom" (Bogen unter dem Kreis, Change 223). Ändert die Lage des Kreises
+   * NICHT — das Label ist absolut positioniert.
+   */
+  labelSide?: LabelSide;
   /** Zusätzliche Klasse für den Knopf (z. B. Aufnahmezustand). */
   buttonClassName?: string;
   /** Ref auf den echten Knopf (der Aufnahmeknopf bleibt der bestehende). */
@@ -261,8 +312,10 @@ export interface ZoneCircleProps {
 }
 
 /**
- * Ein Kreis IN einer Zone: Outline-Ring mit monochromem Zeichen darin, oben der
- * Name der Quelle als gebogener, STILLER Text (Change 222).
+ * Ein Kreis IN einer Zone: Outline-Ring mit monochromem Zeichen darin und dem
+ * Namen der Quelle als gebogener, STILLER Text (Change 222) — über dem Ring
+ * (`labelSide="top"`, Vorgabe) oder darunter (`labelSide="bottom"`,
+ * Change 223).
  *
  * Der Kreis ist ein echter `<button>`: Tastatur, Fokusrahmen und
  * Bedienhilfe-Standard verhalten sich damit wie überall sonst. Er liegt in
@@ -272,6 +325,7 @@ export interface ZoneCircleProps {
 export function ZoneCircle({
   kind,
   label,
+  labelSide = "top",
   buttonClassName,
   buttonRef,
   disabled,
@@ -300,7 +354,7 @@ export function ZoneCircle({
       >
         <SourceIcon kind={kind} />
       </button>
-      <CircleLabel kind={kind} label={label} />
+      <CircleLabel kind={kind} label={label} side={labelSide} />
     </span>
   );
 }

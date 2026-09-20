@@ -40,9 +40,11 @@ import { UploadZone } from "./UploadZone";
 import { RECORD_BUTTON_SHAPE } from "./RecordGestureHint";
 import {
   SOURCE_CIRCLE_ARC,
+  SOURCE_CIRCLE_ARC_BOTTOM_PATH_D,
   SOURCE_CIRCLE_ARC_PATH_D,
   SOURCE_CIRCLE_BORDER,
   SOURCE_CIRCLE_SHAPE,
+  sourceArcPathD,
 } from "./SourceCircle";
 
 /* ── Server gibt es in dieser Prüfung nicht ── */
@@ -408,5 +410,46 @@ describe("Change 222 — nackte Quellen-Zeichen, Kreise in den Zonen", () => {
     // `overflow: hidden` die Schrift ab).
     expect(rule(".ps-zone-stack {")).toContain("padding-top: var(--ps-arc-reserve)");
     expect(rule(":root {")).toContain("--ps-arc-reserve: 20px");
+  });
+
+  test("(i) die Beschriftung des Download-Kreises steht UNTER dem Kreis — der Kreis bleibt stehen", () => {
+    // Change 223 (Nutzer-Vorgaben 20.09.2026):
+    //   „Beim Download Button entferne die extra Erklärung, mit dem Beispieltext
+    //    in der textarea und dem mit Download beschrifteten Button erklärt sich
+    //    die Funktion. Mache die Button Beschreibung unten an den Kreis."
+    //   „Achte darauf das alle Kreise an der gleichen Position bleiben."
+    const { getByTestId } = renderZone();
+    fireEvent.click(within(getByTestId("source-download")).getByRole("button"));
+
+    const kreis = getByTestId("download-button");
+    const beschriftung = kreis.parentElement!.querySelector(".ps-src-arc");
+    expect(beschriftung, "keine Beschriftung am Download-Kreis").toBeTruthy();
+    expect(beschriftung!.className, "untere Lage").toContain("ps-src-arc--bottom");
+
+    // Unterer Bogen: gleicher Radius wie oben, umgekehrte Laufrichtung (sweep 0)
+    // — dadurch steht die Schrift aufrecht unter dem Kreis.
+    const pfad = beschriftung!.querySelector("path")!;
+    expect(pfad.getAttribute("d")).toBe(SOURCE_CIRCLE_ARC_BOTTOM_PATH_D);
+    expect(pfad.getAttribute("d")).toContain(`A ${SOURCE_CIRCLE_ARC.r} ${SOURCE_CIRCLE_ARC.r} 0 0 0`);
+    expect(sourceArcPathD("bottom")).not.toBe(sourceArcPathD("top"));
+    expect(sourceArcPathD("top")).toBe(SOURCE_CIRCLE_ARC_PATH_D);
+
+    // Die Lage ist ABSOLUT — sie kann den Kreis nicht verschieben (deshalb
+    // bleiben alle Kreise an derselben Position).
+    expect(rule(".ps-src-arc {")).toContain("position: absolute");
+    expect(rule(".ps-src-arc--bottom {")).toContain("top: 50%");
+    expect(rule(".ps-src-arc--bottom {")).toContain("bottom: auto");
+
+    // Die Erklärzeile der Adress-Zone ist entfallen („erklärt sich die Funktion").
+    const adressZone = document.querySelector(".ps-zone-url")!;
+    expect(adressZone.querySelector(".ps-zone-hint"), "Erklärzeile noch da").toBeNull();
+    expect(adressZone.textContent).not.toContain("Adresse oben eintragen");
+    // Der Beispiel-Platzhalter in der Eingabe bleibt (er erklärt die Eingabe).
+    expect(getByTestId("url-input").getAttribute("placeholder")).toContain("youtube.com");
+    // … und der Kreis bleibt trotzdem, wo er war: der frei gewordene Platz steht
+    // als Abstand unten im Stapel (Nutzer: „Achte darauf das alle Kreise an der
+    // gleichen Position bleiben"). Ohne ihn rutschte der Kreis ~10 px tiefer
+    // (im Browser gemessen: 120,11 → 130,06 px).
+    expect(rule(".ps-zone-url .ps-zone-stack {")).toContain("padding-bottom: 20px");
   });
 });

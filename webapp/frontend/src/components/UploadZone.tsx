@@ -1703,14 +1703,20 @@ function UrlArea({
               onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
             />
           </div>
+          {/* Change 223 (Nutzer-Vorgabe 20.09.2026): Die Beschriftung des
+              Kreises steht hier UNTER dem Kreis („Mache die Button Beschreibung
+              unten an den Kreis") — der Kreis selbst bleibt an derselben
+              Position. Die frühere Erklärzeile darüber ist entfallen: „mit dem
+              Beispieltext in der textarea und dem mit Download beschrifteten
+              Button erklärt sich die Funktion". */}
           <ZoneCircle
             kind="download"
             testId="download"
+            labelSide="bottom"
             label={isDownloading ? t("url_downloading") : t("src_download")}
             disabled={!canSubmit || isDownloading}
             onActivate={onSubmit}
           />
-          <div className="ps-zone-hint">{t("url_zone_hint")}</div>
         </div>
       </Zone>
       {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar).

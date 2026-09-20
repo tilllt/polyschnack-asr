@@ -6,49 +6,44 @@
  * Geste selbst vorführt: nach oben wischen, nach unten wischen, senken
  * (Halten), heben (Loslassen) — alles auf der Kreisform des Knopfes.
  *
- * Change 218/219 (Nutzer-Vorgaben 20.09.2026) — Nachbesserungen: echter Kreis
- * (r = 60 px, keine Ellipse), Deckkraft 0,85, Puls nur nach außen, EIN Aus-
- * und EIN Einblenden je Hinweis, längere Überblendzeiten (Change 221:
- * 900 ms aus / 1100 ms ein).
+ * Change 218/219 (20.09.2026) — Nachbesserungen: echter Kreis (keine Ellipse),
+ * Deckkraft 0,85, Puls nur nach außen, EIN Aus- und EIN Einblenden je Hinweis,
+ * längere Überblendzeiten (Change 221: 900 ms aus / 1100 ms ein).
  *
- * Change 222 (Nutzer-Vorgabe 20.09.2026, drei Punkte):
- *   1. Jeder Hinweis steht auf SEINER Seite des Knopfes, passend zur Geste:
- *        nach oben wischen   → oben    (top)
- *        nach unten wischen  → unten   (bottom)
- *        halten: aufnehmen   → links   (left)
- *        loslassen: Pause    → rechts  (right)
- *      Dazu ist die Zeichenfläche quadratisch (240 × 240) und der
- *      Kreismittelpunkt liegt in ihrer Mitte (cx = cy = 120) — der Text sitzt
- *      damit in jeder der vier Lagen gleich weit vom Knopf und wird nie
- *      abgeschnitten: der Kreisbogen ist in allen Lagen ein Halbkreis
- *      (π × 60 ≈ 188 px) und der Text läuft nach außen lesbar (oben und unten
- *      aufrecht, links von unten nach oben, rechts von oben nach unten — die
- *      Buchstabenrücken zeigen immer nach außen).
- *   2. Die Drehung des Hinweistextes ist ENTFALLEN („Generell lassen wir die
- *      Animation der Texte sein, die ist zu unruhig"). Der Text steht still;
- *      es gibt keine Drehklasse mehr.
- *   3. Bei laufender Aufnahme — gleich ob per Klick oder per Wisch-Sperre —
- *      werden die Hinweise ausgeblendet (`verdeckt`): sie erklären dann eine
- *      Geste, die gerade nicht zur Wahl steht. Das Ausblenden nutzt dieselbe
- *      Klasse wie der Hinweiswechsel (.ps-record-hint-out) und pausiert
- *      zugleich die Puls-Bewegung.
+ * Change 222 (20.09.2026, drei Punkte): jeder Hinweis steht auf SEINER Seite
+ * des Knopfes (wischen nach oben → oben, nach unten → unten, halten → links,
+ * loslassen → rechts), die Textdrehung ist entfallen, und bei laufender
+ * Aufnahme werden die Hinweise ausgeblendet (`verdeckt`).
+ *
+ * Change 223 (Nutzer-Vorgaben 20.09.2026, spät):
+ *   1. „Die ui hints im record Menü sind immer noch sehr weit vom Button weg,
+ *      auch hier 5px Entfernung." — Der Textkreis hat jetzt DENSELBEN Sitz wie
+ *      die Beschriftung an den Kreisen der Zonen: Ringaußenkante + 5 px
+ *      (genau: 4 px am 64-px-Knopf, 5 px am 80-px-Knopf, weil die
+ *      Zeichenfläche prozentual mit dem Knopf wächst).
+ *   2. „Entferne aus den overlay Animationen die Inhalte der Kreise, man
+ *      versteht die Gesten auch ohne den Pfeil in der Mitte usw." — Das Zeichen
+ *      IN der Kopie (Pfeil/Mikrofon/Pause-Balken) ist entfallen. Es bleibt die
+ *      pulsierende Ring-Kopie des Knopfes; die Erklärung trägt allein der Text
+ *      auf dem Kreis.
  *
  * Aufbau (Bauteile, die sich nicht beeinflussen können):
  *   .ps-record-stage  — Bezugsrahmen; genau so groß wie der Knopf, weil nur
- *                       der Knopf im Fluss liegt. Kopie und Hinweiskreis sind
+ *                       der Knopf im Fluss liegt. Kopie und Hinweistext sind
  *                       absolut positioniert und damit nicht layoutwirksam.
  *   .ps-record-ghost  — Kopie in gleicher Größe und Form (inset: 0), Deckkraft
  *                       0,85, pointer-events: none (fängt keine Klicks ab).
  *   .ps-record-tip    — die Zeichenfläche des gebogenen Textes; MITTIG auf der
  *                       Knopfmitte (`left: 50%` + `top: 50%` + translate(-50%),
- *                       damit alle vier Seiten gleich weit reichen), feste
- *                       Maße, ebenfalls ohne Einfluss auf die Zonenhöhe.
+ *                       damit alle vier Seiten gleich weit reichen), Größe
+ *                       PROZENTUAL zur Knopfgröße (218,75 % = 140/64, siehe
+ *                       index.css), ebenfalls ohne Einfluss auf die Zonenhöhe.
  *
  * Der Textknoten trägt bewusst KEINEN key: beim Wechsel des Hinweises bleibt
  * derselbe DOM-Knoten bestehen (nur Inhalt und Pfad wechseln nach dem
  * Ausblenden). Dadurch kann nichts neu aufgebaut werden und nichts springen.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Größe und Form des Aufnahmeknopfes — gilt für Knopf UND Kopie. */
 export const RECORD_BUTTON_SHAPE = "w-16 h-16 sm:w-20 sm:h-20 rounded-full";
@@ -61,51 +56,50 @@ export type HintSide = "top" | "bottom" | "left" | "right";
 /**
  * Maße des KREISES (px in der Zeichenfläche des SVG).
  *
- * Der Knopf ist 64 px (ab 640 px: 80 px) breit, sein Mittelpunkt liegt exakt
- * in der Mitte der Zeichenfläche (`left/top: 50%` in .ps-record-tip). Damit gilt
- * für alle drei Breakpoint-Stufen:
- *   Knopfradius            32 / 40 px. Der Kreis liegt mit r = 60 px außen vor
- *                          dem Rand (kleinster Abstand 20 px).
- *   Kopie nach außen       1,22 × 40 = 48,8 px < 60 px — die pulsierende Kopie
- *                          bleibt immer INNERHALB des Textkreises; mit
- *                          1,35 × 40 = 54 px auch der Ring. Der Text kann
- *                          deshalb zu keinem Zeitpunkt von der Kopie überdeckt
- *                          werden.
- *   Zeichenfläche          240 × 240 px, Kreismittelpunkt in der Mitte
- *                          (120/120). Der Textkasten ragt deshalb in jeder
- *                          Richtung 120 px über den Knopfmittelpunkt hinaus;
- *                          sichtbar ist davon nur, was unter der Schnittkante
- *                          von `overflow: hidden` liegt (Change 222:
- *                          Schriftkante 60 + 7,2 = 67,2 px vom Mittelpunkt,
- *                          Innenhalbhöhe der Zone ≥ 68 px — die Zone ist
- *                          entsprechend bemessen, siehe --ps-zone-h).
- *   Breite 240 px           Kreis also ±60 px um die Knopfmitte; auf dem
- *                          schmalsten Handy (320 px Fenster) bleiben ±134 px.
- *                          Kein Überlaufen.
- *   Länge des Halbkreises   π × 60 ≈ 188 px. Der längste Hinweis („nach oben
- *                          wischen: Aufnahme sperren", 35 Zeichen bei 9 px)
- *                          braucht rund 167 px — der Text wird also nicht
- *                          abgeschnitten (13 % Luft) und die Buchstaben laufen
- *                          nicht ineinander. Grund: der längste Hinweis steht
- *                          auf dem oberen Halbkreis, nicht auf dem breiteren
- *                          Halbkreis links/rechts; alle vier Halbkreise sind
- *                          gleich lang.
+ * Die Zahlen sind ABSICHTLICH dieselben wie bei den Kreisen in den Zonen
+ * (SOURCE_CIRCLE_ARC in SourceCircle.tsx): 140 × 140 Zeichenfläche,
+ * Mittelpunkt in der Mitte (70/70), r = 36, Schrift 10 px. Dadurch sitzt der
+ * Hinweistext genauso nah am Knopf wie die Beschriftung „Upload"/„Download"
+ * am Ring — Nutzer-Vorgabe 20.09.2026: „auch hier 5px Entfernung".
+ *
+ * Gerechnet (die Zeichenfläche wächst prozentual mit dem Knopf, ×1 am 64-px-
+ * Knopf und ×1,25 am 80-px-Knopf):
+ *   Knopfradius            32 / 40 px (halbe Knopfbreite, der Ring ist ein
+ *                          `border` in border-box).
+ *   Textkreis              36 × 1   = 36 px → 4 px Abstand zur Ringaußenkante
+ *                          36 × 1,25 = 45 px → 5 px Abstand.
+ *   Schrift                10 px bzw. 12,5 px.
+ *   Bogenlänge             π × 36 ≈ 113 px (mobil) / 141 px (Desktop) — die
+ *                          Halbkreise aller vier Seiten sind gleich lang.
+ *   Tinte über der Mitte   r + Versalhöhe (7,2 px bei 10 px Schrift) = 43,2 px,
+ *                          ab 640 px 54 px. Beides bleibt innerhalb der
+ *                          Innenhalbhöhe der Zone (≥ 68 px) — nichts wird von
+ *                          `overflow: hidden` abgeschnitten; nachgemessen im
+ *                          Browser, siehe references/quellen-zeichen-kreise-zonen.md.
  * Die Maße sind in recordGestureHint.test.tsx gegen genau diese Grenzen
  * nachgerechnet; wer sie ändert, muss dort mitziehen.
  */
 export const RECORD_ARC = {
-  width: 240,
-  height: 240,
+  width: 140,
+  height: 140,
   /** Kreismittelpunkt in der Zeichenfläche (= Knopfmitte). */
-  cx: 120,
-  cy: 120,
+  cx: 70,
+  cy: 70,
   /** EIN Radius für beide Achsen — ein echter Kreis, keine Ellipse. */
-  r: 60,
+  r: 36,
   /** Schriftgröße des Hinweistextes in px. */
-  fontSize: 9,
+  fontSize: 10,
 } as const;
 
 export const RECORD_ARC_VIEWBOX = `0 0 ${RECORD_ARC.width} ${RECORD_ARC.height}`;
+
+/**
+ * Die Zeichenfläche wächst prozentual mit dem Knopf — dieselbe Prozentangabe
+ * wie bei den Kreis-Beschriftungen in den Zonen (index.css, .ps-src-arc).
+ * Werte: 218,75 % = 140/64. Damit gilt der Textabstand in beiden
+ * Knopfgrößen (siehe RECORD_ARC).
+ */
+export const RECORD_ARC_SIZE_PERCENT = "218.75%";
 
 /** Kennung des SVG-Pfades EINER Seite (je Seite eigener Pfad, sonst kollidieren sie). */
 export function recordArcPathId(side: HintSide): string {
@@ -162,6 +156,12 @@ export interface GestureTip {
  * Die vier Hinweise in der Reihenfolge, in der sie gezeigt werden. Die Seite
  * folgt der Geste: wischen nach oben → oben, nach unten → unten, halten →
  * links, loslassen → rechts (Change 222).
+ *
+ * Change 223: Die Texte sind KURZ. Der Textkreis sitzt jetzt dicht am Knopf
+ * (5 px), damit ist der Halbkreis nur noch ~113 px lang (mobil) — lange Sätze
+ * wie „nach oben wischen: Aufnahme sperren" (35 Zeichen ≈ 190 px) passen darauf
+ * nicht mehr und würden ineinander laufen. Die Kürzung ist die Folge der
+ * Nutzer-Vorgabe, nicht eine eigene Geschmacksentscheidung.
  */
 export const RECORD_GESTURE_TIPS: readonly GestureTip[] = [
   { kind: "lock", key: "gesture_lock_up", anim: "ps-ghost-lock", side: "top" },
@@ -191,116 +191,6 @@ export function reduzierteBewegung(): boolean {
   }
 }
 
-/**
- * Symbol des jeweiligen Hinweises: Kreis als Grundform (wie der Knopf), darin
- * das Zeichen der Geste. Ein- bzw. zweifarbig aus der eigenen Palette:
- * Grün var(--ps-accent,#2ea043), Rot var(--ps-err,#f85149), Amber #d99e2b.
- * Bewusst kein currentColor — die Farben sollen nicht von der Umgebung
- * abhängen.
- */
-function GestureIcon({ kind }: { kind: GestureKind }): ReactNode {
-  const svgProps = {
-    width: 26,
-    height: 26,
-    viewBox: "0 0 24 24",
-    "aria-hidden": true as const,
-    focusable: "false" as const,
-    style: { display: "block" as const },
-  };
-
-  if (kind === "lock") {
-    return (
-      <svg {...svgProps}>
-        <circle
-          cx="12"
-          cy="12"
-          r="9.4"
-          fill="none"
-          stroke="var(--ps-accent, #2ea043)"
-          strokeOpacity="0.5"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M12 17.2V8.4M8.3 12.1 12 8.4l3.7 3.7"
-          fill="none"
-          stroke="var(--ps-accent, #2ea043)"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  }
-
-  if (kind === "stop") {
-    return (
-      <svg {...svgProps}>
-        <circle
-          cx="12"
-          cy="12"
-          r="9.4"
-          fill="none"
-          stroke="var(--ps-err, #f85149)"
-          strokeOpacity="0.5"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M12 6.8v8.8M8.3 11.9 12 15.6l3.7-3.7"
-          fill="none"
-          stroke="var(--ps-err, #f85149)"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  }
-
-  if (kind === "hold") {
-    // Aufnehmen: grüner Punkt im Kreis — dieselbe Farbe wie der Ruhezustand
-    // des Knopfes („halten: aufnehmen").
-    return (
-      <svg {...svgProps}>
-        <circle
-          cx="12"
-          cy="12"
-          r="9.4"
-          fill="none"
-          stroke="#2ea043"
-          strokeOpacity="0.5"
-          strokeWidth="1.5"
-        />
-        <circle cx="12" cy="12" r="5" fill="var(--ps-accent, #2ea043)" />
-      </svg>
-    );
-  }
-
-  // release → Pause: zwei amberfarbene Balken wie im pausierten Knopf.
-  return (
-    <svg {...svgProps}>
-      <circle
-        cx="12"
-        cy="12"
-        r="9.4"
-        fill="none"
-        stroke="#d99e2b"
-        strokeOpacity="0.5"
-        strokeWidth="1.5"
-      />
-      <rect x="8.6" y="7.4" width="2.7" height="9.2" rx="1.1" fill="#d99e2b" />
-      <rect
-        x="12.7"
-        y="7.4"
-        width="2.7"
-        height="9.2"
-        rx="1.1"
-        fill="#d99e2b"
-        fillOpacity="0.6"
-      />
-    </svg>
-  );
-}
-
 interface RecordGestureHintProps {
   /** Laufende Nummer des Hinweises — kein React-Schlüssel, der Knoten bleibt. */
   tipIdx: number;
@@ -324,6 +214,11 @@ type HintPhase = "in" | "out";
 /**
  * Halbtransparente Kopie des Aufnahmeknopfes samt Hinweistext auf einem Kreis.
  * Wird innerhalb von `.ps-record-stage` direkt nach dem Knopf gerendert.
+ *
+ * Change 223: Die Kopie trägt KEIN Zeichen mehr (Nutzer: „Entferne aus den
+ * overlay Animationen die Inhalte der Kreise, man versteht die Gesten auch ohne
+ * den Pfeil in der Mitte"). Sichtbar sind nur der pulsierende Ring der Kopie
+ * und der Text auf dem Kreis.
  *
  * Ein Hinweiswechsel ist GENAU EIN Ablauf (Change 219, Punkt 2):
  *   1. Phase `out` — Kopie und Text blenden zusammen aus (TIP_FADE_OUT_MS),
@@ -401,8 +296,8 @@ export function RecordGestureHint({ tipIdx, label, verdeckt = false }: RecordGes
         aria-hidden="true"
         className={`ps-record-ghost ${tip.anim}${ausblenden} ${RECORD_BUTTON_SHAPE}`}
       >
+        {/* Change 223: NUR der Ring — das Zeichen in der Kopie ist entfallen. */}
         <span className="ps-record-ghost-ring" />
-        <GestureIcon kind={tip.kind} />
       </span>
       <div
         data-testid="record-tip"
