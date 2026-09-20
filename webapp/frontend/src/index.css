@@ -481,12 +481,18 @@ audio {
 /* ============================================================
    Change 216 (Nutzer-Vorgabe 20.09.2026) — Gestenhinweise als halbtransparente
    Kopie des Aufnahmeknopfes.
+   Change 219 (Nutzer-Vorgabe 20.09.2026) — sechs Nachbesserungen: echter Kreis
+   statt Ellipse (r = 60 px), genau ein Aus- und ein Einblenden je Hinweis,
+   langsames Drehen der Texte um den Knopf, gleiche Sichtbarkeit aller vier
+   Hinweise, Puls nur noch nach außen, längere Ein-/Ausblendzeiten.
+   Kreis UND Text hängen dabei an EINEM Zustand (Klasse ps-record-hint-out auf
+   beiden) — sie sind nie getrennt sichtbar.
 
    Der gemeldete Fehler war ein springender Knopf, weil die Hinweise daneben
    standen und als Höhengeber wirkten. Hier ist deshalb jedes Hinweis-Bauteil
    absolut positioniert; der Knopf ist das einzige Element im Fluss. Die Kopie
    liegt mit `inset: 0` exakt auf dem Knopf (gleiche Größe, gleiche Kreisform
-   aus .ps-record-ghost + Größenklassen des Knopfes), ist halbtransparent
+   aus dem Ghost-Block + Größenklassen des Knopfes), ist halbtransparent
    (Change 218: 0,85 statt 0,55 — deutlich sichtbarer, aber der echte Knopf
    bleibt durch die schwache Flächenfüllung hindurch erkennbar) und fängt mit
    `pointer-events: none` keine Klicks ab.
@@ -507,7 +513,10 @@ audio {
   user-select: none;
   border: 2px solid var(--ps-ghost-line, #2ea043);
   background: var(--ps-ghost-fill, rgba(46, 160, 67, 0.16));
-  transition: opacity 220ms ease-out;
+  /* Change 219 (Punkt 2/6): Kopie und Text blenden IMMER gleich lang — der
+     ganze Hinweis wirkt dadurch wie EIN Vorgang, nicht wie zwei. Ausblenden
+     360 ms, Einblenden 440 ms (siehe .ps-record-hint-out). */
+  transition: opacity 440ms ease-out;
 }
 
 /* Pulsierender Ring — steht für „Aufnahme läuft". */
@@ -530,7 +539,19 @@ audio {
    kleinsten Fall (144 px Zone, 2 px Rand, 12 px Innenabstand, 64 px Knopf)
    bleiben über und unter dem Knopf je 26 px bis zur Innenkante der Zone —
    danach greift `overflow: hidden`. Die Kopie pendelt also bis an die
-   Innenkante, verlässt die Zone aber nicht. */
+   Innenkante, verlässt die Zone aber nicht.
+
+   Change 219 (Nutzer-Vorgabe 20.09.2026, Punkt 5): Der Puls geht NUR NOCH NACH
+   AUSSEN. Vorher schrumpfte „senken" auf 0,72 und „heben" begann bei 0,82 —
+   beides zog die Kopie nach innen, also unter die Ausgangsgröße. Jetzt ist
+   `scale(1)` der kleinste Wert, den irgendeine dieser Animationen annimmt:
+     senken (Halten)  1 → 1,16 und bleibt dort („es läuft"), dann zurück
+     heben (Loslassen) 1 → 1,22 kurz aufgefedert, dann zurück
+     Ring             1 → 1,35 und verblasst
+   Die Wischwege hoch/runter bleiben unverändert (26 px / 18 px).
+   Obergrenze: 1,22 × 40 px Knopfradius = 48,8 px < 60 px Halbmesser des
+   Textkreises — die pulsierende Kopie bleibt immer innerhalb des Textes, und
+   mit 1,35 × 40 = 54 px auch der Ring. */
 @keyframes ps-ghost-up {
   0%, 100% { transform: translateY(0); }
   45%      { transform: translateY(-26px); }
@@ -541,15 +562,15 @@ audio {
 }
 @keyframes ps-ghost-sink {
   0%, 100% { transform: scale(1); }
-  35%, 70% { transform: scale(0.72); }
+  35%, 70% { transform: scale(1.16); }
 }
 @keyframes ps-ghost-rise {
-  0%, 100% { transform: scale(0.82); }
-  40%      { transform: scale(1.12); }
+  0%, 100% { transform: scale(1); }
+  40%      { transform: scale(1.22); }
 }
 @keyframes ps-ghost-ring {
-  0%   { transform: scale(0.92); opacity: 0.8; }
-  100% { transform: scale(1.3);  opacity: 0; }
+  0%   { transform: scale(1);    opacity: 0.8; }
+  100% { transform: scale(1.35); opacity: 0; }
 }
 .ps-ghost-lock {
   --ps-ghost-line: var(--ps-accent, #2ea043);
@@ -574,52 +595,78 @@ audio {
 .ps-ghost-sink .ps-record-ghost-ring { animation: ps-ghost-ring 1.5s ease-out infinite; }
 
 /* Change 218 (Nutzer-Vorgabe 20.09.2026): Der Hinweistext steht nicht mehr
-   gerade unter dem Knopf, sondern läuft als gebogener Text auf einem Bogen
+   gerade unter dem Knopf, sondern läuft als gebogener Text auf einem Kreis
    ÜBER dem Knopf (siehe RecordGestureHint.tsx). Der Kasten ist absolut
    positioniert und hat feste Maße — er kann die Höhe der festen Zone deshalb
    nicht beeinflussen (Regel aus Change 215: die Zone ändert ihre Größe nie).
-   `bottom: 50%` setzt die untere Kante des Bogens auf die Knopfmitte; damit
-   sitzt der Bogen in allen drei Breakpoint-Stufen gleich, obwohl der Knopf ab
-   640 px größer wird. */
+   `bottom: 50%` setzt die untere Kante des Kreises auf die Knopfmitte; damit
+   sitzt der Kreis in allen drei Breakpoint-Stufen gleich, obwohl der Knopf ab
+   640 px größer wird.
+   Change 219 (Punkt 1): 240 × 68 px für einen KREIS mit r = 60 px (Maße in
+   RECORD_ARC). Die 68 px sind r + Versalhöhe bei 9 px Schrift = 60 + 7,2. */
 .ps-record-tip {
   position: absolute;
   left: 50%;
-  /* Untere Kante der Zeichenfläche = Knopfmitte. Damit sitzt der Bogen in
+  /* Untere Kante der Zeichenfläche = Knopfmitte. Damit sitzt der Kreis in
      jeder Breakpoint-Stufe gleich (der Rahmen ist genau so groß wie der
      Knopf) und die Position hängt nicht an der Knopfgröße. */
   bottom: 50%;
   transform: translateX(-50%);
   z-index: 2;
   width: 240px;
-  height: 64px;
+  height: 68px;
+  /* Change 219 (Punkt 4): EINE Farbquelle für alle vier Hinweise. Die
+     Gestenklassen (.ps-ghost-*) dürfen den Text NICHT übersteuern. */
+  --ps-hint-ink: #d2e8cd;
   pointer-events: none;
   user-select: none;
-  color: #d2e8cd;
+  color: var(--ps-hint-ink);
   opacity: 1;
-  transition: opacity 220ms ease-out;
+  /* Change 219 (Punkt 6): 220 → 440 ms — doppelt so lang, ruhiger. */
+  transition: opacity 440ms ease-out;
 }
 
-/* Der Bogen selbst: der Text läuft auf dem Pfad über dem Knopf (RecordGestureHint.tsx).
+/* Der Kreis selbst: der Text läuft auf dem Pfad (RecordGestureHint.tsx).
    Maße und Begründung stehen dort bei RECORD_ARC. */
 .ps-record-arc {
   display: block;
   overflow: visible;
 }
+/* Change 219 (Punkt 3): Die Texte ziehen langsam um den Knopf. Gedreht wird
+   die SVG-Gruppe um den Kreismittelpunkt; `transform-box: view-box` lässt die
+   Ursprungsangabe in Zeichenflächen-Einheiten gelten (120 px / 68 px = cx/cy
+   aus RECORD_ARC). 30 s je Umdrehung, linear — ruhig, ohne Flackern. */
+.ps-record-arc-spin {
+  animation: ps-record-spin 30000ms linear infinite;
+  transform-box: view-box;
+  transform-origin: 120px 68px;
+}
+@keyframes ps-record-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+/* Change 219 (Punkt 4): Farbe, Deckkraft und Schriftgröße des Hinweistextes
+   stehen genau EINMAL — für alle vier Hinweise gleich. 10 → 9 px, damit der
+   längste Hinweis (35 Zeichen) auf den Halbkreis passt (π × 60 ≈ 188 px,
+   Text ≈ 167 px). */
 .ps-record-arc-text {
-  fill: #d2e8cd;
+  fill: var(--ps-hint-ink, #d2e8cd);
+  opacity: 1;
   font-family: inherit;
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: 0.02em;
 }
 
 /* Change 218 (Nutzer-Vorgabe 20.09.2026): Der Wechsel zwischen den Hinweisen
-   ist ein Überblenden — der alte blendet aus (180 ms, ease-in), danach steht
-   der neue Text und blendet ein (220 ms, ease-out, siehe oben). Diese Regel
-   steht absichtlich HINTER .ps-record-ghost/.ps-record-tip, damit sie deren
-   Deckkraft überschreibt. */
+   ist ein Überblenden — der alte blendet aus, danach steht der neue Text und
+   blendet ein (siehe oben). Diese Regel steht absichtlich HINTER
+   .ps-record-ghost/.ps-record-tip, damit sie deren Deckkraft überschreibt.
+   Change 219 (Punkt 2/6): Kopie und Text tragen dieselbe Klasse und dieselbe
+   Dauer — es gibt also GENAU EIN Aus- und EIN Einblenden je Hinweis, nicht
+   zwei getrennte Vorgänge. Ausblenden 180 → 360 ms. */
 .ps-record-hint-out {
   opacity: 0;
-  transition-duration: 180ms;
+  transition-duration: 360ms;
   transition-timing-function: ease-in;
 }
 
@@ -666,17 +713,21 @@ audio {
 /* Wer Bewegung reduziert haben will, bekommt ein Standbild des Hinweises:
    keine Animation, aber die jeweilige Stellung bleibt erkennbar — und der
    Wechsel zwischen den Hinweisen ist kein Überblenden, sondern sofort
-   (Change 218). Der Stand zeigt die weiter gewordene Stellung (Change 218:
-   oben 20 px, unten 14 px, Senken 0,78, Heben 1,10 statt 9/4/0,88/1,04). */
+   (Change 218). Der Stand zeigt die neue, nach AUSSEN gerichtete Stellung
+   (Change 219, Punkt 5: 1,16 und 1,22 statt 0,78/1,10 — nie kleiner als 1),
+   und der Text dreht sich nicht (Change 219, Punkt 3). */
 @media (prefers-reduced-motion: reduce) {
   .ps-record-ghost,
   .ps-record-ghost-ring {
     animation: none !important;
   }
+  .ps-record-arc-spin {
+    animation: none !important;
+  }
   .ps-ghost-lock { transform: translateY(-20px); }
   .ps-ghost-stop { transform: translateY(14px); }
-  .ps-ghost-sink { transform: scale(0.78); }
-  .ps-ghost-rise { transform: scale(1.10); }
+  .ps-ghost-sink { transform: scale(1.16); }
+  .ps-ghost-rise { transform: scale(1.22); }
   .ps-ghost-sink .ps-record-ghost-ring { opacity: 0.5; }
   /* Kein Überblenden: der neue Hinweis steht sofort da. */
   .ps-record-tip,
