@@ -1,5 +1,17 @@
 # Change 213 — Ein leeres Segment ist eine Löschung, kein Fehlerzustand
 
+## Entscheidung des Nutzers (20.09.2026)
+**Die Lücke bleibt.** Beim Löschen eines Segments werden die Nachbargrenzen
+**nicht** nachgezogen; die Zeitachse zeigt an dieser Stelle keine Sprache mehr.
+Begründung des Nutzers: die Entscheidung ist damit sichtbar und es werden keine
+Inhalte verändert, die er nicht angefasst hat.
+
+Umsetzung: keine zusätzliche Änderung nötig. Der Fix entfernt das leere Segment
+aus der Liste, die der Server vollständig ersetzt — es bleibt also eine Lücke
+statt einer Verschmelzung. **Zu belegen im noch fehlenden Test:** dass die
+Wörter des gelöschten Segments danach wirklich fehlen und nicht durch die
+Ableitung (Segmente entstehen aus den Wortzeiten) wieder auftauchen.
+
 ## Status
 Entwurf (19.09.2026). Umsetzung nach dem laufenden Lauf (Regionsrahmen, Nutzungshinweise, Cache-Header).
 

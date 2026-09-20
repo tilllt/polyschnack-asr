@@ -1509,7 +1509,30 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               className="btn-ghost-sm text-[13px] flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
               title={canPlay ? (playing ? "Pause" : "Play") : t("loading_audio")}
             >
-              {playing ? "⏸" : "▶"}
+              {playing ? (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  aria-hidden="true"
+                  focusable="false"
+                  style={{ display: "block" }}
+                >
+                  <rect x="3.5" y="2.5" width="4" height="13" rx="1.2" fill="var(--ps-accent, #2ea043)" />
+                  <rect x="10.5" y="2.5" width="4" height="13" rx="1.2" fill="var(--ps-accent, #2ea043)" fillOpacity="0.55" />
+                </svg>
+              ) : (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  aria-hidden="true"
+                  focusable="false"
+                  style={{ display: "block" }}
+                >
+                  <path d="M5 3.2 14.4 9 5 14.8Z" fill="var(--ps-accent, #2ea043)" />
+                </svg>
+              )}
             </button>
             {!canPlay && (
               // Audio dekodiert noch (Waveform kann via Peaks schon stehen) —

@@ -1147,7 +1147,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
             }
           `}
         >
-          {recording ? (paused ? "⏸" : continuous ? "🔴" : "⏹") : "🎤"}
+          {recording
+            ? paused
+              ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="7" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b" fillOpacity="0.6"/></svg>
+              : continuous
+                ? <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg>
+                : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" fill="var(--ps-err, #f85149)" fillOpacity="0.3"/><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="var(--ps-err, #f85149)"/></svg>
+            : <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="var(--ps-accent, #2ea043)"/><path d="M17 11a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" fill="var(--ps-accent, #2ea043)" fillOpacity="0.6"/></svg>}
         </button>
 
       </div>
@@ -1188,9 +1194,9 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
       {isTouch && recording && (
         <div className="text-[12px] text-center">
           {paused ? (
-            <span className="text-[#d99e2b] font-semibold">⏸ {t("push_record_paused")}</span>
+            <span className="text-[#d99e2b] font-semibold inline-flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><rect x="7" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2" fill="#d99e2b" fillOpacity="0.6"/></svg> {t("push_record_paused")}</span>
           ) : (
-            <span className="text-accent font-semibold">🔴 {t("push_record_continuous")}</span>
+            <span className="text-accent font-semibold inline-flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ display: "block" }}><circle cx="12" cy="12" r="9" fill="var(--ps-err, #f85149)" fillOpacity="0.25"/><circle cx="12" cy="12" r="6" fill="var(--ps-err, #f85149)"/></svg> {t("push_record_continuous")}</span>
           )}
         </div>
       )}
