@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed, Undo2, Redo2 } from "lucide-react";
-import type { ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
-import { fetchModelsMatrix, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import type { BackendCapabilities, ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
+import { fetchModelsMatrix, fetchBackendCapabilities, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { useToast } from "./Toasts";
@@ -23,6 +23,7 @@ import { activeSegmentIndex } from "../karaoke";
 import { deriveSegments, deleteSegment, splitSegmentAtRange, cleanSegments, ensureSegmentBounds } from "../resegment";
 import { buildShareUrl, formatExpiry } from "../share";
 import { diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
+import { normalizeEnhance } from "../optionMatrix";
 import { OptionsPanel, type ActionId } from "./OptionsPanel";
 import { VersionDiff } from "./VersionDiff";
 import { TagEditor } from "./TagEditor";
@@ -430,7 +431,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     diarMethod: r.diarize_method ?? "",
     streaming: r.enable_streaming,
     noise: r.enable_noise_reduce,
-    enhance: r.enable_enhance,
+    // Change 212: alte Werte der Vor-Redesign-Oberfläche auf die Stufen
+    // abbilden, die der Dienst kennt („strong" → „aggressive").
+    enhance: normalizeEnhance(r.enable_enhance),
     separate: r.separate_backend ?? "none",
     backend: r.backend ?? "",
     punctuation: r.enable_punctuation ?? false,
@@ -444,6 +447,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [action, setAction] = useState<ActionId>("tr");
   const [optsOpen, setOptsOpen] = useState(false);
   const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
+  // Change 212: Backend-Fähigkeiten kommen aus /api/backends (streaming_by_backend,
+  // native_punctuation) — im Frontend wird keine Fähigkeit mehr angenommen.
+  const [caps, setCaps] = useState<BackendCapabilities | null>(null);
   const [flags, setFlags] = useState<{ vad: boolean; diarize: boolean }>({ vad: true, diarize: true });
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
   const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
@@ -476,6 +482,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
 
   useEffect(() => {
     fetchModelsMatrix().then(setMatrix).catch(() => {});
+    fetchBackendCapabilities().then(setCaps).catch(() => setCaps(null));
     fetchModelStatus()
       .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
       .catch(() => {});
@@ -498,25 +505,9 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   // reachable === null (Proxy down) → nur Default bleibt übrig (immer true).
   const availableBackends = filterAvailableBackends(matrix, isAdmin);
 
-  // Streaming/Live-Fähigkeit je Backend aus der Feature-Matrix — der Live-
-  // Toggle erscheint nur, wenn das gewählte Backend Streaming kann (sonst
-  // würde der Modus im Backend still ignoriert). Default ("" = ps-pk-onnx)
-  // kann Streaming.
-  const streamingByBackend: Record<string, boolean> = { "": true };
-  for (const b of matrix) {
-    streamingByBackend[b.backend] = !!b.streaming;
-  }
-  const streamingSupported = streamingByBackend[feat.backend] ?? false;
-
-  // Change 138: native Punctuation je Backend (CrispASR/Whisper punktuieren
-  // + schreiben groß IM SERVER, immer) — Default ("" = ps-pk-onnx) kann es.
-  const nativePunctByBackend: Record<string, boolean> = { "": true };
-  for (const b of matrix) {
-    if (typeof b.native_punctuation === "boolean") {
-      nativePunctByBackend[b.backend] = b.native_punctuation;
-    }
-  }
-  const nativePunctuation = nativePunctByBackend[feat.backend] ?? true;
+  /* Change 212: die Backend-Fähigkeiten (Live-Erkennung, native Satzzeichen)
+     kommen ausschließlich aus /api/backends — hier wird nichts mehr
+     angenommen oder hartkodiert (vorher: { "": true } + `?? true`). */
 
   async function handleStartTranscription(id: string) {
     try {
@@ -1630,11 +1621,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
             {optsOpen && (
               <div className="mt-2">
                 <OptionsPanel
+                  source="recording"
                   values={feat}
                   backends={availableBackends}
-                  streamingSupported={streamingSupported}
-                  streamingByBackend={streamingByBackend}
-                  nativePunctuation={nativePunctuation}
+                  caps={caps}
                   flags={flags}
                   pp={{ templates, targets, endpoints, isOidc }}
                   action={action}

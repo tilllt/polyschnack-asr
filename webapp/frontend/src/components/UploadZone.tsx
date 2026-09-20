@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic } from "lucide-react";
+import { ChevronDown, Mic } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { importFromUrl, recordFromMic, uploadRecording, duplicateRecording, mergeRecordings, type UserInfo } from "../api";
+import { fetchBackendCapabilities, fetchLlmEndpoints, fetchModelStatus, fetchModelsMatrix, fetchTemplates, fetchTargets, importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
 import { fmtBytes } from "../format";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
-import { ImportToggles, IMPORT_DEFAULTS, type ImportFeatureValues } from "./ImportToggles";
-import { diarSensToMinDurationOff } from "./FeatureToggles";
+import { diarSensToMinDurationOff, type FeatureValues } from "./FeatureToggles";
+import { OptionsPanel } from "./OptionsPanel";
+import { normalizeEnhance } from "../optionMatrix";
+import { filterAvailableBackends } from "../backendSelect";
 import {
   PendingRecording,
   deletePendingRecording,
@@ -22,6 +24,25 @@ interface Props {
   user?: UserInfo | null;
 }
 
+/** Startwerte der Optionen (Change 212). Ein Satz für alle drei Quellen. */
+export const SOURCE_OPTION_DEFAULTS: FeatureValues = {
+  vad: "off",
+  diarize: false,
+  streaming: false,
+  noise: true,
+  enhance: "off",
+  separate: "none",
+  backend: "",
+  punctuation: false,
+  llmEnhance: false,
+  templateId: undefined,
+  targetId: undefined,
+  endpointId: undefined,
+  numSpeakers: "",
+  diarSens: "std",
+  diarMethod: "",
+};
+
 export function UploadZone({ user }: Props) {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
   const [recording, setRecording] = useState(false);
@@ -33,16 +54,88 @@ export function UploadZone({ user }: Props) {
   const { t } = useT();
   const qc = useQueryClient();
 
-  // — Import-Feature-Auswahl (2026-08-14): Seit Task 9 leben die Toggles an
-  //   der Transcribe-Zeile — aber beim Upload/YouTube-Import gibt es noch
-  //   keine Aufnahme. Diese Werte steuern Upload UND URL-Import; sie werden
-  //   als enable_*-Flags an der angelegten Recording gespeichert.
-  const [importFeat, setImportFeat] = useState<ImportFeatureValues>(IMPORT_DEFAULTS);
-  const vadOn = importFeat.vad;
-  const diarizeOn = importFeat.diarize;
-  const livePreview = importFeat.streaming;
-  const noiseReduce = importFeat.noise;
-  const enhanceLevel = importFeat.enhance;
+  // — Change 212: EIN Optionszustand für alle drei Quellen. Er liegt hier
+  //   oberhalb der Quellen-Tabs und wird von Datei-Upload, Aufnahme und
+  //   URL-Import gemeinsam benutzt (vorher: ImportToggles-Chips je Tab).
+  const [values, setValues] = useState<FeatureValues>(SOURCE_OPTION_DEFAULTS);
+  const [optsOpen, setOptsOpen] = useState(true);
+  const [matrix, setMatrix] = useState<ModelMatrixEntry[]>([]);
+  const [caps, setCaps] = useState<BackendCapabilities | null>(null);
+  const [flags, setFlags] = useState<{ vad: boolean; diarize: boolean }>({ vad: true, diarize: true });
+  const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
+  const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
+  const [endpoints, setEndpoints] = useState<{ endpoint_id: number; name: string }[]>([]);
+  const isOidc = !!user?.authenticated;
+
+  useEffect(() => {
+    fetchModelsMatrix().then(setMatrix).catch(() => setMatrix([]));
+    // Fähigkeiten NUR aus der API (kein hartkodierter Wert im Frontend).
+    fetchBackendCapabilities().then(setCaps).catch(() => setCaps(null));
+    fetchModelStatus()
+      .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
+      .catch(() => {});
+    if (isOidc) {
+      fetchTemplates().then(setTemplates).catch(() => {});
+      fetchTargets().then(setTargets).catch(() => {});
+      fetchLlmEndpoints().then(setEndpoints).catch(() => {});
+    }
+  }, [isOidc]);
+
+  const availableBackends = filterAvailableBackends(matrix, !!user?.is_admin);
+  const vadOn = values.vad !== "off";
+  const diarizeOn = values.diarize;
+  const livePreview = values.streaming;
+  const noiseReduce = values.noise;
+  const enhanceLevel = values.enhance;
+
+  /**
+   * Change 212: Abschicken STARTET den Auftrag. Der Upload/Import legt nur
+   * die Aufnahme samt Einstellungen an — eingereiht wird erst hier, sonst
+   * wartet die Aufnahme auf einen zweiten Klick auf der Recording-Karte.
+   * Fehler beim Start werden gemeldet (kein stiller Fehler).
+   */
+  const startJob = useCallback(
+    async (uid: string, label: string, v: FeatureValues) => {
+      try {
+        await startTranscription(
+          uid,
+          v.vad !== "off",
+          v.diarize,
+          v.streaming,
+          v.noise,
+          v.enhance,
+          v.backend,
+          v.punctuation,
+          v.llmEnhance,
+          v.templateId,
+          v.targetId,
+          v.endpointId,
+          v.numSpeakers ? Number(v.numSpeakers) : undefined,
+          diarSensToMinDurationOff(v.diarSens),
+          v.diarMethod || undefined,
+          v.separate,
+          v.vad,
+        );
+      } catch (e) {
+        toast(`${t("job_start_failed")}: ${label} — ${(e as Error).message}`, "err");
+      }
+    },
+    [t, toast],
+  );
+
+  /**
+   * Change 212: Alle Optionsänderungen laufen über diese eine Stelle
+   * (gemeinsames Panel). Alte Werte der Vor-Redesign-Oberfläche („strong")
+   * werden auf die Stufe abgebildet, die der Dienst kennt — es kann kein
+   * Wert in den Lauf geraten, der dort nichts bewirkt.
+   */
+  const patchValues = useCallback((patch: Partial<FeatureValues>) => {
+    setValues((v) => {
+      const next = { ...v, ...patch };
+      if (patch.enhance !== undefined) next.enhance = normalizeEnhance(patch.enhance);
+      return next;
+    });
+  }, []);
   const [dupPrompt, setDupPrompt] = useState<{ file: File; batchId: string; existingId: string } | null>(null);
 
   // ── Offline-Puffer: Recovery in der IMMER gemounteten Komponente ──
@@ -164,8 +257,10 @@ export function UploadZone({ user }: Props) {
         const r = await uploadRecording(f, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, false, (pct) => {
           setUploadProgress(Math.round(((uploadedBytes + (f.size * pct) / 100) / totalSize) * 100));
         },
-          importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
-          diarSensToMinDurationOff(importFeat.diarSens),
+          values.numSpeakers ? Number(values.numSpeakers) : undefined,
+          diarSensToMinDurationOff(values.diarSens),
+          values.diarMethod || undefined,
+          values.separate,
         );
         if (r && typeof r === "object" && "duplicate" in r && r.duplicate) {
           const existingId = String(r.existing_id ?? "");
@@ -181,6 +276,9 @@ export function UploadZone({ user }: Props) {
           else errors.push(`${f.name}: ${t("skipped_duplicate")}`);
         } else if ("uid" in r) {
           uids.push(r.uid);
+          // Change 212: im Sammel-Modus (merged) erst NACH dem Merge starten —
+          // sonst liefen die Einzel-Aufträge, die gleich gelöscht werden.
+          if (mergeMode !== "merged") await startJob(r.uid, f.name, values);
         }
         uploadedBytes += f.size;
       } catch (e) {
@@ -191,8 +289,10 @@ export function UploadZone({ user }: Props) {
 
     if (mergeMode === "merged" && uids.length >= 2) {
       try {
-        await mergeRecordings(uids, batchId);
+        const merged = await mergeRecordings(uids, batchId);
         toast(`1 ${t("recordings")} · ${t("merged_ok")}`, "ok");
+        // Change 212: Der zusammengeführte Auftrag startet ebenfalls sofort.
+        if (merged?.uid) await startJob(merged.uid, t("merge_into_one"), values);
       } catch (e) {
         errors.push(`Merge: ${(e as Error).message}`);
       }
@@ -219,6 +319,8 @@ export function UploadZone({ user }: Props) {
       const dup = await duplicateRecording(existingId);
       dupWaitRef.current?.(dup.uid ?? null);
       dupWaitRef.current = null;
+      // Change 212: Die Kopie ist ein neuer, unverarbeiteter Auftrag → starten.
+      if (dup?.uid) await startJob(dup.uid, dupPrompt?.file.name ?? "", values);
       // Feedback kommt aus der Upload-Loop (Zusammenfassung) — kein eigener
       // Toast nötig, sonst doppelte Meldung. (2026-08-14)
       await qc.invalidateQueries({ queryKey: ["recordings"] });
@@ -236,8 +338,8 @@ export function UploadZone({ user }: Props) {
             vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel,
             true,
             (pct) => setUploadProgress(pct),
-            importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
-            diarSensToMinDurationOff(importFeat.diarSens),
+            values.numSpeakers ? Number(values.numSpeakers) : undefined,
+            diarSensToMinDurationOff(values.diarSens),
           );
           const uid = "uid" in up ? up.uid : null;
           dupWaitRef.current?.(uid);
@@ -327,6 +429,36 @@ export function UploadZone({ user }: Props) {
           )}
         </div>
       )}
+      {/* ── Change 212: EIN Optionen-Panel für alle drei Quellen ──
+          Der Zustand liegt hier oberhalb der Tabs; was angeboten wird,
+          leitet die Matrix (src/optionMatrix.ts) aus gewählter Quelle und
+          Backend-Fähigkeiten (/api/backends) ab. Kein Tab pflegt mehr eine
+          eigene Optionsliste, und es gibt keine Chips mit Fachbegriffen. */}
+      <div className="border border-border rounded-sm bg-panel">
+        <button
+          type="button"
+          onClick={() => setOptsOpen((o) => !o)}
+          aria-expanded={optsOpen}
+          className="w-full inline-flex items-center gap-[6px] text-[11.5px] font-semibold text-muted px-3 py-2 cursor-pointer hover:text-txt"
+        >
+          {t("opts_toggle")}
+          <ChevronDown size={12} className={`transition-transform ${optsOpen ? "rotate-180" : ""}`} />
+        </button>
+        {optsOpen && (
+          <div className="px-2 pb-2">
+            <OptionsPanel
+              source={inputMode}
+              values={values}
+              backends={availableBackends}
+              caps={caps}
+              flags={flags}
+              pp={{ templates, targets, endpoints, isOidc }}
+              action="tr"
+              onChange={patchValues}
+            />
+          </div>
+        )}
+      </div>
       {/* Tab bar */}
       <div className="flex gap-0 border-b border-border">
         <TabButton active={inputMode === "upload"} disabled={recording} onClick={() => setInputMode("upload")}>
@@ -404,7 +536,6 @@ export function UploadZone({ user }: Props) {
               <div className="text-[12px] font-semibold text-txt">
                 {t("files_selected")} ({pendingFiles.length})
               </div>
-              <ImportToggles values={importFeat} onChange={(p) => setImportFeat((f) => ({ ...f, ...p }))} />
               {pendingFiles.map((f, i) => (
                 <div key={`${f.name}-${i}`} className="flex items-center gap-2 text-[12px]">
                   <span className="flex-1 truncate text-muted">
@@ -488,6 +619,7 @@ export function UploadZone({ user }: Props) {
           vadOn={vadOn} diarizeOn={diarizeOn}
           livePreview={livePreview} noiseReduce={noiseReduce} enhanceLevel={enhanceLevel}
           refreshPending={refreshPending}
+          onStartJob={(uid: string, label: string) => startJob(uid, label, values)}
         />
       )}
       {inputMode === "url" && (
@@ -495,8 +627,8 @@ export function UploadZone({ user }: Props) {
           toast={toast}
           qc={qc}
           t={t}
-          importFeat={importFeat}
-          onFeatChange={(p) => setImportFeat((f) => ({ ...f, ...p }))}
+          values={values}
+          onStartJob={(uid, label) => startJob(uid, label, values)}
         />
       )}
 
@@ -625,7 +757,7 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
 
 // ── Record tab ──
 
-function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, refreshPending }: any) {
+function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, refreshPending, onStartJob }: any) {
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [continuous, setContinuous] = useState(false);
@@ -903,10 +1035,13 @@ function RecordTab({ setIsUploading, onRecordingChange, toast, qc, t, vadOn, dia
         // 3) Upload mit sichtbarem Fortschritt
         setUploadPhase("uploading");
         setUploadPct(0);
-        await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, (pct) => setUploadPct(pct));
+        const rec = await recordFromMic(normBlob, batchId, vadOn, diarizeOn, livePreview, noiseReduce, enhanceLevel, (pct) => setUploadPct(pct));
         await deletePendingRecording(pending.id); // Upload bestätigt → Puffer leeren
         void refreshPending();
         setUploadPhase("done");
+        // Change 212: Abschicken startet den Auftrag — die Aufnahme bleibt
+        // nicht als „wartend" liegen und braucht keinen zweiten Klick.
+        if (rec?.uid) await onStartJob(rec.uid, pending.fileName);
         await qc.invalidateQueries({ queryKey: ["recordings"] });
         toast("Recording uploaded", "ok");
       } catch (e) {
@@ -1356,12 +1491,14 @@ function writeStr(view: DataView, offset: number, str: string) {
 
 // ── URL tab ──
 
-function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
+function UrlTab({ toast, qc, t, values, onStartJob }: {
   toast: ReturnType<typeof useToast>["toast"];
   qc: ReturnType<typeof useQueryClient>;
   t: ReturnType<typeof useT>["t"];
-  importFeat: ImportFeatureValues;
-  onFeatChange: (p: Partial<ImportFeatureValues>) => void;
+  /** Change 212: dieselben Optionswerte wie Datei-Upload und Aufnahme. */
+  values: FeatureValues;
+  /** Change 212: Abschicken startet den Auftrag (kein zweiter Klick). */
+  onStartJob: (uid: string, label: string) => void | Promise<void>;
 }) {
   const [url, setUrl] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1379,17 +1516,23 @@ function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
     try {
       const result = await importFromUrl(
         url.trim(),
-        importFeat.vad, importFeat.diarize, importFeat.streaming,
-        importFeat.noise, importFeat.enhance,
-        importFeat.numSpeakers ? Number(importFeat.numSpeakers) : undefined,
-        diarSensToMinDurationOff(importFeat.diarSens),
-        undefined, // diarizeMethod (nicht im URL-Tab)
+        values.vad !== "off", values.diarize, values.streaming,
+        values.noise, values.enhance,
+        values.numSpeakers ? Number(values.numSpeakers) : undefined,
+        diarSensToMinDurationOff(values.diarSens),
+        values.diarMethod || undefined,
         username.trim() || undefined,
         password || undefined,
         videoPassword || undefined,
         cookiesFile,
+        values.separate,
+        values.vad,
       );
       toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
+      // Change 212: Der Import ist ein fertiger Auftrag → sofort starten.
+      // Ohne das bleibt er „wartend" auf der Aufnahmekarte liegen (der
+      // Server reiht beim Import bewusst nicht selbst ein).
+      if (result?.uid) await onStartJob(result.uid, result.original_name ?? url.trim());
       await qc.invalidateQueries({ queryKey: ["recordings"] });
       await qc.invalidateQueries({ queryKey: ["stats"] });
       setUrl("");
@@ -1409,7 +1552,6 @@ function UrlTab({ toast, qc, t, importFeat, onFeatChange }: {
   return (
     <div className="flex flex-col items-center gap-3 py-6">
       <div className="text-[12px] text-muted">{t("url_placeholder")}</div>
-      <ImportToggles values={importFeat} onChange={onFeatChange} />
       <div className="flex gap-2 w-full max-w-[500px]">
         <input
           type="url"

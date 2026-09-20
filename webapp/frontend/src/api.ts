@@ -1150,6 +1150,32 @@ export async function fetchModelsMatrix(): Promise<ModelMatrixEntry[]> {
   return res.json() as Promise<ModelMatrixEntry[]>;
 }
 
+/**
+ * Backend-Fähigkeiten für das Optionen-Panel (Change 212).
+ *
+ * Einzige Quelle für alles, was vom Backend abhängt: Live-Erkennung
+ * (``streaming_*``) und native Satzzeichen/Großschreibung
+ * (``native_punctuation``). Die Werte kommen aus den Adapter-Capabilities —
+ * im Frontend wird nichts davon hartkodiert. Schlüssel ``""`` = Server-Default.
+ */
+export interface BackendCapabilities {
+  /** Backends, die der Server als aktiv führt (status active). */
+  backends: string[];
+  /** Effektives Backend ohne explizite Wahl (auch der Schlüssel ""). */
+  default: string;
+  /** Live-Erkennung des Server-Defaults. */
+  streaming_supported: boolean;
+  /** Live-Erkennung je Backend-Name ("" = Server-Default). */
+  streaming_by_backend: Record<string, boolean>;
+  /** Native Satzzeichen/Großschreibung je Backend-Name ("" = Server-Default). */
+  native_punctuation: Record<string, boolean>;
+}
+
+export async function fetchBackendCapabilities(): Promise<BackendCapabilities> {
+  const res = await fetch("/api/backends").then(checkOk);
+  return res.json() as Promise<BackendCapabilities>;
+}
+
 /* ============================================================
    Post-Processing (Teil D): Prompt-Templates + Delivery-Targets
    ============================================================ */
