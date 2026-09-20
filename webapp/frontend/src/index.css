@@ -246,21 +246,38 @@ audio {
    Region-Element selbst markieren wir mit `ps-timing-region`, damit wir
    nicht an Vendor-Klassen hängen.
    ============================================================ */
-.ps-timing-region { border-radius: 2px; }
+/* Change 218 (Nutzer-Befund 20.09.2026, wörtlich): „Die Markierung des aktives
+   Wortes im Timing Modus hat immer noch Ränder oben und unten. Sollte nur rechts
+   und links haben."
 
-/* Change 211 (Nutzer-Befund 19.09.2026): „Der Kasten um das aktive Wort hat
-   immer noch Ränder oben und unten." Unsere eigenen Schatten zeichnen nur
-   seitlich (siehe unten) — der Rahmen kam von WaveSurfer selbst: die Regions
-   sind mit borderColor: null konfiguriert, und die Bibliothek setzt dann keinen
-   Rahmen ab, sondern fällt auf ihren Standard zurück, der ringsum läuft.
-   Darum wird der Rahmen hier ausdrücklich abgeschaltet; !important, weil er am
-   Element selbst sitzt. */
-.ps-timing-region { border: 0 !important; }
+   BELEGTE URSACHE (nicht die Bibliothek, sondern unser eigener Code):
+   Den vierkantigen Rahmen setzte WaveformPlayer.tsx per INLINE-Stil am
+   Flächen-Element —
+     aktives Wort:  el.style.border = "2px solid rgba(46,160,67,0.95)"
+     Nachbarwort:   nbEl.style.borderLeft/-Right = "1px dashed rgba(210,153,34,0.9)"
+   Ein Inline-Stil schlägt jede normale CSS-Regel. Der erste Anlauf
+   (Change 211: `.ps-timing-region { border: 0 !important }`) war deshalb ein
+   Wettstreit gegen den Inline-Stil: er gewinnt nur, solange genau diese
+   CSS-Regel im ausgelieferten Bundle steckt (das Handy zeigte nach dem Deploy
+   weiter den alten Stand) — und er reißt zusätzlich die GEWOLLTEN gestrichelten
+   Seitenkanten des Nachbarn mit weg.
 
-/* Change 211 (Nutzer-Befund 19.09.2026): Klicks müssen die Fläche erreichen —
-   die Nachbarregionen sollen beim Anklicken das Wort aktivieren. Ohne das
-   greift der Klick-Handler der Waveform und startet dort ein Playback. */
-.ps-timing-region { pointer-events: auto; }
+   Jetzt zwei voneinander unabhängige Sicherungen, damit oben/unten keine Kante
+   mehr entstehen kann:
+     (1) Der Code setzt gar keinen Rahmen mehr (siehe WaveformPlayer.tsx:
+         `el.style.border = "none"` + ausdrücklich borderTop/Bottom none).
+     (2) Diese Regel schließt die obere und untere Kante zur Not mit
+         !important (sie schlägt JEDEN Inline-Rahmen), lässt links/rechts aber
+         unangetastet — dort sollen die Kanten sitzen (aktives Wort:
+         inset-Schatten weiter unten, Nachbar: gestrichelte Seitenkanten).
+   Prüfbar nach dem Bau (eindeutige Suche in dist/assets/*.css):
+     grep -o "border-top:0!important;border-bottom:0!important" dist/assets/*.css  */
+.ps-timing-region {
+  border-radius: 2px;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  pointer-events: auto;
+}
 .ps-timing-region-neighbor { cursor: pointer; }
 
 /* Change 211 (Nutzer-Vorgabe 19.09.2026): das jeweilige WORT in der Fläche —
@@ -290,30 +307,50 @@ audio {
    den markierten Wörtern animiert blenden?" — Beim Wortwechsel GLEITEN die
    Farben: das alte Wort verlässt sein Grün Richtung Nachbarfarbe, das neue
    wird grün. Interpoliert wird vom Browser (CSS), JavaScript setzt nur die
-   Zielwerte (crossfadeStyle in WaveformPlayer.tsx). 200 ms ease-out. */
-.ps-timing-word-active,
-.ps-timing-word-neighbor {
-  transition: color 200ms ease-out;
-}
+   Zielwerte (crossfadeStyle in WaveformPlayer.tsx).
+
+   Change 218 (Nutzer-Befund 20.09.2026): „Die Transition von aktivem Wort zu
+   Nachbarn ist unschnell und sollte auch ease out haben."
+   BELEGTE URSACHE: Die Flächen-Regel hier war wirkungslos, denn WaveSurfer
+   schreibt beim Erzeugen jeder Region einen INLINE-Übergang ans Element
+   (`transition: background-color 0.2s ease`, RegionsPlugin.initElement) — ein
+   Inline-Stil schlägt jede normale Klassenregel. Sichtbar war deshalb immer
+   die Bibliotheks-Vorgabe (200 ms, Kurve `ease` = schnell losfahrend, also
+   „unschnell"/abrupt), egal was hier stand.
+   Darum jetzt `!important` (nur so ist der Inline-Stil zu schlagen) und die
+   Zahlen aus WaveformPlayer.tsx: TIMING_COLOR_MS = 420 ms und
+   TIMING_COLOR_EASE = cubic-bezier(0.22, 1, 0.36, 1) — deutlich länger als die
+   Gleitfahrt von Zoom/Zentrierung (TIMING_MOTION_MS = 260 ms, easeOutCubic),
+   damit der Farbwechsel sich nicht schneller anfühlt als die Bewegung.
+   Prüfbar nach dem Bau (eindeutige Suche in dist/assets/*.css):
+     grep -o "transition:background-color .42s cubic-bezier(.22,1,.36,1)!" dist/assets/*.css */
 .ps-timing-region-active,
 .ps-timing-region-neighbor {
-  transition: background-color 200ms ease-out;
+  transition: background-color 420ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+/* Beschriftungen sind unsere eigenen Elemente (kein Inline-Übergang) — hier
+   genügt die normale Regel; dieselben Zahlen wie oben. */
+.ps-timing-word-active,
+.ps-timing-word-neighbor {
+  transition: color 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* Startwert einer Farbgleitung: EINE Zuweisung OHNE Übergang — sonst liefe
-   der Übergang vom alten Endwert los statt von der Position des neuen Wortes. */
+   der Übergang vom alten Endwert los statt von der Position des neuen Wortes.
+   !important, weil es auch den Inline-Übergang der Bibliothek ausschalten muss. */
 .ps-no-transition,
 .ps-no-transition * {
   transition: none !important;
 }
 
 /* Wer Bewegung reduziert haben will, bekommt den Wechsel wie bisher ohne
-   Übergang (Standbild statt Bewegung). */
+   Übergang (Standbild statt Bewegung). !important, weil die Regeln darüber
+   ihrerseits !important tragen — sonst gewänne die Dauer dort. */
 @media (prefers-reduced-motion: reduce) {
   .ps-timing-word-active,
   .ps-timing-word-neighbor,
   .ps-timing-region-active,
   .ps-timing-region-neighbor {
-    transition: none;
+    transition: none !important;
   }
 }
 

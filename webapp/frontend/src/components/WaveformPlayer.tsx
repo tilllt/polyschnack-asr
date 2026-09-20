@@ -150,8 +150,18 @@ export const TIMING_ACTIVE_REGION = "rgba(46,160,67,0.30)";
 export const TIMING_NEIGHBOR_REGION = "rgba(210,153,34,0.20)";
 export const TIMING_ACTIVE_LABEL = "#7ee787";
 export const TIMING_NEIGHBOR_LABEL = "rgba(233, 196, 106, 0.95)";
-/** Dauer der Farbgleitung (ms) — identisch zur CSS-Regel in index.css. */
-export const TIMING_COLOR_MS = 200;
+/** Dauer der Farbgleitung (ms) — identisch zur CSS-Regel in index.css für
+ *  .ps-timing-region-active/-neighbor. Change 218: von 200 ms auf 420 ms
+ *  erhöht; deutlicher länger als die Fahrt von Zoom/Zentrierung
+ *  (TIMING_MOTION_MS), damit der Farbwechsel sich nicht schneller anfühlt als
+ *  die Bewegung. Die CSS-Regel MUSS `!important` tragen: WaveSurfer schreibt
+ *  beim Erzeugen jeder Region `transition: background-color 0.2s ease` als
+ *  Inline-Stil ans Element (RegionsPlugin.initElement) und überstimmt sonst
+ *  jede Klassenregel. */
+export const TIMING_COLOR_MS = 420;
+/** Kurve der Farbgleitung — Ease-out (viel Weg am Anfang, weiches Auslaufen),
+ *  dieselbe Familie wie easeOutCubic der Fahrt. Wortgleich in index.css. */
+export const TIMING_COLOR_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 /** Dauer der Zoom-/Zentrierungsfahrt (ms). Zoom und Zentrierung laufen
  *  GLEICH LANG, damit es als EINE Bewegung wirkt und nicht als zwei. */
 export const TIMING_MOTION_MS = 260;
@@ -684,13 +694,26 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
               resize: true,
               minLength: MIN_WORD_DURATION_S,
             });
-            // Change 210: eigene Klasse + Rahmen, damit das aktive Wort klar
-            // als solches erkennbar ist (siehe index.css).
+            // Change 218 (Nutzer-Befund 20.09.2026): „Die Markierung des aktives
+            // Wortes hat immer noch Ränder oben und unten. Sollte nur rechts und
+            // links haben." Die Ursache saß HIER: `el.style.border = "2px solid
+            // rgba(46,160,67,0.95)"` malte einen Rahmen ringsum — also auch oben
+            // und unten. Ein Inline-Stil gewinnt gegen jede normale CSS-Regel;
+            // die damalige CSS-Gegenmaßnahme (Change 211: `border: 0 !important`)
+            // war deshalb ein Wettstreit gegen den Inline-Stil — und wirkungslos,
+            // sobald das ausgelieferte CSS die Regel nicht enthielt.
+            // Jetzt wird gar kein Rahmen mehr gesetzt: die seitlichen Kanten
+            // zeichnet ausschließlich das CSS (inset-Schatten, siehe
+            // index.css), oben/unten bleibt nichts — und das CSS schließt die
+            // obere/untere Kante zusätzlich mit !important zu (Gürtel + Hose,
+            // auch gegen fremde Inline-Rahmen).
             try {
               const el = region.element as HTMLElement | undefined;
               if (el) {
                 el.classList.add("ps-timing-region", "ps-timing-region-active");
-                el.style.border = "2px solid rgba(46,160,67,0.95)";
+                el.style.border = "none";
+                el.style.borderTop = "none";
+                el.style.borderBottom = "none";
                 // Fix 2026-09-20: Das Wort-Label setzt ausschließlich
                 // syncTimingLabels() — genau EIN Label je Region, kein
                 // Neuaufbau beim Wortwechsel.
@@ -832,6 +855,12 @@ export const WaveformPlayer = forwardRef<WaveSurferHandle, Props>(
             // Change 211 (Nutzer-Vorgabe 19.09.2026): Nur die SEITLICHEN Kanten —
             // kein Rahmen oben/unten und keine Beschriftung („davor"/„danach"
             // entfernt). Fläche und Farben bleiben unverändert.
+            // Change 218 (Nutzer-Befund 20.09.2026): Diese gestrichelten
+            // Seitenkanten waren bis dahin UNSICHTBAR — die damalige CSS-Regel
+            // `.ps-timing-region { border: 0 !important }` (Change 211) schlug
+            // sie als Inline-Stil mit. Jetzt schließt das CSS nur noch die
+            // obere/untere Kante (`border-top/bottom: 0 !important`), links und
+            // rechts sind frei — die Kanten sind damit wie vorgesehen da.
             try {
               const nbEl = created.element as HTMLElement | undefined;
               if (nbEl) {

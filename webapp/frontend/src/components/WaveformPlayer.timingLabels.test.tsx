@@ -309,3 +309,49 @@ describe("WaveformPlayer Timing-Labels (Fix 2026-09-20)", () => {
     expect(activeLabel()?.textContent).toBe("Hallo");
   });
 });
+
+/**
+ * Change 218 (Nutzer-Befund 20.09.2026): „Die Markierung des aktives Wortes im
+ * Timing Modus hat immer noch Ränder oben und unten. Sollte nur rechts und
+ * links haben."
+ *
+ * Belegte Ursache: der vierkantige Rahmen kam aus unserem EIGENEN Inline-Stil
+ * (`el.style.border = "2px solid rgba(46,160,67,0.95)"` — WaveformPlayer.tsx),
+ * nicht aus der Bibliothek. Inline schlägt jede normale Klassenregel, deshalb
+ * blieb die frühere CSS-Gegenmaßnahme (Change 211, `border: 0 !important`)
+ * wirkungslos, sobald die ausgelieferte CSS-Datei sie nicht enthielt. Hier wird
+ * der tatsächlich erzeugte DOM-Zustand geprüft: kein Rahmen oben/unten, die
+ * seitlichen Kanten ausdrücklich.
+ */
+describe("WaveformPlayer Timing-Markierung: Kanten nur links/rechts (Change 218)", () => {
+  /** Der erzeugte Inline-Stil, wie ihn der Browser (und jsdom) serialisiert. */
+  const inlineStyle = (el: HTMLElement) => el.getAttribute("style") ?? "";
+
+  it("aktives Wort: kein Inline-Rahmen oben/unten, Klasse für die Seitenkanten", () => {
+    setup({ timingWord: WORD, timingWordText: "Hallo", timingNeighbors: NB });
+    const el = document.querySelector<HTMLElement>(".ps-timing-region-active");
+    expect(el).toBeTruthy();
+    expect(el!.classList.contains("ps-timing-region")).toBe(true);
+
+    // Oben/unten: nichts. Der frühere Fehler stand als `2px solid` im
+    // Inline-Stil des Elements (alle vier Kanten) — das darf nicht zurückkommen.
+    expect(inlineStyle(el!)).not.toMatch(/border[^;]*\d+px/);
+    expect(el!.style.borderTopWidth || "").not.toMatch(/[1-9]/);
+    expect(el!.style.borderBottomWidth || "").not.toMatch(/[1-9]/);
+    // Die seitlichen Kanten zeichnet index.css (inset-Schatten, y=0) — die
+    // Regel dazu wird in WaveformPlayer.timingMark.test.ts geprüft.
+  });
+
+  it("Nachbar: gestrichelte Seitenkanten, oben/unten ausdrücklich ohne Kante", () => {
+    setup({ timingWord: WORD, timingWordText: "Hallo", timingNeighbors: NB });
+    const nb = document.querySelector<HTMLElement>(".ps-timing-region-neighbor");
+    expect(nb).toBeTruthy();
+
+    expect(nb!.style.borderTopWidth || "").not.toMatch(/[1-9]/);
+    expect(nb!.style.borderBottomWidth || "").not.toMatch(/[1-9]/);
+    expect(inlineStyle(nb!)).not.toMatch(/border-(top|bottom)[^;]*\d+px/);
+    // Seitenkanten: da und gestrichelt (links + rechts).
+    expect(nb!.style.borderLeft).toMatch(/dashed/);
+    expect(nb!.style.borderRight).toMatch(/dashed/);
+  });
+});
