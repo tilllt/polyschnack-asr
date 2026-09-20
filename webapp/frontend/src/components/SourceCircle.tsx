@@ -46,16 +46,16 @@ export const SOURCE_CIRCLE_BORDER = 2;
  * Maße des Kreistextes (px in der Zeichenfläche des SVG) — EIN Satz für alle
  * drei Knöpfe.
  *   Ringradius      32 px (mobil) bzw. 40 px (ab 640 px), siehe SOURCE_CIRCLE_SHAPE.
- *   r = 37 px       Der Textkreis liegt unmittelbar am Ring: bei 64-px-Knopf
- *                   (Ringaußenkante 34 px) sind das 3 px Luft. Ab 640 px ist
- *                   der Knopf 80 px groß (Ringaußenkante 42 px) — die
- *                   Zeichenfläche in index.css wächst prozentual mit dem Knopf
- *                   (218,75 % × 81,25 % → ×1,25), also liegt der Text dort bei
- *                   46,25 px und der Abstand bleibt derselbe (4,25 px).
+ *   r = 35 px       Der Textkreis liegt unmittelbar am Ring: bei 64-px-Knopf
+ *                   (Ringaußenkante 32 px) sind das 3 px Luft zur Grundlinie.
+ *                   Ab 640 px ist der Knopf 80 px groß (Ringaußenkante 40 px) —
+ *                   die Zeichenfläche in index.css wächst prozentual mit dem
+ *                   Knopf (218,75 % × 81,25 % → ×1,25), dort sind es 3,75 px.
  *                   Schrift und Kreis wachsen mit (10 → 12,5 px); das
  *                   Verhältnis Knopf/Ring/Schrift ist in jeder Größe gleich.
- *                   Nur Unterlängen („p" in „Upload") reichen bis auf ~1 px an
- *                   den Ring — berühren ihn nicht.
+ *                   Nur Unterlängen („p" in „Upload") reichen bis auf ~0,8 px
+ *                   (mobil) bzw. ~1,4 px (Desktop) an die Ringlinie heran —
+ *                   im Browser nachgemessen, sie berühren sie nicht.
  *   Höhe 52 px      Zeichenfläche — bleibt bewusst, damit die Luft über der
  *                   Reihe (28 px) unverändert ist; der Text sitzt jetzt nur
  *                   weiter innen in dieser Fläche.
@@ -71,9 +71,12 @@ export const SOURCE_CIRCLE_ARC = {
   cx: 70,
   cy: 52,
   /** EIN Radius für beide Achsen — ein echter Kreis, keine Ellipse.
-   *  Abstand Ringaußenkante → Schriftgrundlinie: 3 px (64-px-Knopf) bzw.
-   *  4,25 px (80-px-Knopf, Zeichenfläche ×1,25 in index.css). */
-  r: 37,
+   *  Abstand Ringaußenkante → Schriftgrundlinie (im Browser nachgemessen,
+   *  Chrome, Messprobe mit dem gebauten CSS): 3 px beim 64-px-Knopf,
+   *  3,75 px beim 80-px-Knopf (Zeichenfläche ×1,25). Die Unterlänge des „p"
+   *  in „Upload" reicht bis auf ~0,8 px (mobil) bzw. ~1,4 px (Desktop) an die
+   *  Ringlinie heran — sie berührt sie nicht. */
+  r: 35,
   /** Schriftgröße des Kreistextes in px. */
   fontSize: 10,
 } as const;

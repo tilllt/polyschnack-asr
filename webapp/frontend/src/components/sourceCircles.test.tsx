@@ -312,39 +312,42 @@ describe("Change 220 — Quellen-Kreise, URL-Zeile, Optionen unten", () => {
   test("(g) der Kreistext sitzt NAH am Ring — und in jeder Knopfgröße gleich nah", () => {
     // Nutzer-Vorgabe 20.09.2026: „die drehende Schrift um die Buttons soll ganz
     // nah an den Kreisen sein, nicht so weit entfernt."
-    // Knopfgrößen aus SOURCE_CIRCLE_SHAPE: 64 px (w-16) bzw. 80 px (sm:w-20) —
-    // Außenkante des 2 px starken Rings also 34 px bzw. 42 px.
-    const ringAussenMobil = 64 / 2 + SOURCE_CIRCLE_BORDER / 2;
-    const ringAussenDesktop = 80 / 2 + SOURCE_CIRCLE_BORDER / 2;
+    // Knopfgrößen aus SOURCE_CIRCLE_SHAPE: 64 px (w-16) bzw. 80 px (sm:w-20).
+    // Der Ring ist ein border (border-box) — seine AUSSENkante liegt damit
+    // genau auf der Knopfkante, also bei 32 px bzw. 40 px.
+    const ringAussenMobil = 64 / 2;
+    const ringAussenDesktop = 80 / 2;
+    const skalaDesktop = 80 / 64; // = 1,25: die Zeichenfläche wächst mit
+    const unterlaenge = 2.4;      // „p" in „Upload" bei 10 px Schrift
 
     // Die Schrift läuft auf dem Kreis mit dem Radius r (Grundlinie).
     const abstandMobil = SOURCE_CIRCLE_ARC.r - ringAussenMobil;
-    const abstandDesktop = SOURCE_CIRCLE_ARC.r * 1.25 - ringAussenDesktop;
+    const abstandDesktop = SOURCE_CIRCLE_ARC.r * skalaDesktop - ringAussenDesktop;
 
-    // NAH heißt hier: höchstens 6 px — vorher waren es 14 px (mobil).
-    expect(abstandMobil, "Textabstand mobil").toBeLessThanOrEqual(6);
-    expect(abstandDesktop, "Textabstand Desktop").toBeLessThanOrEqual(6);
-    // … und nie im Ring (sonst läge die Schrift über der Ringlinie).
-    expect(abstandMobil, "Text darf den Ring nicht berühren").toBeGreaterThan(0);
-    expect(abstandDesktop, "Text darf den Ring nicht berühren").toBeGreaterThan(0);
-    // Beide Stufen liegen gleich nah (Unterschied unter 2 px).
-    expect(Math.abs(abstandDesktop - abstandMobil)).toBeLessThan(2);
+    // NAH heißt hier: höchstens 4,5 px — vorher waren es 14 px (mobil) bzw.
+    // 6 px (Desktop, r = 46).
+    expect(abstandMobil, "Textabstand mobil").toBeLessThanOrEqual(4.5);
+    expect(abstandDesktop, "Textabstand Desktop").toBeLessThanOrEqual(4.5);
+    // Beide Stufen liegen praktisch gleich nah (Unterschied unter 1 px).
+    expect(Math.abs(abstandDesktop - abstandMobil)).toBeLessThan(1);
+    // … und die Schrift liegt nie IM Ring: auch die Unterlänge („p" in
+    // „Upload") bleibt außerhalb der Ringaußenkante.
+    expect(abstandMobil - unterlaenge, "Unterlänge bleibt außerhalb (mobil)").toBeGreaterThan(0);
+    expect(abstandDesktop - unterlaenge * skalaDesktop,
+      "Unterlänge bleibt außerhalb (Desktop)").toBeGreaterThan(0);
 
     // Damit das auch auf dem Gerät gilt, MUSS die Zeichenfläche mit dem Knopf
     // wachsen: Prozentwerte relativ zur Knopfgröße, KEINE festen px und KEINE
-    // zusätzliche Medienabfrage (die Werte gelten für beide Stufen, das
-    // Verhältnis 140/52 zur Zeichenfläche bleibt erhalten).
+    // zusätzliche Medienabfrage (die erste 640-px-Abfrage ist die der Zonen,
+    // zone.test.tsx verlangt sie VOR der Zonenhöhe).
     const flaeche = rule(".ps-src-arc {");
     expect(flaeche, "Breite prozentual zur Knopfgröße").toContain("218.75%");
     expect(flaeche, "Höhe prozentual zur Knopfgröße").toContain("81.25%");
     expect(flaeche, "keine feste Breite in px").not.toMatch(/width:\s*\d+px/);
     expect(flaeche, "keine feste Höhe in px").not.toMatch(/height:\s*\d+px/);
-    // Die Prozentwerte müssen die Zeichenfläche der SVG genau treffen:
-    // 218,75 % / 81,25 % = 140 / 52 (sonst verzerrt der Text oder rutscht).
-    const verhaeltnisCss = (140 / 64) / (52 / 64);
-    const verhaeltnisWerte = 218.75 / 81.25;
-    expect(verhaeltnisWerte).toBeCloseTo(verhaeltnisCss, 3);
-    // Und die Zeichenfläche selbst (viewBox) bleibt das Seitenverhältnis 140/52.
+    // Die Prozentwerte müssen die Zeichenfläche der SVG genau treffen
+    // (140/64 : 52/64), sonst verzerrt der Text.
+    expect(218.75 / 81.25).toBeCloseTo((140 / 64) / (52 / 64), 3);
     expect(SOURCE_CIRCLE_ARC.width / SOURCE_CIRCLE_ARC.height).toBeCloseTo(140 / 52, 6);
   });
 });

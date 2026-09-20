@@ -970,8 +970,9 @@ audio {
      Höhe    81,25 % =  52/64   →  52 px bei 64 px,  65 px bei 80 px
    Die Zeichenfläche (viewBox 140 × 52) wird dadurch genau mit dem Knopf
    skaliert — samt Schrift (10 → 12,5 px) —, und der Abstand zum Ring bleibt in
-   jeder Stufe gleich (3 px bzw. 4,25 px). Feste px wären hier falsch: beim
-   großen Knopf läge der Text dann IM Ring, beim kleinen zu weit weg.
+   jeder Stufe fast gleich: 3 px bei 64 px, 3,75 px bei 80 px (im Browser
+   nachgemessen). Feste px wären hier falsch: beim großen Knopf läge der Text
+   dann IM Ring, beim kleinen zu weit weg.
    Der Drehpunkt rechnet weiter in Zeichenflächen-Einheiten
    (transform-box: view-box), das Skalieren ändert daran nichts. */
 .ps-src-arc {
