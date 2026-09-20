@@ -36,15 +36,14 @@ import { fileURLToPath } from "node:url";
 import {
   RECORD_ARC,
   RECORD_ARC_PATH_D,
-  RECORD_ARC_PATH_ID,
-  RECORD_ARC_SPIN_CLASS,
-  RECORD_ARC_SPIN_MS,
   RECORD_BUTTON_SHAPE,
   RECORD_GESTURE_TIPS,
   RecordGestureHint,
   TIP_FADE_IN_MS,
   TIP_FADE_OUT_MS,
   gestureTipAt,
+  recordArcPathD,
+  recordArcPathId,
 } from "./RecordGestureHint";
 
 /** Pfad zu index.css — je nach Laufzeit (Node oder Vitest-Laufzeit). */
@@ -247,8 +246,14 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(rule(".ps-record-tip {")).toContain("position: absolute");
     // Die Zone behält ihre feste Höhe (Regel aus Change 215) — der Kreis darf
     // über den Knopf hinausreichen, aber nichts als Höhengeber wirken.
-    expect(rule(".ps-record-tip {")).toContain("height: 68px");
-    expect(rule(".ps-record-tip {")).not.toContain("height: auto");
+    // Change 222: Die Zeichenfläche ist quadratisch und MITTIG auf der
+    // Knopfmitte, damit der Text in allen vier Lagen gleich weit reicht.
+    const tipCss = rule(".ps-record-tip {");
+    expect(tipCss).toContain("top: 50%");
+    expect(tipCss).toContain("translate(-50%, -50%)");
+    expect(tipCss).toContain(`height: ${RECORD_ARC.height}px`);
+    expect(tipCss, "feste Höhe aus der Konstante").toContain(`width: ${RECORD_ARC.width}px`);
+    expect(tipCss).not.toContain("height: auto");
   });
 
   test("die Kopie ist sichtbarer als vorher, verdeckt den Knopf aber nicht", () => {
@@ -574,33 +579,32 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(gestureTipAt(7).kind).toBe("release");
   });
 
-  test("(Punkt 1/3) der Hinweistext läuft auf einem Kreis in einer drehenden Gruppe", () => {
+  test("(Punkt 1/3) der Hinweistext läuft auf einem Kreis — ohne Drehung", () => {
     const { getByTestId } = renderBuehne(0, "swipe up to lock recording");
     const tip = getByTestId("record-tip");
     const svg = tag(tip, "svg")[0];
     expect(svg, "kein SVG im Hinweis").toBeTruthy();
 
     // Bauart wie im css-tricks-Rezept: <defs><path id=…> + <text><textPath href=…>.
+    // Change 222: je Seite ein eigener Pfad (hier der erste Hinweis → oben).
+    const pfadId = recordArcPathId("top");
     const pfade = tag(svg, "path");
-    const bogen = pfade.find((p) => p.getAttribute("id") === RECORD_ARC_PATH_ID);
-    expect(bogen, `kein Pfad mit id="${RECORD_ARC_PATH_ID}"`).toBeTruthy();
-    expect(bogen!.getAttribute("d")).toBe(RECORD_ARC_PATH_D);
+    const bogen = pfade.find((p) => p.getAttribute("id") === pfadId);
+    expect(bogen, `kein Pfad mit id="${pfadId}"`).toBeTruthy();
+    expect(bogen!.getAttribute("d")).toBe(recordArcPathD("top"));
     expect(bogen!.getAttribute("d")).toContain("A"); // Kreisbogen, keine Gerade
     expect(bogen!.parentElement?.tagName.toLowerCase()).toBe("defs");
 
-    // Der Text hängt in der Gruppe, die sich dreht.
+    // Der Text hängt DIREKT unter der Zeichenfläche — es gibt keine drehende
+    // Gruppe mehr (Change 222: keine Text-Animation).
     const textPath = tag(svg, "textPath")[0];
     expect(textPath, "kein textPath im Hinweis").toBeTruthy();
-    expect(textPath.getAttribute("href")).toBe(`#${RECORD_ARC_PATH_ID}`);
+    expect(textPath.getAttribute("href")).toBe(`#${pfadId}`);
     expect(textPath.getAttribute("startOffset")).toBe("50%");
     expect(textPath.textContent).toBe("swipe up to lock recording");
     expect(textPath.parentElement?.getAttribute("text-anchor")).toBe("middle");
-
-    const gruppe = textPath.closest("g");
-    expect(gruppe, "der Text hängt in keiner <g>").toBeTruthy();
-    expect(gruppe!.getAttribute("class")).toBe(RECORD_ARC_SPIN_CLASS);
-    expect(gruppe!.parentElement?.tagName.toLowerCase()).toBe("svg");
-    expect(textPath.parentElement?.parentElement).toBe(gruppe);
+    expect(textPath.parentElement?.parentElement?.tagName.toLowerCase()).toBe("svg");
+    expect(tag(svg, "g"), "Gruppen (und damit Drehklassen) gibt es nicht mehr").toHaveLength(0);
 
     // Kein gerader Textblock mehr: im Kasten liegt nur das SVG.
     expect(tip.textContent).toBe("swipe up to lock recording");
@@ -621,10 +625,10 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(bauteil.includes("<ellipse")).toBe(false);
     expect(bauteil.includes("ry=")).toBe(false);
 
-    // Die Zeichenfläche sitzt mit ihrer unteren Kante auf der Knopfmitte —
-    // nur so gilt RECORD_ARC.cy als Knopfmittelpunkt für alle Knopfgrößen.
+    // Die Zeichenfläche sitzt MITTIG auf der Knopfmitte — nur so gilt
+    // RECORD_ARC.cy als Knopfmittelpunkt für alle Knopfgrößen (Change 222).
     const tipCss = rule(".ps-record-tip {");
-    expect(tipCss).toContain("bottom: 50%");
+    expect(tipCss).toContain("top: 50%");
     expect(tipCss).toContain(`width: ${RECORD_ARC.width}px`);
     expect(tipCss).toContain(`height: ${RECORD_ARC.height}px`);
     expect(y1).toBeCloseTo(y2, 3); // linkes und rechtes Ende auf gleicher Höhe
@@ -638,12 +642,15 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
 
     // 2. Bleibt der Text in der Zone? Die Schnittkante von `overflow: hidden`
     //    ist die Innenkante des Randes (Zonenhöhe − 2 × Rand), halbiert. Das
-    //    gilt oben UND unten — der Text wandert beim Drehen um den ganzen
-    //    Kreis.
+    //    gilt in ALLEN vier Lagen (oben, unten, links, rechts) — der Text
+    //    reicht in jeder Richtung gleich weit (Change 222).
     const schnittkante = (hoehe - 2 * rand) / 2;
     const oberkante = ry + versal; // höchster Punkt des Textes über der Knopfmitte
     expect(oberkante).toBeLessThanOrEqual(schnittkante - 2);
-    expect(RECORD_ARC.height).toBeLessThanOrEqual(schnittkante);
+    // Die Zeichenfläche selbst ist quadratisch und darf (als absolut
+    // positionierter Kasten) über die Schnittkante hinausragen — sichtbar ist
+    // nur, was innerhalb liegt; genau deshalb wird hier die TEXTkante geprüft.
+    expect(RECORD_ARC.width).toBe(RECORD_ARC.height);
 
     // 3. Bleibt der Text innerhalb der Breite der Zone? Engster Fall: 320 px
     //    Fenster, 12 px Seitenabstand der Seite, Innenabstand und Rand der Zone.
@@ -670,24 +677,86 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(rule(".ps-record-arc-text {")).toContain(`font-size: ${schrift}px`);
   });
 
-  test("(Punkt 3) die Drehung ist langsam, ruhig und bei reduzierter Bewegung aus", () => {
-    const spin = rule(".ps-record-arc-spin {");
-    expect(spin).toContain(`animation: ps-record-spin ${RECORD_ARC_SPIN_MS}ms linear infinite`);
-    expect(RECORD_ARC_SPIN_MS, "zu schnell").toBeGreaterThanOrEqual(20000);
-    expect(RECORD_ARC_SPIN_MS, "unmerklich langsam").toBeLessThanOrEqual(60000);
-    // Gedreht wird um den Kreismittelpunkt, in Zeichenflächen-Einheiten.
-    expect(spin).toContain("transform-box: view-box");
-    expect(spin).toContain(`transform-origin: ${RECORD_ARC.cx}px ${RECORD_ARC.cy}px`);
-    // Eine volle, gleichmäßige Umdrehung — kein Springen, kein Flackern.
-    const keyframes = block("@keyframes ps-record-spin {");
-    expect(keyframes).toContain("rotate(0deg)");
-    expect(keyframes).toContain("rotate(360deg)");
-    expect(keyframes).not.toContain("linear"); // linear steht in der Regel, nicht im Verlauf
-
-    // Bei reduzierter Bewegung steht der Text still.
+  test("(Punkt 3/Change 222) der Hinweistext dreht nicht mehr", () => {
+    // Nutzer-Vorgabe 20.09.2026: „Generell lassen wir die Animation der Texte
+    // sein, die ist zu unruhig." — die Drehung ist ersatzlos entfallen.
+    // (Kommentare werden ausgeblendet: sie NENNEN die alten Namen, damit die
+    // Entfernung nachvollziehbar bleibt.)
+    const cssOhne = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(cssOhne).not.toContain("ps-record-arc-spin");
+    expect(cssOhne).not.toContain("@keyframes ps-record-spin");
+    const bauteil = quelle("components/RecordGestureHint.tsx");
+    expect(bauteil).not.toContain("ps-record-arc-spin");
+    expect(bauteil).not.toContain("RECORD_ARC_SPIN_MS");
+    // Der Text selbst trägt keine Animation (die Kopie pulsiert weiterhin).
+    expect(rule(".ps-record-arc-text {")).not.toContain("animation");
+    // Bei reduzierter Bewegung bleibt es ohnehin still.
     const ohne = reduzierteBewegungBlock();
-    expect(ohne).toContain(".ps-record-arc-spin");
-    expect(/\.ps-record-arc-spin\s*\{[^}]*animation:\s*none/.test(ohne)).toBe(true);
+    expect(ohne).toContain(".ps-record-ghost");
+  });
+
+  test("(Change 222) jeder Hinweis steht auf seiner Seite des Knopfes", () => {
+    // Nutzer-Vorgabe: „swipe up Erklärung oben, swipe down unten, hold to
+    // record links, release to pause rechts."
+    expect(RECORD_GESTURE_TIPS.map((t) => [t.kind, t.side])).toEqual([
+      ["lock", "top"],
+      ["stop", "bottom"],
+      ["hold", "left"],
+      ["release", "right"],
+    ]);
+
+    // Vier verschiedene Halbkreise, EIN Radius — überall gleich weit vom Knopf.
+    const boegen = RECORD_GESTURE_TIPS.map((t) => recordArcPathD(t.side));
+    expect(new Set(boegen).size).toBe(4);
+    for (const d of boegen) expect(d).toContain(`A ${RECORD_ARC.r} ${RECORD_ARC.r} 0 0`);
+
+    // Der gerenderte Hinweis trägt seine Seite mit (für die Prüfung am Gerät).
+    const { getByTestId } = renderBuehne(1, "swipe down to stop");
+    expect(getByTestId("record-tip").getAttribute("data-ps-hint-side")).toBe("bottom");
+    expect(getByTestId("record-ghost").getAttribute("data-ps-hint-side")).toBe("bottom");
+
+    // Die Zeichenfläche ist quadratisch und mittig ausgerichtet — nur so ist
+    // der Abstand in allen vier Lagen gleich.
+    expect(RECORD_ARC.width).toBe(RECORD_ARC.height);
+    const tipCss = rule(".ps-record-tip {");
+    expect(tipCss).toContain("top: 50%");
+    expect(tipCss).toContain("left: 50%");
+    expect(tipCss).toContain("translate(-50%, -50%)");
+  });
+
+  test("(Change 222) bei laufender Aufnahme sind die Hinweise ausgeblendet", () => {
+    // Nutzer-Vorgabe: „bei laufenden Aufnahmen egal ob click to record oder
+    // swipe record lock, werden die UI hints ausgeblendet."
+    const baum = (verdeckt: boolean) => (
+      <div className="ps-record-stage" data-testid="record-stage">
+        <RecordGestureHint
+          tipIdx={0}
+          label="nach oben wischen: Aufnahme sperren"
+          verdeckt={verdeckt}
+        />
+      </div>
+    );
+    const utils = render(baum(false));
+    expect(utils.getByTestId("record-ghost").getAttribute("data-ps-hint-visible")).toBe("1");
+    expect(utils.getByTestId("record-tip").className).not.toContain("ps-record-hint-out");
+
+    utils.rerender(baum(true));
+    const kopieAus = utils.getByTestId("record-ghost");
+    const textAus = utils.getByTestId("record-tip");
+    expect(kopieAus.getAttribute("data-ps-hint-visible")).toBe("0");
+    expect(textAus.getAttribute("data-ps-hint-visible")).toBe("0");
+    // Beide tragen dieselbe Ausblendung wie beim Hinweiswechsel — es gibt nur
+    // EINEN Weg, wie der Hinweis verschwindet.
+    expect(kopieAus.className).toContain("ps-record-hint-out");
+    expect(textAus.className).toContain("ps-record-hint-out");
+    // … und die Puls-Bewegung ruht dann (kein Rechnen im Verborgenen).
+    expect(rule(".ps-record-hint-out {")).toContain("animation-play-state: paused");
+    expect(css).toContain(".ps-record-hint-out .ps-record-ghost-ring { animation-play-state: paused; }");
+
+    // Zurück in die Ruhe: die Hinweise sind wieder da.
+    utils.rerender(baum(false));
+    expect(utils.getByTestId("record-ghost").getAttribute("data-ps-hint-visible")).toBe("1");
+    expect(utils.getByTestId("record-tip").className).not.toContain("ps-record-hint-out");
   });
 
   test("(Punkt 6) Ein- und Ausblenden dauern länger als vorher", () => {

@@ -139,9 +139,12 @@ describe("Change 215 — einheitliche Zonen", () => {
   });
 
   test("drei feste Stufen über Medienabfragen, Desktop größer als mobil", () => {
-    const iMobil = css.lastIndexOf("--ps-zone-h: 144px");
-    const i640 = css.lastIndexOf("--ps-zone-h: 160px");
-    const i1024 = css.lastIndexOf("--ps-zone-h: 174px");
+    // Change 222: Die Stufen sind gewachsen, weil die Kreise mit ihrer
+    // Beschriftung in die Zonen gezogen sind (und die Gestenhinweise in vier
+    // Lagen Platz brauchen).
+    const iMobil = css.lastIndexOf("--ps-zone-h: 164px");
+    const i640 = css.lastIndexOf("--ps-zone-h: 176px");
+    const i1024 = css.lastIndexOf("--ps-zone-h: 190px");
     expect(iMobil).toBeGreaterThan(-1);
     expect(i640).toBeGreaterThan(iMobil);
     expect(i1024).toBeGreaterThan(i640);
@@ -161,14 +164,17 @@ describe("Change 215 — einheitliche Zonen", () => {
     // Change 217: Die 75 % waren der Ausgangspunkt, nicht die Obergrenze. Die
     // Stufen dürfen wachsen, wenn sonst Inhalte fehlen — aber weiterhin klar
     // unter der Fläche bleiben, die die Upload-Zone vorher hatte.
-    const anteil = 144 / GEMESSEN_MOBIL_HOEHE;
+    // Change 222: Die Kreise samt Beschriftung sind in die Zonen gezogen; die
+    // kleinste Stufe liegt jetzt dicht an der ursprünglichen Fläche (99 %),
+    // bleibt aber darunter.
+    const anteil = 164 / GEMESSEN_MOBIL_HOEHE;
     expect(anteil).toBeLessThan(1);
-    expect(anteil).toBeGreaterThan(0.8);
+    expect(anteil).toBeGreaterThan(0.9);
     // „bei Desktop größer als mobil": mindestens 15 % mehr Höhe.
-    expect(174 / 144).toBeGreaterThan(1.15);
+    expect(190 / 164).toBeGreaterThan(1.15);
     // Die mittlere Stufe liegt zwischen den beiden anderen.
-    expect(160).toBeGreaterThan(144);
-    expect(174).toBeGreaterThan(160);
+    expect(176).toBeGreaterThan(164);
+    expect(190).toBeGreaterThan(176);
   });
 
   test("Gestenhinweise bleiben in der festen Fläche und geben keine Höhe vor", () => {

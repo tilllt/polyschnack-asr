@@ -26,7 +26,7 @@ import {
   RecordGestureHint,
   gestureTipAt,
 } from "./RecordGestureHint";
-import { SourceCircle, SourceIcon } from "./SourceCircle";
+import { SourceTab, ZoneCircle, SourceIcon } from "./SourceCircle";
 
 interface Props {
   user?: UserInfo | null;
@@ -542,61 +542,38 @@ export function UploadZone({ user }: Props) {
           )}
         </div>
       )}
-      {/* ── Change 220 (Nutzer-Vorgabe 20.09.2026): Quellen-Auswahl ──
-          Drei gleichrangige Kreis-Knöpfe ersetzen die frühere Tab-Leiste.
-          Aufbau von oben nach unten: URL-Zeile (volle Containerbreite),
-          darunter die drei Kreise, darunter der Bereich der gewählten Quelle,
-          GANZ UNTEN das Optionen-Panel (Change 212 — Inhalt unverändert). */}
-      <div className="ps-sources" data-testid="sources" role="group" aria-label={t("src_picker_label")}>
-        {/* Die URL-Zeile sitzt direkt über der Kreis-Reihe und läuft über die
-            volle Breite des Containers. Der Beispieltext ist der Platzhalter
-            (YouTube-Adresse, wie vom Nutzer vorgegeben). */}
-        <div className="ps-url-row" data-testid="url-line">
-          <label className="sr-only" htmlFor="ps-url-input">{t("url_line_label")}</label>
-          <input
-            id="ps-url-input"
-            data-testid="url-input"
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={t("url_placeholder")}
-            autoComplete="off"
-            spellCheck={false}
-            className="ps-url-input"
-            onKeyDown={(e) => { if (e.key === "Enter") void submitUrl(); }}
-          />
-        </div>
-
-        <div className="ps-source-row" data-testid="source-row">
-          <SourceCircle
-            kind="upload"
-            label={t("src_upload")}
-            selected={inputMode === "upload"}
-            disabled={recording}
-            onSelect={() => selectSource("upload")}
-          />
-          <SourceCircle
-            kind="record"
-            label={t("src_record")}
-            selected={inputMode === "record"}
-            onSelect={() => {
-              if (inputMode === "record") recordCtl.current?.toggle();
-              else selectSource("record");
-            }}
-          />
-          <SourceCircle
-            kind="download"
-            label={t("src_download")}
-            selected={inputMode === "url"}
-            disabled={recording}
-            onSelect={() => {
-              // Auswahl schaltet den Bereich darunter um; steht schon eine
-              // Adresse in der Zeile, startet der Kreis den Import.
-              if (inputMode === "url" && url.trim() && !isDownloading) void submitUrl();
-              else selectSource("url");
-            }}
-          />
-        </div>
+      {/* ── Change 222 (Nutzer-Vorgabe 20.09.2026): Quellen-Auswahl ──
+          Die drei Zeichen sind NACKTE Umschalter — kein Kreis, kein Text, keine
+          Bewegung. Die Kreise selbst sitzen jetzt IN der jeweiligen Zone (also
+          in der Ablegefläche bzw. der Adress-Zone), in derselben Größe wie der
+          Aufnahmeknopf. Die Adress-Zeile ist ebenfalls in ihre Zone gewandert
+          (Nutzer: „Die Download URL Zeile muss mit in die drop-area").
+          Der gewählte Umschalter ist doppelt kodiert: grünes Zeichen UND
+          grüner Strich darunter (siehe .ps-src-tab-on in index.css). */}
+      <div className="ps-source-row" data-testid="source-row" role="group" aria-label={t("src_picker_label")}>
+        <SourceTab
+          kind="upload"
+          label={t("src_upload")}
+          selected={inputMode === "upload"}
+          disabled={recording}
+          onSelect={() => selectSource("upload")}
+        />
+        <SourceTab
+          kind="record"
+          label={t("src_record")}
+          selected={inputMode === "record"}
+          onSelect={() => {
+            if (inputMode === "record") recordCtl.current?.toggle();
+            else selectSource("record");
+          }}
+        />
+        <SourceTab
+          kind="download"
+          label={t("src_download")}
+          selected={inputMode === "url"}
+          disabled={recording}
+          onSelect={() => selectSource("url")}
+        />
       </div>
 
       {/* Tab content */}
@@ -757,6 +734,8 @@ export function UploadZone({ user }: Props) {
           t={t}
           onSubmit={() => void submitUrl()}
           canSubmit={!!url.trim()}
+          url={url}
+          setUrl={setUrl}
           isDownloading={isDownloading}
           showAuth={showAuth} setShowAuth={setShowAuth}
           username={username} setUsername={setUsername}
@@ -843,15 +822,24 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
           </>
         ) : (
           <>
-            <div className="ps-zone-icon text-muted">
-              {/* Change 220: dasselbe selbst gezeichnete Upload-Zeichen wie im
-                  Quellen-Kreis (monochrom, Inline-SVG) — die Ablegefläche ist
-                  damit kein Fremd-Emoji mehr. */}
-              <SourceIcon kind="upload" size={26} />
-            </div>
+            {/* Change 222: Der Kreis sitzt IN der Ablegefläche — mit Zeichen und
+                der stillen, oben gekrümmten Beschriftung „Upload". Die Zone
+                selbst bleibt die Ablegefläche (Klick und Ziehen); der Klick auf
+                den Kreis wird deshalb nicht weitergereicht, sonst liefe die
+                Dateiauswahl zweimal.
+                Der Formathinweis („MP3, M4A, WAV …") ist entfallen — Nutzer:
+                „bei Upload können wir die Formate weglassen, too much
+                information". */}
+            <ZoneCircle
+              kind="upload"
+              testId="upload"
+              label={t("src_upload")}
+              disabled={isUploading}
+              onActivate={() => handleClick()}
+              buttonClassName="ps-zone-activate"
+            />
             <div className="ps-zone-title">{t("drag_here")}</div>
             <div className="ps-zone-hint">{t("multi_files")}</div>
-            <div className="ps-zone-note">{t("upload_formats")}</div>
           </>
         )}
       </div>
@@ -878,12 +866,15 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
   // Die Reihenfolge und die Bewegung stehen in RecordGestureHint.tsx.
   const [tipIdx, setTipIdx] = useState(0);
   useEffect(() => {
+    // Change 222: Während einer Aufnahme stehen die Hinweise still — es gibt
+    // dann nichts zu wechseln (sie sind ausgeblendet, siehe RecordGestureHint).
+    if (recording) return;
     const id = window.setInterval(
       () => setTipIdx((i) => (i + 1) % RECORD_GESTURE_TIPS.length),
       2600
     );
     return () => window.clearInterval(id);
-  }, []);
+  }, [recording]);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "saving" | "processing" | "uploading" | "done">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [wakelock, setWakelock] = useState<WakeLockSentinel | null>(null);
@@ -1446,7 +1437,11 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
           {/* Change 216: halbtransparente Kopie des Knopfes + eine Zeile Text.
               Nur auf Touch-Geräten — dort gibt es die Wischgesten. */}
           {isTouch && (
-            <RecordGestureHint tipIdx={tipIdx} label={t(gestureTipAt(tipIdx).key)} />
+            <RecordGestureHint
+              tipIdx={tipIdx}
+              label={t(gestureTipAt(tipIdx).key)}
+              verdeckt={recording}
+            />
           )}
         </div>
       </Zone>
@@ -1642,6 +1637,8 @@ function UrlArea({
   onSubmit,
   canSubmit,
   isDownloading,
+  url,
+  setUrl,
   showAuth,
   setShowAuth,
   username,
@@ -1658,6 +1655,10 @@ function UrlArea({
   /** Steht eine Adresse in der Zeile? Ohne Adresse ist der Absatz gesperrt. */
   canSubmit: boolean;
   isDownloading: boolean;
+  /** Change 222: Die Adress-Zeile lebt jetzt IN dieser Zone („drop-area") —
+   *  sie kommt wie zuvor aus UploadZone, nur der Ort hat sich geändert. */
+  url: string;
+  setUrl: (v: string) => void;
   /** Change 080: optionale Anmeldedaten — reiner Komponenten-Zustand in
    *  UploadZone, wird nach dem Import geleert und nie persistiert. */
   showAuth: boolean;
@@ -1680,20 +1681,36 @@ function UrlArea({
           unverändert ihre festen Maße aus Change 215. */}
       <Zone variant="solid" className="ps-zone-url">
         <div className="ps-zone-stack">
-          <div className="ps-zone-icon ps-src-ink" aria-hidden="true">
-            <SourceIcon kind="download" size={26} />
+          {/* Change 222 (Nutzer-Vorgabe 20.09.2026): Die Adress-Zeile steht IN
+              der Zone („Die Download URL Zeile muss mit in die drop-area") —
+              gleiche Zone, gleiche Maße wie in den anderen Tabs (Change 215).
+              Ganz oben, weil sie die Eingabe dieser Fläche ist; darunter der
+              Kreis „Download" mit der stillen, oben gekrümmten Beschriftung,
+              der den Import startet. Der frühere Absatz-Knopf ist entfallen:
+              der Kreis IST der Knopf, ein zweiter wäre doppelt. */}
+          <div className="ps-url-row" data-testid="url-line">
+            <label className="sr-only" htmlFor="ps-url-input">{t("url_line_label")}</label>
+            <input
+              id="ps-url-input"
+              data-testid="url-input"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={t("url_placeholder")}
+              autoComplete="off"
+              spellCheck={false}
+              className="ps-url-input"
+              onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
+            />
           </div>
-          <div className="ps-zone-hint">{t("url_zone_hint")}</div>
-          {/* Change 220: Derselbe Absatz wie am Download-Kreis — beides ruft
-              `onSubmit` auf, es gibt keinen wirkungslosen Knopf. */}
-          <button
-            type="button"
-            onClick={onSubmit}
+          <ZoneCircle
+            kind="download"
+            testId="download"
+            label={isDownloading ? t("url_downloading") : t("src_download")}
             disabled={!canSubmit || isDownloading}
-            className="btn-accent text-[12px] px-3 py-1.5 rounded-sm whitespace-nowrap"
-          >
-            {isDownloading ? t("url_downloading") : t("url_download")}
-          </button>
+            onActivate={onSubmit}
+          />
+          <div className="ps-zone-hint">{t("url_zone_hint")}</div>
         </div>
       </Zone>
       {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar).

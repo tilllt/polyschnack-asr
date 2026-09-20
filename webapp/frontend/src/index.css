@@ -463,20 +463,39 @@ audio {
    sind aber so bemessen, dass nichts abgeschnitten wird.
    ============================================================ */
 :root {
-  --ps-zone-h: 144px;
+  /* Change 222 (Nutzer-Vorgabe 20.09.2026): Die Kreise sind in die Zonen
+     gewandert — mit ihrer Beschriftung. Deshalb ist die Zone jetzt so hoch,
+     dass sie (a) den Kreistext über dem Kreis fasst
+     (--ps-arc-reserve: 20 px, ab 640 px 25 px = 52/65 - 32/40) und (b) den
+     Gestenhinweis am Aufnahmeknopf in ALLEN vier Lagen (oben/unten/links/
+     rechts, Kreisradius 60 px + Versalhöhe 7,2 px = 67,2 px ab Knopfmitte).
+     Daraus: Innenhalbhöhe ≥ 68 px, also Höhe ≥ 164 px mobil — der Upload-Inhalt
+     (Kreis 64 + Zeilen) ist mit 154,5 px die zweite Untergrenze, ab 640 px
+     gewinnt der Upload-Inhalt mit 175,5 px.
+       bis 639 px : 164 px
+       ab 640 px  : 176 px
+       ab 1024 px : 186 px  (etwas mehr Luft, Inhalt bleibt gleich)
+     Die feste Höhe und `overflow: hidden` bleiben unangetastet (Change 215) —
+     kein Inhalt darf als Höhengeber wirken. */
+  --ps-zone-h: 164px;
+  /* Luft über dem Kreis für dessen Beschriftung (SOURCE_CIRCLE_ARC-Höhe minus
+     Knopfradius: 52-32 = 20 px; ab 640 px 65-40 = 25 px, weil die
+     Zeichenfläche prozentual mit dem Knopf wächst). */
+  --ps-arc-reserve: 20px;
   --ps-zone-maxw: 100%;
   --ps-zone-border: #2c3d2d;
   --ps-zone-accent: #2ea043;
 }
 @media (min-width: 640px) {
   :root {
-    --ps-zone-h: 160px;
+    --ps-zone-h: 176px;
+    --ps-arc-reserve: 25px;
     --ps-zone-maxw: 560px;
   }
 }
 @media (min-width: 1024px) {
   :root {
-    --ps-zone-h: 174px;
+    --ps-zone-h: 190px;
     --ps-zone-maxw: 640px;
   }
 }
@@ -534,7 +553,10 @@ audio {
   justify-content: center;
 }
 
-/* Inhalt in der Zone — bewusst kompakt, damit er in die feste Fläche passt. */
+/* Inhalt in der Zone — bewusst kompakt, damit er in die feste Fläche passt.
+   Change 222: `padding-top` reserviert den Platz für die Beschriftung des
+   Kreises (sie liegt ÜBER dem Kreis, außerhalb seines Rings) — ohne diese Luft
+   schnitte `overflow: hidden` die Schrift ab. */
 .ps-zone-stack {
   display: flex;
   flex-direction: column;
@@ -542,6 +564,7 @@ audio {
   justify-content: center;
   gap: 5px;
   width: 100%;
+  padding-top: var(--ps-arc-reserve);
 }
 .ps-zone-icon {
   font-size: 26px;
@@ -695,17 +718,20 @@ audio {
    640 px größer wird.
    Change 219 (Punkt 1): 240 × 68 px für einen KREIS mit r = 60 px (Maße in
    RECORD_ARC). Die 68 px sind r + Versalhöhe bei 9 px Schrift = 60 + 7,2. */
+/* Der Hinweistext sitzt auf einem KREIS um den Knopf (Change 219). Change 222:
+   die Zeichenfläche ist quadratisch (240 × 240) und der Kreismittelpunkt liegt
+   in ihrer Mitte — so kann der Text in jeder der vier Lagen (oben, unten,
+   links, rechts) denselben Abstand halten und wird nie abgeschnitten. Der
+   Kasten ist absolut positioniert und hat feste Maße; er kann die Höhe der
+   festen Zone deshalb nicht beeinflussen (Regel aus Change 215). */
 .ps-record-tip {
   position: absolute;
   left: 50%;
-  /* Untere Kante der Zeichenfläche = Knopfmitte. Damit sitzt der Kreis in
-     jeder Breakpoint-Stufe gleich (der Rahmen ist genau so groß wie der
-     Knopf) und die Position hängt nicht an der Knopfgröße. */
-  bottom: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
   z-index: 2;
   width: 240px;
-  height: 68px;
+  height: 240px;
   /* Change 219 (Punkt 4): EINE Farbquelle für alle vier Hinweise. Die
      Gestenklassen (.ps-ghost-*) dürfen den Text NICHT übersteuern. */
   --ps-hint-ink: #d2e8cd;
@@ -724,19 +750,9 @@ audio {
   display: block;
   overflow: visible;
 }
-/* Change 219 (Punkt 3): Die Texte ziehen langsam um den Knopf. Gedreht wird
-   die SVG-Gruppe um den Kreismittelpunkt; `transform-box: view-box` lässt die
-   Ursprungsangabe in Zeichenflächen-Einheiten gelten (120 px / 68 px = cx/cy
-   aus RECORD_ARC). 30 s je Umdrehung, linear — ruhig, ohne Flackern. */
-.ps-record-arc-spin {
-  animation: ps-record-spin 30000ms linear infinite;
-  transform-box: view-box;
-  transform-origin: 120px 68px;
-}
-@keyframes ps-record-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
+/* Change 222: KEINE Drehung mehr — der Hinweistext steht still (Nutzer:
+   „Generell lassen wir die Animation der Texte sein, die ist zu unruhig").
+   Die frühere Drehklasse .ps-record-arc-spin samt @keyframes ist entfallen. */
 /* Change 219 (Punkt 4): Farbe, Deckkraft und Schriftgröße des Hinweistextes
    stehen genau EINMAL — für alle vier Hinweise gleich. 10 → 9 px, damit der
    längste Hinweis (35 Zeichen) auf den Halbkreis passt (π × 60 ≈ 188 px,
@@ -761,7 +777,12 @@ audio {
   opacity: 0;
   transition-duration: 900ms;
   transition-timing-function: ease-in;
+  /* Change 222: Bei laufender Aufnahme sind die Hinweise ausgeblendet — dann
+     soll auch die Puls-Bewegung ruhen (unsichtbare Animationen kosten nur
+     Rechenzeit und können auf dem Handy ruckeln). */
+  animation-play-state: paused;
 }
+.ps-record-hint-out .ps-record-ghost-ring { animation-play-state: paused; }
 
 /* ============================================================
    Change 217 (Nutzer-Vorgabe 20.09.2026) — alle drei Quellen-Tabs gleich hoch.
@@ -807,14 +828,12 @@ audio {
    keine Animation, aber die jeweilige Stellung bleibt erkennbar — und der
    Wechsel zwischen den Hinweisen ist kein Überblenden, sondern sofort
    (Change 218). Der Stand zeigt die neue, nach AUSSEN gerichtete Stellung
-   (Change 219, Punkt 5: 1,16 und 1,22 statt 0,78/1,10 — nie kleiner als 1),
-   und der Text dreht sich nicht (Change 219, Punkt 3). */
+   (Change 219, Punkt 5: 1,16 und 1,22 statt 0,78/1,10 — nie kleiner als 1).
+   Change 222: Der Text dreht sich ohnehin nicht mehr — die Regel dafür ist
+   entfallen (es gibt keine Drehung, die man abschalten müsste). */
 @media (prefers-reduced-motion: reduce) {
   .ps-record-ghost,
   .ps-record-ghost-ring {
-    animation: none !important;
-  }
-  .ps-record-arc-spin {
     animation: none !important;
   }
   .ps-ghost-lock { transform: translateY(-20px); }
@@ -862,14 +881,10 @@ audio {
      - Zeichen und Kreistext grün (--ps-accent) statt grau.
    ============================================================ */
 
-/* Luft über der Kreis-Reihe für den Kreistext (er liegt außerhalb des Rings).
-   Die Zeichenfläche des Textes selbst hat KEINE feste Höhe mehr: sie wächst
-   prozentual mit dem Knopf (.ps-src-arc, 81,25 % = 52/64) — nur diese Luft
-   hier bleibt ein fester Wert, damit die Reihe in allen Stufen gleich hoch
-   anfängt. */
-:root {
-  --ps-src-arc-air: 28px;
-}
+/* Change 222: Die Variable --ps-src-arc-air ist entfallen — die Tab-Reihe
+   enthält keine Kreise mehr, es gibt dort keinen Kreistext zu beherbergen.
+   Die Luft für die Kreistexte steht jetzt in den Zonen
+   (--ps-arc-reserve, siehe .ps-zone-stack). */
 
 .ps-sources {
   display: flex;
@@ -904,19 +919,58 @@ audio {
 .ps-url-input::placeholder { color: #556b4f; }
 .ps-url-input:focus { border-color: var(--ps-accent, #2ea043); }
 
-/* Die drei Kreise: gleicher Abstand, gleiche Höhe, gemeinsame Mitte.
-   `padding-top` schafft die Luft für den Kreistext (er liegt außerhalb des
-   Rings), damit die Schrift nicht in die URL-Zeile hineinragt. */
+/* Change 222 (Nutzer-Vorgabe 20.09.2026): Die Reihe enthält nur noch die drei
+   NACKTEN Umschalter-Zeichen (SourceTab) — kein Kreis, kein Text. Die frühere
+   Luft für den Kreistext (--ps-src-arc-air) ist damit entfallen; die Zeichen
+   stehen in einer kompakten Reihe. */
 .ps-source-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 28px;
+  gap: 10px;
   width: 100%;
-  padding-top: var(--ps-src-arc-air);
 }
 
-.ps-src {
+/* Ein Umschalter: nur das Zeichen. Der gewählte ist DOPPELT kodiert — grünes
+   Zeichen UND grüner Strich darunter (::after) —, damit der Zustand nie allein
+   an der Farbe hängt. Fläche bleibt frei (minimalistisch, wie gewünscht). */
+.ps-src-tab {
+  display: inline-flex;
+  color: #7d9c74;
+}
+.ps-src-tab-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px 8px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+@media (hover: hover) {
+  .ps-src-tab-btn:hover { color: #d2e8cd; }
+}
+.ps-src-tab-btn.ps-src-on { color: var(--ps-accent, #2ea043); }
+.ps-src-tab-btn.ps-src-on::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--ps-accent, #2ea043);
+  border-radius: 2px;
+}
+.ps-src-tab-btn.ps-src-off { opacity: 0.4; cursor: not-allowed; }
+.ps-src-tab-btn:focus-visible { outline: 2px solid var(--ps-accent, #2ea043); outline-offset: 2px; }
+
+/* Bezugsrahmen eines Kreises IN einer Zone (Change 222): genau so groß wie der
+   Knopf, damit die prozentualen Maße des Kreistextes stimmen und der Text in
+   jeder Knopfgröße gleich weit vom Ring sitzt. */
+.ps-zone-circle {
   position: relative;
   display: flex;
   align-items: center;
@@ -960,21 +1014,18 @@ audio {
 }
 .ps-src-btn.ps-src-off { opacity: 0.4; cursor: not-allowed; }
 
-/* Der Kreistext läuft außen um den Ring und dreht langsam
-   (Dauer aus SOURCE_CIRCLE_SPIN_MS in SourceCircle.tsx = 30 s, linear).
-   Change 221 (Nutzer-Vorgabe 20.09.2026: „ganz nah an den Kreisen"):
-   Der Textabstand (SOURCE_CIRCLE_ARC.r) sitzt jetzt direkt am Ring — und zwar
-   in BEIDEN Knopfgrößen (64 px mobil, 80 px ab 640 px). Deshalb sind Breite
-   und Höhe hier PROZENTUAL zur Knopfgröße angegeben und nicht in festen px:
+/* Der Kreistext läuft außen um den Ring — STILL (Change 222: keine Drehung
+   mehr). Der Abstand zum Ring ist der Nutzer-Vorgabe vom 20.09.2026
+   nachgezogen: „Texte entlang des Pfades näher am Kreis ca. 5px Abstand" —
+   die Schriftgrundlinie liegt jetzt 4 px (64-px-Knopf) bzw. 5 px (80-px-Knopf)
+   außerhalb der Ringaußenkante (SOURCE_CIRCLE_ARC.r = 36).
+   Damit der Abstand in BEIDEN Knopfgrößen stimmt, sind Breite und Höhe hier
+   PROZENTUAL zur Knopfgröße angegeben und nicht in festen px:
      Breite 218,75 % = 140/64   → 140 px bei 64 px, 175 px bei 80 px
      Höhe    81,25 % =  52/64   →  52 px bei 64 px,  65 px bei 80 px
-   Die Zeichenfläche (viewBox 140 × 52) wird dadurch genau mit dem Knopf
-   skaliert — samt Schrift (10 → 12,5 px) —, und der Abstand zum Ring bleibt in
-   jeder Stufe fast gleich: 3 px bei 64 px, 3,75 px bei 80 px (im Browser
-   nachgemessen). Feste px wären hier falsch: beim großen Knopf läge der Text
-   dann IM Ring, beim kleinen zu weit weg.
-   Der Drehpunkt rechnet weiter in Zeichenflächen-Einheiten
-   (transform-box: view-box), das Skalieren ändert daran nichts. */
+   Die Zeichenfläche (viewBox 140 × 52) skaliert dadurch genau mit dem Knopf —
+   samt Schrift (10 → 12,5 px). Feste px wären hier falsch: beim großen Knopf
+   läge der Text dann IM Ring, beim kleinen zu weit weg. */
 .ps-src-arc {
   position: absolute;
   left: 50%;
@@ -986,17 +1037,7 @@ audio {
   user-select: none;
   color: inherit;
 }
-.ps-src-btn.ps-src-on + .ps-src-arc { color: var(--ps-accent, #2ea043); }
 .ps-src-arc-svg { display: block; overflow: visible; width: 100%; height: 100%; }
-.ps-src-arc-spin {
-  animation: ps-src-spin 30000ms linear infinite;
-  transform-box: view-box;
-  transform-origin: 70px 52px; /* cx/cy aus SOURCE_CIRCLE_ARC */
-}
-@keyframes ps-src-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
 .ps-src-arc-text {
   fill: currentColor;
   opacity: 1;
@@ -1008,8 +1049,17 @@ audio {
 .ps-src-icon { color: inherit; }
 .ps-src-ink { color: #7d9c74; }
 
+/* Change 222: Die Adress-Zeile sitzt IN der Adress-Zone („drop-area"). Dort
+   nimmt sie die Breite der Zone ein (mit Luft zu den Rändern), damit sie nicht
+   über den Zonenrand läuft. */
+.ps-zone-url .ps-url-row {
+  width: 100%;
+  max-width: 460px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  /* Standbild: die Namen stehen still, die Kreise bleiben voll bedienbar. */
-  .ps-src-arc-spin { animation: none !important; }
+  /* Standbild: die Namen stehen ohnehin still (Change 222), die Kreise und
+     Umschalter bleiben voll bedienbar. */
+  .ps-src-tab-btn { transition: none; }
   .ps-src-btn { transition: none; }
 }
