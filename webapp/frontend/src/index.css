@@ -487,7 +487,9 @@ audio {
    absolut positioniert; der Knopf ist das einzige Element im Fluss. Die Kopie
    liegt mit `inset: 0` exakt auf dem Knopf (gleiche Größe, gleiche Kreisform
    aus .ps-record-ghost + Größenklassen des Knopfes), ist halbtransparent
-   (0,55) und fängt mit `pointer-events: none` keine Klicks ab.
+   (Change 218: 0,85 statt 0,55 — deutlich sichtbarer, aber der echte Knopf
+   bleibt durch die schwache Flächenfüllung hindurch erkennbar) und fängt mit
+   `pointer-events: none` keine Klicks ab.
    ============================================================ */
 
 /* Halbtransparente Kopie — Größe und Form wie der Knopf, keine Klicks. */
@@ -500,11 +502,12 @@ audio {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.55;
+  opacity: 0.85;
   pointer-events: none;
   user-select: none;
   border: 2px solid var(--ps-ghost-line, #2ea043);
-  background: var(--ps-ghost-fill, rgba(46, 160, 67, 0.28));
+  background: var(--ps-ghost-fill, rgba(46, 160, 67, 0.16));
+  transition: opacity 220ms ease-out;
 }
 
 /* Pulsierender Ring — steht für „Aufnahme läuft". */
@@ -519,22 +522,30 @@ audio {
 
 /* Farben je Hinweis aus der eigenen Palette, ein- bzw. zweifarbig — und die
    Bewegung dazu, ausschließlich mit `transform`, also ohne jeden Einfluss auf
-   das Layout (der Knopf kann sich dadurch nicht bewegen). */
+   das Layout (der Knopf kann sich dadurch nicht bewegen).
+
+   Change 218 (Nutzer-Vorgabe 20.09.2026): Der Weg ist deutlich größer als
+   vorher (hoch 12 → 26 px, runter 4 → 18 px, Senken 0,86 → 0,72, Heben
+   1,06 → 1,12). Die 26 px sind die Obergrenze, die die feste Zone hergibt: im
+   kleinsten Fall (144 px Zone, 2 px Rand, 12 px Innenabstand, 64 px Knopf)
+   bleiben über und unter dem Knopf je 26 px bis zur Innenkante der Zone —
+   danach greift `overflow: hidden`. Die Kopie pendelt also bis an die
+   Innenkante, verlässt die Zone aber nicht. */
 @keyframes ps-ghost-up {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(-12px); }
+  45%      { transform: translateY(-26px); }
 }
 @keyframes ps-ghost-down {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(4px); }
+  45%      { transform: translateY(18px); }
 }
 @keyframes ps-ghost-sink {
   0%, 100% { transform: scale(1); }
-  35%, 70% { transform: scale(0.86); }
+  35%, 70% { transform: scale(0.72); }
 }
 @keyframes ps-ghost-rise {
-  0%, 100% { transform: scale(0.92); }
-  40%      { transform: scale(1.06); }
+  0%, 100% { transform: scale(0.82); }
+  40%      { transform: scale(1.12); }
 }
 @keyframes ps-ghost-ring {
   0%   { transform: scale(0.92); opacity: 0.8; }
@@ -542,44 +553,74 @@ audio {
 }
 .ps-ghost-lock {
   --ps-ghost-line: var(--ps-accent, #2ea043);
-  --ps-ghost-fill: rgba(46, 160, 67, 0.28);
+  --ps-ghost-fill: rgba(46, 160, 67, 0.16);
   animation: ps-ghost-up 1.9s ease-in-out infinite;
 }
 .ps-ghost-stop {
   --ps-ghost-line: var(--ps-err, #f85149);
-  --ps-ghost-fill: rgba(248, 81, 73, 0.28);
+  --ps-ghost-fill: rgba(248, 81, 73, 0.16);
   animation: ps-ghost-down 1.9s ease-in-out infinite;
 }
 .ps-ghost-sink {
   --ps-ghost-line: #2ea043;
-  --ps-ghost-fill: rgba(46, 160, 67, 0.28);
+  --ps-ghost-fill: rgba(46, 160, 67, 0.16);
   animation: ps-ghost-sink 1.9s ease-in-out infinite;
 }
 .ps-ghost-rise {
   --ps-ghost-line: #d99e2b;
-  --ps-ghost-fill: rgba(217, 158, 43, 0.28);
+  --ps-ghost-fill: rgba(217, 158, 43, 0.16);
   animation: ps-ghost-rise 1.9s ease-in-out infinite;
 }
 .ps-ghost-sink .ps-record-ghost-ring { animation: ps-ghost-ring 1.5s ease-out infinite; }
 
-/* Eine Zeile Hinweistext unter dem Knopf — absolut positioniert, damit sie
-   die Höhe der festen Zone nicht beeinflussen kann. 12 px Abstand zum Knopf:
-   so kann die Kopie nach unten wischen, ohne den Text zu berühren. */
+/* Change 218 (Nutzer-Vorgabe 20.09.2026): Der Hinweistext steht nicht mehr
+   gerade unter dem Knopf, sondern läuft als gebogener Text auf einem Bogen
+   ÜBER dem Knopf (siehe RecordGestureHint.tsx). Der Kasten ist absolut
+   positioniert und hat feste Maße — er kann die Höhe der festen Zone deshalb
+   nicht beeinflussen (Regel aus Change 215: die Zone ändert ihre Größe nie).
+   `bottom: 50%` setzt die untere Kante des Bogens auf die Knopfmitte; damit
+   sitzt der Bogen in allen drei Breakpoint-Stufen gleich, obwohl der Knopf ab
+   640 px größer wird. */
 .ps-record-tip {
   position: absolute;
-  top: calc(100% + 12px);
   left: 50%;
+  /* Untere Kante der Zeichenfläche = Knopfmitte. Damit sitzt der Bogen in
+     jeder Breakpoint-Stufe gleich (der Rahmen ist genau so groß wie der
+     Knopf) und die Position hängt nicht an der Knopfgröße. */
+  bottom: 50%;
   transform: translateX(-50%);
   z-index: 2;
-  white-space: nowrap;
-  max-width: min(92vw, 420px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 11.5px;
-  line-height: 1.2;
-  color: #d2e8cd;
+  width: 240px;
+  height: 64px;
   pointer-events: none;
   user-select: none;
+  color: #d2e8cd;
+  opacity: 1;
+  transition: opacity 220ms ease-out;
+}
+
+/* Der Bogen selbst: der Text läuft auf dem Pfad über dem Knopf (RecordGestureHint.tsx).
+   Maße und Begründung stehen dort bei RECORD_ARC. */
+.ps-record-arc {
+  display: block;
+  overflow: visible;
+}
+.ps-record-arc-text {
+  fill: #d2e8cd;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* Change 218 (Nutzer-Vorgabe 20.09.2026): Der Wechsel zwischen den Hinweisen
+   ist ein Überblenden — der alte blendet aus (180 ms, ease-in), danach steht
+   der neue Text und blendet ein (220 ms, ease-out, siehe oben). Diese Regel
+   steht absichtlich HINTER .ps-record-ghost/.ps-record-tip, damit sie deren
+   Deckkraft überschreibt. */
+.ps-record-hint-out {
+  opacity: 0;
+  transition-duration: 180ms;
+  transition-timing-function: ease-in;
 }
 
 /* ============================================================
@@ -623,17 +664,29 @@ audio {
 }
 
 /* Wer Bewegung reduziert haben will, bekommt ein Standbild des Hinweises:
-   keine Animation, aber die jeweilige Stellung bleibt erkennbar. */
+   keine Animation, aber die jeweilige Stellung bleibt erkennbar — und der
+   Wechsel zwischen den Hinweisen ist kein Überblenden, sondern sofort
+   (Change 218). Der Stand zeigt die weiter gewordene Stellung (Change 218:
+   oben 20 px, unten 14 px, Senken 0,78, Heben 1,10 statt 9/4/0,88/1,04). */
 @media (prefers-reduced-motion: reduce) {
   .ps-record-ghost,
   .ps-record-ghost-ring {
     animation: none !important;
   }
-  .ps-ghost-lock { transform: translateY(-9px); }
-  .ps-ghost-stop { transform: translateY(4px); }
-  .ps-ghost-sink { transform: scale(0.88); }
-  .ps-ghost-rise { transform: scale(1.04); }
+  .ps-ghost-lock { transform: translateY(-20px); }
+  .ps-ghost-stop { transform: translateY(14px); }
+  .ps-ghost-sink { transform: scale(0.78); }
+  .ps-ghost-rise { transform: scale(1.10); }
   .ps-ghost-sink .ps-record-ghost-ring { opacity: 0.5; }
+  /* Kein Überblenden: der neue Hinweis steht sofort da. */
+  .ps-record-tip,
+  .ps-record-ghost {
+    transition: none;
+  }
+  .ps-record-hint-out {
+    opacity: 0;
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
