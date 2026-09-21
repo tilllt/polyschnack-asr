@@ -125,17 +125,42 @@ export const SOURCE_CIRCLE_ARC_PATH_D =
 export type LabelSide = "top" | "bottom";
 
 /**
+ * Radius des UNTEREN Bogens (Change 224, Nutzer-Vorgabe 20.09.2026:
+ * „Die ‚download' Beschriftung des Buttons hat einen anderen Abstand als
+ * ‚Upload' und die UI Hints.").
+ *
+ * Warum muss er größer sein? Bei Text auf einem Pfad sitzen die Buchstaben mit
+ * ihrer GRUNDLINIE auf dem Bogen und dehnen sich quer zur Laufrichtung aus:
+ *   obere Lage (sweep 1)  der Rücken zeigt nach außen (weg vom Kreis) — dem
+ *                         Ring am nächsten kommen die Unterlängen („p").
+ *   untere Lage (sweep 0) der Rücken zeigt nach unten (weg vom Kreis) — dem
+ *                         Ring am nächsten kommen die GROSSBUCHSTABEN, denn sie
+ *                         stehen genau in Richtung Kreismitte.
+ * Dieselbe Grundlinie (36) ergibt deshalb unten einen sichtbar kleineren
+ * Abstand: im Browser gemessen (80-px-Knopf, Ringlinie bei 40 px) waren es
+ *   oben    2,59 px ÜBERLAPPUNG mit der Ringlinie (Tinte bei 37,41 px)
+ *   unten  13,66 px ÜBERLAPPUNG (Tinte bei 26,34 px).
+ * Mit 44 px liegt die Tinte unten bei ~37,5 px — derselbe Sitz wie oben
+ * (37,41 px bei „Upload", im Browser gemessen).
+ */
+export const SOURCE_CIRCLE_ARC_BOTTOM_R = 44;
+
+/**
  * `d` des Bogens für eine Seite. Die Zeichenfläche ist für BEIDE Seiten
  * 140 × 52 px; sie liegt beim unteren Bogen nur auf der anderen Seite der
  * Knopfmitte (deshalb cy = 0 statt 52):
  *   top     M (cx-r, cy) A r r 0 0 1 (cx+r, cy)  → Bogen nach oben (sweep 1)
- *   bottom  M (cx-r, 0)  A r r 0 0 0 (cx+r, 0)   → Bogen nach unten (sweep 0)
+ *   bottom  M (cx-R, 0)  A R R 0 0 0 (cx+R, 0)   → Bogen nach unten (sweep 0),
+ *           R = SOURCE_CIRCLE_ARC_BOTTOM_R (siehe dort)
  * Beim unteren Bogen zeigt der Buchstabenrücken nach UNTEN (weg vom Kreis) —
  * der Text steht also aufrecht unter dem Kreis, nicht auf dem Kopf.
  */
 export function sourceArcPathD(side: LabelSide): string {
   const { cx, cy, r } = SOURCE_CIRCLE_ARC;
-  if (side === "bottom") return `M ${cx - r} 0 A ${r} ${r} 0 0 0 ${cx + r} 0`;
+  if (side === "bottom") {
+    const R = SOURCE_CIRCLE_ARC_BOTTOM_R;
+    return `M ${cx - R} 0 A ${R} ${R} 0 0 0 ${cx + R} 0`;
+  }
   return `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
 }
 

@@ -26,21 +26,35 @@ export type ZoneVariant = "dashed" | "solid";
 interface ZoneProps extends HTMLAttributes<HTMLDivElement> {
   /** `dashed` = Ablegefläche (Upload), `solid` = Aufnahme und URL-Import. */
   variant: ZoneVariant;
+  /**
+   * Change 225 (Nutzer-Vorgabe 20.09.2026): Diese Zone darf nach UNTEN wachsen
+   * — für die ausklappbaren Optionen, die IN der Ablegefläche stehen sollen
+   * („Die ausklappenden Optionen müssen mit in die drop zone und diese,
+   * animiert, nach unten vergrößern. Zusammengeklappt sind alle dropzones
+   * gleich gross."). Zugeklappt ist sie über `min-height` genauso groß wie die
+   * anderen — die feste Höhe der übrigen Zonen bleibt unangetastet (Change 215:
+   * kein Inhalt darf die Fläche aufspannen).
+   */
+  waechst?: boolean;
   children?: ReactNode;
 }
 
-export function Zone({ variant, className, style, children, ...rest }: ZoneProps) {
-  const zoneStyle: CSSProperties = {
-    height: `var(${ZONE_HEIGHT_VAR})`,
+export function Zone({ variant, className, style, children, waechst, ...rest }: ZoneProps) {
+  const maße: CSSProperties = {
     maxWidth: `var(${ZONE_WIDTH_VAR})`,
     width: "100%",
     ...style,
   };
+  const zoneStyle: CSSProperties = waechst
+    ? { minHeight: `var(${ZONE_HEIGHT_VAR})`, ...maße }
+    : { height: `var(${ZONE_HEIGHT_VAR})`, ...maße };
   return (
     <div
       {...rest}
       data-ps-zone={variant}
-      className={`ps-zone ps-zone-${variant}${className ? ` ${className}` : ""}`}
+      className={`ps-zone ps-zone-${variant}${waechst ? " ps-zone--waechst" : ""}${
+        className ? ` ${className}` : ""
+      }`}
       style={zoneStyle}
     >
       {children}

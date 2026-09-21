@@ -1048,11 +1048,18 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
     };
 
     // Create WaveSurfer with Record plugin
+    // Change 224 (Nutzer-Design-Idee: „wie wäre es wenn die Wellenform den
+    // Background der ‚Drop Zone' langsam mit den aufgenommenen Wellen füllt"):
+    // `scrollingWaveform: false` — die Wellen laufen nicht mehr als 60-px-Band
+    // durch, sondern wachsen von links nach rechts über die GANZE Zonenfläche
+    // und füllen sie langsam. Die Höhe kommt deshalb von der Fläche selbst
+    // (WaveSurfer zeichnet genau `height` px hoch), nicht mehr als fester Wert.
     const record = RecordPlugin.create({
-      scrollingWaveform: true,
-      scrollingWaveformWindow: 5,
+      scrollingWaveform: false,
       renderRecordedAudio: false,  // we handle upload ourselves
     });
+
+    const flaechenhoehe = Math.max(60, Math.round(containerRef.current!.clientHeight));
 
     const ws = WaveSurfer.create({
       container: containerRef.current!,
@@ -1061,7 +1068,7 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
-      height: 60,
+      height: flaechenhoehe,
       normalize: true,
       plugins: [record],
     });
@@ -1377,18 +1384,15 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
   return (
     <div className="ps-tab-body">
       {/* Change 217 (Nutzer-Vorgabe 20.09.2026): Die Wellenform belegt im
-          Ruhezustand KEINEN Platz mehr. Vorher reservierte sie immer 60 px
-          (min-h), obwohl sie unsichtbar war — das war ein guter Teil des
-          „leeren Bereichs darüber", der den Tab fast doppelt so hoch machte
-          wie die anderen. Während der Aufnahme erscheint sie und bekommt
-          ihre 60 px; im Ruhezustand ist sie 0 px hoch. */}
-      <div
-        ref={containerRef}
-        data-testid="record-wave"
-        className={`w-full max-w-[500px] px-2 sm:px-0 ${
-          recording ? "min-h-[60px]" : "h-0 min-h-0 overflow-hidden invisible"
-        }`}
-      />
+          Ruhezustand KEINEN Platz mehr.
+          Change 224 (Nutzer: „Push to record schiebt den Button durch das
+          einblenden der Waveform nach unten. Können wir die Waveform in den
+          Hintergrund der area einblenden, so daß sich das Layout nicht
+          verändert?"): Deshalb ist sie jetzt GAR KEIN Geschwister der Zone
+          mehr, sondern deren HINTERGRUND-Schicht (`.ps-record-wave`, absolut,
+          z-index 0) — siehe den Block direkt in der Zone unten. Damit kann sie
+          das Layout weder im Ruhezustand noch beim Einblenden verschieben, und
+          der Knopf bleibt stehen, wo er ist. */}
 
       {/* Offline-Puffer-Banner: liegt jetzt in der Hauptkomponente
           (UploadZone), damit er in allen Tabs + beim App-Start sichtbar ist. */}
@@ -1406,6 +1410,16 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
           liegt absolut in `.ps-record-stage` und kann die Knopfposition
           deshalb nicht verändern. */}
       <Zone variant="solid" className="ps-zone-record">
+        {/* Wellenform als HINTERGRUND der Zone (Change 224): absolut, deckt die
+            Zone ab, ohne je Platz zu belegen — der Knopf kann sich beim
+            Einblenden deshalb nicht verschieben (Nutzer: „so daß sich das Layout
+            nicht verändert?"). Sie liegt hinter der Bühne (z-index 0 gegen 1)
+            und nimmt keine Klicks an. */}
+        <div
+          ref={containerRef}
+          data-testid="record-wave"
+          className={`ps-record-wave${recording ? " ps-record-wave--an" : ""}`}
+        />
         <div className="ps-record-stage">
           <button
             data-testid="record-button"
@@ -1679,15 +1693,15 @@ function UrlArea({
           volle Containerbreite). Hier bleibt der Bereich der Quelle „Download":
           Symbol, Zustand und die optionale Anmeldung — die Zone behält
           unverändert ihre festen Maße aus Change 215. */}
-      <Zone variant="solid" className="ps-zone-url">
+      <Zone variant="solid" className="ps-zone-url" waechst>
         <div className="ps-zone-stack">
           {/* Change 222 (Nutzer-Vorgabe 20.09.2026): Die Adress-Zeile steht IN
               der Zone („Die Download URL Zeile muss mit in die drop-area") —
               gleiche Zone, gleiche Maße wie in den anderen Tabs (Change 215).
               Ganz oben, weil sie die Eingabe dieser Fläche ist; darunter der
-              Kreis „Download" mit der stillen, oben gekrümmten Beschriftung,
-              der den Import startet. Der frühere Absatz-Knopf ist entfallen:
-              der Kreis IST der Knopf, ein zweiter wäre doppelt. */}
+              Kreis „Download" mit der stillen, unter dem Kreis stehenden
+              Beschriftung, der den Import startet. Der frühere Absatz-Knopf ist
+              entfallen: der Kreis IST der Knopf, ein zweiter wäre doppelt. */}
           <div className="ps-url-row" data-testid="url-line">
             <label className="sr-only" htmlFor="ps-url-input">{t("url_line_label")}</label>
             <input
@@ -1717,63 +1731,75 @@ function UrlArea({
             disabled={!canSubmit || isDownloading}
             onActivate={onSubmit}
           />
+
+          {/* Change 225 (Nutzer-Vorgabe 20.09.2026): „Der ‚Credentials' knopf für
+              den download muss vom layout überarbeitet werden. Er muss mit in
+              die ‚Dropzone' und soll wie alle anderen ausklappbaren Ebenen auch
+              aussehen. Die ausklappenden Optionen müssen mit in die drop zone
+              und diese, animiert, nach unten vergrößern."
+              Deshalb: derselbe Aufbau wie das Optionen-Panel (Rahmen, Zeile mit
+              Chevron, der sich beim Öffnen dreht) und der Inhalt darunter in
+              `.ps-zone-fold` — die Zone wächst dadurch animiert nach unten. */}
+          <div
+            className="w-full border border-border rounded-sm bg-panel"
+            data-testid="auth-fold"
+          >
+            <button
+              type="button"
+              data-testid="auth-toggle"
+              onClick={() => setShowAuth((s) => !s)}
+              aria-expanded={showAuth}
+              className="w-full inline-flex items-center gap-[6px] text-[11.5px] font-semibold text-muted px-3 py-2 cursor-pointer hover:text-txt"
+            >
+              {t("url_auth_toggle")}
+              <ChevronDown size={12} className={`transition-transform ${showAuth ? "rotate-180" : ""}`} />
+            </button>
+            <div
+              className={`ps-zone-fold${showAuth ? " ps-zone-fold--offen" : ""}`}
+              data-testid="auth-fold-body"
+            >
+              <div className="px-2 pb-2 flex flex-col gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={t("url_username")}
+                    autoComplete="off"
+                    className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+                  />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t("url_password")}
+                    autoComplete="new-password"
+                    className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+                  />
+                </div>
+                <input
+                  type="password"
+                  value={videoPassword}
+                  onChange={(e) => setVideoPassword(e.target.value)}
+                  placeholder={t("url_video_password")}
+                  autoComplete="new-password"
+                  className="w-full bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+                />
+                <label className="flex items-center gap-2 text-[12px] text-muted cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".txt"
+                    onChange={(e) => setCookiesFile(e.target.files?.[0] ?? null)}
+                    className="text-[12px]"
+                  />
+                  {t("url_cookies")}
+                </label>
+                <div className="text-[11px] text-muted">{t("url_cookies_hint")}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </Zone>
-      {/* Change 080: optionale Anmeldedaten/Cookies (aufklappbar).
-          Change 217: Der Aufklapp-Knopf steht in derselben kompakten Zeile wie
-          der Hinweis im Aufnahme-Tab, damit alle drei Tabs gleich hoch sind. */}
-      <div className="w-full max-w-[500px]">
-        <div className="ps-tab-line">
-        <button
-          type="button"
-          onClick={() => setShowAuth((s) => !s)}
-          aria-expanded={showAuth}
-          className="text-[12px] text-muted hover:text-accent underline underline-offset-2"
-        >
-          {showAuth ? "▾ " : "▸ "}{t("url_auth_toggle")}
-        </button>
-        </div>
-        {showAuth && (
-          <div className="mt-2 flex flex-col gap-2 rounded-sm border border-border2 bg-panel p-3">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={t("url_username")}
-                autoComplete="off"
-                className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t("url_password")}
-                autoComplete="new-password"
-                className="flex-1 bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
-              />
-            </div>
-            <input
-              type="password"
-              value={videoPassword}
-              onChange={(e) => setVideoPassword(e.target.value)}
-              placeholder={t("url_video_password")}
-              autoComplete="new-password"
-              className="w-full bg-panel border border-border2 rounded-sm px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
-            />
-            <label className="flex items-center gap-2 text-[12px] text-muted cursor-pointer">
-              <input
-                type="file"
-                accept=".txt"
-                onChange={(e) => setCookiesFile(e.target.files?.[0] ?? null)}
-                className="text-[12px]"
-              />
-              {t("url_cookies")}
-            </label>
-            <div className="text-[11px] text-muted">{t("url_cookies_hint")}</div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

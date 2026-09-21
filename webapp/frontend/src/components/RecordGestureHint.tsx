@@ -107,27 +107,40 @@ export function recordArcPathId(side: HintSide): string {
 }
 
 /**
- * `d` des Bogens für eine Seite: immer ein HALBKREIS mit dem Radius r, dessen
- * Laufrichtung so gewählt ist, dass die Schrift aufrecht bzw. mit dem Rücken
- * nach außen steht (Change 222):
+ * Radius des UNTEREN Bogens (Change 224, Nutzer: „Swipe down label that über den
+ * Button."). Er ist größer als r, weil die Schrift auf dem Bogen mit ihrer
+ * GRUNDLINIE aufliegt und sich quer zur Laufrichtung ausdehnt: beim unteren
+ * Bogen zeigen die GROSSBUCHSTABEN zur Knopfmitte (beim oberen sind es die
+ * Unterlängen, also nur „p" statt „S-D"). Mit demselben Radius saß „swipe down"
+ * deshalb 3,2 px IM Ring — also optisch auf dem Knopf. Im Browser nachgemessen
+ * und der Wert so gewählt, dass die Tinte unten genauso weit vom Ring weg liegt
+ * wie oben (siehe recordGestureHint.test.tsx).
+ *
+ * `d` des Bogens für eine Seite: immer ein HALBKREIS, dessen Laufrichtung so
+ * gewählt ist, dass die Schrift aufrecht bzw. mit dem Rücken nach außen steht
+ * (Change 222):
  *   top     links → rechts über den Scheitel   (sweep 1, aufrecht)
  *   bottom  links → rechts unter dem Knopf     (sweep 0, aufrecht, Rücken zur
- *           Knopfmitte — wie eine Bildunterschrift)
+ *           Knopfmitte — wie eine Bildunterschrift); mit RECORD_ARC_BOTTOM_R
  *   left    unten → oben die linke Seite hoch  (sweep 1, Rücken nach links)
  *   right   oben → unten die rechte Seite ab   (sweep 1, Rücken nach rechts)
- * Beide Radien sind gleich — das ist der Kreis.
  */
 export function recordArcPathD(side: HintSide): string {
   const { cx, cy, r } = RECORD_ARC;
-  if (side === "bottom") return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`;
+  if (side === "bottom") {
+    const R = RECORD_ARC_BOTTOM_R;
+    return `M ${cx - R} ${cy} A ${R} ${R} 0 0 0 ${cx + R} ${cy}`;
+  }
   if (side === "left") return `M ${cx} ${cy + r} A ${r} ${r} 0 0 1 ${cx} ${cy - r}`;
   if (side === "right") return `M ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx} ${cy + r}`;
   return `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
 }
 
+/** Radius des unteren Bogens — siehe recordArcPathD. */
+export const RECORD_ARC_BOTTOM_R = 44;
+
 /** Rückwärtskompatibler Name des oberen Bogens (Change 219). */
 export const RECORD_ARC_PATH_D = recordArcPathD("top");
-
 /**
  * Wechsel der Hinweise (Change 219, Punkt 6): Ausblenden dauert
  * TIP_FADE_OUT_MS, danach wechseln Text und Geste gemeinsam und blenden

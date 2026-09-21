@@ -35,6 +35,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   RECORD_ARC,
+  RECORD_ARC_BOTTOM_R,
   RECORD_ARC_PATH_D,
   RECORD_ARC_SIZE_PERCENT,
   RECORD_BUTTON_SHAPE,
@@ -392,48 +393,35 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       expect(werte.length, `${name} hat keinen scale-Wert`).toBeGreaterThan(0);
       expect(Math.min(...werte), `${name} zieht nach innen`).toBeGreaterThanOrEqual(1);
     }
-    // Nach außen heißt: über 1 hinaus — aber NICHT durch die Schrift hindurch.
-    // Change 223: Der Textkreis sitzt nur noch 4 px (mobil) bzw. 5 px (Desktop)
-    // außerhalb des Rings; mehr Puls als diese Lücke liefe durch die Schrift und
-    // machte sie unleserlich. Senken 1,16 → 1,09, Heben 1,22 → 1,09,
-    // Ring 1,35 → 1,09.
-    expect(Math.max(...bloecke[0][1]), "Senken (Halten)").toBeGreaterThan(1.05);
-    expect(Math.max(...bloecke[1][1]), "Heben (Loslassen)").toBeGreaterThan(1.05);
-    expect(Math.max(...bloecke[2][1]), "Ring").toBeGreaterThan(1.05);
+    // Nach außen heißt: über 1 hinaus. Change 224 (Nutzer-Korrektur:
+    // „Warum hast du die UI Tip Animationen verändert, du solltest nur den
+    // Inhalt aus den Overlay-Kreisen entfernen."): Die Weiten sind wieder die
+    // aus Change 218/219 — der Puls ist NICHT mehr an den Textabstand
+    // gekoppelt. Er läuft deshalb hinter dem Hinweistext durch (der Text liegt
+    // mit z-index 2 darüber); das ist eine Entscheidung des Nutzers.
+    expect(Math.max(...bloecke[0][1]), "Senken (Halten)").toBeGreaterThan(1.1);
+    expect(Math.max(...bloecke[1][1]), "Heben (Loslassen)").toBeGreaterThan(1.15);
+    expect(Math.max(...bloecke[2][1]), "Ring").toBeGreaterThan(1.2);
 
     // Auch das Standbild bei reduzierter Bewegung bleibt draußen.
     const standbild = reduzierteBewegungBlock();
     const stands = zahlen(standbild, "scale");
     expect(stands.length).toBeGreaterThanOrEqual(2);
     expect(Math.min(...stands)).toBeGreaterThanOrEqual(1);
-
-    // Und die Kopie bleibt trotz Puls INNERHALB des Textkreises: sonst liefe sie
-    // durch die Schrift. Maßgeblich ist die engere Stufe (64-px-Knopf).
-    const knopfRadiusMobil = KNOPF_MOBIL / 2;
-    const groessterPuls = Math.max(
-      ...[...bloecke[0][1], ...bloecke[1][1], ...bloecke[2][1]].filter((v) => v > 0)
-    );
-    expect(
-      groessterPuls * knopfRadiusMobil + 1,
-      `Puls ${groessterPuls} × ${knopfRadiusMobil} px + 1 px Luft gegen r = ${RECORD_ARC.r} px`
-    ).toBeLessThanOrEqual(RECORD_ARC.r);
   });
 
-  test("(Punkt 5/Change 223) die Wischwege bleiben in der Lücke bis zur Schrift", () => {
+  test("(Punkt 5) die Wischwege sind die aus Change 218 (hoch 26 px, runter 18 px)", () => {
     const hoch = Math.max(...zahlen(block("@keyframes ps-ghost-up {"), "translateY").map(Math.abs));
     const runter = Math.max(
       ...zahlen(block("@keyframes ps-ghost-down {"), "translateY").map(Math.abs)
     );
-    // Change 218: hoch 26 px, runter 18 px — die galten für den Textkreis mit
-    // r = 60 px. Change 223 (Nutzer: „auch hier 5px Entfernung") setzt den Text
-    // dicht an den Ring; die Lücke ist damit nur noch 4 px breit (mobil). Die
-    // Kopie darf mit ihrem Rand die Schrift nicht erreichen:
-    const knopfRadiusMobil = KNOPF_MOBIL / 2;
-    expect(hoch + knopfRadiusMobil + 1, "Weg nach oben").toBeLessThanOrEqual(RECORD_ARC.r);
-    expect(runter + knopfRadiusMobil + 1, "Weg nach unten").toBeLessThanOrEqual(RECORD_ARC.r);
-    expect(hoch, "die Geste muss sichtbar bleiben").toBeGreaterThan(0);
-    expect(runter).toBeGreaterThan(0);
-    expect(runter).toBe(hoch);
+    // Change 224 (Nutzer-Korrektur: „Warum hast du die UI Tip Animationen
+    // verändert…"): Die Wege wurden in Change 223 auf 3 px gekürzt, weil die
+    // Schrift nun 5 px am Ring sitzt. Das war eine eigene Zutat — hier stehen
+    // wieder die Werte aus Change 218. Sie sind deshalb festgenagelt, damit
+    // niemand sie erneut „aus Versehen" an den Textabstand koppelt.
+    expect(hoch, "Weg nach oben").toBe(26);
+    expect(runter, "Weg nach unten").toBe(18);
 
     // Grenze der Zone (Change 215): Die Kopie darf auch mit ihrem Weg die
     // Innenkante der kleinsten Zone nicht überschreiten — sonst schneidet
@@ -739,10 +727,16 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       ["release", "right"],
     ]);
 
-    // Vier verschiedene Halbkreise, EIN Radius — überall gleich weit vom Knopf.
+    // Vier verschiedene Halbkreise. Drei haben den Radius r (obere und die
+    // beiden seitlichen Lagen); die untere Lage hat einen eigenen, größeren
+    // Radius — dort zeigen die Großbuchstaben zur Knopfmitte (Change 224,
+    // siehe den Test „der untere Hinweis berührt den Knopf nicht").
     const boegen = RECORD_GESTURE_TIPS.map((t) => recordArcPathD(t.side));
     expect(new Set(boegen).size).toBe(4);
-    for (const d of boegen) expect(d).toContain(`A ${RECORD_ARC.r} ${RECORD_ARC.r} 0 0`);
+    for (const tip of RECORD_GESTURE_TIPS) {
+      const erwartet = tip.side === "bottom" ? RECORD_ARC_BOTTOM_R : RECORD_ARC.r;
+      expect(recordArcPathD(tip.side)).toContain(`A ${erwartet} ${erwartet} 0 0`);
+    }
 
     // Der gerenderte Hinweis trägt seine Seite mit (für die Prüfung am Gerät).
     const { getByTestId } = renderBuehne(1, "swipe down to stop");
@@ -841,11 +835,11 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     const ohneBewegung = reduzierteBewegungBlock();
     expect(ohneBewegung).toContain(".ps-record-ghost");
     expect(ohneBewegung).toContain("animation: none !important");
-    // Standbild je Hinweis, alle Werte außen (Change 219) und in der Lücke bis
-    // zur Schrift (Change 223: 5 px Abstand = maximal ~3 px Weg / 1,09 Puls).
-    expect(ohneBewegung).toContain("translateY(-3px)");
-    expect(ohneBewegung).toContain("translateY(3px)");
-    expect(ohneBewegung).toContain("scale(1.09)");
+    // Standbild je Hinweis, alle Werte außen (Change 219/224).
+    expect(ohneBewegung).toContain("translateY(-20px)");
+    expect(ohneBewegung).toContain("translateY(14px)");
+    expect(ohneBewegung).toContain("scale(1.16)");
+    expect(ohneBewegung).toContain("scale(1.22)");
     expect(ohneBewegung.includes("scale(0.")).toBe(false);
   });
 
@@ -895,10 +889,11 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
       expect(kopie.querySelectorAll("svg, path, circle, rect").length).toBe(0);
       unmount();
     }
-    // Der Ring bleibt (er pulsiert), liegt aber jetzt INNERHALB der Schrift —
-    // vorher stand er 4 px außerhalb des Knopfrandes, also genau auf der
-    // Textlinie (Change 223).
-    expect(rule(".ps-record-ghost-ring {")).toContain("inset: 0");
+    // Der Ring bleibt (er pulsiert) und steht 4 px außerhalb des Knopfrandes —
+    // Stand Change 218/219. Change 223 hatte ihn auf `inset: 0` gezogen (er lag
+    // damit auf der Textlinie); Change 224 hat das zurückgenommen, weil der
+    // Nutzer nur den INHALT der Kreise entfernt haben wollte.
+    expect(rule(".ps-record-ghost-ring {")).toContain("inset: -4px");
   });
 
   test("der echte Aufnahme-Knopf benutzt dieselbe Kopie und keinen Hinweisblock", () => {
@@ -913,5 +908,71 @@ describe("Change 216/218/219 — Gestenhinweise als halbtransparente Knopfkopie"
     expect(/\.ps-zone-row\s*[,{]/.test(css)).toBe(false);
     expect(bauteil.includes("ps-tips")).toBe(false);
     expect(bauteil.includes("usageTips")).toBe(false);
+  });
+
+  test("(Change 224) der untere Hinweis berührt den Knopf nicht — eigener Radius", () => {
+    // Nutzer 20.09.2026: „Swipe down label that über den Button."
+    // Ursache ist die Lage der Schrift auf dem Bogen: beim UNTEREN Bogen zeigen
+    // die Großbuchstaben zur Knopfmitte (beim oberen nur die Unterlängen). Mit
+    // demselben Radius wie oben saßen sie 3,2 px IM Ring — optisch auf dem
+    // Knopf.
+    const kapitalhoehe = 7.2;   // „S" bei 10 px Schrift in der Zeichenfläche
+    const unterlaenge = 2.4;    // „p"/„y" bei 10 px Schrift
+    const tinteOben = RECORD_ARC.r - unterlaenge;
+    const tinteUnten = RECORD_ARC_BOTTOM_R - kapitalhoehe;
+
+    expect(RECORD_ARC_BOTTOM_R, "unterer Bogen weiter außen als der obere")
+      .toBeGreaterThan(RECORD_ARC.r);
+    expect(
+      Math.abs(tinteUnten - tinteOben),
+      `Tinte unten ${tinteUnten} px gegen oben ${tinteOben} px`
+    ).toBeLessThan(5);
+    // Beide Bogen-Pfade werden tatsächlich so gezeichnet.
+    expect(recordArcPathD("bottom")).toContain(
+      `A ${RECORD_ARC_BOTTOM_R} ${RECORD_ARC_BOTTOM_R} 0 0 0`
+    );
+    expect(recordArcPathD("top")).toContain(`A ${RECORD_ARC.r} ${RECORD_ARC.r} 0 0 1`);
+    // Und die Tinte bleibt in der Zeichenfläche (sonst schnitte die Zone sie ab).
+    expect(RECORD_ARC.cy + RECORD_ARC_BOTTOM_R + unterlaenge)
+      .toBeLessThanOrEqual(RECORD_ARC.height);
+  });
+
+  test("(Change 224) die Wellenform ist Hintergrund der Zone und verschiebt nichts", () => {
+    // Nutzer: „Push to record schiebt den Button durch das einblenden der
+    // Waveform nach unten. Können wir die Waveform in den Hintergrund der area
+    // einblenden, so daß sich das Layout nicht verändert?"
+    // Nutzer-Design-Idee: „wie wäre es wenn die Wellenform den Background der
+    // ‚Drop Zone' langsam mit den aufgenommenen Wellen füllt".
+    const bauteil = quelle("components/UploadZone.tsx");
+
+    // 1. Sie liegt IN der Aufnahme-Zone (nicht mehr als Geschwister davor, wo
+    //    sie als Flex-Kind eine 8-px-Lücke bekam und beim Einblenden 60 px
+    //    Platz belegte).
+    const zone = bauteil.slice(bauteil.indexOf('<Zone variant="solid" className="ps-zone-record">'));
+    const zoneBlock = zone.slice(0, zone.indexOf("</Zone>"));
+    expect(zoneBlock, "Wellenform in der Zone").toContain('data-testid="record-wave"');
+    expect(zoneBlock.indexOf('data-testid="record-wave"'))
+      .toBeLessThan(zoneBlock.indexOf("ps-record-stage"));
+
+    // 2. Sie belegt NIE Platz: absolut, ganze Fläche, hinter der Bühne.
+    const flaeche = rule(".ps-record-wave {");
+    expect(flaeche).toContain("position: absolute");
+    expect(flaeche).toContain("inset: 0");
+    expect(flaeche).toContain("z-index: 0");
+    expect(flaeche).toContain("pointer-events: none");
+    expect(rule(".ps-record-stage {")).toContain("z-index: 1");
+    expect(rule(".ps-zone {")).toContain("position: relative");
+    // Als Hintergrund, nicht als Vordergrund: halbtransparent, und im
+    // Ruhezustand unsichtbar.
+    expect(rule(".ps-record-wave {")).toContain("opacity: 0");
+    expect(rule(".ps-record-wave--an {")).toContain("opacity: 0.35");
+    expect(bauteil).toContain("ps-record-wave--an");
+
+    // 3. Sie FÜLLT die Fläche: kein festes 60-px-Band mehr, die Höhe kommt von
+    //    der Zonenfläche; die Wellen wachsen statt zu scrollen.
+    expect(bauteil).toContain("scrollingWaveform: false");
+    expect(bauteil.includes("scrollingWaveformWindow"), "kein Scrollfenster mehr").toBe(false);
+    expect(bauteil).toContain("containerRef.current!.clientHeight");
+    expect(bauteil.includes("height: 60"), "keine feste Bandhöhe mehr").toBe(false);
   });
 });

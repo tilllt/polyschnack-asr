@@ -41,6 +41,7 @@ import { RECORD_BUTTON_SHAPE } from "./RecordGestureHint";
 import {
   SOURCE_CIRCLE_ARC,
   SOURCE_CIRCLE_ARC_BOTTOM_PATH_D,
+  SOURCE_CIRCLE_ARC_BOTTOM_R,
   SOURCE_CIRCLE_ARC_PATH_D,
   SOURCE_CIRCLE_BORDER,
   SOURCE_CIRCLE_SHAPE,
@@ -430,7 +431,25 @@ describe("Change 222 — nackte Quellen-Zeichen, Kreise in den Zonen", () => {
     // — dadurch steht die Schrift aufrecht unter dem Kreis.
     const pfad = beschriftung!.querySelector("path")!;
     expect(pfad.getAttribute("d")).toBe(SOURCE_CIRCLE_ARC_BOTTOM_PATH_D);
-    expect(pfad.getAttribute("d")).toContain(`A ${SOURCE_CIRCLE_ARC.r} ${SOURCE_CIRCLE_ARC.r} 0 0 0`);
+    expect(pfad.getAttribute("d")).toContain(
+      `A ${SOURCE_CIRCLE_ARC_BOTTOM_R} ${SOURCE_CIRCLE_ARC_BOTTOM_R} 0 0 0`
+    );
+    // Change 224 (Nutzer: „Die ‚download' Beschriftung des Buttons hat einen
+    // anderen Abstand als ‚Upload' und die UI Hints."): Unten braucht der Bogen
+    // einen größeren Radius, weil dort die GROSSBUCHSTABEN zur Kreismitte
+    // zeigen (oben sind es die Unterlängen). Mit demselben Radius saß „Download"
+    // sichtbar im Ring — im Browser gemessen 13,66 px Überlappung gegen 2,59 px
+    // oben. Prüfgröße ist der Abstand der Tinte zur Kreismitte, in px:
+    const kapitalhoehe = 7.2;   // „D" bei 10 px Schrift in der Zeichenfläche
+    const unterlaenge = 2.4;    // „p" in „Upload" bei 10 px Schrift
+    const tinteOben = SOURCE_CIRCLE_ARC.r - unterlaenge;
+    const tinteUnten = SOURCE_CIRCLE_ARC_BOTTOM_R - kapitalhoehe;
+    expect(
+      Math.abs(tinteUnten - tinteOben),
+      `Tinte unten ${tinteUnten} px gegen oben ${tinteOben} px`
+    ).toBeLessThan(5);
+    expect(SOURCE_CIRCLE_ARC_BOTTOM_R, "unterer Bogen weiter außen")
+      .toBeGreaterThan(SOURCE_CIRCLE_ARC.r);
     expect(sourceArcPathD("bottom")).not.toBe(sourceArcPathD("top"));
     expect(sourceArcPathD("top")).toBe(SOURCE_CIRCLE_ARC_PATH_D);
 

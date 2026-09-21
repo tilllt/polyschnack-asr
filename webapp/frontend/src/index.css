@@ -517,6 +517,37 @@ audio {
   justify-content: center;
   text-align: center;
   overflow: hidden;
+  /* Change 224: Bezugsrahmen für die Hintergrund-Wellenform (`.ps-record-wave`,
+     inset: 0) — sonst hinge sie am nächsten positionierten Vorfahren. */
+  position: relative;
+}
+
+/* Change 224 (Nutzer: „Können wir die Waveform in den Hintergrund der area
+   einblenden, so daß sich das Layout nicht verändert?"): Die Wellenform ist
+   jetzt der HINTERGRUND der Aufnahme-Zone.
+   - `absolute` (ohne inset 0 wäre sie im Fluss): sie belegt NIE Platz, der
+     Knopf kann sich beim Einblenden also nicht verschieben. Vorher stand sie als
+     Geschwister über der Zone und schob sie um 60 px nach unten.
+   - `inset: 0` deckt die ganze Zone ab (abzüglich deren Polsterung) — die
+     Nutzer-Idee: „die Wellenform den Background der ‚Drop Zone' langsam mit den
+     aufgenommenen Wellen füllt".
+   - z-index 0 gegen 1 der Bühne: der Knopf und die Hinweise liegen davor.
+   - `opacity` 0 im Ruhezustand, 0.35 während der Aufnahme: sie soll als
+     Hintergrund lesen, nicht als Vordergrund.
+   - `pointer-events: none`: Klicks gehören dem Knopf. */
+.ps-record-wave {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.ps-record-wave--an {
+  opacity: 0.35;
 }
 /* Nur die Linienart unterscheidet sich — Randstärke und Radius sind gleich. */
 .ps-zone-dashed { border-style: dashed; }
@@ -548,6 +579,10 @@ audio {
    sie die Position des Knopfes baulich nicht verändern. */
 .ps-record-stage {
   position: relative;
+  /* Change 224: über der Hintergrund-Wellenform (`.ps-record-wave`, z-index 0).
+     Ohne diese Angabe läge die Bühne mit dem Knopf in derselben Ebene und die
+     Wellenform könnte je nach DOM-Reihenfolge davor geraten. */
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -634,13 +669,12 @@ audio {
 }
 
 /* Pulsierender Ring — steht für „Aufnahme läuft".
-   Change 223: `inset: -4px` → `inset: 0`. Der Ring lag 4 px außerhalb des
-   Knopfrandes; das ist mit dem dicht sitzenden Textkreis (r = 36 → 4 px Abstand)
-   genau die Textlinie. Er wächst jetzt aus dem Knopfrand heraus (scale bis 1,09
-   → 34,9 px) und bleibt damit innerhalb der Schrift. */
+   Change 223 hatte ihn auf `inset: 0` gezogen (er lag mit −4 px auf der
+   Textlinie). Change 224: zurück auf `inset: -4px` — der Nutzer wollte nur den
+   INHALT der Kreise entfernt haben, nicht die Bewegung verändert. */
 .ps-record-ghost-ring {
   position: absolute;
-  inset: 0;
+  inset: -4px;
   border-radius: 999px;
   border: 2px solid var(--ps-ghost-line, #2ea043);
   opacity: 0;
@@ -656,43 +690,41 @@ audio {
 
    Change 219 (Nutzer-Vorgabe 20.09.2026, Punkt 5): Der Puls geht NUR NOCH NACH
    AUSSEN — `scale(1)` ist der kleinste Wert, den irgendeine dieser Animationen
-   annimmt.
+   annimmt:
+     senken (Halten)   1 → 1,16 und bleibt dort („es läuft"), dann zurück
+     heben (Loslassen) 1 → 1,22 kurz aufgefedert, dann zurück
+     Ring              1 → 1,35 und verblasst
+   Die Wischwege hoch/runter bleiben (26 px / 18 px).
 
-   Change 223 (Nutzer-Vorgabe 20.09.2026): „Die ui hints im record Menü sind
-   immer noch sehr weit vom Button weg, auch hier 5px Entfernung." Der Textkreis
-   sitzt jetzt unmittelbar am Ring (r = 36 → 4 px Abstand am 64-px-Knopf, 5 px
-   am 80-px-Knopf). DAS BEGRENZT DIE BEWEGUNG: die Kopie und ihr Ring dürfen den
-   Text nicht durchlaufen, sonst wandert der Kreis durch die Schrift und die
-   Beschriftung wird unleserlich. Der freie Ring ist 4 px breit (mobil: Text 36,
-   Knopf 32) bzw. 5 px (ab 640 px: 45 zu 40) — maßgeblich ist die ENGERE Stufe:
-
-     Kopie wandern   |t| + 32 px ≤ 35 px (1 px Luft)  →  |t| ≤ 3 px
-     Kopie wachsen   32 px × s ≤ 35 px                →  s ≤ 1,09
-     Ring (inset 0)  32 px × s ≤ 35 px                →  s ≤ 1,09
-
-   Gemessen wird das in recordGestureHint.test.tsx gegen RECORD_ARC — wer die
-   Amplituden erhöht, ohne den Text weiter nach außen zu legen, wird dort rot.
-   Wem die Bewegung zu klein ist: der Text muss dann wieder weiter vom Ring weg
-   (das ist eine Entscheidung des Nutzers, nicht eine des Codes). */
+   Change 223/224 — WICHTIG (Lehre): Diese Weiten wurden von Change 223 zunächst
+   auf 3 px / 1,09 verkleinert, weil der Hinweistext jetzt 5 px am Ring sitzt und
+   die Kopie sonst durch die Schrift läuft. Das war eine EIGENE Zutat und der
+   Nutzer hat sie zurückgewiesen: „Warum hast du die UI Tip Animationen
+   verändert, du solltest nur den Inhalt aus den Overlay-Kreisen entfernen."
+   Die Weiten sind deshalb wieder auf dem Stand von Change 218/219. Folge, die
+   bewusst in Kauf genommen wird: die pulsierende Kopie und ihr Ring laufen
+   hinter dem Hinweistext durch (der Text liegt mit z-index 2 darüber). Wer
+   das ändern will, muss die Weite MIT dem Nutzer klären — nicht im Code
+   entscheiden. */
 @keyframes ps-ghost-up {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(-3px); }
+  45%      { transform: translateY(-26px); }
 }
 @keyframes ps-ghost-down {
   0%, 100% { transform: translateY(0); }
-  45%      { transform: translateY(3px); }
+  45%      { transform: translateY(18px); }
 }
 @keyframes ps-ghost-sink {
   0%, 100% { transform: scale(1); }
-  35%, 70% { transform: scale(1.09); }
+  35%, 70% { transform: scale(1.16); }
 }
 @keyframes ps-ghost-rise {
   0%, 100% { transform: scale(1); }
-  40%      { transform: scale(1.09); }
+  40%      { transform: scale(1.22); }
 }
 @keyframes ps-ghost-ring {
   0%   { transform: scale(1);    opacity: 0.8; }
-  100% { transform: scale(1.09); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
 }
 .ps-ghost-lock {
   --ps-ghost-line: var(--ps-accent, #2ea043);
@@ -856,10 +888,10 @@ audio {
   .ps-record-ghost-ring {
     animation: none !important;
   }
-  .ps-ghost-lock { transform: translateY(-3px); }
-  .ps-ghost-stop { transform: translateY(3px); }
-  .ps-ghost-sink { transform: scale(1.09); }
-  .ps-ghost-rise { transform: scale(1.09); }
+  .ps-ghost-lock { transform: translateY(-20px); }
+  .ps-ghost-stop { transform: translateY(14px); }
+  .ps-ghost-sink { transform: scale(1.16); }
+  .ps-ghost-rise { transform: scale(1.22); }
   .ps-ghost-sink .ps-record-ghost-ring { opacity: 0.5; }
   /* Kein Überblenden: der neue Hinweis steht sofort da. */
   .ps-record-tip,
@@ -1101,6 +1133,43 @@ audio {
    sonst steht sie doppelt im Platz. */
 .ps-zone-url .ps-zone-stack {
   padding-bottom: 20px;
+}
+
+/* ── Change 225 (Nutzer-Vorgabe 20.09.2026): ausklappbare Ebenen IN der Zone ──
+   Nutzer: „Der ‚Credentials' knopf für den download muss vom layout überarbeitet
+   werden. Er muss mit in die ‚Dropzone' und soll wie alle anderen ausklappbaren
+   Ebenen auch aussehen. Die ausklappenden Optionen müssen mit in die drop zone
+   und diese, animiert, nach unten vergrößern. Zusammengeklappt sind alle
+   dropzones gleich gross."
+
+   - `.ps-zone--waechst`: die Zone wächst mit ihrem Inhalt nach unten. Zugeklappt
+     ist sie über `min-height` genauso groß wie die anderen (dieselbe Variable).
+   - `.ps-zone-fold`: die Animation. `grid-template-rows` von 0fr auf 1fr ist der
+     Weg, eine Höhe nach `auto` zu animieren — die Zone wird dabei langsam höher,
+     der Inhalt erscheint von oben nach unten. Zugeklappt ist die Ebene exakt 0
+     hoch (kein unsichtbarer Rest, keine Scrollleiste), der Inhalt wird in der
+     inneren Zeile beschnitten. */
+.ps-zone--waechst {
+  height: auto;
+  min-height: var(--ps-zone-h);
+}
+.ps-zone-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  transition: grid-template-rows 300ms ease;
+}
+.ps-zone-fold--offen {
+  grid-template-rows: 1fr;
+}
+.ps-zone-fold > * {
+  overflow: hidden;
+  min-height: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-zone-fold {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
