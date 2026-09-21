@@ -423,6 +423,8 @@ const dict: Record<Lang, Record<string, string>> = {
     follow_title: "Seguir: a transcrição rola junto com a reprodução. Desligado = ler/editar em paz.",
     timing_override_hint: "Corrigido manualmente (protegido do re-alinhamento)",
     timing_no_words: "Sem timestamps de palavras (alinhamento ausente)",
+    timing_waiting: "Os tempos das palavras ainda estão a ser criados — esta gravação está a ser transcrita agora ({p} %). A vista detalhada aparece aqui assim que a primeira parte terminar.",
+    timing_idle: "Este separador serve para editar tempos das palavras. Esta gravação ainda não tem — inicie primeiro a transcrição no separador da transcrição.",
 
     // Change 193: exportação de legendas ASS
     ass_export_title: "Vídeo de legendas (ASS)",
@@ -930,6 +932,8 @@ const dict: Record<Lang, Record<string, string>> = {
     follow_title: "Folgen: die Transkription scrollt automatisch mit der Wiedergabe. Aus = in Ruhe lesen/bearbeiten.",
     timing_override_hint: "Manuell korrigiert (geschützt vor Re-Align)",
     timing_no_words: "Keine Wort-Timestamps (Alignment fehlt)",
+    timing_waiting: "Wortzeiten entstehen noch — diese Aufnahme wird gerade transkribiert ({p} %). Der Detailbereich erscheint hier, sobald der erste Abschnitt fertig ist.",
+    timing_idle: "In diesem Reiter werden Wortzeiten bearbeitet. Diese Aufnahme hat noch keine — starte im Transkript-Reiter zuerst die Transkription.",
 
     // Change 193: Übersetzungen des ASS-Untertitel-Exports
     ass_export_title: "Untertitel-Video (ASS)",
@@ -1430,6 +1434,8 @@ const dict: Record<Lang, Record<string, string>> = {
     follow_title: "Follow: the transcript scrolls along with playback. Off = read/edit in peace.",
     timing_override_hint: "Manually corrected (protected from re-align)",
     timing_no_words: "No word timestamps (alignment missing)",
+    timing_waiting: "Word timings are still being created — this recording is being transcribed right now ({p} %). The detail view appears here as soon as the first section is finished.",
+    timing_idle: "This tab is for editing word timings. This recording has none yet — start the transcription from the transcript tab first.",
 
     // Change 193: ASS subtitle export
     ass_export_title: "Subtitle video (ASS)",

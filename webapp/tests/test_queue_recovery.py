@@ -193,3 +193,38 @@ def test_recover_nimmt_stale_running_row_auf_mit_attempts(session, fresh_manager
     assert fresh_manager._jobs[7].status == "queued"
     session.refresh(row)
     assert row.attempts == 2
+
+
+# ---------------------------------------------------------------------------
+# Change 231 (Nutzer-Befund 21.09.2026): peaks-Job sperrt die Transkription
+# ---------------------------------------------------------------------------
+
+
+def test_peaks_job_blockiert_transkription_nicht(session, fresh_manager):
+    """„job failed"-Toast beim Hochladen einer langen Datei.
+
+    Der peaks-Job ist reine Vorarbeit (Wellenform-Sidecars, kein Schreiben in
+    text/segments) und darf die Transkription derselben Aufnahme nicht sperren.
+    Live-Befund: 93,7-MB-Upload — peaks lief 29 s, die sofort angeforderte
+    Transkription bekam QueueError und der Lauf wurde ohne Fehlertext auf
+    'failed' gesetzt.
+
+    Rot-Gegenprobe: mit dem alten Wächter (jeder Job der Aufnahme zählt)
+    scheitert dieser Test an der zweiten Zeile mit QueueError.
+    """
+    from app.queue import QueueError
+
+    fresh_manager.enqueue(7, None, backend="peaks", kind="peaks")
+    pos = fresh_manager.enqueue(7, None, backend="ps-pk-onnx")
+    assert pos >= 1
+
+
+def test_zweite_transkription_bleibt_gesperrt(session, fresh_manager):
+    """Gegenprobe zu Change 231: zwei Transkriptionen derselben Aufnahme
+    bleiben verboten (Change 173 — paralleles Schreiben in text/segments ist
+    destruktiv). Die Lockerung betrifft ausschließlich peaks-Jobs."""
+    from app.queue import QueueError
+
+    fresh_manager.enqueue(7, None, backend="ps-pk-onnx")
+    with pytest.raises(QueueError):
+        fresh_manager.enqueue(7, None, backend="ps-pk-onnx")

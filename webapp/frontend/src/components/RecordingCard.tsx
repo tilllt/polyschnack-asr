@@ -1964,7 +1964,49 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   </button>
                 </div>
                 {editorTab === "timing" ? (
-                  <TimingEditor
+                  <>
+                    {/* Change 232 (Nutzer-Befund 21.09.2026): Bei einer sehr
+                        langen Aufnahme war der Timing-Reiter noch leer, und das
+                        Einzige, was dort zu lesen war, war der Hinweis am
+                        gesperrten Start-Knopf („Im Timing-Modus nicht
+                        bedienbar…") — eine inhaltslose Fehlermeldung statt eines
+                        Zustands. Jetzt nennt der Reiter den echten Grund und
+                        zeigt den echten Fortschritt (Server-Prozentzahl). */}
+                    {segments.length === 0 && (
+                      <div
+                        className="mt-3 mx-4 px-4 py-3 rounded-sm border border-border bg-panel2/60"
+                        data-testid={`timing-waiting-${r.uid}`}
+                      >
+                        {(() => {
+                          const pct = Math.round(r.job?.pct ?? r.progress_pct ?? 0);
+                          // „läuft" an den echten Fortschrittswerten festmachen,
+                          // nicht am Status-Text: ein vorhandener Job unter
+                          // 100 % oder eine angefangene Prozentzahl heißt
+                          // „arbeitet noch".
+                          const laeuft = r.job != null
+                            ? (r.job.pct ?? 0) < 100
+                            : pct > 0 && pct < 100;
+                          return (
+                            <>
+                              <div className="text-[12px] text-muted leading-[1.5]">
+                                {laeuft
+                                  ? t("timing_waiting").replace("{p}", String(pct))
+                                  : t("timing_idle")}
+                              </div>
+                              {laeuft && (
+                                <div className="mt-2 h-[3px] w-full bg-border rounded-sm overflow-hidden">
+                                  <div
+                                    className="h-full bg-accent transition-[width] duration-300"
+                                    style={{ width: `${Math.max(pct, 2)}%` }}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    <TimingEditor
                     /* Change 155 (User-Vorgabe): Timing-Modus übernimmt die
                        Segmente 1:1 aus der Transkription — NIE die
                        re-segmentierte Anzeige-Vorschau (displaySegments).
@@ -1986,6 +2028,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                     // Change 210: im Vollbild füllt die Wortliste die Höhe.
                     listFillHeight={focusMode}
                   />
+                  </>
                 ) : (
                 <>
                 {/* Feature 2026-08-15: Segmentlänge wählbar (freies

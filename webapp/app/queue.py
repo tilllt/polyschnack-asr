@@ -416,7 +416,22 @@ class QueueManager:
             # realign gleichzeitig → crispr-sep-409, Aligner skipped). Parallele
             # transcribe+align ist destruktiv (transcribe leert text/segments)
             # und die Source-Separation hat nur einen globalen Job-Lock.
-            if any(j.rec_id == rec_id for j in self._jobs.values()):
+            #
+            # Change 231 (Live-Befund 21.09.2026): Ein `peaks`-Job ist reine
+            # Vorarbeit — er schreibt ausschließlich Sidecar-Dateien für die
+            # Wellenform und fasst text/segments NICHT an. Er darf deshalb die
+            # Transkription derselben Aufnahme nicht sperren. Vorher galt der
+            # Wächter für JEDEN Job: bei einem 93,7-MB-Upload lief der
+            # peaks-Job 29 s, die sofort angeforderte Transkription scheiterte
+            # mit „already has an active job", und der Lauf wurde ohne
+            # Fehlertext auf 'failed' gesetzt („job failed"-Toast des Nutzers).
+            # Der Worker führt ohnehin nur einen Job gleichzeitig aus — die
+            # Transkription wartet jetzt hinter der Wellenform, statt zu
+            # scheitern.
+            if kind != "peaks" and any(
+                j.rec_id == rec_id and getattr(j, "kind", "transcribe") != "peaks"
+                for j in self._jobs.values()
+            ):
                 raise QueueError(f"recording {rec_id} already has an active job (queued/processing)")
             if key in self._jobs:
                 raise QueueError(f"recording {rec_id} is already queued/processing")

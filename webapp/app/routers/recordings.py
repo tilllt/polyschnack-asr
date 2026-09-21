@@ -2157,10 +2157,10 @@ def transcribe_ep(
             priority=1 if (user is not None and user.kind == "anonymous") else 0,
         )
     except QueueFullError as exc:
-        _abort_queued_run(session, rec, run, prev_run_id)
+        _abort_queued_run(session, rec, run, prev_run_id, str(exc))
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
-        _abort_queued_run(session, rec, run, prev_run_id)
+        _abort_queued_run(session, rec, run, prev_run_id, str(exc))
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
@@ -2316,10 +2316,10 @@ def retranscribe(
             priority=1 if (user is not None and user.kind == "anonymous") else 0,
         )
     except QueueFullError as exc:
-        _abort_queued_run(session, rec, run, prev_run_id)
+        _abort_queued_run(session, rec, run, prev_run_id, str(exc))
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except QueueError as exc:
-        _abort_queued_run(session, rec, run, prev_run_id)
+        _abort_queued_run(session, rec, run, prev_run_id, str(exc))
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _schedule_peaks(int(rec.id))  # Alt-Aufnahmen ohne Peaks: Wellenform beim Re-Transcribe nachziehen
     return {"id": rid, "status": "queued", "position": position, "backend": backend}
@@ -2491,14 +2491,24 @@ def list_all_tags(
 # ---------------------------------------------------------------------------
 
 
-def _abort_queued_run(session: Session, rec: Any, run: Any, prev_run_id: Optional[int]) -> None:
+def _abort_queued_run(
+    session: Session, rec: Any, run: Any, prev_run_id: Optional[int],
+    reason: Optional[str] = None,
+) -> None:
     """Change 143: Ein committeter, aber nie enqueueder Run darf nicht als
     'queued' verwaist in der DB hängen — sonst zeigt die UI dauerhaft „in
     Warteschlange" und kein Worker startet ihn (User-Befund 2026-08-28).
     Bei enqueue-Fehlern (QueueError/QueueFullError) wird der Run auf
     'failed' gesetzt und der Run-Zeiger auf den vorherigen Stand zurück-
-    gerollt (nur wenn er auf den neuen Run zeigt)."""
+    gerollt (nur wenn er auf den neuen Run zeigt).
+
+    Change 231 (Live-Befund 21.09.2026): Der Grund wird als Fehlertext
+    mitgeschrieben. Vorher blieb `error` NULL — die Oberfläche zeigte nur
+    „job failed", während in der Datenbank keine Ursache stand (stiller
+    Fehler)."""
     run.status = "failed"
+    if reason:
+        run.error = reason
     if rec.current_run_id == run.id:
         rec.current_run_id = prev_run_id
     session.add(run)
