@@ -65,6 +65,10 @@ export type OptionId =
   | "llmfix"
   | "template"
   | "endpoint"
+  /** Change 228: zweite LLM-Stufe „KI-Formatierung“ */
+  | "format"
+  | "formatPreset"
+  | "formatServer"
   | "target";
 
 /** Klartext in den drei Sprachen der Oberfläche. */
@@ -369,6 +373,49 @@ export const OPTION_MATRIX: OptionRow[] = [
       de: "Welcher KI-Dienst die Nachbearbeitung ausführt. Standard: der Dienst der Plattform. Eigener Anbieter: selbst hinterlegter Endpunkt — die Transkripte verlassen dann euren eigenen Server.",
       en: "Which AI service runs the post-processing. Default: the platform's service. Own provider: a custom endpoint — transcripts then leave your own server.",
       pt: "Qual serviço de IA executa o pós-processamento. Padrão: o serviço da plataforma. Próprio provedor: um endpoint personalizado — as transcrições saem então do seu servidor.",
+    },
+  },
+  {
+    id: "format",
+    category: "post",
+    sources: ["upload", "record", "url", "recording"],
+    requires: ["oidc"],
+    actions: ["tr"],
+    whenBlocked: "explain",
+    label: { de: "KI-Formatierung", en: "AI formatting", pt: "Formatação por IA" },
+    note: {
+      de: "Zweite KI-Stufe: formt den fertigen Text um — z. B. in ein stichwortartiges Protokoll. Der Wortlaut stimmt danach bewusst nicht mehr mit dem Audio überein, deshalb steht das Ergebnis in einem eigenen Bereich UNTER dem Transkript und das wörtliche Transkript bleibt erhalten. Es fallen zusätzliche Zeit und Token an.",
+      en: "Second AI stage: reshapes the finished text — e.g. into bullet-point minutes. The wording then deliberately differs from the audio, so the result appears in its own area BELOW the transcript and the verbatim transcript is kept. Extra time and tokens apply.",
+      pt: "Segunda etapa de IA: transforma o texto final — por ex. numa ata em tópicos. O texto deixa de coincidir com o áudio, por isso o resultado aparece numa área própria ABAIXO da transcrição e a transcrição literal mantém-se. Há tempo e tokens adicionais.",
+    },
+  },
+  {
+    id: "formatPreset",
+    category: "post",
+    sources: ["upload", "record", "url", "recording"],
+    requires: ["oidc"],
+    actions: ["tr"],
+    whenBlocked: "explain",
+    label: { de: "Format", en: "Format", pt: "Formato" },
+    note: {
+      de: "Wohin umgeformt wird — z. B. „Stichwort-Protokoll“ oder „Zusammenfassung“. Eigene Vorlagen kannst du zusätzlich auswählen; sie ersetzen die Vorgabe. Ohne Auswahl gilt das Stichwort-Protokoll.",
+      en: "What the text is transformed into — e.g. “bullet-point minutes” or “summary”. Your own templates can be picked as well; they replace the preset. Without a choice, bullet-point minutes apply.",
+      pt: "Em que o texto é transformado — ex. “ata em tópicos” ou “resumo”. Os teus próprios modelos também podem ser escolhidos; substituem a predefinição. Sem escolha aplica-se a ata em tópicos.",
+    },
+  },
+  {
+    id: "formatServer",
+    category: "post",
+    sources: ["upload", "record", "url", "recording"],
+    requires: ["oidc"],
+    actions: ["tr"],
+    whenBlocked: "explain",
+    label: { de: "KI-Server für Formatierung", en: "AI server for formatting",
+             pt: "Servidor de IA para formatação" },
+    note: {
+      de: "Welcher Dienst umformt. Vorgabe: derselbe Dienst wie bei der Nachbearbeitung (der der Plattform). Eigener Anbieter: selbst hinterlegter Endpunkt — der Text verlässt dann euren Server. Der Dienst der Plattform ist kostenpflichtig.",
+      en: "Which service reshapes the text. Default: the same service as post-processing (the platform's). Own provider: a custom endpoint — the text then leaves your server. The platform service is chargeable.",
+      pt: "Que serviço transforma o texto. Predefinição: o mesmo serviço da pós-produção (o da plataforma). Próprio provedor: um endpoint próprio — o texto sai então do teu servidor. O serviço da plataforma é pago.",
     },
   },
   {

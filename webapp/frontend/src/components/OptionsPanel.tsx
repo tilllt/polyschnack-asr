@@ -56,6 +56,12 @@ const TXT: Record<string, S> = {
   met_b: { de: "Methode B (foxnose)", en: "Method B (foxnose)", pt: "Método B (foxnose)" },
   met_c: { de: "Methode C (Energie)", en: "Method C (energy)", pt: "Método C (energia)" },
   ep_std: { de: "Standard (Server)", en: "Default (server)", pt: "Padrão (servidor)" },
+  // Change 228: Server der zweiten Stufe — Vorgabe ist der Dienst der ersten Stufe.
+  fmt_ep_std: {
+    de: "Wie Nachbearbeitung (Server)",
+    en: "Same as post-processing (server)",
+    pt: "Como a pós-produção (servidor)",
+  },
   none: { de: "—", en: "—", pt: "—" },
   opt_cat_hint: {
     de: "Für diese Auswahl ist keine Option dieser Gruppe wirksam.",
@@ -290,6 +296,8 @@ export function OptionsPanel({
   const templates = pp?.templates ?? [];
   const targets = pp?.targets ?? [];
   const endpoints = pp?.endpoints ?? [];
+  // Change 228: eingebaute Vorgaben der KI-Formatierung.
+  const formatPresets = pp?.formatPresets ?? [];
 
   const ctx = {
     source,
@@ -446,6 +454,42 @@ export function OptionsPanel({
             onChange={(v) => onChange({ endpointId: v ? Number(v) : undefined })}
             options={[
               { value: "", label: L(TXT.ep_std, lang) },
+              ...endpoints.map((ep) => ({ value: String(ep.endpoint_id), label: ep.name })),
+            ]}
+          />
+        );
+      // Change 228 — zweite LLM-Stufe „KI-Formatierung“: Schalter, Ziel-Form
+      // (eingebaute Vorgaben + eigene Vorlagen) und ausführender Server.
+      case "format":
+        return <Toggle on={values.formatting} onChange={(v) => onChange({ formatting: v })} />;
+      case "formatPreset":
+        return (
+          <Sel
+            value={
+              values.formatTemplateId !== undefined
+                ? `t${values.formatTemplateId}`
+                : values.formatPreset || "protocol"
+            }
+            onChange={(v) =>
+              onChange(
+                v.startsWith("t")
+                  ? { formatTemplateId: Number(v.slice(1)) }
+                  : { formatPreset: v, formatTemplateId: undefined },
+              )
+            }
+            options={[
+              ...formatPresets.map((p) => ({ value: p.key, label: L(p.label, lang) })),
+              ...templates.map((tp) => ({ value: `t${tp.template_id}`, label: tp.name })),
+            ]}
+          />
+        );
+      case "formatServer":
+        return (
+          <Sel
+            value={values.formatEndpointId === undefined ? "" : String(values.formatEndpointId)}
+            onChange={(v) => onChange({ formatEndpointId: v ? Number(v) : undefined })}
+            options={[
+              { value: "", label: L(TXT.fmt_ep_std, lang) },
               ...endpoints.map((ep) => ({ value: String(ep.endpoint_id), label: ep.name })),
             ]}
           />

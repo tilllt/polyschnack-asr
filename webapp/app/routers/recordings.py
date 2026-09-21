@@ -845,6 +845,10 @@ def _recording_to_dict(
         "enable_noise_reduce": _s_noise,
         "enable_enhance": _s_enhance,
         "waveform_peaks": None if lite else rec.waveform_peaks,
+        # Change 228: Ergebnis der zweiten LLM-Stufe — eigener Textbereich unter
+        # dem Transkript. In der Listenansicht (lite) bleibt er außen vor.
+        "formatted_text": None if lite else rec.formatted_text,
+        "formatted_source": None if lite else rec.formatted_source,
         "updated_at": iso_utc(rec.updated_at) if getattr(rec, "updated_at", None) else None,
         "user_id": rec.user_id,
         "access_level": access_level,
@@ -1179,6 +1183,11 @@ def duplicate_recording(
         prompt_template_id=src_run.prompt_template_id if src_run else None,
         delivery_target_id=src_run.delivery_target_id if src_run else None,
         llm_endpoint_id=src_run.llm_endpoint_id if src_run else None,
+        # Change 228: zweite LLM-Stufe mitkopieren (Duplizieren/Verketten)
+        enable_formatting=bool(src_run and src_run.enable_formatting),
+        format_preset=(src_run.format_preset if src_run else None) or "protocol",
+        format_template_id=src_run.format_template_id if src_run else None,
+        format_endpoint_id=src_run.format_endpoint_id if src_run else None,
         user_id=uid,
     )
     new_rec.current_run_id = run.id
@@ -1502,6 +1511,11 @@ def _run_settings_dict(run: TranscriptionRun) -> Dict[str, Any]:
         "enable_llm_enhance": run.enable_llm_enhance,
         "prompt_template_id": run.prompt_template_id,
         "llm_endpoint_id": run.llm_endpoint_id,
+        # Change 228: zweite LLM-Stufe „KI-Formatierung"
+        "enable_formatting": run.enable_formatting,
+        "format_preset": run.format_preset,
+        "format_template_id": run.format_template_id,
+        "format_endpoint_id": run.format_endpoint_id,
     }
 
 
@@ -1948,6 +1962,11 @@ def transcribe_ep(
     prompt_template_id: Optional[int] = Form(None),
     delivery_target_id: Optional[int] = Form(None),
     llm_endpoint_id: Optional[int] = Form(None),
+    # Change 228: zweite LLM-Stufe „KI-Formatierung"
+    enable_formatting: Optional[bool] = Form(None),
+    format_preset: Optional[str] = Form(None),
+    format_template_id: Optional[int] = Form(None),
+    format_endpoint_id: Optional[int] = Form(None),
     backend: str = Form(""),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
@@ -1964,6 +1983,19 @@ def transcribe_ep(
 
     _ensure_audio_present(rec)   # 410 statt 500 bei fehlender Datei
 
+    # Change 228: direkte Funktionsaufrufe (Tests) liefern hier Form(...)-Objekte
+    # statt Werten. Diese Prüfung MUSS vor ensure_free_only stehen: sonst gilt
+    # ein nicht gesendetes Feld als „gesetzt" und ein anonymer Lauf wird als
+    # kostenpflichtig gesperrt.
+    if not isinstance(enable_formatting, (bool, type(None))):
+        enable_formatting = None
+    if not isinstance(format_preset, (str, type(None))):
+        format_preset = None
+    if not isinstance(format_template_id, (int, type(None))):
+        format_template_id = None
+    if not isinstance(format_endpoint_id, (int, type(None))):
+        format_endpoint_id = None
+
     from ..pricing import ensure_free_only
 
     user = session.get(User, uid) if uid is not None else None
@@ -1971,7 +2003,8 @@ def transcribe_ep(
         user,
         backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
         want_llm=bool(enable_llm_enhance) or prompt_template_id is not None
-        or llm_endpoint_id is not None,
+        or llm_endpoint_id is not None
+        or bool(enable_formatting) or format_template_id is not None,
         llm_mode=bool(enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -2081,6 +2114,30 @@ def transcribe_ep(
         if ep is None or ep.user_id != uid:
             raise HTTPException(status_code=403, detail="endpoint not found or not yours")
         run.llm_endpoint_id = llm_endpoint_id
+    # Change 228: zweite LLM-Stufe „KI-Formatierung" — Schalter, Vorgabe, eigene
+    # Vorlage und eigener KI-Server. Vorlage und Server müssen dem Nutzer gehören.
+    if enable_formatting is not None:
+        run.enable_formatting = enable_formatting
+    if format_preset is not None:
+        from ..formatting import PRESETS as _FMT_PRESETS
+
+        keys = {p["key"] for p in _FMT_PRESETS}
+        if format_preset not in keys:
+            raise HTTPException(status_code=422,
+                                detail=f"unbekannte Formatierungs-Vorgabe: {format_preset}")
+        run.format_preset = format_preset
+    if format_template_id is not None:
+        tpl_fmt = session.get(PromptTemplate, format_template_id)
+        if tpl_fmt is None or tpl_fmt.user_id != uid:
+            raise HTTPException(status_code=403,
+                                detail="format template not found or not yours")
+        run.format_template_id = format_template_id
+    if format_endpoint_id is not None:
+        ep_fmt = session.get(UserLlmEndpoint, format_endpoint_id)
+        if ep_fmt is None or ep_fmt.user_id != uid:
+            raise HTTPException(status_code=403,
+                                detail="format endpoint not found or not yours")
+        run.format_endpoint_id = format_endpoint_id
     session.add(run)
     session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
     session.add(rec)
@@ -2130,6 +2187,11 @@ class RetranscribeParams(BaseModel):
     prompt_template_id: Optional[int] = None
     delivery_target_id: Optional[int] = None
     llm_endpoint_id: Optional[int] = None
+    # Change 228: zweite LLM-Stufe „KI-Formatierung"
+    enable_formatting: Optional[bool] = None
+    format_preset: Optional[str] = None
+    format_template_id: Optional[int] = None
+    format_endpoint_id: Optional[int] = None
     backend: str = ""
 
 
@@ -2163,7 +2225,8 @@ def retranscribe(
         user,
         params.backend or settings.POLYSCHNACK_DEFAULT_BACKEND,
         want_llm=bool(params.enable_llm_enhance) or params.prompt_template_id is not None
-        or params.llm_endpoint_id is not None,
+        or params.llm_endpoint_id is not None
+        or bool(params.enable_formatting) or params.format_template_id is not None,
         llm_mode=bool(params.enable_punctuation)
         and settings.POLYSCHNACK_PUNCTUATION_MODE == "llm",
     )
@@ -2212,6 +2275,29 @@ def retranscribe(
         if ep is None or ep.user_id != uid:
             raise HTTPException(status_code=403, detail="endpoint not found or not yours")
         run.llm_endpoint_id = params.llm_endpoint_id
+    # Change 228: zweite LLM-Stufe „KI-Formatierung" (Neu-Transkription)
+    if params.enable_formatting is not None:
+        run.enable_formatting = params.enable_formatting
+    if params.format_preset is not None:
+        from ..formatting import PRESETS as _FMT_PRESETS
+
+        if params.format_preset not in {p["key"] for p in _FMT_PRESETS}:
+            raise HTTPException(
+                status_code=422,
+                detail=f"unbekannte Formatierungs-Vorgabe: {params.format_preset}")
+        run.format_preset = params.format_preset
+    if params.format_template_id is not None:
+        tpl_fmt = session.get(PromptTemplate, params.format_template_id)
+        if tpl_fmt is None or tpl_fmt.user_id != uid:
+            raise HTTPException(status_code=403,
+                                detail="format template not found or not yours")
+        run.format_template_id = params.format_template_id
+    if params.format_endpoint_id is not None:
+        ep_fmt = session.get(UserLlmEndpoint, params.format_endpoint_id)
+        if ep_fmt is None or ep_fmt.user_id != uid:
+            raise HTTPException(status_code=403,
+                                detail="format endpoint not found or not yours")
+        run.format_endpoint_id = params.format_endpoint_id
     session.add(run)
     session.flush()  # Change 099: run.id belegen, bevor der Zeiger ihn nutzt
     prev_run_id = rec.current_run_id  # Change 143: Rollback-Ziel bei enqueue-Fehlern

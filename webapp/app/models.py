@@ -46,6 +46,14 @@ class Recording(SQLModel, table=True):
     backend: str = "ps-pk-onnx"
     #: JSON list of {start, end, text} dicts; stored as SQLite JSON column.
     segments: Optional[List[Any]] = Field(default=None, sa_column=Column(JSON))
+    #: Change 228 — Ergebnis der zweiten LLM-Stufe „KI-Formatierung“. Steht als
+    #: eigener Textbereich unter dem Transkript (nicht als Fassung): der
+    #: Wortlaut ist dort bewusst umgeformt und stimmt nicht mit dem Audio
+    #: überein. None = keine Formatierung gelaufen.
+    formatted_text: Optional[str] = None
+    #: Herkunft der Formatierung: „protocol“/“summary“/“tasks“ (eingebaute
+    #: Vorgabe) oder „template:<id>“ (eigene Vorlage).
+    formatted_source: Optional[str] = None
     #: Change 009 (2026-08-17): manuelle Segment-Aufteilung aktiv (Grenz-Drag,
     #: true nach jeder Segment-Struktur-OP (Grenz-Drag, +/−, Split,
     #: Re-Segmentierung). Die Anzeige unterscheidet seit Change 088 pro
@@ -217,6 +225,13 @@ class TranscriptionRun(SQLModel, table=True):
     enable_llm_enhance: bool = False
     llm_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
     prompt_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
+    #: Change 228 — zweite LLM-Stufe „KI-Formatierung": formt den Text um
+    #: (z. B. stichwortartiges Protokoll). Eigene Vorlage und eigener Server
+    #: möglich; ohne Vorlage greift die eingebaute Vorgabe (``formatting``).
+    enable_formatting: bool = False
+    format_preset: str = "protocol"
+    format_template_id: Optional[int] = Field(default=None, foreign_key="prompttemplate.id")
+    format_endpoint_id: Optional[int] = Field(default=None, foreign_key="userllmendpoint.id")
     delivery_target_id: Optional[int] = Field(default=None, foreign_key="deliverytarget.id")
 
     # --- Betrieb ---
@@ -368,6 +383,30 @@ class DeliveryTarget(SQLModel, table=True):
     kind: str = "email"  # email | webdav
     config: Optional[str] = None  # JSON-String (Creds verschlüsselt)
     created_at: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class UserDefaults(SQLModel, table=True):
+    """Change 228 — Vorgabewerte je Nutzer für den Input-Blick.
+
+    Je Nutzer genau eine Zeile. ``default_options`` ist ein JSON-Objekt mit
+    den Werten der Optionsmatrix (``FeatureValues`` aus dem Frontend);
+    ``default_template_id``/``default_endpoint_id``/``default_target_id``
+    zeigen auf Einträge, die dem Nutzer gehören — beim Schreiben wird die
+    Zugehörigkeit geprüft (siehe ``routers/defaults.py``).
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, unique=True)
+    #: Gewählte Quelle im Input-Blick: upload | record | url
+    default_source: str = "upload"
+    #: JSON-Objekt mit den Vorgabewerten der Optionen (FeatureValues)
+    default_options: Optional[str] = None
+    default_template_id: Optional[int] = None
+    default_endpoint_id: Optional[int] = None
+    default_target_id: Optional[int] = None
+    updated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc)
     )
 

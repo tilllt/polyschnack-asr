@@ -19,6 +19,14 @@ export interface FeatureValues {
   templateId: number | undefined;
   targetId: number | undefined;
   endpointId: number | undefined;
+  /** Change 228 — zweite LLM-Stufe „KI-Formatierung“. */
+  formatting: boolean;
+  /** Vorgabenschlüssel (protocol|summary|tasks); "" = Stichwort-Protokoll. */
+  formatPreset: string;
+  /** Eigene Vorlage für die Formatierung — schlägt die Vorgabe. */
+  formatTemplateId: number | undefined;
+  /** KI-Server der Formatierung; undefined = Dienst der Nachbearbeitung. */
+  formatEndpointId: number | undefined;
   /** Diarization-Tuning (ausklappbar): bekannte Sprecherzahl, "" = auto */
   numSpeakers: string;
   /** Diarization-Tuning: Sensitivität "more" | "std" | "less" */
@@ -39,6 +47,13 @@ export interface PostProcessOptions {
   targets: { target_id: number; name: string; kind: string }[];
   endpoints: { endpoint_id: number; name: string }[];
   isOidc: boolean;
+  /** Change 228: eingebaute Vorgaben der KI-Formatierung (aus
+   *  GET /api/formatting/presets) — Klartext in drei Sprachen. */
+  formatPresets?: {
+    key: string;
+    label: { de: string; en: string; pt: string };
+    note: { de: string; en: string; pt: string };
+  }[];
 }
 
 interface Props {

@@ -70,6 +70,11 @@ export interface Recording {
   separate_backend?: string;
   enable_punctuation?: boolean;
   enable_llm_enhance?: boolean;
+  /** Change 228: Ergebnis der zweiten LLM-Stufe — eigener Textbereich unter dem
+   *  Transkript. Null, wenn keine Formatierung gelaufen ist. */
+  formatted_text?: string | null;
+  /** Herkunft der Formatierung: protocol|summary|tasks oder template:<id>. */
+  formatted_source?: string | null;
   prompt_template_id?: number | null;
   delivery_target_id?: number | null;
   delivery_status?: string | null;
@@ -621,6 +626,17 @@ export async function fetchMe(): Promise<UserInfo> {
   return res.json() as Promise<UserInfo>;
 }
 
+/** Change 228: eingebaute Vorgaben der KI-Formatierung (öffentlicher Endpunkt,
+ *  liefert nur Kennungen und Erklärtexte — keine Prompts). */
+export async function fetchFormatPresets(): Promise<{
+  presets: { key: string; label: { de: string; en: string; pt: string };
+             note: { de: string; en: string; pt: string } }[];
+  default: string;
+}> {
+  const res = await fetch("/api/formatting/presets").then(checkOk);
+  return res.json();
+}
+
 export async function triggerDownload(model: "vad" | "diarize"): Promise<{ status: string; message: string }> {
   const res = await fetch(`/api/models/${model}/download`, { method: "POST" }).then(checkOk);
   return res.json() as Promise<{ status: string; message: string }>;
@@ -630,6 +646,17 @@ export async function transcribeRange(id: string, startSec: number, endSec: numb
   const params = new URLSearchParams({ start_sec: String(startSec), end_sec: String(endSec) });
   const res = await fetch(`/api/recordings/${id}/transcribe-range?${params}`, { method: "POST" }).then(checkOk);
   return res.json() as Promise<Recording>;
+}
+
+/** Change 228: zweite LLM-Stufe „KI-Formatierung“ — Optionen eines Laufs. */
+export interface FormatOptions {
+  enabled: boolean;
+  /** Vorgabenschlüssel (protocol|summary|tasks). */
+  preset?: string;
+  /** Eigene Vorlage — schlägt die Vorgabe. */
+  templateId?: number;
+  /** Eigener KI-Server; ohne Angabe der Dienst der Nachbearbeitung. */
+  endpointId?: number;
 }
 
 export async function startTranscription(
@@ -650,6 +677,9 @@ export async function startTranscription(
   diarizeMethod?: string,
   separateBackend = "none",
   vadMode = "off",  // Change 114: off|edges|all
+  // Change 228: zweite LLM-Stufe — als Objekt am Ende, damit die bestehenden
+  // Aufrufe (viele Positionsparameter) unverändert bleiben.
+  format?: FormatOptions,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("enable_vad", String(enableVad));
@@ -665,6 +695,13 @@ export async function startTranscription(
   if (promptTemplateId !== undefined) fd.append("prompt_template_id", String(promptTemplateId));
   if (deliveryTargetId !== undefined) fd.append("delivery_target_id", String(deliveryTargetId));
   if (llmEndpointId !== undefined) fd.append("llm_endpoint_id", String(llmEndpointId));
+  // Change 228: zweite LLM-Stufe „KI-Formatierung".
+  if (format) {
+    fd.append("enable_formatting", String(format.enabled));
+    if (format.preset) fd.append("format_preset", format.preset);
+    if (format.templateId !== undefined) fd.append("format_template_id", String(format.templateId));
+    if (format.endpointId !== undefined) fd.append("format_endpoint_id", String(format.endpointId));
+  }
   if (diarizeNumSpeakers !== undefined) fd.append("diarize_num_speakers", String(diarizeNumSpeakers));
   if (diarizeMinDurationOff !== undefined) fd.append("diarize_min_duration_off", String(diarizeMinDurationOff));
   if (diarizeMethod !== undefined) fd.append("diarize_method", diarizeMethod);
@@ -911,9 +948,19 @@ export async function importFromUrl(
   cookiesFile?: File | null,
   separateBackend = "none",
   vadMode = "off",  // Change 114: off|edges|all
+  // Change 228: zweite LLM-Stufe — als Objekt am Ende (bestehende Aufrufe
+  // bleiben unverändert).
+  format?: FormatOptions,
 ): Promise<Recording> {
   const fd = new FormData();
   fd.append("url", url);
+  // Change 228: zweite LLM-Stufe „KI-Formatierung“.
+  if (format) {
+    fd.append("enable_formatting", String(format.enabled));
+    if (format.preset) fd.append("format_preset", format.preset);
+    if (format.templateId !== undefined) fd.append("format_template_id", String(format.templateId));
+    if (format.endpointId !== undefined) fd.append("format_endpoint_id", String(format.endpointId));
+  }
   fd.append("enable_vad", String(enableVad));
   fd.append("vad_mode", vadMode);  // Change 114
   fd.append("enable_diarize", String(enableDiarize));
@@ -1018,6 +1065,11 @@ export async function retranscribeRecording(id: string, opts?: {
   enable_llm_enhance?: boolean;
   prompt_template_id?: number;
   delivery_target_id?: number;
+  // Change 228: zweite LLM-Stufe „KI-Formatierung".
+  enable_formatting?: boolean;
+  format_preset?: string;
+  format_template_id?: number;
+  format_endpoint_id?: number;
 }): Promise<Recording> {
   const res = await fetch(`/api/recordings/${id}/retranscribe`, {
     method: "POST",

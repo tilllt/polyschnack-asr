@@ -347,6 +347,11 @@ async def import_from_url(
     # Vimeo-Stil: Passwort pro Video (yt-dlp --video-password), unabhängig
     # von Account-Login.
     video_password: Optional[str] = Form(None),
+    # Change 228: zweite LLM-Stufe „KI-Formatierung"
+    enable_formatting: bool = Form(False),
+    format_preset: str = Form("protocol"),
+    format_template_id: Optional[int] = Form(None),
+    format_endpoint_id: Optional[int] = Form(None),
     cookies: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
 ) -> Dict[str, Any]:
@@ -361,6 +366,15 @@ async def import_from_url(
     # Direkte Funktionsaufrufe (Tests) liefern Form(...)-Objekte statt Strings.
     if not isinstance(separate_backend, str):
         separate_backend = "none"
+    # Change 228: direkte Aufrufe liefern auch hier Form(...)-Objekte.
+    if not isinstance(enable_formatting, bool):
+        enable_formatting = False
+    if not isinstance(format_preset, str):
+        format_preset = "protocol"
+    if not isinstance(format_template_id, (int, type(None))):
+        format_template_id = None
+    if not isinstance(format_endpoint_id, (int, type(None))):
+        format_endpoint_id = None
 
     # ── SSRF-Schutz (Review 2026-08-15, P0.1) ──
     # yt-dlp läuft IM CONTAINER-NETZWERK: ohne Validierung könnte die URL
@@ -585,6 +599,14 @@ async def import_from_url(
         enable_noise_reduce=enable_noise_reduce,
         enable_enhance=enable_enhance,
         separate_backend=separate_backend,  # Change 106 (Fix 23.08.)
+        # Change 228: zweite LLM-Stufe „KI-Formatierung" — Vorlage und Server
+        # müssen dem Nutzer gehören, die Vorgabe muss bekannt sein.
+        enable_formatting=enable_formatting,
+        format_preset=_checked_format_preset(format_preset),
+        format_template_id=_checked_format_template(
+            session, format_template_id, current_user_id),
+        format_endpoint_id=_checked_format_endpoint(
+            session, format_endpoint_id, current_user_id),
         user_id=current_user_id,
     )
     rec.current_run_id = run.id
@@ -593,6 +615,45 @@ async def import_from_url(
     if rec.id is not None:
         _schedule_peaks(rec.id)  # Waveform-Preview sofort im Hintergrund rechnen
     return _recording_to_dict(rec)
+
+
+# ---------------------------------------------------------------- Change 228
+def _checked_format_preset(value: str) -> str:
+    """Formatierungs-Vorgabe prüfen — unbekannt → 422 (kein stiller Rückfall)."""
+    from ..formatting import PRESETS
+
+    if value not in {p["key"] for p in PRESETS}:
+        raise HTTPException(status_code=422,
+                            detail=f"unbekannte Formatierungs-Vorgabe: {value}")
+    return value
+
+
+def _checked_format_template(session: Session, template_id: Optional[int],
+                             uid: Optional[int]) -> Optional[int]:
+    """Eigene Vorlage prüfen — fremd oder unbekannt → 403."""
+    if template_id is None:
+        return None
+    from ..models import PromptTemplate
+
+    tpl = session.get(PromptTemplate, template_id)
+    if tpl is None or tpl.user_id != uid:
+        raise HTTPException(status_code=403,
+                            detail="format template not found or not yours")
+    return template_id
+
+
+def _checked_format_endpoint(session: Session, endpoint_id: Optional[int],
+                             uid: Optional[int]) -> Optional[int]:
+    """Eigenen KI-Server prüfen — fremd oder unbekannt → 403."""
+    if endpoint_id is None:
+        return None
+    from ..models import UserLlmEndpoint
+
+    ep = session.get(UserLlmEndpoint, endpoint_id)
+    if ep is None or ep.user_id != uid:
+        raise HTTPException(status_code=403,
+                            detail="format endpoint not found or not yours")
+    return endpoint_id
 
 
 def _ytdlp_error_hint(stderr: str, url: str) -> str | None:

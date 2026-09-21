@@ -205,7 +205,12 @@ def _backfill_baseline_runs(session: Session) -> None:
             "diarize_num_speakers", "diarize_min_duration_off", "diarize_method",
             "enable_streaming", "enable_noise_reduce", "enable_enhance",
             "separate_backend", "enable_punctuation", "enable_llm_enhance", "prompt_template_id",
-            "delivery_target_id", "llm_endpoint_id"]
+            "delivery_target_id", "llm_endpoint_id",
+            # Change 228: zweite LLM-Stufe. Beide sind NOT NULL — sie MÜSSEN im
+            # INSERT stehen, sonst scheitert der Backfill in einem
+            # Migrations-Zwischenzustand, in dem die Spalte noch keinen
+            # SQL-Default trägt.
+            "enable_formatting", "format_preset"]
     # Modell-Defaults (SQL-Literale) für Spalten, die recording (noch) nicht hat
     defaults = {
         "backend": "'ps-pk-onnx'",
@@ -225,6 +230,9 @@ def _backfill_baseline_runs(session: Session) -> None:
         "llm_endpoint_id": "NULL",
         "prompt_template_id": "NULL",
         "delivery_target_id": "NULL",
+        # Change 228: zweite LLM-Stufe (Stufe aus, Protokoll-Vorgabe)
+        "enable_formatting": "0",
+        "format_preset": "'protocol'",
     }
     cols = [c for c in want if c in run_cols]
     if not cols:

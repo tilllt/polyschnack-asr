@@ -884,6 +884,21 @@ audio {
   margin: 0 auto;
 }
 
+/* Change 229 (Nutzer-Vorgabe 21.09.2026): Aufnahmezeit, Mikrofon-Auswahl und
+   Bedienhinweis stehen INNERHALB der Zone (Drop-Fläche). Vorher lagen sie als
+   eigene Zeile darunter und wirkten wie ein Fremdkörper. Absolut am unteren
+   Rand verankert: der Aufnahmeknopf bleibt exakt mittig und die feste
+   Zonenhöhe (Regel aus Change 215) gilt unverändert. */
+.ps-zone > .ps-record-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  padding: 0 12px;
+  margin: 0;
+  max-width: none;
+}
+
 /* Wer Bewegung reduziert haben will, bekommt ein Standbild des Hinweises:
    keine Animation, aber die jeweilige Stellung bleibt erkennbar — und der
    Wechsel zwischen den Hinweisen ist kein Überblenden, sondern sofort

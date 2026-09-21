@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchBackendCapabilities, fetchLlmEndpoints, fetchModelStatus, fetchModelsMatrix, fetchTemplates, fetchTargets, importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
+import { fetchBackendCapabilities, fetchFormatPresets, fetchLlmEndpoints, fetchModelStatus, fetchModelsMatrix, fetchTemplates, fetchTargets, importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
 import { fmtBytes } from "../format";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
@@ -46,6 +46,11 @@ export const SOURCE_OPTION_DEFAULTS: FeatureValues = {
   templateId: undefined,
   targetId: undefined,
   endpointId: undefined,
+  // Change 228: zweite LLM-Stufe — standardmäßig aus; Vorgabe Stichwort-Protokoll.
+  formatting: false,
+  formatPreset: "protocol",
+  formatTemplateId: undefined,
+  formatEndpointId: undefined,
   numSpeakers: "",
   diarSens: "std",
   diarMethod: "",
@@ -97,6 +102,12 @@ export function UploadZone({ user }: Props) {
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
   const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
   const [endpoints, setEndpoints] = useState<{ endpoint_id: number; name: string }[]>([]);
+  // Change 228: eingebaute Vorgaben der KI-Formatierung (öffentlich abrufbar).
+  const [formatPresets, setFormatPresets] = useState<{
+    key: string;
+    label: { de: string; en: string; pt: string };
+    note: { de: string; en: string; pt: string };
+  }[]>([]);
   const isOidc = !!user?.authenticated;
 
   useEffect(() => {
@@ -106,6 +117,8 @@ export function UploadZone({ user }: Props) {
     fetchModelStatus()
       .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
       .catch(() => {});
+    // Change 228: Vorgaben der zweiten Stufe — auch ohne Anmeldung abrufbar.
+    fetchFormatPresets().then((r) => setFormatPresets(r.presets)).catch(() => {});
     if (isOidc) {
       fetchTemplates().then(setTemplates).catch(() => {});
       fetchTargets().then(setTargets).catch(() => {});
@@ -147,6 +160,13 @@ export function UploadZone({ user }: Props) {
           v.diarMethod || undefined,
           v.separate,
           v.vad,
+          // Change 228: zweite LLM-Stufe „KI-Formatierung" — als Objekt.
+          {
+            enabled: v.formatting,
+            preset: v.formatPreset,
+            templateId: v.formatTemplateId,
+            endpointId: v.formatEndpointId,
+          },
         );
       } catch (e) {
         toast(`${t("job_start_failed")}: ${label} — ${(e as Error).message}`, "err");
@@ -210,6 +230,14 @@ export function UploadZone({ user }: Props) {
         cookiesFile,
         values.separate,
         values.vad,
+        // Change 228: zweite LLM-Stufe „KI-Formatierung“ — auch der vom Import
+        // angelegte Lauf soll sie tragen (versionierte Wahrheit).
+        {
+          enabled: values.formatting,
+          preset: values.formatPreset,
+          templateId: values.formatTemplateId,
+          endpointId: values.formatEndpointId,
+        },
       );
       toast(`Imported${result.original_name ? ": " + result.original_name : ""}`, "ok");
       if (result?.uid) await startJob(result.uid, result.original_name ?? url.trim(), values);
@@ -563,7 +591,7 @@ export function UploadZone({ user }: Props) {
             backends={availableBackends}
             caps={caps}
             flags={flags}
-            pp={{ templates, targets, endpoints, isOidc }}
+            pp={{ templates, targets, endpoints, isOidc, formatPresets }}
             action="tr"
             onChange={patchValues}
           />
@@ -1508,44 +1536,46 @@ function RecordTab({ ctlRef, setIsUploading, onRecordingChange, toast, qc, t, va
             />
           )}
         </div>
+
+        {/* Change 229 (Nutzer-Vorgabe 21.09.2026): Aufnahmezeit, Mikrofon-Wahl
+            und Bedienhinweis stehen jetzt IN der Drop-Fläche. Die Zeile ist
+            unten verankert (absolute, siehe index.css) — der Knopf bleibt
+            dadurch exakt mittig und die Zonenhöhe unverändert. */}
+        <div className="ps-tab-line ps-record-line">
+          <span className="tabular-nums font-mono font-semibold text-txt">{fmt(duration)}</span>
+          {statusText ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className={paused && recording ? "text-[#d99e2b] font-semibold" : undefined}>
+                {statusText}
+              </span>
+            </>
+          ) : null}
+          {micDevices.length > 1 && !recording && (
+            <label className="inline-flex items-center gap-1">
+              <span aria-hidden="true">🎙</span>
+              <span className="sr-only">{t("mic_select_label")}</span>
+              <select
+                value={micDeviceId}
+                onChange={onMicDeviceChange}
+                aria-label={t("mic_select_label")}
+                className="bg-panel2 border border-border rounded-sm px-1 text-[11px] leading-none h-[18px] text-txt max-w-[150px]"
+              >
+                <option value="">{t("mic_select_default")}</option>
+                {micDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `${t("mic_select_unnamed")} ${d.deviceId.slice(0, 4)}…`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </Zone>
 
-      {/* Change 217 (Nutzer-Vorgabe 20.09.2026): Eingangsquelle (Mikrofon),
-          Aufnahmezeit und Status stehen in EINER kompakten Zeile unter der
-          Zone. Vorher waren das drei eigene Blöcke (Mikrofon-Auswahl,
-          Statuszeile, große Aufnahmezeit 22/28 px) — sie machten den Tab
-          höher als die anderen. Diese Zeile ist jetzt gleich hoch wie die
-          eine Zeile der anderen Tabs. */}
-      <div className="ps-tab-line">
-        <span className="tabular-nums font-mono font-semibold text-txt">{fmt(duration)}</span>
-        {statusText ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className={paused && recording ? "text-[#d99e2b] font-semibold" : undefined}>
-              {statusText}
-            </span>
-          </>
-        ) : null}
-        {micDevices.length > 1 && !recording && (
-          <label className="inline-flex items-center gap-1">
-            <span aria-hidden="true">🎙</span>
-            <span className="sr-only">{t("mic_select_label")}</span>
-            <select
-              value={micDeviceId}
-              onChange={onMicDeviceChange}
-              aria-label={t("mic_select_label")}
-              className="bg-panel2 border border-border rounded-sm px-1 text-[11px] leading-none h-[18px] text-txt max-w-[150px]"
-            >
-              <option value="">{t("mic_select_default")}</option>
-              {micDevices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `${t("mic_select_unnamed")} ${d.deviceId.slice(0, 4)}…`}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
+      {/* Change 229 (Nutzer-Vorgabe 21.09.2026): Die Zeile mit Aufnahmezeit,
+          Mikrofon-Wahl und Bedienhinweis ist IN die Aufnahme-Zone gewandert —
+          sie stand hier außerhalb der Drop-Fläche. */}
 
       {/* Nur während/nach einer Aufnahme — im Ruhezustand nicht vorhanden,
           damit kein Element die Tab-Höhe vergrößert. */}

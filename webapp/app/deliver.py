@@ -33,11 +33,24 @@ def _deliver_email(rec, cfg: dict) -> None:
     msg["To"] = to
     msg["From"] = settings.POLYSCHNACK_SMTP_FROM or settings.POLYSCHNACK_SMTP_USER or "polyschnack@localhost"
     msg["Subject"] = f"Transkription: {rec.original_name}"
-    msg.attach(MIMEText(rec.text or "", "plain", "utf-8"))
-    for fname, payload, ctype in [
+    # Change 228: Liegt eine KI-Formatierung vor, ist sie das Ergebnis, das der
+    # Nutzer haben wollte (z. B. Protokoll) — sie geht als Mail-Text mit. Die
+    # wörtliche Transkription hängt weiterhin als Datei an, damit nichts verloren
+    # geht (der formatierte Text ist bewusst nicht wortgleich).
+    body_text = rec.formatted_text or rec.text or ""
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    attachments = [
         (f"{rec.original_name}.txt", rec.text or "", "text/plain"),
-        (f"{rec.original_name}.json", json.dumps({"text": rec.text}, ensure_ascii=False), "application/json"),
-    ]:
+        (f"{rec.original_name}.json",
+         json.dumps({"text": rec.text, "formatted_text": rec.formatted_text},
+                    ensure_ascii=False),
+         "application/json"),
+    ]
+    if rec.formatted_text:
+        # Eigene Datei für die formatierte Fassung (Kennung im Namen).
+        attachments.append(
+            (f"{rec.original_name}.formatiert.txt", rec.formatted_text, "text/plain"))
+    for fname, payload, ctype in attachments:
         part = MIMEText(payload, ctype, "utf-8")
         part.add_header("Content-Disposition", "attachment", filename=fname)
         msg.attach(part)
@@ -54,10 +67,12 @@ def _deliver_webdav(rec, cfg: dict) -> None:
     if not url or not cfg.get("username") or not cfg.get("password"):
         raise RuntimeError("webdav-target unvollständig (url/username/password/path)")
     dest = f"{url}/{path}/{rec.original_name}.txt" if path else f"{url}/{rec.original_name}.txt"
+    # Change 228: die formatierte Fassung ist das Ergebnis (falls vorhanden);
+    # sonst unverändert die Transkription.
     r = httpx.put(
         dest,
         auth=(cfg["username"], decrypt(cfg["password"])),
-        content=(rec.text or "").encode("utf-8"),
+        content=(rec.formatted_text or rec.text or "").encode("utf-8"),
         timeout=60,
     )
     r.raise_for_status()

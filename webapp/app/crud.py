@@ -78,6 +78,11 @@ def create_queued_run(
     prompt_template_id: Optional[int] = None,
     delivery_target_id: Optional[int] = None,
     llm_endpoint_id: Optional[int] = None,
+    # Change 228: zweite LLM-Stufe „KI-Formatierung"
+    enable_formatting: bool = False,
+    format_preset: str = "protocol",
+    format_template_id: Optional[int] = None,
+    format_endpoint_id: Optional[int] = None,
     user_id: Optional[int] = None,
 ) -> "TranscriptionRun":
     """Change 099: queued-Run mit den Settings eines Uploads/Imports.
@@ -107,6 +112,10 @@ def create_queued_run(
         prompt_template_id=prompt_template_id,
         delivery_target_id=delivery_target_id,
         llm_endpoint_id=llm_endpoint_id,
+        enable_formatting=enable_formatting,
+        format_preset=format_preset,
+        format_template_id=format_template_id,
+        format_endpoint_id=format_endpoint_id,
         status="queued",
         created_by_user_id=user_id,
     )
@@ -371,6 +380,8 @@ def update_result(
     progress_pct: int = 100,
     waveform_peaks: Optional[List[float]] = None,
     phase_times_ms: Optional[Dict[str, float]] = None,
+    formatted_text: Optional[str] = None,
+    formatted_source: Optional[str] = None,
 ) -> Optional[Recording]:
     """Persist the transcription result (success or failure) for *rec_id*."""
     rec = session.get(Recording, rec_id)
@@ -378,6 +389,12 @@ def update_result(
         return None
     rec.status = status
     rec.text = text
+    # Change 228: Ergebnis der zweiten LLM-Stufe. Wird immer zugewiesen — ein
+    # neuer Lauf ohne Formatierung darf keinen alten, nicht mehr passenden
+    # Text stehen lassen. Bewusst NICHT über reconcile_words_to_text geführt:
+    # der umgeformte Text ist nicht wortgleich mit den Segmenten.
+    rec.formatted_text = formatted_text
+    rec.formatted_source = formatted_source
     if duration_s is not None:
         rec.duration_s = duration_s
     rec.language = language
@@ -411,8 +428,8 @@ def update_result(
             cost = calculate_job_cost(
                 rec.phase_times_ms, rec.duration_s, rec.backend,
                 backend_cost_per_minute_eur=rate,
-                llm_seconds=(rec.phase_times_ms or {})
-                .get("punc_truecase", 0.0) / 1000.0,
+                llm_seconds=((rec.phase_times_ms or {}).get("punc_truecase", 0.0)
+                             + (rec.phase_times_ms or {}).get("formatting", 0.0)) / 1000.0,
             )
             rec.cost_cents = cost
             if cost > 0 and rec.user_id is not None:

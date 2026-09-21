@@ -2485,6 +2485,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
         prompt_template_id = None
         delivery_target_id = None
         llm_endpoint_id = None
+        # Change 228: zweite LLM-Stufe „KI-Formatierung"
+        enable_formatting = False
+        format_preset = "protocol"
+        format_template_id = None
+        format_endpoint_id = None
         run_diarize_num_speakers = None  # Change 099: Defaults (Run-Settings unten)
         run_diarize_min_duration_off = None
         run_diarize_method = None
@@ -2556,6 +2561,11 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             prompt_template_id = run.prompt_template_id
             delivery_target_id = run.delivery_target_id
             llm_endpoint_id = run.llm_endpoint_id
+            # Change 228: zweite LLM-Stufe
+            enable_formatting = bool(run.enable_formatting)
+            format_preset = run.format_preset or "protocol"
+            format_template_id = run.format_template_id
+            format_endpoint_id = run.format_endpoint_id
             run_diarize_num_speakers = run.diarize_num_speakers
             run_diarize_min_duration_off = run.diarize_min_duration_off
             run_diarize_method = run.diarize_method
@@ -2568,6 +2578,10 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
     t0 = time.perf_counter()
     # Change 085: Phasen-Zeiten je Job (ms) — Stichproben für rtf_learner.
     phase_times: Dict[str, float] = {}
+    # Change 228: Ergebnis der zweiten LLM-Stufe — bleibt None, wenn die
+    # Formatierung nicht eingeschaltet ist (oder nichts zu formatieren war).
+    formatted_text: Optional[str] = None
+    formatted_source: Optional[str] = None
     status = "done"
     text: str = ""
     duration = None
@@ -2964,6 +2978,7 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             (enable_punctuation and not native_punct
              and settings.POLYSCHNACK_PUNCTUATION_MODE != "off")
             or enable_llm_enhance or prompt_template_id or llm_endpoint_id
+            or enable_formatting
         )
         if _llm_work:
             _t_punc0 = time.perf_counter()
@@ -3012,6 +3027,46 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                         text = llm_mod.chat(
                             "Verbessere folgenden Transkript-Text (keine Einleitung):",
                             text or "", endpoint=endpoint)
+
+            # Change 228 — zweite LLM-Stufe „KI-Formatierung". Läuft nur, wenn
+            # ausdrücklich eingeschaltet: sie formt den Text um (z. B. in ein
+            # stichwortartiges Protokoll) und liefert bewusst KEINEN wortgleichen
+            # Text. Das Ergebnis steht im eigenen Feld ``formatted_text`` (eigener
+            # Textbereich unter dem Transkript) — nicht als Fassung.
+            if enable_formatting and text:
+                with Session(engine) as s:
+                    from . import llm as llm_mod  # Stufe 1 kann übersprungen sein
+                    from .crypto import decrypt
+                    from .formatting import build_prompt
+                    from .models import PromptTemplate, UserLlmEndpoint
+
+                    _t_fmt0 = time.perf_counter()
+                    fmt_endpoint = None
+                    # Server: eigener Formatierungs-Server → sonst der Server der
+                    # ersten Stufe → sonst der Plattform-Dienst (endpoint=None).
+                    fmt_ep_id = format_endpoint_id or llm_endpoint_id
+                    if fmt_ep_id:
+                        ep_fmt = s.get(UserLlmEndpoint, fmt_ep_id)
+                        if ep_fmt is None:
+                            raise RuntimeError("KI-Formatierung: KI-Server nicht gefunden")
+                        fmt_endpoint = {"base_url": ep_fmt.base_url,
+                                        "api_key": decrypt(ep_fmt.api_key),
+                                        "model": ep_fmt.model}
+                    tpl_prompt = ""
+                    if format_template_id:
+                        tpl_fmt = s.get(PromptTemplate, format_template_id)
+                        if tpl_fmt is None:
+                            raise RuntimeError("KI-Formatierung: Vorlage nicht gefunden")
+                        tpl_prompt = tpl_fmt.prompt
+                    # Herkunft festhalten: eigene Vorlage oder eingebaute Vorgabe.
+                    formatted_source = (f"template:{format_template_id}"
+                                        if format_template_id else format_preset)
+                    set_progress(s, rec_id, 98, note="formatting")
+                    _job_progress(job, phase="formatting", pct=98)
+                    formatted_text = llm_mod.chat(
+                        build_prompt(format_preset, tpl_prompt), text,
+                        endpoint=fmt_endpoint)
+                    phase_times["formatting"] = (time.perf_counter() - _t_fmt0) * 1000
         finally:
             if hb_stop_llm is not None:
                 hb_stop_llm.set()
@@ -3048,6 +3103,8 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
             processing_ms=elapsed_ms,
             error=error,
             waveform_peaks=peaks,
+            formatted_text=formatted_text,
+            formatted_source=formatted_source,
             phase_times_ms=phase_times or None,
         )
         # Change 157: Diar-Fehler degradieren statt Run abbrechen — die

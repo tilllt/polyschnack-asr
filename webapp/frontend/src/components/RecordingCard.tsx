@@ -2,9 +2,10 @@ import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed, Undo2, Redo2 } from "lucide-react";
 import type { BackendCapabilities, ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
-import { fetchModelsMatrix, fetchBackendCapabilities, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { fetchModelsMatrix, fetchBackendCapabilities, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, fetchFormatPresets, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
+import { pick } from "../optionMatrix";
 import { useToast } from "./Toasts";
 import { SegmentList } from "./SegmentList";
 import { SegmentSearch } from "./SegmentSearch";
@@ -407,7 +408,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const shareRef = useRef<HTMLDivElement>(null);
   const versRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-  const { t } = useT();
+  const { t, lang } = useT();
   const qc = useQueryClient();
 
   // Collapse-Default steuert die Liste (nur erste Transkription offen);
@@ -441,6 +442,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     templateId: r.prompt_template_id ?? undefined,
     targetId: r.delivery_target_id ?? undefined,
     endpointId: undefined,
+    // Change 228: zweite LLM-Stufe „KI-Formatierung“ — Startwert im Panel.
+    formatting: false,
+    formatPreset: "protocol",
+    formatTemplateId: undefined,
+    formatEndpointId: undefined,
   });
   // Change 116: Aktions-Tabs (Transkribieren · Sprecher suchen · Neue
   // Wortzeiten) + ausklappbares Options-Panel.
@@ -454,6 +460,12 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [templates, setTemplates] = useState<{ template_id: number; name: string }[]>([]);
   const [targets, setTargets] = useState<{ target_id: number; name: string; kind: string }[]>([]);
   const [endpoints, setEndpoints] = useState<{ endpoint_id: number; name: string }[]>([]);
+  // Change 228: eingebaute Vorgaben der KI-Formatierung.
+  const [formatPresets, setFormatPresets] = useState<{
+    key: string;
+    label: { de: string; en: string; pt: string };
+    note: { de: string; en: string; pt: string };
+  }[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
   const [shares, setShares] = useState<ShareItem[]>([]);
   const [shareUser, setShareUser] = useState("");
@@ -490,6 +502,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     // Backend-Gate liefert sonst 403 (siehe deps.require_authenticated).
     if (isOidc) {
       fetchTemplates().then(setTemplates).catch(() => {});
+      // Change 228: eingebaute Vorgaben der KI-Formatierung.
+      fetchFormatPresets().then((p) => setFormatPresets(p.presets)).catch(() => {});
       fetchTargets().then(setTargets).catch(() => {});
       fetchLlmEndpoints().then(setEndpoints).catch(() => {});
     }
@@ -519,6 +533,13 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         feat.diarMethod || undefined,
         feat.separate,
         feat.vad,  // Change 114: vad_mode
+        // Change 228: zweite LLM-Stufe „KI-Formatierung“ — als Objekt.
+        {
+          enabled: feat.formatting,
+          preset: feat.formatPreset,
+          templateId: feat.formatTemplateId,
+          endpointId: feat.formatEndpointId,
+        },
       );
       await qc.invalidateQueries({ queryKey: ["recordings"] });
     } catch (e) {
@@ -944,6 +965,48 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
     }
   }
 
+  /** Change 228: Herkunft der KI-Formatierung in Klartext (Vorgabe oder eigene
+   *  Vorlage) — der Nutzer soll sehen, wodurch der Text entstanden ist. */
+  function formattedSourceName(): string {
+    const src = r.formatted_source ?? "";
+    if (src.startsWith("template:")) {
+      const tid = Number(src.slice("template:".length));
+      const tpl = templates.find((x) => x.template_id === tid);
+      return tpl ? tpl.name : t("formatted_own_template");
+    }
+    const pres = formatPresets.find((p) => p.key === src);
+    return pres ? pick(pres.label, lang) : t("formatted_own_template");
+  }
+
+  /** Change 228: formatierte Fassung kopieren. */
+  async function handleCopyFormatted() {
+    const text = (r.formatted_text ?? "").trim();
+    if (!text) {
+      toast(t("no_text_to_copy"), "err");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(t("text_copied"), "ok");
+    } catch {
+      toast(t("copy_failed"), "err");
+    }
+  }
+
+  /** Change 228: formatierte Fassung als Textdatei sichern. */
+  function handleDownloadFormatted() {
+    const text = r.formatted_text ?? "";
+    if (!text) return;
+    const url = URL.createObjectURL(
+      new Blob([text], { type: "text/plain;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${r.original_name}.formatiert.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function handleDelete() {
     if (!confirm(t("confirm_delete"))) return;
     deleteMut.mutate(r.uid, {
@@ -967,6 +1030,11 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
         enable_enhance: feat.enhance,
         separate_backend: feat.separate,
         backend: feat.backend,
+        // Change 228: zweite LLM-Stufe „KI-Formatierung“.
+        enable_formatting: feat.formatting,
+        format_preset: feat.formatPreset,
+        format_template_id: feat.formatTemplateId,
+        format_endpoint_id: feat.formatEndpointId,
       },
     }, {
       onSuccess: () => toast(t("retranscribe_started"), "ok"),
@@ -1631,7 +1699,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   backends={availableBackends}
                   caps={caps}
                   flags={flags}
-                  pp={{ templates, targets, endpoints, isOidc }}
+                  pp={{ templates, targets, endpoints, isOidc, formatPresets }}
                   action={action}
                   onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
                 />
@@ -2077,6 +2145,46 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
               </div>
             )}
           </>
+        )}
+        {/* Change 228: Ergebnis der zweiten LLM-Stufe „KI-Formatierung“ — eigener
+            Textbereich UNTER dem Transkript, gleichzeitig sichtbar. Der Wortlaut
+            ist hier bewusst umgeformt, deshalb steht die Herkunft dabei und der
+            Hinweis sagt es offen. */}
+        {r.formatted_text && (
+          <div
+            className="mt-2 mx-4 mb-2 border border-accent/40 rounded-sm bg-panel2/70"
+            data-formatted-result
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-1.5 border-b border-border2/60">
+              <span className="text-[11px] text-muted2">
+                {t("formatted_result")}
+                {" · "}
+                {formattedSourceName()}
+              </span>
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-[11px] text-accent hover:underline"
+                  onClick={() => void handleCopyFormatted()}
+                >
+                  {t("copy")}
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-accent hover:underline"
+                  onClick={handleDownloadFormatted}
+                >
+                  {t("download")}
+                </button>
+              </span>
+            </div>
+            <p className="px-3 pt-1.5 text-[10px] text-amber-300/80 leading-snug">
+              {t("formatted_hint")}
+            </p>
+            <div className="px-[14px] py-3 whitespace-pre-wrap leading-[1.65] max-h-[320px] overflow-y-auto scrollbar-thin text-[13.5px] text-txt break-words">
+              {r.formatted_text}
+            </div>
+          </div>
         )}
         {/* Change 056: Annotation-Threads (Markdown, Antworten, Mentions) —
             unter der Transkription; lesen können alle, schreiben/antworten

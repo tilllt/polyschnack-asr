@@ -45,6 +45,8 @@ from .routers.keys import router as keys_router
 from .routers.llm_endpoints import router as llm_endpoints_router
 from .routers.templates import router as templates_router
 from .routers.targets import router as targets_router
+from .routers.defaults import router as defaults_router
+from .routers.formatting import router as formatting_router
 from .routers.url_import import router as url_import_router
 from .routers.export import router as export_router
 
@@ -337,6 +339,8 @@ app.include_router(keys_router)
 app.include_router(llm_endpoints_router)
 app.include_router(templates_router)
 app.include_router(targets_router)
+app.include_router(defaults_router)
+app.include_router(formatting_router)
 app.include_router(url_import_router)
 app.include_router(auth_router)
 app.include_router(annotations_router)

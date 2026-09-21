@@ -56,6 +56,17 @@ vi.mock("../api", () => ({
   fetchTemplates: async () => [],
   fetchTargets: async () => [],
   fetchLlmEndpoints: async () => [],
+  // Change 228: die Stufe „KI-Formatierung“ lädt ihre Vorgaben beim Aufbau.
+  fetchFormatPresets: async () => ({
+    presets: [
+      {
+        key: "protocol",
+        label: { de: "Stichwort-Protokoll", en: "Bullet-point minutes", pt: "Ata em tópicos" },
+        note: { de: "Erklärung", en: "Explanation", pt: "Explicação" },
+      },
+    ],
+    default: "protocol",
+  }),
   importFromUrl: async () => ({ uid: "u1", original_name: "probe" }),
   recordFromMic: async () => ({ uid: "u1" }),
   startTranscription: async () => ({}),
