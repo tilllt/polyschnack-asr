@@ -469,6 +469,11 @@ describe("Change 222 — nackte Quellen-Zeichen, Kreise in den Zonen", () => {
     // als Abstand unten im Stapel (Nutzer: „Achte darauf das alle Kreise an der
     // gleichen Position bleiben"). Ohne ihn rutschte der Kreis ~10 px tiefer
     // (im Browser gemessen: 120,11 → 130,06 px).
-    expect(rule(".ps-zone-url .ps-zone-stack {")).toContain("padding-bottom: 20px");
+    // Change 225: Der Ausgleich von Change 223 (Polster unten) ist entfallen —
+    // der Stapel der Adress-Zone ist jetzt von OBEN verankert, damit beim
+    // Aufklappen der Anmeldung Adress-Zeile und Kreis stehen bleiben.
+    expect(rule(".ps-zone-url .ps-zone-stack {")).toContain("justify-content: flex-start");
+    expect(rule(".ps-zone-url .ps-zone-stack {")).toContain("padding-top: 0");
+    expect(rule(".ps-zone-url .ps-zone-stack {")).toContain("padding-bottom: 0");
   });
 });

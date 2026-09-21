@@ -51,6 +51,19 @@ export const SOURCE_OPTION_DEFAULTS: FeatureValues = {
   diarMethod: "",
 };
 
+/**
+ * Change 226 (Nutzer-Frage 20.09.2026: „Warum kann man meine lokalen mp4 oder
+ * andere Video-Dateien auswählen?"): In der Dateiauswahl stand `audio/*`. Das
+ * umfasst auch `audio/mp4` — und genau als `audio/mp4` melden Betriebssysteme
+ * die Endungen .mp4/.m4a/.m4b; deshalb tauchten Videos im Auswahlfenster auf.
+ * Hier stehen deshalb die Audio-Endungen einzeln, Video-Container bleiben außen
+ * vor.
+ */
+export const AUDIO_ENDUNGEN = [
+  ".mp3", ".m4a", ".m4b", ".wav", ".ogg", ".oga", ".opus",
+  ".flac", ".aac", ".aif", ".aiff", ".amr", ".wma",
+] as const;
+
 export function UploadZone({ user }: Props) {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
   const [recording, setRecording] = useState(false);
@@ -703,9 +716,12 @@ export function UploadZone({ user }: Props) {
                 </>
               )}
               <button
+                data-testid="upload-start"
                 onClick={() => void startUpload()}
                 disabled={isUploading}
-                className="btn-primary text-[13px] mt-1 self-start"
+                className={`btn-primary w-full text-[14px] mt-1${
+                  pendingFiles.length > 0 && !isUploading ? " ps-pulse" : ""
+                }`}
               >
                 {t("upload")} ({pendingFiles.length})
               </button>
@@ -846,7 +862,18 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
       <input
         ref={fileRef}
         type="file"
-        accept="audio/*"
+        /* Change 226 (Nutzer-Frage 20.09.2026: „Warum kann man meine lokalen mp4
+           oder andere Video-Dateien auswählen?"): Hier stand `accept="audio/*"`.
+           Das umfasst auch `audio/mp4` — und genau als `audio/mp4` melden
+           Betriebssysteme die Endungen .mp4/.m4a/.m4b. Deshalb bot die
+           Dateiauswahl Videos an. Jetzt stehen die Audio-Endungen einzeln in der
+           Auswahl; Video-Container (.mp4, .mov, .mkv, .avi) sind nicht mehr
+           dabei.
+           OFFEN: `accept` ist nur ein Vorschlag an das Auswahlfenster — über
+           „alle Dateien" kann weiterhin alles gewählt werden. Eine sichtbare
+           Abweisung im Browser gibt es noch NICHT (der Upload geht dann wie
+           bisher an den Server); steht als offener Punkt im Änderungsbericht. */
+        accept={AUDIO_ENDUNGEN.join(",")}
         multiple
         className="hidden"
         onChange={handleInputChange}
@@ -1741,7 +1768,7 @@ function UrlArea({
               Chevron, der sich beim Öffnen dreht) und der Inhalt darunter in
               `.ps-zone-fold` — die Zone wächst dadurch animiert nach unten. */}
           <div
-            className="w-full border border-border rounded-sm bg-panel"
+            className="ps-zone-auth border border-border rounded-sm bg-panel"
             data-testid="auth-fold"
           >
             <button
@@ -1758,7 +1785,8 @@ function UrlArea({
               className={`ps-zone-fold${showAuth ? " ps-zone-fold--offen" : ""}`}
               data-testid="auth-fold-body"
             >
-              <div className="px-2 pb-2 flex flex-col gap-2">
+              <div>
+                <div className="px-2 pb-2 flex flex-col gap-2">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
@@ -1794,7 +1822,8 @@ function UrlArea({
                   />
                   {t("url_cookies")}
                 </label>
-                <div className="text-[11px] text-muted">{t("url_cookies_hint")}</div>
+                  <div className="text-[11px] text-muted">{t("url_cookies_hint")}</div>
+                </div>
               </div>
             </div>
           </div>

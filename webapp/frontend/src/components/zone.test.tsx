@@ -142,9 +142,9 @@ describe("Change 215 — einheitliche Zonen", () => {
     // Change 222: Die Stufen sind gewachsen, weil die Kreise mit ihrer
     // Beschriftung in die Zonen gezogen sind (und die Gestenhinweise in vier
     // Lagen Platz brauchen).
-    const iMobil = css.lastIndexOf("--ps-zone-h: 164px");
-    const i640 = css.lastIndexOf("--ps-zone-h: 176px");
-    const i1024 = css.lastIndexOf("--ps-zone-h: 190px");
+    const iMobil = css.lastIndexOf("--ps-zone-h: 192px");
+    const i640 = css.lastIndexOf("--ps-zone-h: 208px");
+    const i1024 = css.lastIndexOf("--ps-zone-h: 212px");
     expect(iMobil).toBeGreaterThan(-1);
     expect(i640).toBeGreaterThan(iMobil);
     expect(i1024).toBeGreaterThan(i640);

@@ -472,12 +472,20 @@ audio {
      Daraus: Innenhalbhöhe ≥ 68 px, also Höhe ≥ 164 px mobil — der Upload-Inhalt
      (Kreis 64 + Zeilen) ist mit 154,5 px die zweite Untergrenze, ab 640 px
      gewinnt der Upload-Inhalt mit 175,5 px.
-       bis 639 px : 164 px
-       ab 640 px  : 176 px
-       ab 1024 px : 186 px  (etwas mehr Luft, Inhalt bleibt gleich)
+     Change 226 (Nutzer-Entscheid 20.09.2026: „Erhöhe die Zonenhöhe so das alle
+     Elemente in allen Tabs hineinpassen."): Maßgeblich ist jetzt die
+     Adress-Zone, weil sie zusätzlich die ausklappbare Anmelde-Ebene trägt
+     („die collapsible credentials options noch unten rein passen"). Ihr Inhalt
+     von oben: Polster+Rand 14, Adress-Zeile 40, Abstand 5, Kreis 64/80,
+     Beschriftung unter dem Kreis 15, Anmelde-Zeile 33, Polster+Rand 16
+       bis 639 px : 192 px
+       ab 640 px  : 208 px
+       ab 1024 px : 212 px  (etwas mehr Luft)
+     Alle drei Zonen bleiben gleich hoch — die Werte stehen hier an EINER Stelle
+     und gelten für Upload, Aufnahme und Download gemeinsam.
      Die feste Höhe und `overflow: hidden` bleiben unangetastet (Change 215) —
      kein Inhalt darf als Höhengeber wirken. */
-  --ps-zone-h: 164px;
+  --ps-zone-h: 192px;
   /* Luft über dem Kreis für dessen Beschriftung (SOURCE_CIRCLE_ARC-Höhe minus
      Knopfradius: 52-32 = 20 px; ab 640 px 65-40 = 25 px, weil die
      Zeichenfläche prozentual mit dem Knopf wächst). */
@@ -488,14 +496,14 @@ audio {
 }
 @media (min-width: 640px) {
   :root {
-    --ps-zone-h: 176px;
+    --ps-zone-h: 208px;
     --ps-arc-reserve: 25px;
     --ps-zone-maxw: 560px;
   }
 }
 @media (min-width: 1024px) {
   :root {
-    --ps-zone-h: 190px;
+    --ps-zone-h: 212px;
     --ps-zone-maxw: 640px;
   }
 }
@@ -1111,6 +1119,29 @@ audio {
 .ps-src-icon { color: inherit; }
 .ps-src-ink { color: #7d9c74; }
 
+/* ── Change 226 (Nutzer-Vorgabe 20.09.2026): Upload-Knopf ──────────────────
+   Nutzer: „In Tab Upload muss der Upload Button ein ‚richtiger' Button im
+   gleichen Design wie alle anderen Buttons von polyschnack werden und, sobald
+   eine Datei bereit zum Upload ist, anfangen zu pulsieren."
+   Der Knopf benutzt jetzt die Standardklasse `btn-primary` ohne
+   Größen-Abweichung und steht über die ganze Breite der Dateiliste. Solange
+   Dateien bereitliegen, pulsiert er (weicher Ring in der Akzentfarbe), damit
+   sichtbar ist, dass der nächste Schritt das Abschicken ist. */
+.ps-pulse {
+  animation: ps-upload-puls 1.6s ease-in-out infinite;
+}
+@keyframes ps-upload-puls {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.55); }
+  50%      { box-shadow: 0 0 0 7px rgba(46, 160, 67, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Bei reduzierter Bewegung bleibt der Knopf ruhig — die Farbe allein zeigt
+     den Zustand. */
+  .ps-pulse {
+    animation: none;
+  }
+}
+
 /* Change 222: Die Adress-Zeile sitzt IN der Adress-Zone („drop-area"). Dort
    nimmt sie die Breite der Zone ein (mit Luft zu den Rändern), damit sie nicht
    über den Zonenrand läuft. */
@@ -1121,18 +1152,33 @@ audio {
 
 /* Change 223 (Nutzer-Vorgaben 20.09.2026): Die Erklärzeile der Adress-Zone ist
    entfallen („mit dem Beispieltext in der textarea und dem mit Download
-   beschrifteten Button erklärt sich die Funktion"). Der Stapel ist damit um
-   ihre Höhe kürzer, und `justify-content: center` zöge den Kreis um die halbe
-   Differenz nach unten — er verrutschte. Nutzer-Vorgabe: „Achte darauf das alle
-   Kreise an der gleichen Position bleiben." Der Platz der entfernten Zeile
-   steht deshalb als Abstand UNTEN im Stapel: der Inhalt rutscht um die halbe
-   Reserve (10 px) wieder nach oben und der Kreis sitzt genau wie vorher.
-   IM BROWSER NACHGEMESSEN (Chrome, Zonenmitte = 0): Kreis „Download" live
-   120,11 px von der Zonenoberkante; ohne diese Reserve 130,06 px; mit Reserve
-   wieder 120,11 px. Wer die Zeile zurückholt, muss diese Regel entfernen —
-   sonst steht sie doppelt im Platz. */
+   beschrifteten Button erklärt sich die Funktion"). Damals hielt ein Abstand
+   unten im Stapel den Kreis auf seiner Position („Achte darauf das alle Kreise
+   an der gleichen Position bleiben.") — Change 225 hat den Stapel stattdessen
+   von oben verankert, dieser Ausgleich ist damit entfallen (siehe unten). */
+/* Change 223 hatte hier 20 px Polster stehen, damit der Kreis beim Entfernen der
+   Erklärzeile stehen bleibt.
+   Change 225 (Nutzer-Vorgabe 20.09.2026): Der Stapel ist jetzt von OBEN
+   verankert, und der Kreis rückt so weit nach oben, wie es die Adress-Zeile
+   zulässt — „Der Text-input für den Download tab kann auf mobile weiter nach
+   oben, so weit das die Ränder oben genau so klein sind wie die Ränder rechts
+   und links. Dann wird es einfach das der Button an der gleichen Position bleibt
+   wie bei Upload und die collapsible credentials options noch unten rein passen."
+   Deshalb: kein Polster oben (die Adress-Zeile sitzt direkt an der Zonenkante,
+   ihr Abstand nach oben ist damit so groß wie der zu den Seiten) und kein
+   Polster unten (die Beschriftung des Kreises steht UNTER ihm, der
+   `--ps-arc-reserve` wird hier nicht gebraucht). Oben verankert heißt außerdem:
+   beim Aufklappen der Anmeldung wächst die Zone nur nach unten, die Adress-Zeile
+   und der Kreis bleiben stehen. */
 .ps-zone-url .ps-zone-stack {
-  padding-bottom: 20px;
+  justify-content: flex-start;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+/* Die aufklappbare Anmelde-Ebene ist so breit wie die Adress-Zeile darüber. */
+.ps-zone-url .ps-zone-auth {
+  width: 100%;
+  max-width: 460px;
 }
 
 /* ── Change 225 (Nutzer-Vorgabe 20.09.2026): ausklappbare Ebenen IN der Zone ──
@@ -1152,6 +1198,11 @@ audio {
 .ps-zone--waechst {
   height: auto;
   min-height: var(--ps-zone-h);
+  /* Von oben verankert: sonst zentriert die Zone ihren Stapel und beim
+     Aufklappen rutscht oben alles mit (im Browser gemessen: Adress-Zeile
+     17,02 → 14 px, Kreis 94,16 → 91,14 px). So bleiben Zeile und Kreis stehen
+     und die Zone wächst nur nach unten. */
+  justify-content: flex-start;
 }
 .ps-zone-fold {
   display: grid;
@@ -1165,6 +1216,10 @@ audio {
 .ps-zone-fold > * {
   overflow: hidden;
   min-height: 0;
+  /* Kein eigenes Polster: das Polster des Inhalts (px-2 pb-2 = 8 px) machte die
+     zugeklappte Ebene 8 px hoch, obwohl die Zeile auf 0fr steht (im Browser
+     gemessen). Deshalb sitzt das Polster eine Ebene tiefer. */
+  padding: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .ps-zone-fold {
