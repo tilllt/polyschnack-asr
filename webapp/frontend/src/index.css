@@ -542,14 +542,17 @@ audio {
    - z-index 0 gegen 1 der Bühne: der Knopf und die Hinweise liegen davor.
    - `opacity` 0 im Ruhezustand, 0.35 während der Aufnahme: sie soll als
      Hintergrund lesen, nicht als Vordergrund.
-   - `pointer-events: none`: Klicks gehören dem Knopf. */
+   - `pointer-events: none`: Klicks gehören dem Knopf.
+   - KEIN `display: flex` (Change 230, Befund 21.09.2026): WaveSurfer legt
+     seine Zeichenfläche als Kind in diesen Behälter. Mit
+     `display: flex; align-items: center; justify-content: center` schrumpft
+     dieses Kind auf 1 px Breite — `getWidth()` meldete 1, und es wurde NIE
+     eine Leinwand erzeugt (die Welle baute sich nicht auf). Gemessen: ohne
+     Flex 636 px / 2 Leinwände, mit Flex 1 px / 0 Leinwände. */
 .ps-record-wave {
   position: absolute;
   inset: 0;
   z-index: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
   opacity: 0;
   transition: opacity 240ms ease;
@@ -897,6 +900,22 @@ audio {
   padding: 0 12px;
   margin: 0;
   max-width: none;
+}
+
+/* Change 230 (Nutzer-Befund 21.09.2026): „die credentials option ragt in das
+   'download' label des buttons. es ist aber auch noch platz bis zur unteren
+   begrezung der drop area, sie kann tiefer."
+   Gemessen (Desktop, Zone 212 px): die Beschriftung „Download" reicht bis
+   423,8 px, der Rahmen der Anmeldedaten begann bei 403,8 px — 20 px Überdeckung,
+   darunter 32,1 px freier Platz. Mobil (Zone 192 px): 15 px Überdeckung, 28 px
+   Platz.
+   Der Rahmen wandert 22 px nach unten. Der negative Außenabstand unten hebt die
+   Höhe wieder auf, sonst würde die Zone ihren Inhalt neu zentrieren und die
+   URL-Zeile samt Kreis um 11 px nach oben schieben (Regel: der Kreis steht
+   fest). */
+.ps-zone-url > .ps-zone-auth {
+  margin-top: 22px;
+  margin-bottom: -22px;
 }
 
 /* Wer Bewegung reduziert haben will, bekommt ein Standbild des Hinweises:
