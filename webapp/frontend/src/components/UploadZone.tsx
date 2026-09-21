@@ -52,17 +52,28 @@ export const SOURCE_OPTION_DEFAULTS: FeatureValues = {
 };
 
 /**
- * Change 226 (Nutzer-Frage 20.09.2026: „Warum kann man meine lokalen mp4 oder
- * andere Video-Dateien auswählen?"): In der Dateiauswahl stand `audio/*`. Das
- * umfasst auch `audio/mp4` — und genau als `audio/mp4` melden Betriebssysteme
- * die Endungen .mp4/.m4a/.m4b; deshalb tauchten Videos im Auswahlfenster auf.
- * Hier stehen deshalb die Audio-Endungen einzeln, Video-Container bleiben außen
- * vor.
+ * Change 227 (Nutzer-Klarstellung 20.09.2026): „du sollst Videocontainer
+ * annehmen, wenn sie sie verarbeiten können. Es muss nur ein Upload size limit
+ * gelten, ansonsten sollten wir alles verarbeiten was wir können."
+ * Change 226 hatte nur Audio-Endungen zugelassen — das war zu eng. Verarbeitet
+ * wird die Tonspur; Container mit Videospur (mp4/mov/mkv/…) sind ausdrücklich
+ * erwünscht. Deshalb bieten wir Ton UND Video an.
  */
 export const AUDIO_ENDUNGEN = [
   ".mp3", ".m4a", ".m4b", ".wav", ".ogg", ".oga", ".opus",
   ".flac", ".aac", ".aif", ".aiff", ".amr", ".wma",
 ] as const;
+
+/** Video-Container — die Tonspur daraus wird transkribiert. */
+export const VIDEO_ENDUNGEN = [
+  ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".ogv",
+  ".3gp", ".ts", ".mts", ".flv", ".wmv", ".mpg", ".mpeg",
+] as const;
+
+/** Was das Auswahlfenster anbietet (Mehrfachauswahl). */
+export const UPLOAD_ACCEPT = [
+  "audio/*", "video/*", ...AUDIO_ENDUNGEN, ...VIDEO_ENDUNGEN,
+].join(",");
 
 export function UploadZone({ user }: Props) {
   const [inputMode, setInputMode] = useState<"upload" | "record" | "url">("upload");
@@ -316,6 +327,24 @@ export function UploadZone({ user }: Props) {
   async function handleFiles(files: FileList | File[]) {
     const items = Array.from(files);
     if (!items.length) return;
+    // Change 227 (Nutzer: „Es muss nur ein Upload size limit gelten"): Das
+    // EINZIGE Limit ist die Größe. Der Server setzt es (MAX_UPLOAD_SIZE_MB,
+    // Vorgabe 1024 MB; für nicht angemeldete Nutzer POLYSCHNACK_ANON_MAX_UPLOAD_MB,
+    // Vorgabe 100 MB — app/anon_limits.py). Die Werte stehen hier gespiegelt,
+    // damit zu große Dateien schon VOR dem Hochladen sichtbar gemeldet werden;
+    // maßgeblich bleibt der Server.
+    const maxMb = user ? 1024 : 100;
+    const grenze = maxMb * 1024 * 1024;
+    const zuGross = items.filter((f) => f.size > grenze);
+    if (zuGross.length) {
+      toast(
+        `${t("upload_zu_gross")} (max ${maxMb} MB): ` +
+          zuGross.map((f) => `${f.name} (${fmtBytes(f.size)})`).join(", "),
+        "err"
+      );
+    }
+    const passende = items.filter((f) => f.size <= grenze);
+    if (!passende.length) return;
     // Kein Sofort-Upload mehr: erst Liste zeigen (Reihenfolge + Modus wählen)
     // Change 211 (Nutzer-Befund 19.09.2026): Weitere Auswahl ANHÄNGEN statt
     // ersetzen — mehrfaches „Click to upload" sammelt eine Upload-Liste.
@@ -324,7 +353,7 @@ export function UploadZone({ user }: Props) {
     setPendingFiles((prev) => {
       const key = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
       const seen = new Set((prev ?? []).map(key));
-      const add = items.filter((f) => !seen.has(key(f)));
+      const add = passende.filter((f) => !seen.has(key(f)));
       return [...(prev ?? []), ...add];
     });
   }
@@ -862,18 +891,12 @@ function UploadTab({ isUploading, uploadProgress, uploadName, active, handleClic
       <input
         ref={fileRef}
         type="file"
-        /* Change 226 (Nutzer-Frage 20.09.2026: „Warum kann man meine lokalen mp4
-           oder andere Video-Dateien auswählen?"): Hier stand `accept="audio/*"`.
-           Das umfasst auch `audio/mp4` — und genau als `audio/mp4` melden
-           Betriebssysteme die Endungen .mp4/.m4a/.m4b. Deshalb bot die
-           Dateiauswahl Videos an. Jetzt stehen die Audio-Endungen einzeln in der
-           Auswahl; Video-Container (.mp4, .mov, .mkv, .avi) sind nicht mehr
-           dabei.
-           OFFEN: `accept` ist nur ein Vorschlag an das Auswahlfenster — über
-           „alle Dateien" kann weiterhin alles gewählt werden. Eine sichtbare
-           Abweisung im Browser gibt es noch NICHT (der Upload geht dann wie
-           bisher an den Server); steht als offener Punkt im Änderungsbericht. */
-        accept={AUDIO_ENDUNGEN.join(",")}
+        /* Change 227: Ton UND Video-Container — verarbeitet wird die Tonspur.
+           Die frühere Beschränkung auf Audio-Endungen (Change 226) war zu eng:
+           Nutzer: „ansonsten sollten wir alles verarbeiten was wir können".
+           Begrenzt wird nur die GRÖSSE, und zwar sichtbar vor dem Hochladen
+           (siehe UPLOAD_MAX_BYTES in handleFiles). */
+        accept={UPLOAD_ACCEPT}
         multiple
         className="hidden"
         onChange={handleInputChange}
