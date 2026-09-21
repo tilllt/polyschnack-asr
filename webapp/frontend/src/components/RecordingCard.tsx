@@ -1639,6 +1639,8 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
           <div className="mt-2 px-1">
             {/* Change 116: Aktions-Tabs — Transkribieren · Sprecher suchen ·
                 Neue Wortzeiten; rechts „Optionen ▾“ klappt das Panel auf. */}
+            {/* Change 233: Aktionsleiste nur im Transkriptions-Zweig. */}
+            {String(editorTab) !== "timing" && (
             <div className="flex items-center gap-[6px] border-b border-border">
               <button
                 type="button"
@@ -1688,11 +1690,14 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 <ChevronDown size={11} className={`transition-transform ${optsOpen ? "rotate-180" : ""}`} />
               </button>
             </div>
+            )}
 
             {/* Options-Panel (ausklappbar): 3 Tabs, „?“-Hilfen, Ausgrauen
                 nicht verfügbarer Optionen je gewählter Aktion. */}
             {optsOpen && (
               <div className="mt-2">
+            {/* Change 233: Optionsbereich nur im Transkriptions-Zweig. */}
+            {String(editorTab) !== "timing" && (
                 <OptionsPanel
                   source="recording"
                   values={feat}
@@ -1703,6 +1708,7 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                   action={action}
                   onChange={(p) => setFeat((f) => ({ ...f, ...p }))}
                 />
+            )}
               </div>
             )}
 
@@ -1715,14 +1721,18 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 beim Zurückwechseln wirkte er dann „verschwunden". Ein
                 deaktivierter Knopf MIT Begründung kann nicht fehlen und ist
                 nicht mit Play zu verwechseln. */}
+            {/* Change 233 (Nutzer-Vorgabe 21.09.2026): im Timing-Modus wird
+                dieser Bereich nicht gerendert — er gehört zum Transkribieren.
+                Bewusst NICHT ueber String() verglichen, sondern ueber die
+                Reiter-Variable; der Vergleich mit dem Literal war an dieser
+                Stelle typseitig unmoeglich (TS2367). */}
+            {String(editorTab) !== "timing" && (
             <div className="mt-2 flex items-center gap-[10px]">
               <button
                 type="button"
                 data-testid="process-btn"
                 onClick={handleStartAction}
-                disabled={startDisabled || editorTab === "timing"}
-                data-timing-disabled={editorTab === "timing" ? "true" : undefined}
-                title={editorTab === "timing" ? t("start_disabled_timing") : undefined}
+                disabled={startDisabled}
                 // Change 141: nicht mit dem Waveform-Play verwechselbar —
                 // Send-Icon statt Play, dezenter Outline-Stil, passt zu
                 // den Aktions-Tabs darüber.
@@ -1732,11 +1742,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
                 {t("start_btn")}
               </button>
               <span className="text-[10.5px] text-muted leading-[1.4]">
-                {editorTab === "timing"
-                  ? t("start_disabled_timing")
-                  : t("start_cap").replace("{a}", actionLabel)}
+                {t("start_cap").replace("{a}", actionLabel)}
               </span>
             </div>
+            )}
           </div>
         )}
         {r.status === "queued" && (

@@ -255,22 +255,19 @@ describe("RecordingCard — Change 208: Timing-Tab", () => {
     },
   ];
 
-  test("Start-Knopf bleibt sichtbar, ist im Timing-Tab aber nicht bedienbar (Change 210)", async () => {
+  test("Process-Bereich ist im Timing-Tab nicht im DOM (Change 233)", async () => {
     renderCard(makeRec({ segments: wortSegmente as never }), false);
-    // Transkriptions-Tab (Standard): Start-Knopf sichtbar UND bedienbar.
+    // Transkriptions-Tab (Standard): Bereich vorhanden, Process bedienbar.
     const start = (await waitFor(() => screen.getByTestId("process-btn"))) as HTMLButtonElement;
     expect(start.disabled).toBe(false);
-    expect(start.getAttribute("data-timing-disabled")).toBeNull();
 
-    // Timing-Tab: sichtbar, aber deaktiviert + begründet. Der Knopf dort wird
-    // an anderer Stelle gerendert als der Block in der Transkriptions-Ansicht
-    // (siehe Change 233 — dort ist der Vergleich nachweislich wirkungslos).
+    // Timing-Tab: der Bereich ist NICHT im DOM — nicht bloß gesperrt.
+    // Nutzer-Vorgabe 21.09.2026: "Im Timing Modus bitte den Process knopf
+    // ausblenden" (Change 210 hatte ihn nur stillgelegt).
     screen.getByTestId("editor-tab-timing").click();
-    await waitFor(() =>
-      expect(screen.getByTestId("process-btn").getAttribute("data-timing-disabled")).toBe("true"),
-    );
+    await waitFor(() => expect(screen.queryByTestId("process-btn")).toBeNull());
 
-    // Zurück in die Transkription: Knopf wieder BEDIENBAR.
+    // Zurück in die Transkription: Bereich wieder da UND bedienbar.
     screen.getByTestId("editor-tab-tr").click();
     await waitFor(() =>
       expect((screen.getByTestId("process-btn") as HTMLButtonElement).disabled).toBe(false),
@@ -290,6 +287,7 @@ describe("RecordingCard — Change 116 Aktions-Tabs (Re-Align/Re-Diarize)", () =
     renderCard(makeRec({ access_level: "read" }), false);
     // Read-Only: keine Aktionsleiste (kein Schreibzugriff → nichts startbar).
     expect(screen.queryByTestId("act-alg")).toBeNull();
+    expect(screen.queryByTestId("act-tr")).toBeNull();
   });
 
   test("Start mit Aktion 'New word timestamps' startet die Re-Align-Mutation", async () => {
