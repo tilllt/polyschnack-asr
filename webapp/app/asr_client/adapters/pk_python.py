@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
-from .. import AsrClient, BackendCapabilities, _parse_result
+from .. import AsrClient, BackendCapabilities, _parse_result, language_field
 from ...config import settings
 
 log = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ class PkPythonClient(AsrClient):
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send audio via sync (batched) endpoint."""
         try:
@@ -62,6 +63,7 @@ class PkPythonClient(AsrClient):
                     headers=self._headers(),
                     files={"file": (filename, audio_bytes, mime)},
                     data={
+                        **language_field(language),
                         "model": settings.ASR_MODEL,
                         "response_format": "verbose_json",
                         "timestamp_granularities": "word",

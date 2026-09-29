@@ -60,8 +60,16 @@ class AsrClient(ABC):
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Transcribe audio → {text, segments[], duration, language}."""
+        """Transcribe audio → {text, segments[], duration, language}.
+
+        ``language`` ist die Nutzerwahl aus dem Sprachwähler (Change 186):
+        ISO-Kürzel wie ``"de"``; ``None`` = AUTO = Formularfeld weglassen,
+        damit sich am Request nichts ändert. Die Signatur kommt aus DIESER
+        Basisklasse — wer sie ändert, ändert die Adapter im selben Schritt
+        (Test ``test_asr_client_signature_invariant`` erzwingt das).
+        """
         ...
 
     def transcribe_streaming(
@@ -287,11 +295,23 @@ def _parse_result(payload: dict) -> Dict[str, Any]:
 # ============================================================
 
 
+def language_field(language: Optional[str]) -> Dict[str, str]:
+    """OpenAI-konformes Formularfeld ``language`` — nur bei echter Wahl.
+
+    ``None`` (AUTO) liefert ein leeres Dict: der Request bleibt dann Byte für
+    Byte wie vor dem Sprachwähler. Alle Adapter bauen ihre Formulardaten mit
+    diesem Helfer, damit „Feld weglassen bei AUTO" EINE Regel hat.
+    """
+    return {"language": language} if language else {}
+
+
 def transcribe(audio_bytes: bytes, filename: str, mime: str,
-               noise_reduce: bool = True) -> Dict[str, Any]:
+               noise_reduce: bool = True,
+               language: Optional[str] = None) -> Dict[str, Any]:
     """Legacy entry point — delegates to get_client()."""
     return get_client().transcribe(audio_bytes, filename, mime,
-                                   noise_reduce=noise_reduce)
+                                   noise_reduce=noise_reduce,
+                                   language=language)
 
 
 def transcribe_streaming(

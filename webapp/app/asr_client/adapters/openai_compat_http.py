@@ -30,7 +30,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from .. import AsrClient, BackendCapabilities, _parse_result
+from .. import AsrClient, BackendCapabilities, _parse_result, language_field
 
 log = logging.getLogger(__name__)
 
@@ -71,12 +71,14 @@ class OpenAiCompatHttpClient(AsrClient):
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Transcribe via POST {base_url}/audio/transcriptions (verbose_json)."""
         headers = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         data = {
+            **language_field(language),
             "model": self.model,
             "response_format": "verbose_json",
             "timestamp_granularities": "word",

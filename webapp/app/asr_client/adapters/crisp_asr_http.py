@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from .. import AsrClient, BackendCapabilities, _parse_result
+from .. import AsrClient, BackendCapabilities, _parse_result, language_field
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ class CrispAsrHttpClient(AsrClient):
     def transcribe(
         self, audio_bytes: bytes, filename: str, mime: str,
         noise_reduce: bool = True,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Transcribe via POST /v1/audio/transcriptions (verbose_json)."""
         try:
@@ -56,6 +57,7 @@ class CrispAsrHttpClient(AsrClient):
                     f"{self.url}/v1/audio/transcriptions",
                     files={"file": (filename, audio_bytes, mime)},
                     data={
+                        **language_field(language),
                         "response_format": "verbose_json",
                         "timestamp_granularities": "word",
                     },

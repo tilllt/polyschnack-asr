@@ -17,10 +17,17 @@ from app.routers.openai_proxy import router as proxy_router
 
 
 class _FakeClient:
+    """Test-Double des Backends.
+
+    Signatur MUSS der Basisklasse entsprechen (Change 234): ein Double, das
+    mehr Kwargs annimmt als die echten Adapter, verdeckt genau den Fehler, den
+    es prüfen soll. Der Wächter unten hält das fest.
+    """
+
     def __init__(self, *args, **kwargs):
         pass
 
-    def transcribe(self, audio_bytes, filename, mime, language=None):
+    def transcribe(self, audio_bytes, filename, mime, noise_reduce=True, language=None):
         return {
             "text": "Hallo Welt",
             "language": "de",
@@ -30,6 +37,17 @@ class _FakeClient:
                 {"start": 0.6, "end": 1.23, "text": "Welt"},
             ],
         }
+
+
+def test_fake_client_signatur_passt_zum_adapter_abc():
+    """Das Double darf nicht mehr können als die echten Adapter (Change 234)."""
+    import inspect
+
+    from app.asr_client import AsrClient
+
+    assert list(inspect.signature(_FakeClient.transcribe).parameters) == list(
+        inspect.signature(AsrClient.transcribe).parameters
+    )
 
 
 @pytest.fixture()
@@ -179,3 +197,77 @@ def test_proxy_backend_error_502(client):
         p.stop()
     assert r.status_code == 502
     assert "backend" in r.json()["detail"]
+
+
+def test_proxy_gegen_echten_adapter_kein_kwarg_fehler(client):
+    """Regression 234: Proxy + ECHTER Adapter statt Test-Double.
+
+    Vorher endete jeder Aufruf mit 502 (`transcribe() got an unexpected
+    keyword argument 'language'`), weil nur das Double das Kwarg kannte.
+    Hier läuft der echte Qwen3-Adapter mit MockTransport — hätte den Fehler
+    von Anfang an gezeigt.
+    """
+    import httpx
+
+    from app.asr_client.adapters.qwen3_asr_http import Qwen3AsrHttpClient
+
+    def handler(request):
+        assert b'name="language"' in request.content, request.content[:400]
+        return httpx.Response(200, json={
+            "task": "transcribe", "language": "de", "duration": 1.0,
+            "text": "Hallo Welt", "segments": [],
+        })
+
+    echt = Qwen3AsrHttpClient(
+        url="http://crispr-qwen3:5094", transport=httpx.MockTransport(handler)
+    )
+    p = mock.patch("app.routers.openai_proxy.get_client", return_value=echt)
+    p.start()
+    try:
+        r = _upload(client, model="qwen3-asr-0.6b", language="de")
+    finally:
+        p.stop()
+    assert r.status_code == 200
+    assert r.json()["text"] == "Hallo Welt"
+
+
+class _Recorder:
+    """Adapter-Double, das die Kwargs mitschreibt (Change 234)."""
+
+    def __init__(self):
+        self.seen = {}
+
+    def transcribe(self, audio_bytes, filename, mime, noise_reduce=True, language=None):
+        self.seen["language"] = language
+        return {
+            "text": "Hallo Welt",
+            "language": language or "de",
+            "duration": 1.0,
+            "segments": [],
+        }
+
+
+def test_proxy_reicht_language_durch(client):
+    """Die Form-Wahl `language` erreicht den Adapter (Change 234)."""
+    rec = _Recorder()
+    p = mock.patch("app.routers.openai_proxy.get_client", return_value=rec)
+    p.start()
+    try:
+        r = _upload(client, model="qwen3-asr-0.6b", language="de")
+    finally:
+        p.stop()
+    assert r.status_code == 200
+    assert rec.seen["language"] == "de"
+
+
+def test_proxy_ohne_language_bleibt_auto(client):
+    """Kein Form-Feld → AUTO (None), kein stiller Default auf eine Sprache."""
+    rec = _Recorder()
+    p = mock.patch("app.routers.openai_proxy.get_client", return_value=rec)
+    p.start()
+    try:
+        r = _upload(client)
+    finally:
+        p.stop()
+    assert r.status_code == 200
+    assert rec.seen["language"] is None
