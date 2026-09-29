@@ -120,3 +120,18 @@ eigener Change, weil er die Bauumgebung der gesamten CI umstellt.
   Fixtures schreiben echte Zeilen; deshalb prüft der Test jetzt auch `tests/`,
   mit genau einer dokumentierten Ausnahme (`tz-invariant-ok`) dort, wo ein
   naiver Wert die *Eingabe* eines Tests ist.
+
+## Ausgerollt (29.09.2026)
+
+- Pipeline 5701 für `8b8ca096`: **success** (alle Jobs grün, inkl. `mirror-ghcr`).
+- Rollout KI-Box (.140) über `ps_kibox.sh @skript`: **REV_VOR=b3c09f75 → REV_NACH=8b8ca096**,
+  Container `polyschnack-ps-webapp-1` neu erstellt, `Up`.
+- Gegenprobe lebendes System: `/health` HTTP 200 (`asr_url: http://ps-pk-onnx:5092`);
+  `POST /v1/audio/transcriptions` **ohne** `language` → 200,
+  **mit** `language=de` → 200 (vorher 502 — der Pfad, den Change 234 repariert).
+- Beleg, dass der Wert wirklich beim Adapter ankommt: Live-Log zeigt
+  `openai_proxy.py:184 return client.transcribe(raw, filename, mime, language=language)`
+  ohne Fehler; das wäre vor dem Fix ein `TypeError` gewesen.
+- Offen: Wirkung des Werts beim *Modell* nicht live messbar — Parakeet ignoriert den
+  Sprachhinweis (de/en/zz liefern identischen Text), Qwen3-Container läuft nicht
+  (`crispr-qwen3` nicht erreichbar, sauberer 502 mit Klartextmeldung).
