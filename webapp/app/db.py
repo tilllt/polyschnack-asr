@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections.abc import Generator
 from pathlib import Path
 
@@ -71,7 +71,10 @@ def _purge_expired() -> None:
         expired = session.exec(
             select(_Recording).where(
                 _Recording.user_id.is_(None),
-                _Recording.created_at < datetime.utcnow() - timedelta(minutes=ret),
+                # tz-aware vergleichen: die Spalte wird ueberall als
+                # datetime.now(timezone.utc) geschrieben; ein naives utcnow()
+                # lehnt SQLModel seit 0.0.40 ab (ValueError, init_db bricht ab).
+                _Recording.created_at < datetime.now(timezone.utc) - timedelta(minutes=ret),
             )
         ).all()
         for rec in expired:

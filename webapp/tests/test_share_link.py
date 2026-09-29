@@ -64,8 +64,9 @@ def anon_rec(db):
             id=1, uid="anon-uid", original_name="a.mp3",
             stored_path=str(audio), user_id=1, status="done",
             text="Hallo Welt", share_token=True,
-            # SQLite speichert naive datetimes — shared_at bewusst OHNE tzinfo
-            shared_at=dt.datetime(2026, 8, 2, 12, 0),
+            # Zeitstempel sind im Backend IMMER tz-aware (sqlmodel >= 0.0.40 lehnt
+            # naive Werte beim Schreiben ab) — auch hier mit Zeitzone bauen.
+            shared_at=dt.datetime(2026, 8, 2, 12, 0, tzinfo=dt.timezone.utc),
             segments=[{"start": 0.0, "end": 2.0, "text": "Hallo Welt"}],
         ))
         s.commit()
@@ -250,11 +251,11 @@ def test_anon_link_versions_gated_since_shared_at(client, anon_rec):
     with Session(db := __import__("app.db", fromlist=["engine"]).engine) as s:
         s.add(TranscriptVersion(
             rec_id=1, version_no=1, kind="transcribe", text="Alt",
-            created_at=dt.datetime(2026, 8, 1, 10, 0),  # naive (SQLite-Stil)
+            created_at=dt.datetime(2026, 8, 1, 10, 0, tzinfo=dt.timezone.utc),  # tz-aware (Backend-Invariante)
         ))
         s.add(TranscriptVersion(
             rec_id=1, version_no=2, kind="edit", text="Neu",
-            created_at=dt.datetime(2026, 8, 2, 13, 0),
+            created_at=dt.datetime(2026, 8, 2, 13, 0, tzinfo=dt.timezone.utc),
         ))
         s.commit()
 

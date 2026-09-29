@@ -5,7 +5,7 @@ from app.timeutil import iso_utc
 
 
 def test_naive_utc_gets_z_suffix():
-    dt = datetime(2026, 8, 22, 11, 48, 59, 589231)
+    dt = datetime(2026, 8, 22, 11, 48, 59, 589231)  # tz-invariant-ok: Eingabe (Altbestand), nie im Modell
     assert iso_utc(dt) == "2026-08-22T11:48:59.589231Z"
 
 

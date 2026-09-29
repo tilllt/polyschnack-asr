@@ -60,7 +60,9 @@ def test_flags_addieren_overhead():
 
 def test_elapsed_since_naiv_wird_als_utc_gelesen():
     aware = datetime.now(timezone.utc) - timedelta(seconds=10)
-    naive = datetime.utcnow() - timedelta(seconds=10)
+    # naiver Wert bewusst: prueft die Altbestand-Lesart (naiv = UTC).
+    # Nicht utcnow() (Deprecation), sondern tz-aware bauen und tzinfo wegnehmen.
+    naive = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=10)
     for t in (aware, naive):
         assert 8 <= elapsed_since(t) <= 12
 
