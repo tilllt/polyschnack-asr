@@ -127,3 +127,30 @@ prüfen, Jobs fair abarbeiten (registrierte User vor anonymen).
   läuft.
 - **Ergebnis:** Unverändert `QueueError` („already has an active job") — der
   Wächter wird durch Change 237 nicht aufgeweicht.
+
+### Req 7: Wartungsauftrag für ausstehende Alignments (Change 238)
+
+- **Ablauf:** Liegt im Datenverzeichnis die Datei `.align-backfill`, zieht die
+  Anwendung beim Start ausstehende Forced-Alignments nach: fertige Aufnahmen
+  **ohne** `align`-Job in der Job-Tabelle, neueste zuerst, je Welle höchstens
+  `WAVE` Aufträge mit Ruhe dazwischen (`app/align_backfill.py`).
+- **Priorität:** Die Wartungs-Aufträge laufen mit `priority=1` und damit
+  hinter der Arbeit angemeldeter Nutzer.
+- **Abbruch:** Ohne Datei passiert nichts; wird die Datei während des Laufs
+  gelöscht, endet der Auftrag. Aufnahmen ohne Audio werden gemerkt und nicht
+  erneut versucht.
+- **Ergebnis:** Kein Text und keine Segmente werden verändert — es entstehen
+  nur reguläre align-Jobs (Versions-Guard des Workers bleibt wirksam).
+
+#### Scenario: Nachziehen nach dem Ausfall
+
+- **Akteure:** Betreiber (Datei anlegen), System.
+- **Eingaben:** Aufnahmen ohne feines Alignment, Auftragsdatei vorhanden.
+- **Ergebnis:** Gedrosselte align-Jobs in Wellen; nach der letzten offenen
+  Aufnahme endet der Lauf von selbst und protokolliert Bilanz und Ende.
+
+#### Scenario: Abbruch durch den Betreiber
+
+- **Akteure:** Betreiber.
+- **Eingaben:** Auftragsdatei während des Laufs löschen.
+- **Ergebnis:** Nach der laufenden Welle wird nichts mehr eingereiht.

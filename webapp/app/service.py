@@ -1977,7 +1977,8 @@ def _prepare_align_audio(rec_id: int,
         return audio_bytes, vad_meta
 
 
-def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
+def _schedule_realign(rec_id: int, separate_backend: str = "none",
+                      priority: int = 0) -> bool:
     """Change 046: Re-Alignment auf dem aktuellen (ggf. korrigierten) Text.
 
     Change 155 (Schritt 4): Statt eigenem Thread wird ein ``align``-Queue-Job
@@ -2008,6 +2009,10 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
         if stored is None or not stored.is_file():
             log.warning("realign: Audio fehlt für rec_id=%s", rec_id)
             return False
+        # Change 238: alten Zustand merken — schlägt das Einreihen fehl, darf
+        # „pending" nicht stehen bleiben (sonst zeigt die UI ewig „Ausrichtung
+        # läuft", obwohl kein Job existiert).
+        previous_alignment = rec.alignment
         rec.alignment = "pending"
         # Change 180: Fortschritt SOFORT setzen — ohne das zeigt die UI
         # zwischen POST und Worker-Start den Restzustand (leere note +
@@ -2025,12 +2030,23 @@ def _schedule_realign(rec_id: int, separate_backend: str = "none") -> bool:
 
     try:
         queue_manager.enqueue(
-            rec_id, user_id=user_id, backend=backend,
+            rec_id, user_id=user_id, backend=backend, priority=priority,
             kind="align", payload={"separate_backend": separate_backend},
             key=f"align-{rec_id}",
         )
     except QueueError as exc:
         log.warning("realign: enqueue fehlgeschlagen rec_id=%s: %s", rec_id, exc)
+        # Change 238: Zustand zurücknehmen (siehe oben).
+        try:
+            with Session(engine) as session:
+                rec2 = session.get(_Rec, rec_id)
+                if rec2 is not None and rec2.alignment == "pending":
+                    rec2.alignment = previous_alignment
+                    session.add(rec2)
+                    session.commit()
+        except Exception:
+            log.warning("realign: Status-Rücknahme fehlgeschlagen rec_id=%s",
+                        rec_id, exc_info=True)
         return False
     log.info("realign: rec_id=%s align-Queue-Job enqueued", rec_id)
     return True
