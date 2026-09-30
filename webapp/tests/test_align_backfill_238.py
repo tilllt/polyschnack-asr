@@ -4,13 +4,10 @@ Befund 30.09.2026: Change 237 hat die Ursache behoben, aus der das
 Hintergrund-Alignment seit Change 173 nie mehr automatisch eingereiht wurde.
 Die Aufnahmen dieser Wochen stehen deshalb mit den groben Wortzeiten des
 Transkriptionslaufs da (103 von 116 Aufnahmen ohne align-Job). Der
-Wartungsauftrag zieht sie nach — gedrosselt, in Wellen, abbrechbar.
+Wartungsauftrag zieht sie nach: als Scheduler-Task, gedrosselt, jederzeit
+abbrechbar über die Auftragsdatei.
 """
 from __future__ import annotations
-
-import os
-import time
-from pathlib import Path
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
@@ -18,6 +15,16 @@ from sqlmodel import Session, SQLModel, create_engine
 from app import align_backfill
 from app.models import Job as JobRow
 from app.models import Recording
+
+
+@pytest.fixture(autouse=True)
+def auftragsdatei(tmp_path, monkeypatch):
+    """Auftragsdatei im tmp-Verzeichnis; Bilanz je Prüfung frisch."""
+    align_backfill.reset_state()
+    monkeypatch.setattr(align_backfill, "flag_path",
+                        lambda data_dir=None: tmp_path / align_backfill.FLAG_NAME)
+    yield
+    align_backfill.reset_state()
 
 
 @pytest.fixture()
@@ -43,18 +50,16 @@ def _rec(eng, rec_id: int, *, status: str = "done", alignment: str = "done") -> 
 def _align_job(eng, rec_id: int) -> None:
     with Session(eng) as s:
         s.add(JobRow(key=f"align-{rec_id}", rec_id=rec_id, kind="align",
-                     status="done"))
+                     status="queued"))
         s.commit()
 
 
-def _auftrag(tmp_path) -> Path:
-    flag = tmp_path / align_backfill.FLAG_NAME
-    flag.write_text("Wartungsauftrag")
-    return flag
+def _auftrag(tmp_path):
+    (tmp_path / align_backfill.FLAG_NAME).write_text("Wartungsauftrag")
 
 
 # ---------------------------------------------------------------------------
-# Auswahl der Kandidaten
+# Auswahl und Auftragsdatei
 # ---------------------------------------------------------------------------
 
 
@@ -74,17 +79,28 @@ def test_kandidaten_nur_ohne_align_job(db_env):
 
 
 def test_flagdatei_steuert_den_auftrag(tmp_path):
-    assert align_backfill.backfill_enabled(str(tmp_path)) is False
+    assert align_backfill.backfill_enabled() is False
     _auftrag(tmp_path)
-    assert align_backfill.backfill_enabled(str(tmp_path)) is True
+    assert align_backfill.backfill_enabled() is True
 
 
 # ---------------------------------------------------------------------------
-# Ablauf: Wellen, Ende, Abbruch
+# Takt
 # ---------------------------------------------------------------------------
 
 
-def test_wellen_und_ende(db_env, tmp_path, monkeypatch):
+def test_ohne_auftragsdatei_tut_der_takt_nichts(db_env, monkeypatch):
+    _rec(db_env, 1)
+    gerufen = []
+    monkeypatch.setattr("app.service._schedule_realign",
+                        lambda *a, **k: gerufen.append(a) or True)
+
+    assert align_backfill.tick() == 0
+    assert gerufen == [], "ohne Auftragsdatei wird nichts eingereiht"
+
+
+def test_takt_reiht_wellenweise_ein(db_env, tmp_path, monkeypatch):
+    """Je Takt höchstens `limit` Aufträge, neueste zuerst, Priorität 1."""
     for rid in (1, 2, 3, 4, 5):
         _rec(db_env, rid)
     _auftrag(tmp_path)
@@ -97,35 +113,22 @@ def test_wellen_und_ende(db_env, tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.service._schedule_realign", fake_schedule)
 
-    stats = align_backfill.run_backfill(wave=2, pause_s=0, data_dir=str(tmp_path))
+    assert align_backfill.tick(2) == 2
+    assert align_backfill.tick(2) == 2
+    assert align_backfill.tick(2) == 1
+    assert align_backfill.tick(2) == 0, "danach ist nichts mehr offen"
 
-    assert stats["enqueued"] == 5
-    assert stats["ende"] == "nichts-mehr-offen"
     assert [r for r, _ in aufrufe] == [5, 4, 3, 2, 1], "neueste zuerst"
     assert all(p == 1 for _, p in aufrufe), "Wartung läuft hinter der Nutzer-Arbeit"
+    bilanz = align_backfill.status()
+    assert bilanz["enqueued"] == 5
+    assert bilanz["ohne_audio"] == []
+    assert bilanz["aktiv"] is True
 
 
-def test_abbruch_wenn_die_auftragsdatei_verschwindet(db_env, tmp_path, monkeypatch):
-    """Löschen der Datei bricht ab — der Nutzer behält die Kontrolle."""
-    for rid in (1, 2, 3):
-        _rec(db_env, rid)
-    flag = _auftrag(tmp_path)
-
-    def fake_schedule(rec_id, separate_backend="none", priority=0):
-        _align_job(db_env, rec_id)
-        flag.unlink()
-        return True
-
-    monkeypatch.setattr("app.service._schedule_realign", fake_schedule)
-
-    stats = align_backfill.run_backfill(wave=3, pause_s=0, data_dir=str(tmp_path))
-
-    assert stats["ende"] == "abgebrochen"
-    assert stats["enqueued"] == 1, "nach dem Abbruch wird nichts mehr eingereiht"
-
-
-def test_ohne_audio_wird_nicht_wiederholt(db_env, tmp_path, monkeypatch):
-    """Aufnahmen, deren Audio fehlt, dürfen die Schleife nicht endlos drehen."""
+def test_aufnahme_ohne_audio_blockiert_die_wartung_nicht(db_env, tmp_path, monkeypatch):
+    """Ohne Audio: einmal versuchen, merken, weiterziehen — sonst hinge der
+    Task für immer an derselben Aufnahme."""
     _rec(db_env, 1)
     _rec(db_env, 2)   # Audio angeblich weg
     _auftrag(tmp_path)
@@ -140,74 +143,42 @@ def test_ohne_audio_wird_nicht_wiederholt(db_env, tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.service._schedule_realign", fake_schedule)
 
-    stats = align_backfill.run_backfill(wave=2, pause_s=0, data_dir=str(tmp_path))
+    assert align_backfill.tick(1) == 0     # zuerst kommt Aufnahme 2 dran
+    assert align_backfill.tick(1) == 1     # dann Aufnahme 1
+    assert align_backfill.tick(1) == 0
 
-    assert stats["ohne_audio"] == [2]
     assert versuche.count(2) == 1, "kein zweiter Versuch für dieselbe Aufnahme"
-    assert stats["enqueued"] == 1
-    assert stats["ende"] == "nichts-mehr-offen"
+    assert align_backfill.status()["ohne_audio"] == [2]
 
 
-def test_obergrenze_beendet_den_lauf(db_env, tmp_path, monkeypatch):
-    for rid in (1, 2, 3, 4):
-        _rec(db_env, rid)
-    _auftrag(tmp_path)
-
-    def fake_schedule(rec_id, separate_backend="none", priority=0):
-        _align_job(db_env, rec_id)
-        return True
-
-    monkeypatch.setattr("app.service._schedule_realign", fake_schedule)
-
-    stats = align_backfill.run_backfill(wave=2, pause_s=0, max_total=2,
-                                        data_dir=str(tmp_path))
-
-    assert stats["enqueued"] == 2
-    assert stats["ende"] == "obergrenze-erreicht"
-
-
-def test_stop_event_bricht_ab(db_env, tmp_path, monkeypatch):
-    import threading
-
+def test_datei_loeschen_beendet_den_auftrag(db_env, tmp_path, monkeypatch):
+    """Löschen der Auftragsdatei beendet die Wartung (Bilanz wird protokolliert)."""
     _rec(db_env, 1)
     _auftrag(tmp_path)
-    stop = threading.Event()
-    stop.set()
+    monkeypatch.setattr("app.service._schedule_realign",
+                        lambda rec_id, separate_backend="none", priority=0:
+                        _align_job(db_env, rec_id) or True)
 
-    stats = align_backfill.run_backfill(wave=2, pause_s=0, stop_event=stop,
-                                        data_dir=str(tmp_path))
+    assert align_backfill.tick(1) == 1
+    assert align_backfill.status()["enqueued"] == 1
 
-    assert stats["ende"] == "abgebrochen"
-    assert stats["enqueued"] == 0
+    (tmp_path / align_backfill.FLAG_NAME).unlink()
+    assert align_backfill.tick(1) == 0
+    assert align_backfill.status()["enqueued"] == 0, "Bilanz nach dem Ende zurückgesetzt"
 
 
 # ---------------------------------------------------------------------------
-# Start über die Anwendung (nur mit Auftragsdatei)
+# Registrierung in der Scheduler-Registry (kein eigener Thread)
 # ---------------------------------------------------------------------------
 
 
-def test_start_nur_mit_auftragsdatei(monkeypatch):
-    """Der Wartungsauftrag läuft nur, wenn die Datei liegt — und dann wirklich."""
+def test_task_ist_im_scheduler_registriert():
+    """Der Wartungsauftrag läuft als Scheduler-Task — nicht als nackter Thread
+    (CI-Wächter: jeder `threading.Thread` in app/ braucht einen Zweck-Marker)."""
     from fastapi.testclient import TestClient
 
     import app.main as main_mod
+    from app.scheduler import scheduler
 
-    aufrufe = []
-    monkeypatch.setattr(align_backfill, "run_backfill", lambda **kw: aufrufe.append(kw))
-
-    flag = Path(os.environ["DATA_DIR"]) / align_backfill.FLAG_NAME
-    flag.unlink(missing_ok=True)
-    try:
-        with TestClient(main_mod.app):
-            time.sleep(0.1)
-        assert aufrufe == [], "ohne Auftragsdatei startet nichts"
-
-        flag.write_text("Wartungsauftrag")
-        with TestClient(main_mod.app):
-            for _ in range(100):
-                if aufrufe:
-                    break
-                time.sleep(0.05)
-        assert len(aufrufe) == 1, "mit Auftragsdatei startet der Lauf genau einmal"
-    finally:
-        flag.unlink(missing_ok=True)
+    with TestClient(main_mod.app):
+        assert "align-backfill" in scheduler.task_names()

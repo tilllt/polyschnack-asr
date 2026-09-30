@@ -131,14 +131,16 @@ prüfen, Jobs fair abarbeiten (registrierte User vor anonymen).
 ### Req 7: Wartungsauftrag für ausstehende Alignments (Change 238)
 
 - **Ablauf:** Liegt im Datenverzeichnis die Datei `.align-backfill`, zieht die
-  Anwendung beim Start ausstehende Forced-Alignments nach: fertige Aufnahmen
-  **ohne** `align`-Job in der Job-Tabelle, neueste zuerst, je Welle höchstens
-  `WAVE` Aufträge mit Ruhe dazwischen (`app/align_backfill.py`).
+  Anwendung ausstehende Forced-Alignments nach: fertige Aufnahmen **ohne**
+  `align`-Job in der Job-Tabelle, neueste zuerst. Der Auftrag läuft als Task
+  der Scheduler-Registry (alle 30 s) und reiht je Takt höchstens `WAVE`
+  Aufträge ein (`app/align_backfill.py`) — kein eigener Thread, kein Schlafen
+  im Task.
 - **Priorität:** Die Wartungs-Aufträge laufen mit `priority=1` und damit
   hinter der Arbeit angemeldeter Nutzer.
-- **Abbruch:** Ohne Datei passiert nichts; wird die Datei während des Laufs
-  gelöscht, endet der Auftrag. Aufnahmen ohne Audio werden gemerkt und nicht
-  erneut versucht.
+- **Start/Abbruch:** Ohne Datei ist der Task ein Leerlauf (er berührt keine
+  Aufnahme). Datei anlegen startet die Wartung, Datei löschen beendet sie —
+  ohne Neustart. Aufnahmen ohne Audio werden gemerkt und nicht erneut versucht.
 - **Ergebnis:** Kein Text und keine Segmente werden verändert — es entstehen
   nur reguläre align-Jobs (Versions-Guard des Workers bleibt wirksam).
 

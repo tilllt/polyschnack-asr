@@ -8,25 +8,25 @@ Transkriptionslaufs da — auf der KI-Box gemessen: **103 von 116 Aufnahmen
 ohne align-Job** (Stand 30.09.2026), der jüngste align-Job stammt vom
 19.09.2026.
 
-**Wie er arbeitet.** Nicht sofort für alle 103, sondern gedrosselt in Wellen:
-je Welle bis zu `WAVE` Aufträge, dazwischen `PAUSE_S` Ruhe. Die Aufträge
-laufen mit **Priorität 1** (wie anonyme Jobs) und damit hinter der normalen
-Arbeit eines angemeldeten Nutzers. Jeder Auftrag ist der reguläre
-`align`-Queue-Job (Change 046/155): der Worker bereitet das Audio selbst vor
-und die Wortzeiten werden per Versions-Guard nur dann ersetzt, wenn die
-Segmente unverändert sind. Text und Segmente werden **nie** angefasst.
+**Wie er arbeitet.** Als Task der Scheduler-Registry (dasselbe Muster wie
+``peaks-backfill``), nicht als eigener Thread: Der Scheduler ruft ``tick()``
+regelmäßig auf, jeder Takt reiht **bis zu ``WAVE``** Aufträge ein und ist
+sofort wieder fertig (kein Schlafen im Task, kein Overlap). Die Aufträge
+laufen mit **Priorität 1** — wie anonyme Jobs, also hinter der Arbeit eines
+angemeldeten Nutzers. Jeder Auftrag ist der reguläre ``align``-Queue-Job
+(Change 046/155): der Worker bereitet das Audio selbst aus der gespeicherten
+Datei vor, der Versions-Guard verwirft das Ergebnis, wenn sich die Segmente
+während des Laufs geändert haben. Text und Segmente werden **nie** angefasst.
 
 **Wie man ihn startet und abbricht.** Er läuft nur, wenn im Datenverzeichnis
-die Datei `.align-backfill` liegt — und nur beim Start der Anwendung
-(Wartungsfenster). Die Datei während des Laufs löschen bricht ab; nach dem
-letzten offenen Auftrag endet er von selbst. Ohne Datei passiert nichts.
+die Datei ``.align-backfill`` liegt. Anlegen startet ihn (innerhalb eines
+Ticks), Löschen beendet ihn — ohne Neustart, ohne Konfiguration. Ohne Datei
+ist der Task ein Leerlauf.
 """
 from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -38,13 +38,23 @@ from .models import Recording
 
 log = logging.getLogger(__name__)
 
-#: Wartungsauftrag: liegt diese Datei im Datenverzeichnis, werden beim Start
-#: ausstehende Alignments nachgezogen. Löschen = Abbruch (auch im Lauf).
+#: Wartungsauftrag: liegt diese Datei im Datenverzeichnis, werden ausstehende
+#: Alignments nachgezogen. Löschen = Ende (greift beim nächsten Takt).
 FLAG_NAME = ".align-backfill"
 
-#: Aufträge je Welle und Ruhe zwischen den Wellen (schont die Box).
+#: Aufträge je Takt (schont die Box: die Wartung läuft neben dem Betrieb).
 WAVE = 4
-PAUSE_S = 20.0
+
+#: Takt des Auftrags in Sekunden (so registriert in main.py).
+TICK_S = 30.0
+
+#: Prozess-Status der Wartung — nur Anzeige/Diagnose, keine Steuerung.
+_state: Dict[str, Any] = {
+    "enqueued": 0,
+    "skipped": 0,
+    "ohne_audio": set(),
+    "abschluss_gemeldet": False,
+}
 
 
 def flag_path(data_dir: Optional[str] = None) -> Path:
@@ -57,13 +67,27 @@ def backfill_enabled(data_dir: Optional[str] = None) -> bool:
     return flag_path(data_dir).is_file()
 
 
+def status() -> Dict[str, Any]:
+    """Bilanz des laufenden Auftrags (für Protokoll und Diagnose)."""
+    out = dict(_state)
+    out["ohne_audio"] = sorted(int(x) for x in _state["ohne_audio"])
+    out["aktiv"] = backfill_enabled()
+    return out
+
+
+def reset_state() -> None:
+    """Bilanz zurücksetzen (Auftrag beendet oder neu angelegt)."""
+    _state.update({"enqueued": 0, "skipped": 0, "ohne_audio": set(),
+                   "abschluss_gemeldet": False})
+
+
 def candidates(session: Session, limit: int = 200,
                exclude: Optional[Set[int]] = None) -> List[Recording]:
     """Fertige Aufnahmen, deren feines Alignment nie gelaufen ist.
 
     Kriterium ist bewusst die **Job-Tabelle**, nicht das Feld ``alignment``:
     das Feld steht auch dann auf ``done``, wenn nur die groben Wortzeiten des
-    Transkriptionslaufs existieren (`_build_word_stream`). „Kein align-Job"
+    Transkriptionslaufs existieren (``_build_word_stream``). „Kein align-Job"
     ist damit das ehrliche Merkmal für „der präzise Lauf hat nie
     stattgefunden". Neueste zuerst — die jüngsten Aufnahmen hat der Nutzer
     gerade offen.
@@ -73,68 +97,58 @@ def candidates(session: Session, limit: int = 200,
         select(Recording)
         .where(Recording.status == "done")
         .where(~Recording.id.in_(mit_job))
-        .order_by(Recording.id.desc())
-        .limit(limit)
     )
-    rows = list(session.exec(stmt).all())
     if exclude:
-        rows = [r for r in rows if r.id not in exclude]
-    return rows
+        # Ausschluss in der ABFRAGE, nicht danach: sonst frisst das LIMIT die
+        # Plätze mit Aufnahmen, die wir ohnehin überspringen wollen.
+        stmt = stmt.where(~Recording.id.in_(sorted(int(x) for x in exclude)))
+    stmt = stmt.order_by(Recording.id.desc()).limit(limit)
+    return list(session.exec(stmt).all())
 
 
-def run_backfill(*, wave: int = WAVE, pause_s: float = PAUSE_S,
-                 stop_event: Optional[threading.Event] = None,
-                 max_total: Optional[int] = None,
-                 data_dir: Optional[str] = None) -> Dict[str, Any]:
-    """Zieht ausstehende Alignments nach — gedrosselt und abbruchfähig.
+def tick(limit: int = WAVE) -> int:
+    """Ein Takt des Wartungsauftrags — reiht bis zu ``limit`` Aufträge ein.
 
-    Endet, wenn (a) die Auftrags-Datei fehlt (Abbruch durch den Nutzer),
-    (b) keine Aufnahme mehr aussteht oder (c) ``max_total`` erreicht ist.
-    Aufnahmen, deren Audio fehlt, werden gemerkt und nicht erneut versucht —
-    sonst liefe die Schleife endlos gegen dieselben Kandidaten.
+    Gibt die Zahl der eingereihten Aufträge zurück (0 ohne Auftragsdatei
+    oder wenn nichts mehr offen ist). Wird vom Scheduler aufgerufen; läuft
+    nie länger als ein paar Datenbankabfragen.
     """
-    flag = flag_path(data_dir)
-    stats: Dict[str, Any] = {"enqueued": 0, "skipped": 0, "rounds": 0,
-                             "ende": "unbekannt", "ohne_audio": []}
-    unmoeglich: Set[int] = set()
+    if not backfill_enabled():
+        if _state["enqueued"] or _state["ohne_audio"]:
+            log.info("Wartungsauftrag align-backfill beendet: %s", status())
+            reset_state()
+        return 0
 
-    while True:
-        if stop_event is not None and stop_event.is_set():
-            stats["ende"] = "abgebrochen"
-            break
-        if not flag.is_file():
-            stats["ende"] = "auftragsdatei-fehlt"
-            break
+    with Session(db.engine) as session:
+        offen = candidates(session, limit=limit, exclude=_state["ohne_audio"])
 
-        with Session(db.engine) as session:
-            offen = candidates(session, limit=wave, exclude=unmoeglich)
-        if not offen:
-            stats["ende"] = "nichts-mehr-offen"
-            break
+    if not offen:
+        if not _state["abschluss_gemeldet"]:
+            log.info(
+                "Wartungsauftrag align-backfill: nichts mehr offen "
+                "(%d nachgezogen, %d ohne Audio) — Auftragsdatei kann gelöscht werden",
+                _state["enqueued"], len(_state["ohne_audio"]))
+            _state["abschluss_gemeldet"] = True
+        return 0
 
-        for rec in offen:
-            if not flag.is_file() or (stop_event is not None and stop_event.is_set()):
-                stats["ende"] = "abgebrochen"
-                break
-            if _einreihen(rec.id):
-                stats["enqueued"] += 1
-            else:
-                stats["skipped"] += 1
-                if rec.id is not None:
-                    unmoeglich.add(int(rec.id))
-                    stats["ohne_audio"].append(int(rec.id))
-        stats["rounds"] += 1
+    eingereiht = 0
+    for rec in offen:
+        if rec.id is None:
+            continue
+        if _einreihen(int(rec.id)):
+            eingereiht += 1
+            _state["enqueued"] += 1
+        else:
+            # Audio fehlt/nicht lesbar oder Aufnahme inzwischen belegt: merken,
+            # nicht erneut versuchen (sonst bliebe der Task an derselben
+            # Aufnahme hängen und käme nie weiter).
+            _state["skipped"] += 1
+            _state["ohne_audio"].add(int(rec.id))
 
-        if stats["ende"] == "abgebrochen":
-            break
-        if max_total is not None and stats["enqueued"] >= max_total:
-            stats["ende"] = "obergrenze-erreicht"
-            break
-        if pause_s > 0:
-            time.sleep(pause_s)
-
-    log.info("Wartungsauftrag align-backfill beendet: %s", stats)
-    return stats
+    if eingereiht:
+        log.info("Wartungsauftrag align-backfill: %d Auftrag/Aufträge eingereiht "
+                 "(Summe %d)", eingereiht, _state["enqueued"])
+    return eingereiht
 
 
 def _einreihen(rec_id: int) -> bool:

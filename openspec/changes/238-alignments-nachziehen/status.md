@@ -31,18 +31,24 @@ des Transkriptionslaufs stehen. Gemessen auf der KI-Box (30.09.2026):
 Ein **Wartungsauftrag**, der nur auf ausdrückliche Anforderung läuft — kein
 Dauerbetrieb, kein Automatismus:
 
-- Ohne die Datei `.align-backfill` im Datenverzeichnis passiert beim Start
-  **nichts**. Liegt sie dort, startet die Anwendung (Lifespan) einen
-  Hintergrund-Thread.
-- Er zieht fertige Aufnahmen **ohne `align`-Job** nach, neueste zuerst,
-  gedrosselt in Wellen (`WAVE=4`, dazwischen `PAUSE_S=20`).
+- Ohne die Datei `.align-backfill` im Datenverzeichnis tut der Auftrag
+  **nichts**. Liegt sie dort, reiht der nächste Takt Aufträge ein.
+- Er läuft als **Task der Scheduler-Registry** (`align-backfill`, alle 30 s) —
+  dasselbe Muster wie `peaks-backfill`, **kein eigener Thread** (der CI-Wächter
+  verbietet nackte Threads in `app/`; Arbeit gehört über die Queue oder die
+  Registry). Jeder Takt reiht bis zu `WAVE=4` Aufträge ein und ist sofort
+  wieder fertig — kein Schlafen im Task, kein Überlappen.
+- Er zieht fertige Aufnahmen **ohne `align`-Job** nach, neueste zuerst. Maßstab
+  ist die **Job-Tabelle**, nicht das Feld `alignment`: das steht auch dann auf
+  `done`, wenn nur die groben Wortzeiten des Transkriptionslaufs existieren.
 - Die Aufträge laufen mit **Priorität 1** — wie anonyme Jobs, also hinter der
   Arbeit eines angemeldeten Nutzers. Dafür hat `_schedule_realign` einen
   `priority`-Parameter bekommen (Standard 0, unverändertes Verhalten).
-- **Abbruch jederzeit** durch Löschen der Datei; er greift nach der laufenden
-  Welle. Nach der letzten offenen Aufnahme endet der Lauf von selbst.
+- **Start und Abbruch ohne Neustart:** Datei anlegen startet die Wartung
+  (innerhalb eines Takts), Datei löschen beendet sie. Nach der letzten offenen
+  Aufnahme meldet der Task einmal „nichts mehr offen".
 - Aufnahmen ohne Audio (Datei fehlt) werden gemerkt und **nicht** erneut
-  versucht — sonst liefe die Schleife endlos gegen dieselben Kandidaten.
+  versucht — sonst käme der Task an derselben Aufnahme nie vorbei.
 
 Was dabei **nicht** passiert: Text, Segmente und Sprecher bleiben unangetastet.
 Es entsteht der reguläre `align`-Queue-Job (Change 046/155); der Worker
@@ -62,25 +68,27 @@ zurückgenommen.
 
 ## Prüfungen
 
-`webapp/tests/test_align_backfill_238.py` (8 Prüfungen, alle grün):
+`webapp/tests/test_align_backfill_238.py` (7 Prüfungen, alle grün):
 
 - Kandidaten: nur fertige Aufnahmen ohne `align`-Job, neueste zuerst —
   Maßstab ist die Job-Tabelle, nicht das Feld `alignment`.
-- Wellen und Ende: 5 Kandidaten, `wave=2`, in mehreren Runden; Bilanz
-  `enqueued=5`, Ende `nichts-mehr-offen`; alle Aufträge mit Priorität 1.
-- Abbruch: Datei verschwindet während der Welle → Ende `abgebrochen`, danach
-  wird nichts mehr eingereiht.
-- Aufnahme ohne Audio: einmal versucht, gemerkt, nicht wiederholt.
-- Obergrenze (`max_total`) und `stop_event`.
-- Start über die Anwendung: ohne Datei startet nichts, mit Datei genau ein Lauf.
+- Auftragsdatei: ohne Datei tut der Takt nichts (nichts wird eingereiht).
+- Takte: 5 Kandidaten, `limit=2` → 2/2/1/0; Reihenfolge neueste zuerst; alle
+  Aufträge mit Priorität 1; Bilanz `enqueued=5`.
+- Aufnahme ohne Audio: einmal versucht, gemerkt, nicht wiederholt — die übrigen
+  laufen weiter (Ausschluss steckt in der Abfrage, nicht hinter dem `LIMIT`).
+- Datei löschen: nächster Takt beendet den Auftrag und setzt die Bilanz zurück.
+- Registrierung: `align-backfill` steht in der Scheduler-Registry.
 
 ## Ablauf auf der KI-Box
 
 1. Rollout (Change 237 + 238) nach grünem CI-Job `build-webapp`.
-2. `touch /data/.align-backfill` im Container.
-3. Container neu starten → der Auftrag läuft im Hintergrund; Fortschritt im
-   Protokoll (`Wartungsauftrag align-backfill beendet: {…}`) und über die
-   align-Jobs in der Datenbank.
-4. Beobachtung über die ersten Wellen; bei Bedarf Datei löschen = Abbruch.
-5. Danach die Bilanz dokumentieren (wie viele Aufnahmen wirklich nachgezogen
+2. `docker exec polyschnack-ps-webapp-1 touch /data/.align-backfill`.
+3. Abwarten — innerhalb von 30 s beginnt der erste Takt; Fortschritt im
+   Container-Protokoll (`Wartungsauftrag align-backfill: …`) und über die
+   align-Jobs in der Datenbank. **Kein Neustart nötig.**
+4. Erste Takte beobachten (läuft ein align-Job wirklich durch? ändern sich die
+   Wortzeiten einer Beispielaufnahme?), dann laufen lassen.
+5. Abbruch jederzeit: `rm /data/.align-backfill` — greift beim nächsten Takt.
+6. Danach die Bilanz dokumentieren (wie viele Aufnahmen wirklich nachgezogen
    wurden, wie viele ohne Audio blieben).

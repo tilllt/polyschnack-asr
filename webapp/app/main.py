@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict
@@ -128,22 +127,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except QueueError:
                 log.warning("re-enqueue skipped for rec_id=%s", rec_id)
 
-    # --- Change 238: Wartungsauftrag „ausstehende Alignments nachziehen".
-    # --- Läuft NUR, wenn im Datenverzeichnis die Auftrags-Datei `.align-backfill`
-    # --- liegt (Wartungsfenster, kein Normalbetrieb), im Hintergrund-Thread und
-    # --- gedrosselt in Wellen; Löschen der Datei bricht ab.
-    try:
-        from .align_backfill import backfill_enabled, flag_path, run_backfill
-
-        if backfill_enabled():
-            log.warning(
-                "Wartungsauftrag: ausstehende Forced-Alignments werden nachgezogen "
-                "(Auftragsdatei %s — löschen bricht ab)", flag_path())
-            threading.Thread(target=run_backfill, name="align-backfill",
-                             daemon=True).start()
-    except Exception:
-        log.exception("Wartungsauftrag align-backfill konnte nicht starten")
-
     # Startup diagnostics: model availability
     log.info("silero-vad (VAD): %s", "✓ cached" if _check_vad() else "✗ not installed")
     diar_ok = _check_diarize()
@@ -207,6 +190,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     scheduler.register("peaks-backfill", 30, _run_peaks_backfill,
                        "fehlende Waveform-Peaks nachberechnen")
+    # --- Change 238: Wartungsauftrag „ausstehende Alignments nachziehen".
+    # --- Läuft NUR, wenn im Datenverzeichnis die Auftrags-Datei `.align-backfill`
+    # --- liegt (Wartungsfenster, kein Normalbetrieb); ohne Datei ist der Task
+    # --- ein Leerlauf. Anlegen/Löschen der Datei wirkt ohne Neustart.
+    from .align_backfill import TICK_S, tick as _run_align_backfill
+
+    scheduler.register("align-backfill", TICK_S, _run_align_backfill,
+                       "ausstehende Forced-Alignments nachziehen (nur mit Auftragsdatei)")
     scheduler.start()
 
     # --- Change 053: Yjs-Sync-Server starten (falls pycrdt im Image) ---
