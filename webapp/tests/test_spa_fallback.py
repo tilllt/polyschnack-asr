@@ -75,3 +75,41 @@ def test_root_ohne_build_zeigt_hint(tmp_path, monkeypatch):
         assert "text/html" in res.headers["content-type"]
         res2 = c.get("/r/irgendwas")
         assert res2.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Change 237: Der SPA-Rückfall gilt nur für Client-Routen.
+# ---------------------------------------------------------------------------
+
+
+def test_versteckte_und_datei_pfade_bleiben_404(spa_app):
+    """Befund 30.09.2026: Ein Scanner bekam für /.env, /.aws/credentials und
+    39 weitere Pfade „200 OK" samt SPA-Hülle (kein Leck, aber ein
+    irreführender Treffer — 1261 Byte text/html statt 404).
+    """
+    for pfad in ("/.env", "/.aws/credentials", "/.git/config",
+                 "/wp-login.php", "/index.php", "/foo.txt"):
+        res = spa_app.get(pfad)
+        assert res.status_code == 404, f"{pfad} muss 404 liefern"
+        assert not res.headers["content-type"].startswith("text/html"), pfad
+
+
+def test_client_routen_liefern_weiterhin_die_spa(spa_app):
+    """Der Rückfall für echte Routen bleibt unberührt (Gegenprobe zu oben)."""
+    for pfad in ("/r/ee35cbb8b2b5449bbf5a88c8f43b3f3b", "/benchmark",
+                 "/recording/123", "/irgendwas/ganz/unbekannt"):
+        res = spa_app.get(pfad)
+        assert res.status_code == 200, pfad
+        assert "SPA-ROOT" in res.text, pfad
+
+
+def test_spa_pfad_pruefung_einheitlich():
+    """Die Regel selbst (ohne HTTP): Datei-Endung oder verstecktes Segment."""
+    from app.main import _looks_like_file
+
+    assert _looks_like_file("/.env") is True
+    assert _looks_like_file("/.aws/credentials") is True
+    assert _looks_like_file("/assets/index-abc.js") is True
+    assert _looks_like_file("/r/abc") is False
+    assert _looks_like_file("/benchmark") is False
+    assert _looks_like_file("") is False

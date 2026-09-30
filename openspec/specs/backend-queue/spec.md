@@ -92,3 +92,38 @@ prüfen, Jobs fair abarbeiten (registrierte User vor anonymen).
 - **Eingaben:** Transcribe mit paid-Backend.
 - **Ergebnis:** 403 „kostenpflichtige Endpunkte sind für anonyme Nutzung
   gesperrt".
+
+### Req 6: Folge-Aufträge werden nach dem Abmelden des Jobs eingereiht (Change 237)
+
+- **Ablauf:** Ein Job, der aus seinem eigenen Lauf einen Folge-Auftrag für
+  dieselbe Aufnahme braucht (Hintergrund-Alignment nach der Transkription),
+  merkt ihn über `QueueManager.enqueue_after_current(job, …)` vor. Der Worker
+  reiht ihn unmittelbar nach `_jobs.pop(key)` ein (`_run_deferred`).
+- **Grund:** Der Ein-Job-Wächter lässt keinen zweiten Job derselben Aufnahme
+  zu, solange einer aktiv ist — aus dem laufenden Job heraus war der
+  Folge-Auftrag deshalb **nie** einreihbar (Live-Befund 30.09.2026: 7×
+  „bg-align: enqueue fehlgeschlagen … already has an active job" in 24 h,
+  jüngster align-Job 19.09.2026).
+- **Ergebnis:** Nach jeder erfolgreichen Transkription mit ausstehendem
+  Alignment existiert ein `align`-Job; der Wächter bleibt unverändert scharf
+  (zwei gleichzeitige Jobs derselben Aufnahme sind weiterhin verboten).
+  Schlägt das Einreihen fehl (z. B. Queue voll), bleibt es bei einer
+  Protokoll-Meldung — der abgeschlossene Job scheitert nicht daran.
+- **Architektur:** `queue.py` (`Job.deferred`, `enqueue_after_current`,
+  `_run_deferred`), `service.py` (`process_recording`).
+
+#### Scenario: Hintergrund-Alignment nach der Transkription
+
+- **Akteure:** Registrierter User.
+- **Eingaben:** Transkription mit aktiviertem Wort-Alignment.
+- **Ergebnis:** Der `transcribe`-Job läuft, meldet das Alignment vor, wird
+  abgemeldet — und erst danach steht `align-<rec_id>` in der Warteschlange
+  (nicht schon während des Laufs, nicht versehentlich gar nicht).
+
+#### Scenario: Aufnahme bleibt einfach belegt
+
+- **Akteure:** Registrierter User, zwei Läufe kurz hintereinander.
+- **Eingaben:** Zweiter `/transcribe` auf dieselbe Aufnahme, während der erste
+  läuft.
+- **Ergebnis:** Unverändert `QueueError` („already has an active job") — der
+  Wächter wird durch Change 237 nicht aufgeweicht.

@@ -3201,15 +3201,23 @@ def process_recording(rec_id: int, backend: Optional[str] = None, job=None) -> N
                 # bereitet das Audio selbst vor und aktualisiert die Segmente
                 # per Versions-Guard. Nie ein Job-Fail, nie blockierend.
                 if alignment_pending:
-                    from .queue import QueueError, queue_manager
+                    from .queue import queue_manager
 
-                    try:
-                        queue_manager.enqueue(
-                            rec_id, user_id=None, backend=rec.backend or "",
-                            kind="align", key=f"align-{rec_id}",
-                        )
-                    except QueueError as exc:
-                        log.warning("bg-align: enqueue fehlgeschlagen rec_id=%s: %s", rec_id, exc)
+                    # Change 237: Der Auftrag wird erst NACH dem Abmelden
+                    # dieses Jobs eingereiht (enqueue_after_current →
+                    # _run_deferred). Direkt hier lief er gegen den
+                    # Ein-Job-Wächter (Change 173): der eigene Transkriptions-
+                    # Job steht zu diesem Zeitpunkt noch in `_jobs`, der
+                    # Wächter lehnt jeden zweiten Job derselben Aufnahme ab.
+                    # Live-Befund 30.09.2026: 7× „bg-align: enqueue
+                    # fehlgeschlagen … already has an active job" in 24 h,
+                    # letzter automatischer align-Job am 19.09.2026 — die
+                    # präzisen Wortzeiten (statt Backend-/linear verteilter)
+                    # entstanden deshalb gar nicht mehr.
+                    queue_manager.enqueue_after_current(
+                        job, rec_id, backend=rec.backend or "",
+                        kind="align", key=f"align-{rec_id}",
+                    )
 
     # Change 085: Phasen-Stichproben in den ETA-Learner einspeisen (eigene
     # Session; ein Fehler darf den Job-Abschluss nie blockieren).

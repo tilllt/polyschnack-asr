@@ -404,11 +404,33 @@ async def db_error_handler(request: Request, exc: SQLAlchemyError) -> JSONRespon
 # instead of crashing at startup.
 # ------------------------------------------------------------------
 
+
+def _looks_like_file(full_path: str) -> bool:
+    """Pfad sieht wie eine Datei/ein verstecktes Verzeichnis aus (Change 237).
+
+    Client-Routen der SPA sind nackte Pfade (`/r/<uid>`, `/benchmark`).
+    Ein Punkt im letzten Abschnitt (`/robots.txt`, `/foo.php`) oder ein
+    verstecktes Segment (`/.env`, `/.aws/credentials`, `/.git/config`)
+    dagegen ist keine Route — dort gehört ein 404 hin, nicht die SPA-Hülle.
+    """
+    parts = [p for p in full_path.split("/") if p]
+    if any(p.startswith(".") for p in parts):
+        return True
+    return bool(parts) and "." in parts[-1]
+
+
 @app.get("/{full_path:path}", include_in_schema=False)
 def spa_fallback(full_path: str):
     """Statische Assets servieren; unbekannte Pfade (z.B. /r/:uid
     Share-Links) → index.html, damit der Client-Router rendert.
-    API-Pfade ohne Treffer bleiben 404."""
+    API-Pfade ohne Treffer bleiben 404.
+
+    Change 237: Der Rückfall gilt nur noch für Client-Routen. Ein Pfad, der
+    wie eine DATEI aussieht (Punkt-Endung) oder ein verstecktes Verzeichnis
+    (`.env`, `.aws/credentials`, `.git/config`) ist keine Route — die SPA-
+    Hülle dort war ein 200 OK mit HTML und damit ein irreführender Treffer
+    für Scanner und Fehlersuche.
+    """
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
 
@@ -417,6 +439,8 @@ def spa_fallback(full_path: str):
     candidate = _STATIC_DIR / full_path
     if full_path and candidate.is_file():
         return FileResponse(candidate)
+    if _looks_like_file(full_path):
+        raise HTTPException(status_code=404)
     if _SPA_INDEX.exists():
         return FileResponse(_SPA_INDEX)
     if not full_path:

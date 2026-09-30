@@ -21,7 +21,7 @@ import os
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
@@ -146,6 +146,9 @@ class Job:
     # align (Forced-Alignment), rediarize (Sprecher-Zuordnung).
     kind: str = "transcribe"  # transcribe | align | rediarize
     payload: Optional[Dict[str, Any]] = None  # z.B. {"separate_backend": ...}
+    # Change 237: Folge-Aufträge, die erst NACH dem Abmelden dieses Jobs
+    # eingereiht werden dürfen — siehe enqueue_after_current/_run_deferred.
+    deferred: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def running_s(self) -> float:
@@ -457,6 +460,59 @@ class QueueManager:
         self._fifo.put((priority, self._seq, key))
         return self.position(rec_id)
 
+    def enqueue_after_current(self, job: Optional["Job"], rec_id: int, backend: str,
+                              *, kind: str = "align", key: Optional[Any] = None,
+                              payload: Optional[Dict[str, Any]] = None) -> bool:
+        """Reiht einen Folge-Auftrag ein, der erst nach ``job`` laufen darf.
+
+        Change 237 (Live-Befund 30.09.2026): Das Hintergrund-Alignment wurde
+        direkt aus dem laufenden Transkriptions-Job heraus eingereiht. Zu dem
+        Zeitpunkt steht dieser Job aber noch in ``_jobs``, und der Ein-Job-
+        Wächter (Change 173) lehnt jeden zweiten Job derselben Aufnahme ab —
+        jeder Lauf endete mit „bg-align: enqueue fehlgeschlagen … already has
+        an active job", die präzisen Wortzeiten liefen also nie automatisch.
+        Belegt: die letzten 24 h zeigen 7 solcher Meldungen (rec 336–362) und
+        der jüngste align-Job der Datenbank stammt vom 19.09.2026.
+
+        Der Auftrag wird deshalb am Job vermerkt und vom Worker unmittelbar
+        nach dem Abmelden eingereiht (``_run_deferred``) — dann ist kein Job
+        der Aufnahme mehr aktiv und der Wächter greift nicht.
+
+        ``job=None`` (Direktaufruf außerhalb der Warteschlange): sofort
+        einreihen. Fehler werden gemeldet, nie geworfen.
+        """
+        if job is None:
+            try:
+                self.enqueue(rec_id, None, backend, kind=kind, key=key,
+                             payload=payload)
+            except QueueError as exc:
+                log.warning("Folge-Auftrag nicht eingereiht (rec_id=%s, %s): %s",
+                            rec_id, kind, exc)
+                return False
+            return True
+        job.deferred.append({
+            "rec_id": rec_id, "user_id": None, "backend": backend,
+            "kind": kind, "key": key, "payload": payload,
+        })
+        return True
+
+    def _run_deferred(self, job: "Job") -> None:
+        """Vorgemerkte Folge-Aufträge eines abgemeldeten Jobs einreihen.
+
+        Wird vom Worker NACH ``self._jobs.pop(key)`` aufgerufen (Change 237);
+        ``queue``/``user_id``-Semantik bleibt die des normalen ``enqueue``.
+        """
+        deferred = list(getattr(job, "deferred", None) or [])
+        if not deferred:
+            return
+        job.deferred.clear()
+        for entry in deferred:
+            try:
+                self.enqueue(**entry)
+            except QueueError as exc:
+                log.warning("Folge-Auftrag nicht eingereiht (rec_id=%s, %s): %s",
+                            entry.get("rec_id"), entry.get("kind"), exc)
+
     def cancel(self, rec_id: int, user_id: Optional[int], is_admin: bool = False) -> bool:
         """Cancel a job — queued ODER processing.
 
@@ -687,6 +743,11 @@ class QueueManager:
                     _finalize_job_row(getattr(job, "_row_id", None), rec_id, job.kind)
                 with self._lock:
                     self._jobs.pop(key, None)
+                # Change 237: vorgemerkte Folge-Aufträge (z.B. das
+                # Hintergrund-Alignment) erst JETZT einreihen — vorher lehnte
+                # sie der Ein-Job-Wächter ab, weil dieser Job noch unter
+                # derselben Aufnahme registriert war.
+                self._run_deferred(job)
                 self._fifo.task_done()
 
 

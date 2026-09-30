@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, createElement, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, createElement, type ReactNode } from "react";
 
 export type Lang = "de" | "en" | "pt-BR";
 
@@ -1528,8 +1528,50 @@ interface LocaleCtx {
 
 const Ctx = createContext<LocaleCtx | null>(null);
 
+/** Change 237: gewählte Sprache merken (Schlüssel im Browserspeicher). */
+export const LANG_STORAGE_KEY = "polyschnack.lang";
+
+/**
+ * Startsprache bestimmen (Change 237).
+ *
+ * Vorher startete jede Sitzung fest auf Englisch (`useState("en")`) und die
+ * Wahl im Sprachmenü war nach dem Neuladen wieder weg — für eine Anwendung
+ * mit deutscher Hauptsprache war das falsch. Reihenfolge: gespeicherte Wahl →
+ * Browsersprache (pt → pt-BR, en → en) → Deutsch.
+ */
+export function detectInitialLang(): Lang {
+  try {
+    const saved = typeof window !== "undefined" ? window.localStorage?.getItem(LANG_STORAGE_KEY) : null;
+    if (saved === "de" || saved === "en" || saved === "pt-BR") return saved;
+  } catch {
+    // Browserspeicher gesperrt (Privatmodus) — dann eben nach Browsersprache.
+  }
+  const nav = typeof navigator !== "undefined" ? (navigator.language || "") : "";
+  const lower = nav.toLowerCase();
+  if (lower.startsWith("pt")) return "pt-BR";
+  if (lower.startsWith("en")) return "en";
+  return "de";
+}
+
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLangState] = useState<Lang>(() => detectInitialLang());
+
+  // Change 237: die Sprache zusätzlich am <html> verankern — Bildschirmleser,
+  // automatische Übersetzung und Silbentrennung richten sich danach. Der Wert
+  // in index.html ist nur der Startwert, bevor React übernimmt.
+  useEffect(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = lang;
+  }, [lang]);
+
+  const setLang = (l: Lang) => {
+    setLangState(l);
+    try {
+      window.localStorage?.setItem(LANG_STORAGE_KEY, l);
+    } catch {
+      // Speichern ist eine Bequemlichkeit, kein Funktionserfordernis.
+    }
+  };
+
   const t = (key: string, params?: Record<string, string | number>) => {
     const text = dict[lang][key] ?? key;
     if (!params) return text;
