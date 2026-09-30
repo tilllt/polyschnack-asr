@@ -2,7 +2,8 @@ import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, XCircle, Copy, Download, Trash2, ChevronDown, Search, Maximize2, X, Pencil, Check, AlertTriangle, Users, Play, Clock, Send, LocateFixed, Undo2, Redo2 } from "lucide-react";
 import type { BackendCapabilities, ModelMatrixEntry, Recording, Segment, Annotation } from "../api";
-import { fetchModelsMatrix, fetchBackendCapabilities, fetchModelStatus, fetchTemplates, fetchTargets, fetchLlmEndpoints, fetchExportTemplates, fetchFormatPresets, transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { transcribeRange, startTranscription, fetchShares, createShare, deleteShare, fetchVersions, fetchVersionDiff, restoreVersion, toggleAnonLink, replaceSegments, updateRecordingTitle, updateWordTiming, fetchAnnotations, createAnnotation, formatCents, type ShareItem, type VersionItem, type ExportTemplate } from "../api";
+import { sharedConfig } from "../sharedConfig";
 import { useDelete, useRetranscribe, useRealign, useRediarize, useCancelRecording, useRecordingDetail, detailEnabled } from "../hooks";
 import { filterAvailableBackends } from "../backendSelect";
 import { pick } from "../optionMatrix";
@@ -278,7 +279,10 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const [exportTemplates, setExportTemplates] = useState<ExportTemplate[] | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetchExportTemplates()
+    // Change 236: Export-Vorlagen sind serverweit gleich — geteilt holen
+    // statt einmal je Karte (bei 116 Aufnahmen waren das 113 Abfragen).
+    sharedConfig
+      .exportTemplates()
       .then((ts) => {
         if (!cancelled && ts.length > 0) setExportTemplates(ts);
       })
@@ -493,19 +497,21 @@ export function RecordingCard({ recording: r, compact = false, isOidc = false, i
   const versFlip = useFlipUp(versOpen);
 
   useEffect(() => {
-    fetchModelsMatrix().then(setMatrix).catch(() => {});
-    fetchBackendCapabilities().then(setCaps).catch(() => setCaps(null));
-    fetchModelStatus()
+    // Change 236: sieben serverweite Auskünfte, für ALLE Karten gleich —
+    // geteilt geholt statt je Karte (siehe src/sharedConfig.ts).
+    sharedConfig.modelsMatrix().then(setMatrix).catch(() => {});
+    sharedConfig.backendCapabilities().then(setCaps).catch(() => setCaps(null));
+    sharedConfig.modelStatus()
       .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
       .catch(() => {});
     // Settings-Daten (Templates/Targets/BYOK) nur für eingeloggte User —
     // Backend-Gate liefert sonst 403 (siehe deps.require_authenticated).
     if (isOidc) {
-      fetchTemplates().then(setTemplates).catch(() => {});
+      sharedConfig.templates().then(setTemplates).catch(() => {});
       // Change 228: eingebaute Vorgaben der KI-Formatierung.
-      fetchFormatPresets().then((p) => setFormatPresets(p.presets)).catch(() => {});
-      fetchTargets().then(setTargets).catch(() => {});
-      fetchLlmEndpoints().then(setEndpoints).catch(() => {});
+      sharedConfig.formatPresets().then((p) => setFormatPresets(p.presets)).catch(() => {});
+      sharedConfig.targets().then(setTargets).catch(() => {});
+      sharedConfig.llmEndpoints().then(setEndpoints).catch(() => {});
     }
   }, [isOidc]);
   // Change 116: die Aktionsleiste (Tabs) ersetzt den alten Re-arm-Status;

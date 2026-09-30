@@ -35,6 +35,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
+    // Change 236: der Geteiltenspeicher (src/sharedConfig.ts) lebt über
+    // einzelne Prüfungen hinweg — vor jedem Test leeren, sonst erbte eine
+    // Prüfung die Auskunft der vorigen.
+    setupFiles: ["./src/testSetup.ts"],
   },
   server: {
     port: 5173,

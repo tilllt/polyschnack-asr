@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchBackendCapabilities, fetchFormatPresets, fetchLlmEndpoints, fetchModelStatus, fetchModelsMatrix, fetchTemplates, fetchTargets, importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
+import { importFromUrl, recordFromMic, startTranscription, uploadRecording, duplicateRecording, mergeRecordings, type BackendCapabilities, type ModelMatrixEntry, type UserInfo } from "../api";
+import { sharedConfig } from "../sharedConfig";
 import { fmtBytes } from "../format";
 import { useToast } from "./Toasts";
 import { useT } from "../useLocale";
@@ -111,18 +112,20 @@ export function UploadZone({ user }: Props) {
   const isOidc = !!user?.authenticated;
 
   useEffect(() => {
-    fetchModelsMatrix().then(setMatrix).catch(() => setMatrix([]));
+    // Change 236: Die Auskünfte gelten für die ganze Seite — sie werden
+    // geteilt geholt, nicht je Karte. Siehe src/sharedConfig.ts.
+    sharedConfig.modelsMatrix().then(setMatrix).catch(() => setMatrix([]));
     // Fähigkeiten NUR aus der API (kein hartkodierter Wert im Frontend).
-    fetchBackendCapabilities().then(setCaps).catch(() => setCaps(null));
-    fetchModelStatus()
+    sharedConfig.backendCapabilities().then(setCaps).catch(() => setCaps(null));
+    sharedConfig.modelStatus()
       .then((ms) => setFlags({ vad: ms.vad_available, diarize: ms.diarize_available }))
       .catch(() => {});
     // Change 228: Vorgaben der zweiten Stufe — auch ohne Anmeldung abrufbar.
-    fetchFormatPresets().then((r) => setFormatPresets(r.presets)).catch(() => {});
+    sharedConfig.formatPresets().then((r) => setFormatPresets(r.presets)).catch(() => {});
     if (isOidc) {
-      fetchTemplates().then(setTemplates).catch(() => {});
-      fetchTargets().then(setTargets).catch(() => {});
-      fetchLlmEndpoints().then(setEndpoints).catch(() => {});
+      sharedConfig.templates().then(setTemplates).catch(() => {});
+      sharedConfig.targets().then(setTargets).catch(() => {});
+      sharedConfig.llmEndpoints().then(setEndpoints).catch(() => {});
     }
   }, [isOidc]);
 
